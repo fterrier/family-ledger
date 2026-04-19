@@ -57,6 +57,7 @@ Phase 1 should deliver:
 - finalize requirements
 - finalize compatibility target
 - finalize domain model
+- finalize API contract
 - finalize developer guidelines
 - confirm the minimum Beancount compatibility target
 

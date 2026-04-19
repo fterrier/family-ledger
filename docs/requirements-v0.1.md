@@ -22,6 +22,7 @@ Not a:
 ## Core Principles
 - Keep the ledger model close to Beancount: transactions, postings, accounts, commodities, prices.
 - Use a database as the source of truth.
+- Keep stable API resource identity separate from mutable ledger-facing names where needed.
 - Export Beancount deterministically for tooling compatibility.
 - Keep the first version simple; avoid unnecessary domain objects.
 

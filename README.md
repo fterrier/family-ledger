@@ -53,6 +53,8 @@ The app expects a YAML ledger config file. A default local example is checked in
 
 - `docs/compatibility-target-v0.1.md`
 - `docs/domain-model-v0.1.md`
+- `docs/api-v0.1.md`
+- `docs/adr/`
 - `docs/requirements-v0.1.md`
 - `docs/roadmap-v0.1.md`
 - `docs/developer-guidelines-v0.1.md`

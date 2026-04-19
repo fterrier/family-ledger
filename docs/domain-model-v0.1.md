@@ -35,12 +35,15 @@ Accounts represent the chart of accounts used by transactions and assertions.
 Recommended fields:
 - `id`
 - `name`
+- `ledger_name`
 - `effective_start_date`
 - `effective_end_date` nullable
-- optional account metadata
+- optional `entity_metadata`
 
 Notes:
-- Account type is implied by the root name segment: `Assets`, `Liabilities`, `Equity`, `Income`, or `Expenses`.
+- `name` is the stable API resource name, for example `accounts/bank-checking-family`.
+- `ledger_name` is the mutable Beancount-compatible hierarchy name, for example `Assets:Bank:Checking:Family`.
+- Account type is implied by the root name segment of `ledger_name`: `Assets`, `Liabilities`, `Equity`, `Income`, or `Expenses`.
 - `open` and `close` semantics are modeled through the effective date fields.
 - Commodity constraints, if any, come from project config rather than from a separate v1 account-role system.
 
@@ -50,11 +53,13 @@ Commodities represent currencies, securities, and other countable units used by 
 
 Recommended fields:
 - `id`
+- `name`
 - `symbol`
-- optional commodity metadata
+- optional `entity_metadata`
 
 Notes:
-- The canonical symbol is the important v1 field.
+- `name` is the stable API resource name, for example `commodities/chf`.
+- `symbol` is the canonical ledger symbol used in postings, prices, and assertions, for example `CHF`.
 - Additional metadata may exist, but core accounting logic should not depend on arbitrary metadata.
 
 ## Transactions
@@ -63,19 +68,21 @@ Transactions are groups of postings that represent accounting events.
 
 Recommended fields:
 - `id`
+- `name`
 - `transaction_date`
 - `payee` nullable
 - `narration` nullable
-- optional transaction metadata
+- optional `entity_metadata`
 - `import_native_id` nullable
 - `import_fingerprint` nullable
-- `import_managed` boolean
+- `can_reimport` boolean
 
 Notes:
 - Transactions do not have a dedicated status field in v1.
-- Transactions may be balanced or unbalanced; that is a derived property.
+- Transactions may be balanced or unbalanced; validation is computed separately and is not stored on the resource.
 - Transactions may be categorized or uncategorized; that is also a derived property.
-- Imported transactions become non-import-managed when manually edited.
+- Imported transactions become `can_reimport = false` when manually edited.
+- The API may group the three import fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
 
 ## Postings
 
@@ -86,13 +93,13 @@ Recommended fields:
 - `transaction_id`
 - `account_id`
 - `posting_order`
-- `units_quantity`
-- `units_commodity`
+- `units_amount`
+- `units_symbol`
 - optional `cost_per_unit`
-- optional `cost_currency`
+- optional `cost_symbol`
 - optional `price_per_unit`
-- optional `price_currency`
-- optional posting metadata
+- optional `price_symbol`
+- optional `entity_metadata`
 
 ### Posting Semantics
 
@@ -115,6 +122,7 @@ Notes:
 - Price is stored only as per-unit price in v1.
 - Total-price input forms are not part of the canonical v1 model.
 - Cost does not include separate date or label fields in v1.
+- Postings are their own DB table for queryability and ledger computation, but they are not a standalone mutable API resource in v1.
 
 ## Prices
 
@@ -122,11 +130,12 @@ Prices represent point-in-time valuation relationships between commodities.
 
 Recommended fields:
 - `id`
+- `name`
 - `price_date`
-- `base_commodity`
-- `quote_commodity`
+- `base_symbol`
+- `quote_symbol`
 - `price_per_unit`
-- optional metadata
+- optional `entity_metadata`
 
 Notes:
 - Prices are distinct from posting price annotations.
@@ -139,11 +148,12 @@ Balance assertions are separate ledger records, not a transaction subtype.
 
 Recommended fields:
 - `id`
+- `name`
 - `assertion_date`
 - `account_id`
-- `quantity`
-- `commodity`
-- optional metadata
+- `amount`
+- `symbol`
+- optional `entity_metadata`
 
 Notes:
 - Balance assertions are validated against derived balances.
@@ -155,12 +165,13 @@ Attachments exist independently in v1.
 
 Recommended fields:
 - `id`
+- `name`
 - `account_id` nullable
 - storage location or file path reference
 - original filename
 - media type nullable
 - attachment date nullable
-- optional metadata
+- optional `entity_metadata`
 
 Notes:
 - Attachments do not need transaction or import ownership links in v1.
@@ -173,13 +184,14 @@ Imported transactions carry only minimal import metadata in v1.
 Required fields:
 - `import_native_id` nullable
 - `import_fingerprint` nullable
-- `import_managed` boolean
+- `can_reimport` boolean
 
 Rules:
 - Use native ID for idempotency when available.
 - Fall back to fingerprint when native ID is unavailable.
+- Store both when both are available; matching priority is native ID first, fingerprint second.
 - Re-import must be idempotent with respect to existing transactions.
-- If an imported transaction has been manually edited, it becomes `import_managed = false` and later re-imports must leave it untouched.
+- If an imported transaction has been manually edited, it becomes `can_reimport = false` and later re-imports must leave it untouched.
 
 ## Derived Concepts
 
@@ -222,7 +234,7 @@ In v1:
 
 The v1 model should enforce or compute these rules:
 - transactions referencing accounts outside account effective dates are invalid
-- strict double-entry balancing is the target accounting rule
+- strict double-entry balancing is the target accounting rule, but imbalance does not block persistence in v1
 - balance assertions must validate under project-level tolerance rules
 - reducing postings held at cost use strict booking semantics
 - strict booking means:
@@ -254,6 +266,16 @@ The database owns:
 - balance assertions
 - attachments
 - import metadata stored on transactions
+
+## Constraints
+
+The v1 schema should enforce at least these uniqueness constraints:
+- unique `accounts.name`
+- unique `accounts.ledger_name`
+- unique `commodities.name`
+- unique `commodities.symbol`
+- unique `transactions.import_native_id` when non-null
+- unique `transactions.import_fingerprint` when non-null
 
 ## Deferred Beyond v1
 

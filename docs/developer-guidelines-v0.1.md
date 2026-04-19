@@ -24,6 +24,13 @@ The priorities are:
 - Prefer concise but complete documentation over informal notes.
 - Treat `docs/compatibility-target-v0.1.md` as a primary design constraint when making implementation decisions.
 
+## ADRs
+- Add an ADR for architectural decisions that are structural, non-obvious, costly to reverse, or likely to be revisited.
+- Prefer ADRs for decisions about canonical storage, API identity, validation boundaries, import model, and other system-wide design choices.
+- Do not add ADRs for minor field names, small endpoint details, examples, or other decisions that are easy to infer from the current docs or code.
+- ADRs should explain why a decision was made; the requirements, domain model, and API docs remain the source of truth for exact behavior.
+- Keep ADRs short and update or supersede them when a recorded decision changes.
+
 ## README Expectations
 - The `README.md` should help a human quickly understand what the project is, what functionality it offers, and why it exists.
 - The `README.md` should include installation and startup instructions.
@@ -130,7 +137,9 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 ## Developer Rules
 - Preserve the transaction/posting model.
 - Keep investment events as normal postings inside transactions.
-- Keep import metadata minimal: native ID, fingerprint, and `import_managed`.
+- Keep transaction import metadata minimal: native ID, fingerprint, and `can_reimport`.
+- Consider adherence to relevant `aip.dev` guidance by default when modifying API resources, methods, or payload shapes.
+- Keep `update_mask` in the API contract for AIP consistency even if v1 implementations initially ignore it.
 - Use deterministic export output.
 - Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
@@ -149,6 +158,8 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 ## Notes for Agents
 - Read the requirements doc before changing code.
 - Read `docs/domain-model-v0.1.md` before changing schema or persistence behavior.
+- Read `docs/api-v0.1.md` before changing endpoint behavior or response shapes.
+- Read the relevant ADRs before revisiting a major architectural decision.
 - Keep changes scoped and aligned with the existing accounting model.
 - If a change affects validation, add tests first or alongside the change.
 - If a change affects Beancount export, add deterministic export tests.

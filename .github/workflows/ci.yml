@@ -35,6 +35,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Copy compose files
+        run: cp docker/compose/* ./
+
       - name: Build and start stack
         run: docker compose up --build -d
 

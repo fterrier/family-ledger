@@ -3,6 +3,7 @@
   "venv": ".venv",
   "include": [
     "src",
+    "scripts",
     "tests"
   ],
   "typeCheckingMode": "basic",

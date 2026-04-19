@@ -146,6 +146,25 @@ alembic upgrade head
 
 The project includes an initial Alembic schema migration for the core ledger tables.
 
+## Demo Data
+
+You can bootstrap a small example ledger into an empty database for local testing.
+
+Local Python environment:
+
+```bash
+uv run python scripts/bootstrap_demo.py
+```
+
+Docker deployment:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api python scripts/bootstrap_demo.py
+```
+
+The script is intentionally separate from the runtime app code path and will refuse to run if the
+database already contains ledger data.
+
 ## Config
 
 The app expects a YAML ledger config file. For Docker deployments, the compose setup mounts

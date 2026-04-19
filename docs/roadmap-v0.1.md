@@ -78,7 +78,7 @@ Phase 1 should deliver:
 - implement native ID dedupe
 - implement fingerprint dedupe
 - implement direct-to-transaction import behavior
-- preserve importer ownership metadata and leave manually edited imports untouched on re-import
+- keep import behavior create-or-skip with no overwrite path in v1
 
 ### Phase 4: Beancount Export
 - export deterministic full-ledger Beancount

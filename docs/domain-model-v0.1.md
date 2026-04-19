@@ -73,16 +73,15 @@ Recommended fields:
 - `payee` nullable
 - `narration` nullable
 - optional `entity_metadata`
-- `import_native_id` nullable
-- `import_fingerprint` nullable
-- `can_reimport` boolean
+- `source_native_id` nullable
+- `fingerprint`
 
 Notes:
 - Transactions do not have a dedicated status field in v1.
 - Transactions may be balanced or unbalanced; validation is computed separately and is not stored on the resource.
 - Transactions may be categorized or uncategorized; that is also a derived property.
-- Imported transactions become `can_reimport = false` when manually edited.
-- The API may group the three import fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
+- Fingerprints are persisted and recomputed on transaction writes.
+- The API may group the two dedupe fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
 
 ## Postings
 
@@ -177,21 +176,21 @@ Notes:
 - Attachments do not need transaction or import ownership links in v1.
 - Attachments are not exported in v1.
 
-## Import Metadata On Transactions
+## Transaction Dedupe Metadata
 
-Imported transactions carry only minimal import metadata in v1.
+Transactions carry only minimal dedupe metadata in v1.
 
 Required fields:
-- `import_native_id` nullable
-- `import_fingerprint` nullable
-- `can_reimport` boolean
+- `source_native_id` nullable
+- `fingerprint`
 
 Rules:
 - Use native ID for idempotency when available.
 - Fall back to fingerprint when native ID is unavailable.
 - Store both when both are available; matching priority is native ID first, fingerprint second.
 - Re-import must be idempotent with respect to existing transactions.
-- If an imported transaction has been manually edited, it becomes `can_reimport = false` and later re-imports must leave it untouched.
+- Imports never overwrite an existing matching transaction in v1; they create-or-skip only.
+- Fingerprint input definition is deferred until implementation, but the stored fingerprint is recomputed on each transaction write.
 
 ## Derived Concepts
 
@@ -265,7 +264,7 @@ The database owns:
 - prices
 - balance assertions
 - attachments
-- import metadata stored on transactions
+- dedupe metadata stored on transactions
 
 ## Constraints
 
@@ -274,8 +273,8 @@ The v1 schema should enforce at least these uniqueness constraints:
 - unique `accounts.ledger_name`
 - unique `commodities.name`
 - unique `commodities.symbol`
-- unique `transactions.import_native_id` when non-null
-- unique `transactions.import_fingerprint` when non-null
+- unique `transactions.source_native_id` when non-null
+- unique `transactions.fingerprint`
 
 ## Deferred Beyond v1
 

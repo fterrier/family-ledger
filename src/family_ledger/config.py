@@ -27,7 +27,9 @@ class Settings(BaseSettings):
     app_env: str = "development"
     host: str = "0.0.0.0"
     port: int = 8000
-    database_url: str = "postgresql+psycopg://family_ledger:family_ledger@postgres:5432/family_ledger"
+    database_url: str = (
+        "postgresql+psycopg://family_ledger:family_ledger@postgres:5432/family_ledger"
+    )
     ledger_config_path: Path = Path("config/ledger.yaml")
 
 

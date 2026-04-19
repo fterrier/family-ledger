@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 
-def test_create_app_fails_without_ledger_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_create_app_fails_without_ledger_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     from family_ledger import config as config_module
 
     missing_path = tmp_path / "missing.yaml"

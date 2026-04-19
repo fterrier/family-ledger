@@ -35,6 +35,12 @@ uv pip install --python .venv/bin/python -e .[dev]
 uv run pytest
 ```
 
+Install the local git hooks:
+
+```bash
+uv run pre-commit install
+```
+
 ## Migrations
 
 Run Alembic from the app environment:

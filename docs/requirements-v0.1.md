@@ -99,8 +99,8 @@ There should be no dedicated UI in v1. See `docs/roadmap-v0.1.md` for the implem
 - Deduplication must be part of import processing
 - Native source IDs should be used when available
 - Fingerprints should be used when native IDs are unavailable
-- Imported transactions should carry enough metadata for idempotent re-import
-- Re-import must leave manually edited imported transactions untouched
+- Transactions should carry enough metadata for idempotent import deduplication
+- Imports should be create-or-skip in v1 and must not overwrite existing matching transactions
 
 ### Categorization
 - Easy categorization for non-technical users

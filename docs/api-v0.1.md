@@ -75,9 +75,8 @@ Notes:
   "narration": "Groceries",
   "entity_metadata": {},
   "import_metadata": {
-    "native_id": null,
-    "fingerprint": null,
-    "can_reimport": false
+    "source_native_id": null,
+    "fingerprint": "sha256:deadbeef"
   },
   "postings": []
 }
@@ -86,7 +85,7 @@ Notes:
 Notes:
 - Transaction resources do not embed validation state in v1.
 - `import_metadata` is optional.
-- `import_metadata.can_reimport` controls whether a matching import may replace the transaction payload.
+- `fingerprint` is stored on transactions and updated on transaction writes.
 
 ### Account
 
@@ -254,7 +253,7 @@ Minimum query parameters:
 - `from_date` optional
 - `to_date` optional
 - `account` optional
-- `can_reimport` optional
+- `fingerprint` optional
 
 Behavior:
 - returns stored transactions, including unbalanced transactions
@@ -274,9 +273,8 @@ Example request body:
     "payee": "Migros",
     "narration": "Groceries",
     "import_metadata": {
-      "native_id": "abc123",
-      "fingerprint": "sha256:deadbeef",
-      "can_reimport": true
+      "source_native_id": "abc123",
+      "fingerprint": "sha256:deadbeef"
     },
     "postings": [
       {
@@ -337,9 +335,8 @@ Example request body:
     "payee": "Migros",
     "narration": "Updated groceries",
     "import_metadata": {
-      "native_id": "abc123",
-      "fingerprint": "sha256:deadbeef",
-      "can_reimport": false
+      "source_native_id": "abc123",
+      "fingerprint": "sha256:updated"
     },
     "postings": []
   },
@@ -348,9 +345,9 @@ Example request body:
 ```
 
 Behavior:
-- any manual API edit to an imported transaction should set `import_metadata.can_reimport = false`
 - partial posting mutation semantics are not part of v1
 - `update_mask` is present for AIP consistency, but v1 implementations may ignore it and apply replacement-style updates
+- implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
 
 Validation:
 - same as `POST /transactions`
@@ -362,7 +359,7 @@ Purpose:
 
 Note:
 - hard delete is acceptable in v1 unless later requirements introduce a softer deletion model
-- deleting an imported transaction also deletes its import identity, so a later re-import may recreate it
+- deleting a transaction also deletes its dedupe metadata, so a later import may recreate it
 
 ## Prices API
 
@@ -499,11 +496,10 @@ Purpose:
 
 Behavior:
 - parse input into one or more transactions
-- use `import_metadata.native_id` when available
+- use `import_metadata.source_native_id` when available
 - fall back to `import_metadata.fingerprint` otherwise
 - create new transactions when no match exists
-- fully replace the mutable payload of matching transactions when `import_metadata.can_reimport = true`
-- leave matching transactions untouched when `import_metadata.can_reimport = false`
+- leave matching transactions untouched when either identifier already matches an existing transaction
 
 Response:
 

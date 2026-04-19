@@ -133,11 +133,12 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Use native source IDs when available.
 - Fall back to fingerprints when native IDs are unavailable.
 - Keep import handling close to the transaction/posting model; do not add staged import abstractions without a concrete need.
+- Keep imports create-or-skip in v1; do not add overwrite behavior without an explicit design change.
 
 ## Developer Rules
 - Preserve the transaction/posting model.
 - Keep investment events as normal postings inside transactions.
-- Keep transaction import metadata minimal: native ID, fingerprint, and `can_reimport`.
+- Keep transaction dedupe metadata minimal: source native ID and fingerprint.
 - Consider adherence to relevant `aip.dev` guidance by default when modifying API resources, methods, or payload shapes.
 - Keep `update_mask` in the API contract for AIP consistency even if v1 implementations initially ignore it.
 - Use deterministic export output.

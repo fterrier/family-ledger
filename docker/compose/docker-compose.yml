@@ -44,9 +44,7 @@ services:
       FAMILY_LEDGER_DATABASE_URL: ${FAMILY_LEDGER_DATABASE_URL:-postgresql+psycopg://family_ledger:${POSTGRES_PASSWORD:-family_ledger}@postgres:5432/family_ledger}
       FAMILY_LEDGER_LEDGER_CONFIG_PATH: ${FAMILY_LEDGER_LEDGER_CONFIG_PATH:-/app/config/ledger.yaml}
     env_file: docker-compose.env
-    volumes:
-      # Uncomment to use a custom ledger config from the host
-      # - ./config/ledger.yaml:/app/config/ledger.yaml:ro
+    volumes: []
 
 volumes:
   postgres_data:

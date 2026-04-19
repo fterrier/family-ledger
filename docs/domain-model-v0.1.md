@@ -1,0 +1,268 @@
+# Family Accounting Platform Domain Model v0.1
+
+## Purpose
+
+Define the canonical v1 data model for the ledger.
+
+This document describes the runtime source of truth stored in the database. It is intentionally small and aligned with the compatibility target. It does not attempt to model every Beancount directive or every future workflow.
+
+## Modeling Principles
+
+- The database is canonical.
+- Transactions and postings are the core accounting model.
+- Inventory and lots are derived from postings; they are not stored as separate canonical records in v1.
+- Keep accounting semantics close to Beancount while keeping the runtime model DB-native.
+- Prefer explicit validations over hidden automatic behavior.
+- Keep policy in project config files and ledger state in the database.
+
+## Canonical Entities
+
+The canonical v1 entities are:
+- account
+- commodity
+- transaction
+- posting
+- price
+- balance assertion
+- attachment
+
+There is no separate canonical `import_job`, `import_item`, `inventory`, or `lot` table in v1.
+
+## Accounts
+
+Accounts represent the chart of accounts used by transactions and assertions.
+
+Recommended fields:
+- `id`
+- `name`
+- `effective_start_date`
+- `effective_end_date` nullable
+- optional account metadata
+
+Notes:
+- Account type is implied by the root name segment: `Assets`, `Liabilities`, `Equity`, `Income`, or `Expenses`.
+- `open` and `close` semantics are modeled through the effective date fields.
+- Commodity constraints, if any, come from project config rather than from a separate v1 account-role system.
+
+## Commodities
+
+Commodities represent currencies, securities, and other countable units used by postings and prices.
+
+Recommended fields:
+- `id`
+- `symbol`
+- optional commodity metadata
+
+Notes:
+- The canonical symbol is the important v1 field.
+- Additional metadata may exist, but core accounting logic should not depend on arbitrary metadata.
+
+## Transactions
+
+Transactions are groups of postings that represent accounting events.
+
+Recommended fields:
+- `id`
+- `transaction_date`
+- `payee` nullable
+- `narration` nullable
+- optional transaction metadata
+- `import_native_id` nullable
+- `import_fingerprint` nullable
+- `import_managed` boolean
+
+Notes:
+- Transactions do not have a dedicated status field in v1.
+- Transactions may be balanced or unbalanced; that is a derived property.
+- Transactions may be categorized or uncategorized; that is also a derived property.
+- Imported transactions become non-import-managed when manually edited.
+
+## Postings
+
+Postings are the atomic accounting legs of transactions.
+
+Recommended fields:
+- `id`
+- `transaction_id`
+- `account_id`
+- `posting_order`
+- `units_quantity`
+- `units_commodity`
+- optional `cost_per_unit`
+- optional `cost_currency`
+- optional `price_per_unit`
+- optional `price_currency`
+- optional posting metadata
+
+### Posting Semantics
+
+A posting always has units and may optionally have cost and price annotations.
+
+Canonical v1 forms:
+- units only
+- units plus price
+- units plus cost
+- units plus cost plus price
+
+Examples:
+- `100 USD`
+- `-100 USD @ 0.92 CHF`
+- `10 GOOG {120 USD}`
+- `-5 GOOG {120 USD} @ 135 USD`
+
+Notes:
+- Cost is stored only as per-unit cost in v1.
+- Price is stored only as per-unit price in v1.
+- Total-price input forms are not part of the canonical v1 model.
+- Cost does not include separate date or label fields in v1.
+
+## Prices
+
+Prices represent point-in-time valuation relationships between commodities.
+
+Recommended fields:
+- `id`
+- `price_date`
+- `base_commodity`
+- `quote_commodity`
+- `price_per_unit`
+- optional metadata
+
+Notes:
+- Prices are distinct from posting price annotations.
+- A posting price annotation records the price attached to that posting.
+- A price record belongs to the global price history.
+
+## Balance Assertions
+
+Balance assertions are separate ledger records, not a transaction subtype.
+
+Recommended fields:
+- `id`
+- `assertion_date`
+- `account_id`
+- `quantity`
+- `commodity`
+- optional metadata
+
+Notes:
+- Balance assertions are validated against derived balances.
+- Project-level tolerance rules come from config.
+
+## Attachments
+
+Attachments exist independently in v1.
+
+Recommended fields:
+- `id`
+- `account_id` nullable
+- storage location or file path reference
+- original filename
+- media type nullable
+- attachment date nullable
+- optional metadata
+
+Notes:
+- Attachments do not need transaction or import ownership links in v1.
+- Attachments are not exported in v1.
+
+## Import Metadata On Transactions
+
+Imported transactions carry only minimal import metadata in v1.
+
+Required fields:
+- `import_native_id` nullable
+- `import_fingerprint` nullable
+- `import_managed` boolean
+
+Rules:
+- Use native ID for idempotency when available.
+- Fall back to fingerprint when native ID is unavailable.
+- Re-import must be idempotent with respect to existing transactions.
+- If an imported transaction has been manually edited, it becomes `import_managed = false` and later re-imports must leave it untouched.
+
+## Derived Concepts
+
+The following are derived from canonical ledger data rather than stored as separate v1 records.
+
+### Inventory
+
+Inventory is the accumulated content of an account after replaying postings in date order.
+
+### Lots
+
+Lots are derived held-at-cost positions within account inventory.
+
+In v1:
+- lots are created by augmenting postings with cost
+- reducing postings match prior lots by commodity and per-unit cost
+- there is no persisted lot table
+- there is no persisted booking cache
+
+### Categorization
+
+Categorization is derived from postings and project config.
+
+In v1:
+- uncategorized placeholder account names are defined in config
+- a transaction is uncategorized if one of its postings uses a configured uncategorized placeholder account
+- imports may balance transactions against those placeholder accounts
+- uncategorized transactions are valid ledger entries, not errors
+
+### Balance Validity
+
+Balance validity is derived from transaction postings.
+
+In v1:
+- transactions may remain unbalanced in the stored ledger
+- unbalanced transactions are included in ledger reads and exports
+- validation reports should still flag them as invalid
+
+## Validation Rules
+
+The v1 model should enforce or compute these rules:
+- transactions referencing accounts outside account effective dates are invalid
+- strict double-entry balancing is the target accounting rule
+- balance assertions must validate under project-level tolerance rules
+- reducing postings held at cost use strict booking semantics
+- strict booking means:
+  - unique match succeeds
+  - total-match across all matching lots succeeds
+  - ambiguous partial matches fail
+
+There is no support for per-account booking methods in v1.
+
+## Config vs Database Boundary
+
+### Config-Owned
+
+Project config files own:
+- tolerance settings
+- operating/default currency
+- uncategorized placeholder account names
+- importer-specific static settings
+- export policy settings if needed
+
+### Database-Owned
+
+The database owns:
+- accounts
+- commodities
+- transactions
+- postings
+- prices
+- balance assertions
+- attachments
+- import metadata stored on transactions
+
+## Deferred Beyond v1
+
+These are intentionally deferred:
+- audit history and change logging
+- field-level locking
+- account-level booking methods
+- import-job and import-item staging layers
+- persisted inventory or lot caches
+- attachment ownership links beyond optional account reference
+- auth and permissions
+- filtered export

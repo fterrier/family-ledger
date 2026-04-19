@@ -10,7 +10,7 @@ Version 1 must provide:
 - an API that correctly replicates the necessary ledger functionality for the existing `scukas.beancount` data
 - transaction and posting support close to Beancount semantics
 - balance checking and balance assertions
-- deterministic Beancount export for read-only Fava usage
+- deterministic full-ledger Beancount export for read-only Fava usage
 - spreadsheet integration through the API for editing transaction categories
 - Docker Compose deployment on a Synology host
 
@@ -34,9 +34,8 @@ Phase 1 should deliver:
 - lot/cost support for current investment use cases
 - strict transaction balance verification
 - balance assertions with project-level tolerance rules
-- import jobs and import items
 - deduplication by native ID or fingerprint
-- deterministic Beancount export
+- deterministic full-ledger Beancount export
 - read-only Fava workflow from exported Beancount
 - Google Sheets integration for category edits via API
 - Docker Compose deployment
@@ -54,8 +53,9 @@ Phase 1 should deliver:
 
 ## Delivery Phases
 
-### Phase 0: Requirements and Model
+### Phase 0: Requirements, Compatibility, and Model
 - finalize requirements
+- finalize compatibility target
 - finalize domain model
 - finalize developer guidelines
 - confirm the minimum Beancount compatibility target
@@ -74,22 +74,23 @@ Phase 1 should deliver:
 - implement project-level precision/tolerance config
 
 ### Phase 3: Imports
-- implement import jobs and import items
 - implement native ID dedupe
 - implement fingerprint dedupe
-- implement import review and approval flow
+- implement direct-to-transaction import behavior
+- preserve importer ownership metadata and leave manually edited imports untouched on re-import
 
 ### Phase 4: Beancount Export
-- export deterministic Beancount
+- export deterministic full-ledger Beancount
 - verify export against the existing ledger semantics
 - use exported files with Fava in read-only mode
 
 ### Phase 5: Spreadsheet Integration
 - expose category-editing workflows through the API
-- connect Google Sheets as a controlled client
-- limit Sheets edits to safe fields only
+- connect Google Sheets as a client of the same API
 
 ## Notes
 - Fava is read-only in v1; changes made there do not sync back to the database.
-- Google Sheets is the only planned user-facing edit surface in v1.
+- Google Sheets is a planned client workflow for categorization in v1, not the source of truth.
+- Transactions remain editable in v1; locking and audit history are deferred.
+- Unbalanced transactions remain part of the ledger and may still be exported in v1.
 - The implementation should remain a modular monolith.

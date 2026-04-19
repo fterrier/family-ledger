@@ -22,16 +22,31 @@ The priorities are:
 - Link and quote external sources when they materially influence the design.
 - Do not leave inspiration, dependency, or comparison claims unreferenced in the docs.
 - Prefer concise but complete documentation over informal notes.
+- Treat `docs/compatibility-target-v0.1.md` as a primary design constraint when making implementation decisions.
+
+## README Expectations
+- The `README.md` should help a human quickly understand what the project is, what functionality it offers, and why it exists.
+- The `README.md` should include installation and startup instructions.
+- The `README.md` should explain the main workflows at a high level.
+- The `README.md` should be maintained as a first-class project document, not an afterthought.
 
 ## Architecture Defaults
 - Modular monolith
 - PostgreSQL as the source of truth
 - DB-native ledger, not file-native
-- import pipeline built around `import_jobs` and `import_items`
+- import metadata stored directly on transactions
 - deterministic Beancount export as the interoperability layer
 - no dedicated UI in v1
-- Google Sheets only as a controlled client on top of the API
+- Google Sheets as one possible client on top of the API
 - Fava is read-only and must not write back to the DB
+
+## Compatibility Defaults
+- Model account `open` and `close` semantics as effective-date fields on accounts.
+- Reject transactions that reference accounts outside their effective date range.
+- Model document-style references as attachments in the canonical data model.
+- Preserve strict cost-based lot matching for supported investment disposals.
+- Support deterministic full-ledger export only in v1.
+- Keep uncategorized placeholder account names in config, not on account rows.
 
 ## Recommended Stack
 - Backend: Python
@@ -100,17 +115,24 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Avoid queues unless imports or background tasks clearly require them
 - Keep project-level settings in files, not the database
 
+## Mutability and Controls
+- In v1, transactions remain editable.
+- Do not add field-level locking or restricted-edit infrastructure in v1 unless requirements change.
+- Client applications may expose narrower editing workflows, but the API is not required to enforce them in v1.
+- Audit history and change logging are deferred beyond v1.
+
 ## Import Guidance
 - Keep imports synchronous unless they become too slow for the request path.
 - Use native source IDs when available.
 - Fall back to fingerprints when native IDs are unavailable.
-- Keep import review simple and close to the ledger model.
+- Keep import handling close to the transaction/posting model; do not add staged import abstractions without a concrete need.
 
 ## Developer Rules
 - Preserve the transaction/posting model.
 - Keep investment events as normal postings inside transactions.
-- Keep import tracking simple: `import_jobs` and `import_items`.
+- Keep import metadata minimal: native ID, fingerprint, and `import_managed`.
 - Use deterministic export output.
+- Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
 - Do not add a plugin system unless multiple concrete plugins already exist.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
@@ -126,6 +148,7 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 
 ## Notes for Agents
 - Read the requirements doc before changing code.
+- Read `docs/domain-model-v0.1.md` before changing schema or persistence behavior.
 - Keep changes scoped and aligned with the existing accounting model.
 - If a change affects validation, add tests first or alongside the change.
 - If a change affects Beancount export, add deterministic export tests.

@@ -1,7 +1,6 @@
 # family-ledger
 
 [![CI](https://github.com/fterrier/family-ledger/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fterrier/family-ledger/actions/workflows/ci.yml)
-[![Docker Build](https://github.com/fterrier/family-ledger/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/fterrier/family-ledger/pkgs/container/family-ledger)
 
 DB-backed, API-first family accounting platform with Beancount-compatible export.
 
@@ -13,40 +12,99 @@ Phase 1 scaffold:
 - startup fails fast if config is invalid or the database is unavailable
 - Alembic initialized for future schema migrations
 
-## Quick Start (Local Development)
+## Docker Deployment
 
-1. Copy the compose files from `docker/compose/` to the project root:
+1. Copy `docker/compose/.env.example` to `docker/compose/.env`.
 
 ```bash
-cp docker/compose/* ./
+cp docker/compose/.env.example docker/compose/.env
 ```
 
-2. Copy `.env.example` to `.env` if you want to override defaults.
+2. Edit `docker/compose/.env` and set a real `POSTGRES_PASSWORD`.
+
+   `docker/compose/.env.example` is the checked-in template.
+   `docker/compose/.env` is your local deployment file and should not be committed.
+
 3. Start the stack:
 
-   - **Option A - Use pre-built image** (assumes image is published to registry):
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env up -d
+```
 
-     ```bash
-     docker compose pull
-     docker compose up -d
-     ```
+4. Run migrations:
 
-   - **Option B - Build locally** (for development with your own changes):
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api alembic upgrade head
+```
 
-     ```bash
-     # Edit docker-compose.yml and change 'image:' to 'build: .'
-     docker compose up --build -d
-     ```
-
-4. Check the app health endpoint:
+5. Check the app health endpoint:
 
 ```bash
 curl http://localhost:8000/healthz
 ```
 
-## Docker Deployment
+### Ledger Config
 
-For production deployments (e.g., Synology), see [docs/synology-deployment.md](docs/synology-deployment.md) for detailed instructions.
+The compose file mounts `./config/ledger.yaml` into the container at `/app/config/ledger.yaml` by default.
+
+For the standard deployment flow, just edit `docker/compose/config/ledger.yaml` and restart the stack.
+
+If you want a different location, you can still override `FAMILY_LEDGER_LEDGER_CONFIG_PATH` and the bind mount yourself.
+
+## Synology
+
+The same Docker flow works on Synology Container Manager.
+
+Recommended setup:
+- create a persistent deployment folder on the NAS
+- copy these files into it:
+  - `docker/compose/docker-compose.yml`
+  - `docker/compose/.env.example` (rename it to `.env`)
+  - `docker/compose/config/ledger.yaml`
+- edit `.env` and `config/ledger.yaml` in that folder
+- run the same compose and migration commands shown above from that folder
+
+## Updating
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env pull
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env up -d
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api alembic upgrade head
+```
+
+## Troubleshooting
+
+Check service status:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env ps
+```
+
+Check logs:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env logs
+```
+
+Stop the stack:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env down
+```
+
+Remove all local PostgreSQL data:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env down -v
+```
+
+## Local Development
+
+For application development, prefer the Python/`uv` workflow rather than Docker image rebuilding:
+
+- use `uv` locally
+- run tests locally
+- use Docker primarily for deployment verification
 
 ## Environment Variables
 
@@ -55,10 +113,12 @@ For production deployments (e.g., Synology), see [docs/synology-deployment.md](d
 | `POSTGRES_DB` | `family_ledger` | PostgreSQL database name |
 | `POSTGRES_USER` | `family_ledger` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | - | **Required**. Set in `.env` |
+| `FAMILY_LEDGER_IMAGE` | `ghcr.io/fterrier/family-ledger:latest` | Container image to run |
 | `FAMILY_LEDGER_DATABASE_URL` | `postgresql+psycopg://...` | Database connection URL |
-| `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to ledger config |
+| `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to the mounted ledger config inside the container |
 
-See `docker/compose/docker-compose.env` for all available options.
+`docker/compose/.env.example` is the checked-in example. Copy it to `docker/compose/.env`
+for a real deployment.
 
 ## Tests
 
@@ -88,7 +148,12 @@ The project includes an initial Alembic schema migration for the core ledger tab
 
 ## Config
 
-The app expects a YAML ledger config file. A default local example is checked in at `config/ledger.yaml`.
+The app expects a YAML ledger config file. For Docker deployments, the compose setup mounts
+`docker/compose/config/ledger.yaml` into the container at `/app/config/ledger.yaml` by default.
+
+There are only two checked-in config files now:
+- `config/ledger.yaml`: canonical default config used for local app startup and baked into the image
+- `docker/compose/config/ledger.yaml`: deployment copy intended to be edited for Docker installs
 
 ## Docs
 
@@ -99,4 +164,3 @@ The app expects a YAML ledger config file. A default local example is checked in
 - `docs/requirements-v0.1.md`
 - `docs/roadmap-v0.1.md`
 - `docs/developer-guidelines-v0.1.md`
-- `docs/synology-deployment.md`

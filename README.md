@@ -46,62 +46,7 @@ curl http://localhost:8000/healthz
 
 ## Docker Deployment
 
-For production deployments (e.g., Synology), use the pre-built image from GitHub Container Registry.
-
-### Installation
-
-1. Create a folder for the deployment:
-
-```bash
-mkdir -p /path/to/family-ledger
-cd /path/to/family-ledger
-```
-
-2. Download the compose files from the `docker/compose/` folder:
-
-   - `docker-compose.yml`
-   - `docker-compose.env`
-   - `.env.example`
-
-3. Copy `.env.example` to `.env` and customize:
-
-```bash
-cp .env.example .env
-# Edit .env and change POSTGRES_PASSWORD to a secure value
-```
-
-4. Pull the latest image and start:
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-5. Run migrations:
-
-```bash
-docker compose exec api alembic upgrade head
-```
-
-### Updating
-
-```bash
-docker compose pull
-docker compose up -d
-docker compose exec api alembic upgrade head
-```
-
-### Stopping
-
-```bash
-docker compose down
-```
-
-To remove data volumes:
-
-```bash
-docker compose down -v
-```
+For production deployments (e.g., Synology), see [docs/synology-deployment.md](docs/synology-deployment.md) for detailed instructions.
 
 ## Environment Variables
 

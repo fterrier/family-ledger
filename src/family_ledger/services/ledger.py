@@ -3,13 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
+from typing import cast
 
-from fastapi import status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
-from family_ledger.api.errors import api_error
 from family_ledger.api.schemas import (
     AccountResource,
     BalanceAssertionResource,
@@ -23,12 +22,16 @@ from family_ledger.api.schemas import (
     TransactionResource,
 )
 from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
+from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 
 
 def resource_name(prefix: str, value: str) -> str:
     return value if "/" in value else f"{prefix}/{value}"
 
 
+# TODO: Revisit fingerprint computation together with import logic.
+# Fingerprint inputs and update semantics are part of transaction dedupe behavior,
+# so this should be finalized alongside the import design rather than in isolation.
 def hash_transaction_payload(payload: TransactionResource) -> str:
     content = {
         "transaction_date": payload.transaction_date.isoformat(),
@@ -76,10 +79,16 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
             units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
             cost=None
             if posting.cost_per_unit is None
-            else MoneyValue(amount=posting.cost_per_unit, symbol=posting.cost_symbol),
+            else MoneyValue(
+                amount=posting.cost_per_unit,
+                symbol=cast(str, posting.cost_symbol),
+            ),
             price=None
             if posting.price_per_unit is None
-            else MoneyValue(amount=posting.price_per_unit, symbol=posting.price_symbol),
+            else MoneyValue(
+                amount=posting.price_per_unit,
+                symbol=cast(str, posting.price_symbol),
+            ),
             entity_metadata=posting.entity_metadata,
         )
         for posting in transaction.postings
@@ -130,8 +139,7 @@ def resolve_accounts(session: Session, postings: list[PostingPayload]) -> dict[s
 
     missing = sorted(account_names - by_name.keys())
     if missing:
-        raise api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
+        raise ValidationError(
             code="account_not_found",
             message=f"Accounts not found: {', '.join(missing)}",
         )
@@ -143,8 +151,7 @@ def resolve_account(session: Session, account_name: str) -> Account:
     resolved_name = resource_name("accounts", account_name)
     account = session.scalar(select(Account).where(Account.name == resolved_name))
     if account is None:
-        raise api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
+        raise ValidationError(
             code="account_not_found",
             message=f"Account not found: {resolved_name}",
         )
@@ -162,8 +169,7 @@ def validate_account_dates(transaction_date: date, accounts: dict[str, Account])
             invalid.append(account.name)
 
     if invalid:
-        raise api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
+        raise ValidationError(
             code="account_not_effective",
             message=f"Accounts not effective on transaction date: {', '.join(sorted(invalid))}",
         )
@@ -173,8 +179,7 @@ def validate_symbols_exist(session: Session, symbols: set[str]) -> None:
     existing = session.scalars(select(Commodity.symbol).where(Commodity.symbol.in_(symbols))).all()
     missing = sorted(symbols - set(existing))
     if missing:
-        raise api_error(
-            status_code=status.HTTP_400_BAD_REQUEST,
+        raise ValidationError(
             code="commodity_not_found",
             message=f"Commodities not found: {', '.join(missing)}",
         )
@@ -238,8 +243,7 @@ def commit_or_raise(session: Session) -> None:
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise api_error(
-            status_code=status.HTTP_409_CONFLICT,
+        raise ConflictError(
             code="integrity_error",
             message=str(exc.orig),
         ) from exc
@@ -254,8 +258,7 @@ def get_account_by_name(session: Session, account: str) -> AccountResource:
     resource = resource_name("accounts", account)
     account_row = session.scalar(select(Account).where(Account.name == resource))
     if account_row is None:
-        raise api_error(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
             code="account_not_found",
             message="Account not found",
         )
@@ -287,8 +290,7 @@ def get_commodity_by_name(session: Session, commodity: str) -> CommodityResource
     resource = resource_name("commodities", commodity)
     commodity_row = session.scalar(select(Commodity).where(Commodity.name == resource))
     if commodity_row is None:
-        raise api_error(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
             code="commodity_not_found",
             message="Commodity not found",
         )
@@ -316,6 +318,7 @@ def create_transaction(session: Session, payload: TransactionResource) -> Transa
         .options(selectinload(Transaction.postings).selectinload(Posting.account))
         .where(Transaction.id == transaction.id)
     )
+    assert persisted is not None
     return serialize_transaction(persisted)
 
 
@@ -327,8 +330,7 @@ def get_transaction_by_name(session: Session, transaction: str) -> TransactionRe
         .where(Transaction.name == resource)
     )
     if transaction_row is None:
-        raise api_error(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
             code="transaction_not_found",
             message="Transaction not found",
         )
@@ -355,8 +357,7 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
     resource = resource_name("prices", price)
     price_row = session.scalar(select(Price).where(Price.name == resource))
     if price_row is None:
-        raise api_error(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
             code="price_not_found",
             message="Price not found",
         )
@@ -385,6 +386,7 @@ def create_balance_assertion(
         .options(selectinload(BalanceAssertion.account))
         .where(BalanceAssertion.id == assertion.id)
     )
+    assert persisted is not None
     return serialize_balance_assertion(persisted)
 
 
@@ -399,8 +401,7 @@ def get_balance_assertion_by_name(
         .where(BalanceAssertion.name == resource)
     )
     if assertion is None:
-        raise api_error(
-            status_code=status.HTTP_404_NOT_FOUND,
+        raise NotFoundError(
             code="balance_assertion_not_found",
             message="Balance assertion not found",
         )

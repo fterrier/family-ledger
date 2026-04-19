@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -21,7 +23,7 @@ def ping_database() -> None:
         connection.execute(text("SELECT 1"))
 
 
-def get_db_session() -> Session:
+def get_db_session() -> Generator[Session, None, None]:
     session = SessionLocal()
     try:
         yield session

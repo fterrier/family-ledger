@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import date
 from decimal import Decimal
 
@@ -12,7 +13,7 @@ from family_ledger.models import Account, Base, Commodity, Posting, Transaction
 
 
 @pytest.fixture
-def session() -> Session:
+def session() -> Generator[Session, None, None]:
     engine = create_engine("sqlite+pysqlite:///:memory:")
 
     @event.listens_for(engine, "connect")

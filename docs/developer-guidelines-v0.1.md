@@ -145,7 +145,12 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Use deterministic export output.
 - Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
+- Keep HTTP concerns out of services; service modules should raise domain exceptions and let the API layer translate them into response codes and payloads.
 - When a file starts mixing route wiring, request/response schemas, validation, serialization, and persistence logic, split it into smaller modules rather than growing one large API file.
+- Keep a service layer only when it supports meaningful tests that are not duplicates of route-level API tests.
+- Good service tests cover business logic such as fingerprinting, resolution, validation, serialization, and persistence behavior.
+- If service tests mostly repeat route tests without adding value, prefer collapsing overly thin service code back into the API module.
+- Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
 - Do not add a plugin system unless multiple concrete plugins already exist.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 

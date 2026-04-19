@@ -16,6 +16,11 @@ repos:
 
   - repo: local
     hooks:
+      - id: basedpyright
+        name: basedpyright
+        entry: uv run basedpyright
+        language: system
+        pass_filenames: false
       - id: pytest
         name: pytest
         entry: uv run pytest

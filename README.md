@@ -24,12 +24,21 @@ cp docker/compose/* ./
 2. Copy `.env.example` to `.env` if you want to override defaults.
 3. Start the stack:
 
-```bash
-docker compose pull
-docker compose up -d
-```
+   - **Option A - Use pre-built image** (assumes image is published to registry):
 
-3. Check the app health endpoint:
+     ```bash
+     docker compose pull
+     docker compose up -d
+     ```
+
+   - **Option B - Build locally** (for development with your own changes):
+
+     ```bash
+     # Edit docker-compose.yml and change 'image:' to 'build: .'
+     docker compose up --build -d
+     ```
+
+4. Check the app health endpoint:
 
 ```bash
 curl http://localhost:8000/healthz

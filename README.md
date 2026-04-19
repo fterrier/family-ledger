@@ -1,5 +1,8 @@
 # family-ledger
 
+[![CI](https://github.com/fterrier/family-ledger/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/fterrier/family-ledger/actions/workflows/ci.yml)
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/fterrier/family-ledger/main.svg)](https://results.pre-commit.ci/latest/github/fterrier/family-ledger/main)
+
 DB-backed, API-first family accounting platform with Beancount-compatible export.
 
 ## Status
@@ -49,7 +52,7 @@ Run Alembic from the app environment:
 alembic upgrade head
 ```
 
-The project currently initializes Alembic without domain migrations yet; Phase 2 will add the ledger schema.
+The project includes an initial Alembic schema migration for the core ledger tables.
 
 ## Config
 

@@ -140,10 +140,12 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Keep investment events as normal postings inside transactions.
 - Keep transaction dedupe metadata minimal: source native ID and fingerprint.
 - Consider adherence to relevant `aip.dev` guidance by default when modifying API resources, methods, or payload shapes.
+- Consider relevant `aip.dev` guidance for response codes as well; invalid references and request-state problems should not default to `404` just because a named dependency is missing from the request body.
 - Keep `update_mask` in the API contract for AIP consistency even if v1 implementations initially ignore it.
 - Use deterministic export output.
 - Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
+- When a file starts mixing route wiring, request/response schemas, validation, serialization, and persistence logic, split it into smaller modules rather than growing one large API file.
 - Do not add a plugin system unless multiple concrete plugins already exist.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 

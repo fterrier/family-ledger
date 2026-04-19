@@ -23,6 +23,7 @@ This document describes the external HTTP contract, not the internal persistence
 - Decimal values are serialized as strings.
 - Resources use stable resource `name` fields as their canonical external identifier.
 - Validation problems should be reported as structured errors rather than hidden or auto-corrected.
+- Response codes should follow relevant `aip.dev` guidance; missing top-level resources are `404`, but invalid request bodies and unsatisfied request preconditions should generally use `400`-class validation-style errors rather than `404`.
 
 ## Core Resource Shapes
 

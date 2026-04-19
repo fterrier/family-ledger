@@ -1,1 +1,11 @@
 .local/
+__pycache__/
+.pytest_cache/
+.venv/
+.env
+dist/
+build/
+.mypy_cache/
+.coverage
+htmlcov/
+*.pyc

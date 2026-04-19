@@ -1,3 +1,21 @@
+Metadata-Version: 2.4
+Name: family-ledger
+Version: 0.1.0
+Summary: DB-backed, API-first family accounting platform
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: alembic<2.0,>=1.14
+Requires-Dist: fastapi<1.0,>=0.115
+Requires-Dist: psycopg[binary]<4.0,>=3.2
+Requires-Dist: pydantic<3.0,>=2.9
+Requires-Dist: pydantic-settings<3.0,>=2.6
+Requires-Dist: pyyaml<7.0,>=6.0
+Requires-Dist: sqlalchemy<3.0,>=2.0
+Requires-Dist: uvicorn[standard]<1.0,>=0.32
+Provides-Extra: dev
+Requires-Dist: httpx<1.0,>=0.27; extra == "dev"
+Requires-Dist: pytest<9.0,>=8.3; extra == "dev"
+
 # family-ledger
 
 DB-backed, API-first family accounting platform with Beancount-compatible export.
@@ -30,9 +48,8 @@ curl http://localhost:8000/healthz
 Run tests locally:
 
 ```bash
-uv venv
-uv pip install --python .venv/bin/python -e .[dev]
-uv run pytest
+pip install -e .[dev]
+pytest
 ```
 
 ## Migrations

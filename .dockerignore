@@ -1,0 +1,11 @@
+.git
+.gitignore
+.local
+__pycache__
+.pytest_cache
+.venv
+dist
+build
+*.pyc
+.env
+htmlcov

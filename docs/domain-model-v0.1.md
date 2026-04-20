@@ -190,7 +190,8 @@ Rules:
 - Store both when both are available; matching priority is native ID first, fingerprint second.
 - Re-import must be idempotent with respect to existing transactions.
 - Imports never overwrite an existing matching transaction in v1; they create-or-skip only.
-- Fingerprint input definition is deferred until implementation, but the stored fingerprint is recomputed on each transaction write.
+- The stored fingerprint is recomputed on each transaction write from canonical transaction content: transaction date, payee, narration, and ordered postings including account, units, optional cost, and optional price.
+- Fingerprint computation excludes `source_native_id` and free-form metadata.
 
 ## Derived Concepts
 

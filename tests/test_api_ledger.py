@@ -41,8 +41,42 @@ def test_create_and_list_accounts() -> None:
                 "effective_end_date": None,
                 "entity_metadata": {},
             }
-        ]
+        ],
+        "next_page_token": None,
     }
+
+
+def test_list_accounts_supports_pagination() -> None:
+    client = make_client()
+
+    for name, ledger_name in [
+        ("accounts/checking-family", "Assets:Bank:Checking:Family"),
+        ("accounts/broker-usd", "Assets:Broker:Cash:USD"),
+        ("accounts/expenses-food", "Expenses:Food"),
+    ]:
+        client.post(
+            "/accounts",
+            json={
+                "account": {
+                    "name": name,
+                    "ledger_name": ledger_name,
+                    "effective_start_date": "2020-01-01",
+                }
+            },
+        )
+
+    first_page = client.get("/accounts?page_size=2")
+
+    assert first_page.status_code == 200
+    body = first_page.json()
+    assert len(body["accounts"]) == 2
+    assert body["next_page_token"] is not None
+
+    second_page = client.get(f"/accounts?page_size=2&page_token={body['next_page_token']}")
+
+    assert second_page.status_code == 200
+    assert len(second_page.json()["accounts"]) == 1
+    assert second_page.json()["next_page_token"] is None
 
 
 def test_create_and_get_commodity() -> None:
@@ -68,6 +102,38 @@ def test_create_and_get_commodity() -> None:
         "symbol": "CHF",
         "entity_metadata": {},
     }
+
+
+def test_list_commodities_supports_pagination() -> None:
+    client = make_client()
+
+    for name, symbol in [
+        ("commodities/chf", "CHF"),
+        ("commodities/goog", "GOOG"),
+        ("commodities/usd", "USD"),
+    ]:
+        client.post(
+            "/commodities",
+            json={
+                "commodity": {
+                    "name": name,
+                    "symbol": symbol,
+                }
+            },
+        )
+
+    first_page = client.get("/commodities?page_size=2")
+
+    assert first_page.status_code == 200
+    body = first_page.json()
+    assert len(body["commodities"]) == 2
+    assert body["next_page_token"] is not None
+
+    second_page = client.get(f"/commodities?page_size=2&page_token={body['next_page_token']}")
+
+    assert second_page.status_code == 200
+    assert len(second_page.json()["commodities"]) == 1
+    assert second_page.json()["next_page_token"] is None
 
 
 def test_create_and_get_transaction() -> None:
@@ -134,6 +200,72 @@ def test_create_and_get_transaction() -> None:
 
     assert get_response.status_code == 200
     assert get_response.json()["postings"][0]["account"] == "accounts/checking-family"
+
+
+def test_list_transactions_supports_filters_and_pagination() -> None:
+    client = make_client()
+
+    for account_name, ledger_name in [
+        ("accounts/checking-family", "Assets:Bank:Checking:Family"),
+        ("accounts/expenses-food", "Expenses:Food"),
+    ]:
+        client.post(
+            "/accounts",
+            json={
+                "account": {
+                    "name": account_name,
+                    "ledger_name": ledger_name,
+                    "effective_start_date": "2020-01-01",
+                }
+            },
+        )
+    client.post(
+        "/commodities",
+        json={"commodity": {"name": "commodities/chf", "symbol": "CHF"}},
+    )
+
+    for name, tx_date, amount in [
+        ("transactions/txn-1", "2026-04-01", "10.00"),
+        ("transactions/txn-2", "2026-04-02", "20.00"),
+        ("transactions/txn-3", "2026-04-03", "30.00"),
+    ]:
+        client.post(
+            "/transactions",
+            json={
+                "transaction": {
+                    "name": name,
+                    "transaction_date": tx_date,
+                    "postings": [
+                        {
+                            "account": "accounts/checking-family",
+                            "units": {"amount": f"-{amount}", "symbol": "CHF"},
+                        },
+                        {
+                            "account": "accounts/expenses-food",
+                            "units": {"amount": amount, "symbol": "CHF"},
+                        },
+                    ],
+                }
+            },
+        )
+
+    first_page = client.get("/transactions?page_size=2")
+
+    assert first_page.status_code == 200
+    body = first_page.json()
+    assert [tx["name"] for tx in body["transactions"]] == [
+        "transactions/txn-1",
+        "transactions/txn-2",
+    ]
+    assert body["next_page_token"] is not None
+
+    filtered = client.get("/transactions?account=accounts/checking-family&from_date=2026-04-02")
+
+    assert filtered.status_code == 200
+    assert [tx["name"] for tx in filtered.json()["transactions"]] == [
+        "transactions/txn-2",
+        "transactions/txn-3",
+    ]
 
 
 def test_create_transaction_rejects_unknown_commodity() -> None:

@@ -65,6 +65,15 @@ def test_hash_transaction_payload_is_deterministic() -> None:
     assert fingerprint_one.startswith("sha256:")
 
 
+def test_transaction_fingerprint_content_excludes_import_metadata() -> None:
+    payload = make_transaction_payload()
+
+    content = ledger_service.transaction_fingerprint_content(payload)
+
+    assert "import_metadata" not in content
+    assert content["transaction_date"] == "2026-04-19"
+
+
 def test_hash_transaction_payload_changes_when_content_changes() -> None:
     payload = make_transaction_payload()
     updated_payload = payload.model_copy(update={"narration": "Household"})

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
 from typing import cast
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -16,6 +17,7 @@ from family_ledger.api.schemas import (
     ImportMetadata,
     ListAccountsResponse,
     ListCommoditiesResponse,
+    ListTransactionsResponse,
     MoneyValue,
     PostingPayload,
     PriceResource,
@@ -24,16 +26,52 @@ from family_ledger.api.schemas import (
 from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 
+DEFAULT_PAGE_SIZE = 50
+MAX_PAGE_SIZE = 100
+
 
 def resource_name(prefix: str, value: str) -> str:
     return value if "/" in value else f"{prefix}/{value}"
 
 
-# TODO: Revisit fingerprint computation together with import logic.
-# Fingerprint inputs and update semantics are part of transaction dedupe behavior,
-# so this should be finalized alongside the import design rather than in isolation.
-def hash_transaction_payload(payload: TransactionResource) -> str:
-    content = {
+def normalize_page_size(page_size: int | None) -> int:
+    if page_size is None:
+        return DEFAULT_PAGE_SIZE
+    if page_size <= 0:
+        raise ValidationError(code="invalid_page_size", message="page_size must be positive")
+    return min(page_size, MAX_PAGE_SIZE)
+
+
+def decode_page_token(page_token: str | None) -> int:
+    if not page_token:
+        return 0
+    try:
+        decoded = urlsafe_b64decode(page_token.encode()).decode()
+        offset = int(decoded)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise ValidationError(code="invalid_page_token", message="Invalid page_token") from exc
+    if offset < 0:
+        raise ValidationError(code="invalid_page_token", message="Invalid page_token")
+    return offset
+
+
+def encode_page_token(offset: int) -> str:
+    return urlsafe_b64encode(str(offset).encode()).decode()
+
+
+def paginate_query(query: Select, *, offset: int, page_size: int):
+    return query.offset(offset).limit(page_size + 1)
+
+
+def transaction_fingerprint_content(payload: TransactionResource) -> dict[str, object]:
+    """Return the canonical content used for transaction dedupe fingerprints.
+
+    The fingerprint intentionally tracks current transaction content rather than
+    stable source identity. It is recomputed on transaction writes and excludes
+    source-native IDs and free-form metadata.
+    """
+
+    return {
         "transaction_date": payload.transaction_date.isoformat(),
         "payee": payload.payee,
         "narration": payload.narration,
@@ -60,6 +98,10 @@ def hash_transaction_payload(payload: TransactionResource) -> str:
             for posting in payload.postings
         ],
     }
+
+
+def hash_transaction_payload(payload: TransactionResource) -> str:
+    content = transaction_fingerprint_content(payload)
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
     return f"sha256:{digest.hexdigest()}"
 
@@ -250,8 +292,32 @@ def commit_or_raise(session: Session) -> None:
 
 
 def list_accounts(session: Session) -> ListAccountsResponse:
-    accounts = session.scalars(select(Account).order_by(Account.ledger_name)).all()
-    return ListAccountsResponse(accounts=[serialize_account(account) for account in accounts])
+    return list_accounts_page(session, page_size=None, page_token=None)
+
+
+def list_accounts_page(
+    session: Session,
+    *,
+    page_size: int | None,
+    page_token: str | None,
+) -> ListAccountsResponse:
+    normalized_page_size = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+    accounts = session.scalars(
+        paginate_query(
+            select(Account).order_by(Account.ledger_name),
+            offset=offset,
+            page_size=normalized_page_size,
+        )
+    ).all()
+    next_page_token = None
+    if len(accounts) > normalized_page_size:
+        accounts = accounts[:normalized_page_size]
+        next_page_token = encode_page_token(offset + normalized_page_size)
+    return ListAccountsResponse(
+        accounts=[serialize_account(account) for account in accounts],
+        next_page_token=next_page_token,
+    )
 
 
 def get_account_by_name(session: Session, account: str) -> AccountResource:
@@ -280,9 +346,31 @@ def create_account(session: Session, payload: AccountResource) -> AccountResourc
 
 
 def list_commodities(session: Session) -> ListCommoditiesResponse:
-    commodities = session.scalars(select(Commodity).order_by(Commodity.symbol)).all()
+    return list_commodities_page(session, page_size=None, page_token=None)
+
+
+def list_commodities_page(
+    session: Session,
+    *,
+    page_size: int | None,
+    page_token: str | None,
+) -> ListCommoditiesResponse:
+    normalized_page_size = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+    commodities = session.scalars(
+        paginate_query(
+            select(Commodity).order_by(Commodity.symbol),
+            offset=offset,
+            page_size=normalized_page_size,
+        )
+    ).all()
+    next_page_token = None
+    if len(commodities) > normalized_page_size:
+        commodities = commodities[:normalized_page_size]
+        next_page_token = encode_page_token(offset + normalized_page_size)
     return ListCommoditiesResponse(
-        commodities=[serialize_commodity(commodity) for commodity in commodities]
+        commodities=[serialize_commodity(commodity) for commodity in commodities],
+        next_page_token=next_page_token,
     )
 
 
@@ -320,6 +408,54 @@ def create_transaction(session: Session, payload: TransactionResource) -> Transa
     )
     assert persisted is not None
     return serialize_transaction(persisted)
+
+
+def list_transactions_page(
+    session: Session,
+    *,
+    page_size: int | None,
+    page_token: str | None,
+    from_date: date | None,
+    to_date: date | None,
+    account: str | None,
+    fingerprint: str | None,
+) -> ListTransactionsResponse:
+    normalized_page_size = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+
+    query = select(Transaction).options(
+        selectinload(Transaction.postings).selectinload(Posting.account)
+    )
+
+    if from_date is not None:
+        query = query.where(Transaction.transaction_date >= from_date)
+    if to_date is not None:
+        query = query.where(Transaction.transaction_date <= to_date)
+    if fingerprint is not None:
+        query = query.where(Transaction.fingerprint == fingerprint)
+    if account is not None:
+        account_name = resource_name("accounts", account)
+        query = (
+            query.join(Transaction.postings)
+            .join(Posting.account)
+            .where(Account.name == account_name)
+            .distinct()
+        )
+
+    query = query.order_by(Transaction.transaction_date, Transaction.name)
+    transactions = session.scalars(
+        paginate_query(query, offset=offset, page_size=normalized_page_size)
+    ).all()
+
+    next_page_token = None
+    if len(transactions) > normalized_page_size:
+        transactions = transactions[:normalized_page_size]
+        next_page_token = encode_page_token(offset + normalized_page_size)
+
+    return ListTransactionsResponse(
+        transactions=[serialize_transaction(transaction) for transaction in transactions],
+        next_page_token=next_page_token,
+    )
 
 
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:

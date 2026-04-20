@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -16,6 +17,7 @@ from family_ledger.api.schemas import (
     CreateTransactionRequest,
     ListAccountsResponse,
     ListCommoditiesResponse,
+    ListTransactionsResponse,
     PriceResource,
     TransactionResource,
 )
@@ -52,16 +54,25 @@ def _translate_service_error(error: ServiceError) -> HTTPException:
     )
 
 
-def _call_service(fn, *args):
+def _call_service(fn, *args, **kwargs):
     try:
-        return fn(*args)
+        return fn(*args, **kwargs)
     except ServiceError as error:
         raise _translate_service_error(error) from error
 
 
 @router.get("/accounts", response_model=ListAccountsResponse)
-def list_accounts(session: DbSession) -> ListAccountsResponse:
-    return _call_service(ledger_service.list_accounts, session)
+def list_accounts(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+) -> ListAccountsResponse:
+    return _call_service(
+        ledger_service.list_accounts_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+    )
 
 
 @router.post(
@@ -79,8 +90,17 @@ def get_account(account: str, session: DbSession) -> AccountResource:
 
 
 @router.get("/commodities", response_model=ListCommoditiesResponse)
-def list_commodities(session: DbSession) -> ListCommoditiesResponse:
-    return _call_service(ledger_service.list_commodities, session)
+def list_commodities(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+) -> ListCommoditiesResponse:
+    return _call_service(
+        ledger_service.list_commodities_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+    )
 
 
 @router.post(
@@ -95,6 +115,31 @@ def create_commodity(request: CreateCommodityRequest, session: DbSession) -> Com
 @router.get("/commodities/{commodity:path}", response_model=CommodityResource)
 def get_commodity(commodity: str, session: DbSession) -> CommodityResource:
     return _call_service(ledger_service.get_commodity_by_name, session, commodity)
+
+
+@router.get("/transactions", response_model=ListTransactionsResponse)
+def list_transactions(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+    # TODO: Revisit non-pagination query parameters together with the query design.
+    # We may want a more Beancount-like filtering model than the current ad hoc
+    # `from_date` / `to_date` / `account` / `fingerprint` parameters.
+    from_date: date | None = None,
+    to_date: date | None = None,
+    account: str | None = None,
+    fingerprint: str | None = None,
+) -> ListTransactionsResponse:
+    return _call_service(
+        ledger_service.list_transactions_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+        from_date=from_date,
+        to_date=to_date,
+        account=account,
+        fingerprint=fingerprint,
+    )
 
 
 @router.post(

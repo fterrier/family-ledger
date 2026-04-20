@@ -166,6 +166,14 @@ Response:
 Purpose:
 - list accounts
 
+Query parameters:
+- `page_size` optional
+- `page_token` optional
+
+Behavior:
+- returns accounts in a stable order
+- supports AIP-style pagination with `next_page_token`
+
 ### `POST /accounts`
 
 Purpose:
@@ -217,6 +225,14 @@ Validation:
 Purpose:
 - list commodities
 
+Query parameters:
+- `page_size` optional
+- `page_token` optional
+
+Behavior:
+- returns commodities in a stable order
+- supports AIP-style pagination with `next_page_token`
+
 ### `POST /commodities`
 
 Purpose:
@@ -255,10 +271,14 @@ Minimum query parameters:
 - `to_date` optional
 - `account` optional
 - `fingerprint` optional
+- `page_size` optional
+- `page_token` optional
 
 Behavior:
 - returns stored transactions, including unbalanced transactions
 - validation is handled separately and is not embedded into transaction resources in v1
+- returns transactions in a stable order
+- supports AIP-style pagination with `next_page_token`
 
 ### `POST /transactions`
 

@@ -79,6 +79,7 @@ class CreateAccountRequest(BaseModel):
 
 class ListAccountsResponse(BaseModel):
     accounts: list[AccountResource]
+    next_page_token: str | None = None
 
 
 class CreateCommodityRequest(BaseModel):
@@ -87,6 +88,12 @@ class CreateCommodityRequest(BaseModel):
 
 class ListCommoditiesResponse(BaseModel):
     commodities: list[CommodityResource]
+    next_page_token: str | None = None
+
+
+class ListTransactionsResponse(BaseModel):
+    transactions: list[TransactionResource]
+    next_page_token: str | None = None
 
 
 class CreateTransactionRequest(BaseModel):

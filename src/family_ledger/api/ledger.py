@@ -18,6 +18,8 @@ from family_ledger.api.schemas import (
     ListAccountsResponse,
     ListCommoditiesResponse,
     ListTransactionsResponse,
+    NormalizeTransactionRequest,
+    NormalizeTransactionResponse,
     PriceResource,
     TransactionResource,
 )
@@ -140,6 +142,17 @@ def list_transactions(
         account=account,
         fingerprint=fingerprint,
     )
+
+
+@router.post(
+    "/transactions:normalize",
+    response_model=NormalizeTransactionResponse,
+)
+def normalize_transaction(
+    request: NormalizeTransactionRequest,
+    session: DbSession,
+) -> NormalizeTransactionResponse:
+    return _call_service(ledger_service.normalize_transaction, session, request.transaction)
 
 
 @router.post(

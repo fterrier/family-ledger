@@ -230,6 +230,208 @@ def test_create_transaction_rejects_unknown_commodity() -> None:
     assert response.json()["detail"]["code"] == "commodity_not_found"
 
 
+def test_normalize_transaction_interpolates_one_missing_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions:normalize",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "payee": "Migros",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()["transaction"]
+    assert body["postings"][1]["units"] == {"amount": "84.25", "symbol": "CHF"}
+
+
+def test_normalize_transaction_rejects_multiple_missing_postings() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    misc = create_account(client, "Expenses:Misc")
+
+    response = client.post(
+        "/transactions:normalize",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {"account": food["name"]},
+                    {"account": misc["name"]},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "multiple_missing_postings"
+
+
+def test_create_transaction_normalizes_one_missing_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {"account": food["name"]},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert Decimal(body["postings"][1]["units"]["amount"]) == Decimal("84.25")
+    assert body["postings"][1]["units"]["symbol"] == "CHF"
+
+
+def test_create_transaction_matches_normalize_output() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    payload = {
+        "transaction": {
+            "transaction_date": "2026-04-19",
+            "payee": "Migros",
+            "postings": [
+                {
+                    "account": checking["name"],
+                    "units": {"amount": "-84.25", "symbol": "CHF"},
+                },
+                {
+                    "account": food["name"],
+                },
+            ],
+        }
+    }
+
+    normalized = client.post("/transactions:normalize", json=payload)
+    created = client.post("/transactions", json=payload)
+
+    assert normalized.status_code == 200
+    assert created.status_code == 201
+    for created_posting, normalized_posting in zip(
+        created.json()["postings"], normalized.json()["transaction"]["postings"], strict=True
+    ):
+        assert created_posting["account"] == normalized_posting["account"]
+        assert Decimal(created_posting["units"]["amount"]) == Decimal(
+            normalized_posting["units"]["amount"]
+        )
+        assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
+
+
+def test_normalize_transaction_expands_multi_currency_missing_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    cash = create_account(client, "Assets:Cash")
+    equity = create_account(client, "Equity:Opening-Balances")
+    create_commodity(client, "CHF")
+    create_commodity(client, "EUR")
+
+    response = client.post(
+        "/transactions:normalize",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-95.65", "symbol": "CHF"},
+                    },
+                    {
+                        "account": cash["name"],
+                        "units": {"amount": "20.00", "symbol": "EUR"},
+                    },
+                    {"account": equity["name"]},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    postings = response.json()["transaction"]["postings"]
+    assert postings[2]["units"] == {"amount": "95.65", "symbol": "CHF"}
+    assert postings[3]["units"] == {"amount": "-20.00", "symbol": "EUR"}
+
+
+def test_create_transaction_expands_multi_currency_missing_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    cash = create_account(client, "Assets:Cash")
+    equity = create_account(client, "Equity:Opening-Balances")
+    create_commodity(client, "CHF")
+    create_commodity(client, "EUR")
+
+    payload = {
+        "transaction": {
+            "transaction_date": "2026-04-19",
+            "postings": [
+                {
+                    "account": checking["name"],
+                    "units": {"amount": "-95.65", "symbol": "CHF"},
+                },
+                {
+                    "account": cash["name"],
+                    "units": {"amount": "20.00", "symbol": "EUR"},
+                },
+                {"account": equity["name"]},
+            ],
+        }
+    }
+
+    normalized = client.post("/transactions:normalize", json=payload)
+    created = client.post("/transactions", json=payload)
+
+    assert normalized.status_code == 200
+    assert created.status_code == 201
+    for created_posting, normalized_posting in zip(
+        created.json()["postings"], normalized.json()["transaction"]["postings"], strict=True
+    ):
+        assert created_posting["account"] == normalized_posting["account"]
+        assert Decimal(created_posting["units"]["amount"]) == Decimal(
+            normalized_posting["units"]["amount"]
+        )
+        assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
+
+
 def test_create_and_get_price() -> None:
     client = make_client()
 

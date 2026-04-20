@@ -82,6 +82,22 @@ The importer may initially reject or report, rather than import:
 
 Unsupported constructs should be collected into a report rather than failing on the first one.
 
+## Normalization Boundary
+
+The importer should use the same shared transaction normalization logic as the API rather than inventing separate interpolation rules.
+
+That shared normalization currently follows Beancount balancing-weight semantics:
+- units only -> balance on units
+- price without cost -> balance on price
+- cost present -> balance on cost
+- cost and price -> cost wins for balancing
+
+The initial supported interpolation scope remains narrow:
+- at most one posting with missing `units`
+- one or more resulting balancing weights, provided the balancing weights are explicit and unambiguous
+
+Transactions outside that scope should be skipped and reported rather than approximated.
+
 ## Reporting Behavior
 
 The importer should produce a summary including at least:

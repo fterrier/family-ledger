@@ -27,6 +27,16 @@ option "inferred_tolerance_default" "CHF:0.005"
 2026-04-03 balance Assets:Bank:Checking:Family -84.25 CHF
 """
 
+MISSING_POSTING_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 commodity CHF
+
+2026-04-01 * "Migros" "Groceries"
+  Assets:Bank:Checking:Family  -84.25 CHF
+  Expenses:Food
+"""
+
 
 @pytest.fixture
 def session() -> Generator[Session, None, None]:
@@ -51,6 +61,13 @@ def beancount_file(tmp_path: Path) -> Path:
     return path
 
 
+@pytest.fixture
+def missing_posting_file(tmp_path: Path) -> Path:
+    path = tmp_path / "missing-posting.beancount"
+    path.write_text(MISSING_POSTING_FIXTURE, encoding="utf-8")
+    return path
+
+
 def test_collect_unsupported_entries_is_empty_for_supported_fixture(beancount_file: Path) -> None:
     entries, errors, _options_map = import_beancount.load_beancount_document(beancount_file)
 
@@ -68,6 +85,22 @@ def test_unsupported_entry_counts_reports_custom_entries(tmp_path: Path) -> None
     assert counts["Custom"] >= 1
 
 
+def test_import_beancount_reports_skipped_entries(tmp_path: Path, session: Session) -> None:
+    path = tmp_path / "custom-fixture.beancount"
+    path.write_text(
+        "2020-01-01 open Assets:Bank:Checking\n"
+        "2020-01-01 commodity CHF\n"
+        '2026-04-01 custom "feature" "value"\n',
+        encoding="utf-8",
+    )
+
+    summary = import_beancount.import_beancount(session, path)
+
+    assert summary.accounts == 1
+    assert summary.commodities == 1
+    assert summary.skipped_entries == {"Custom": 1}
+
+
 def test_import_beancount_populates_database(session: Session, beancount_file: Path) -> None:
     summary = import_beancount.import_beancount(session, beancount_file)
 
@@ -82,6 +115,16 @@ def test_import_beancount_populates_database(session: Session, beancount_file: P
     assert session.scalar(select(func.count()).select_from(Transaction)) == 1
     assert session.scalar(select(func.count()).select_from(Price)) == 1
     assert session.scalar(select(func.count()).select_from(BalanceAssertion)) == 1
+
+
+def test_import_beancount_interpolates_one_missing_posting(
+    session: Session,
+    missing_posting_file: Path,
+) -> None:
+    summary = import_beancount.import_beancount(session, missing_posting_file)
+
+    assert summary.transactions == 1
+    assert summary.skipped_transactions == 0
 
 
 def test_import_beancount_refuses_non_empty_database(

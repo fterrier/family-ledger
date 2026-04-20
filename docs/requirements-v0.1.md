@@ -79,6 +79,7 @@ There should be no dedicated UI in v1. See `docs/roadmap-v0.1.md` for the implem
 - Account hierarchy compatible with Beancount-style naming
 - Assets, liabilities, equity, income, and expenses
 - Transactions composed of postings
+- Canonical stored transactions use explicit postings only
 - Multi-currency support
 - Arbitrary commodities and symbols
 - Stocks and pension-specific commodities

@@ -108,6 +108,31 @@ class TransactionCreate(TransactionData):
     pass
 
 
+class PostingNormalizePayload(BaseModel):
+    account: str
+    units: MoneyValue | None = None
+    cost: MoneyValue | None = None
+    price: MoneyValue | None = None
+    entity_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TransactionNormalizeData(BaseModel):
+    transaction_date: date
+    payee: str | None = None
+    narration: str | None = None
+    entity_metadata: dict[str, Any] = Field(default_factory=dict)
+    import_metadata: ImportMetadata | None = None
+    postings: list[PostingNormalizePayload]
+
+
+class NormalizeTransactionRequest(BaseModel):
+    transaction: TransactionNormalizeData
+
+
+class NormalizeTransactionResponse(BaseModel):
+    transaction: TransactionCreate
+
+
 class CreateAccountRequest(BaseModel):
     account: AccountCreate
 
@@ -132,7 +157,7 @@ class ListTransactionsResponse(BaseModel):
 
 
 class CreateTransactionRequest(BaseModel):
-    transaction: TransactionCreate
+    transaction: TransactionNormalizeData
 
 
 class CreatePriceRequest(BaseModel):

@@ -4,6 +4,7 @@ import hashlib
 import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
+from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import Select, select
@@ -22,11 +23,14 @@ from family_ledger.api.schemas import (
     ListCommoditiesResponse,
     ListTransactionsResponse,
     MoneyValue,
+    NormalizeTransactionResponse,
+    PostingNormalizePayload,
     PostingPayload,
     PriceCreate,
     PriceResource,
     TransactionCreate,
     TransactionData,
+    TransactionNormalizeData,
     TransactionResource,
 )
 from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
@@ -225,14 +229,123 @@ def validate_transaction_symbols(session: Session, payload: TransactionData) -> 
     validate_symbols_exist(session, symbols)
 
 
+def validate_transaction_payload(session: Session, payload: TransactionData) -> None:
+    account_map = resolve_accounts(session, payload.postings)
+    validate_account_dates(payload.transaction_date, account_map)
+    validate_transaction_symbols(session, payload)
+
+
+def _posting_weight(posting: PostingPayload | PostingNormalizePayload) -> MoneyValue | None:
+    if posting.units is None:
+        return None
+    if (
+        posting.cost is not None
+        and posting.price is not None
+        and posting.cost.symbol != posting.price.symbol
+    ):
+        raise ValidationError(
+            code="cost_price_symbol_mismatch",
+            message="Postings with both cost and price must use the same symbol.",
+        )
+    if posting.cost is not None:
+        return MoneyValue(
+            amount=posting.units.amount * posting.cost.amount,
+            symbol=posting.cost.symbol,
+        )
+    if posting.price is not None:
+        return MoneyValue(
+            amount=posting.units.amount * posting.price.amount,
+            symbol=posting.price.symbol,
+        )
+    return posting.units
+
+
+def normalize_transaction_payload(
+    payload: TransactionCreate | TransactionNormalizeData,
+) -> TransactionCreate:
+    missing_units = [posting for posting in payload.postings if posting.units is None]
+    if len(missing_units) > 1:
+        raise ValidationError(
+            code="multiple_missing_postings",
+            message="At most one posting may omit units when normalizing a transaction.",
+        )
+
+    for posting in payload.postings:
+        if posting.units is None and (posting.cost is not None or posting.price is not None):
+            raise ValidationError(
+                code="missing_units_with_cost_or_price",
+                message="A posting with missing units cannot also specify cost or price.",
+            )
+
+    if not missing_units:
+        return TransactionCreate.model_validate(payload.model_dump())
+
+    weights_by_symbol: dict[str, Decimal] = {}
+    for posting in payload.postings:
+        if posting.units is None:
+            continue
+        weight = _posting_weight(posting)
+        if weight is None or weight.amount == 0:
+            continue
+        weights_by_symbol[weight.symbol] = (
+            weights_by_symbol.get(weight.symbol, Decimal("0")) + weight.amount
+        )
+
+    if not weights_by_symbol:
+        raise ValidationError(
+            code="ambiguous_interpolation_symbol",
+            message="Transaction interpolation requires at least one non-zero balancing weight.",
+        )
+
+    normalized_postings = []
+    for posting in payload.postings:
+        if posting.units is None:
+            for symbol, amount in weights_by_symbol.items():
+                normalized_postings.append(
+                    PostingPayload(
+                        account=posting.account,
+                        units=MoneyValue(amount=-amount, symbol=symbol),
+                        cost=None,
+                        price=None,
+                        entity_metadata=posting.entity_metadata,
+                    )
+                )
+        else:
+            normalized_postings.append(
+                PostingPayload(
+                    account=posting.account,
+                    units=posting.units,
+                    cost=posting.cost,
+                    price=posting.price,
+                    entity_metadata=posting.entity_metadata,
+                )
+            )
+
+    return TransactionCreate(
+        transaction_date=payload.transaction_date,
+        payee=payload.payee,
+        narration=payload.narration,
+        entity_metadata=payload.entity_metadata,
+        import_metadata=payload.import_metadata,
+        postings=normalized_postings,
+    )
+
+
+def normalize_transaction(
+    session: Session,
+    payload: TransactionNormalizeData,
+) -> NormalizeTransactionResponse:
+    normalized = normalize_transaction_payload(payload)
+    validate_transaction_payload(session, normalized)
+    return NormalizeTransactionResponse(transaction=normalized)
+
+
 def persist_transaction(
     session: Session,
     payload: TransactionData,
     transaction: Transaction | None = None,
 ) -> Transaction:
     account_map = resolve_accounts(session, payload.postings)
-    validate_account_dates(payload.transaction_date, account_map)
-    validate_transaction_symbols(session, payload)
 
     if transaction is None:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
@@ -361,8 +474,13 @@ def create_commodity(session: Session, payload: CommodityCreate) -> CommodityRes
     return serialize_commodity(commodity)
 
 
-def create_transaction(session: Session, payload: TransactionCreate) -> TransactionResource:
-    transaction = persist_transaction(session, payload)
+def create_transaction(
+    session: Session,
+    payload: TransactionCreate | TransactionNormalizeData,
+) -> TransactionResource:
+    normalized = normalize_transaction_payload(payload)
+    validate_transaction_payload(session, normalized)
+    transaction = persist_transaction(session, normalized)
     commit_or_raise(session)
     session.refresh(transaction)
     persisted = session.scalar(

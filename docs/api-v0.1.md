@@ -15,6 +15,7 @@ This document describes the external HTTP contract, not the internal persistence
 - The API does not enforce field-level locking in v1.
 - There is no auth in v1.
 - Money-like value objects use ledger symbols such as `CHF`, `USD`, and `GOOG`, not commodity resource names.
+- Persistence and normalization are separate concerns: persistence endpoints require explicit postings, while normalization may be offered through a separate non-persisting endpoint.
 
 ## Envelope Conventions
 
@@ -185,7 +186,6 @@ Example request body:
 ```json
 {
   "account": {
-    "name": "accounts/acc_01jv3m0r7x8c",
     "account_name": "Assets:Bank:Checking:Family",
     "effective_start_date": "2020-01-01"
   }
@@ -193,7 +193,6 @@ Example request body:
 ```
 
 Expected fields:
-- `name`
 - `account_name`
 - `effective_start_date`
 - `effective_end_date` optional
@@ -244,14 +243,12 @@ Example request body:
 ```json
 {
   "commodity": {
-    "name": "commodities/cmd_01jv3m0r7x8c",
     "symbol": "CHF"
   }
 }
 ```
 
 Expected fields:
-- `name`
 - `symbol`
 - `entity_metadata` optional
 
@@ -330,12 +327,63 @@ Validation:
 - each posting must reference an existing account
 - posting account must be effective on `transaction_date`
 - each `symbol` used by `units`, `cost`, or `price` must already exist as a commodity
+- at most one posting may omit `units`; if so, the server normalizes it before persistence using the same logic as `POST /transactions:normalize`
 - `cost` and `price` must be per-unit values only
 - unbalanced transactions may still be persisted in v1
 - strict cost-based matching errors must be reported for reducing postings when applicable
 
 Response:
-- returns the persisted transaction resource
+- returns the persisted transaction resource with fully explicit postings
+
+### `POST /transactions:normalize`
+
+Purpose:
+- normalize a transaction-shaped payload into fully explicit postings without persisting it
+
+Behavior:
+- accepts transaction-shaped input similar to `POST /transactions`
+- may accept at most one posting with missing `units`
+- does not accept missing `cost` or missing `price`
+- runs the same normalization and validation logic as `POST /transactions`
+- returns a fully explicit normalized transaction payload
+- does not persist anything
+- ambiguous interpolation returns a validation error
+- persistence-specific conflicts may still differ from creation because no write occurs
+
+Normalization follows Beancount balancing-weight semantics:
+- units only -> balance on units
+- price without cost -> balance on price
+- cost present -> balance on cost
+- cost and price -> cost wins for balancing
+- zero-weight postings do not create ambiguity
+
+Current supported scope is intentionally narrow:
+- at most one posting may omit `units`
+- the missing posting may normalize into one or more explicit postings, one per resulting balancing weight
+- multi-weight normalization is supported when the balancing weights are explicit and unambiguous
+
+Example request body:
+
+```json
+{
+  "transaction": {
+    "transaction_date": "2026-04-19",
+    "payee": "Migros",
+    "postings": [
+      {
+        "account": "accounts/acc_01jv3m0r7x8c",
+        "units": {
+          "amount": "-84.25",
+          "symbol": "CHF"
+        }
+      },
+      {
+        "account": "accounts/acc_01jv3m0r7x8d"
+      }
+    ]
+  }
+}
+```
 
 ### `GET /transactions/{transaction}`
 

@@ -147,6 +147,8 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
 - Keep HTTP concerns out of services; service modules should raise domain exceptions and let the API layer translate them into response codes and payloads.
+- When normalization and persistence differ, document the boundary explicitly and keep normalization out of canonical persistence endpoints unless that behavior is an intentional API contract decision.
+- If a normalize-style endpoint and a persistence endpoint accept the same input shape, they should share one normalization/validation implementation rather than duplicating rules.
 - When a file starts mixing route wiring, request/response schemas, validation, serialization, and persistence logic, split it into smaller modules rather than growing one large API file.
 - Keep a service layer only when it supports meaningful tests that are not duplicates of route-level API tests.
 - Good service tests cover business logic such as fingerprinting, resolution, validation, serialization, and persistence behavior.

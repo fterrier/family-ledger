@@ -124,6 +124,12 @@ Notes:
 - Price is stored only as per-unit price in v1.
 - Total-price input forms are not part of the canonical v1 model.
 - Cost does not include separate date or label fields in v1.
+- Canonical stored postings always have explicit `units_amount` and `units_symbol`.
+- Incomplete postings are not part of stored ledger state.
+- Any normalization or interpolation must happen before persistence.
+- The API may accept a narrow incomplete transaction form temporarily at the write boundary, but the persisted result is always explicit.
+- Pre-persistence normalization follows Beancount balancing-weight semantics: cost wins over price for balancing, price is used only when cost is absent, and units are used only when neither cost nor price is present.
+- Current normalization support remains limited to one missing posting, but that posting may expand into multiple explicit postings when Beancount balancing weights span multiple symbols.
 - Postings are their own DB table for queryability and ledger computation, but they are not a standalone mutable API resource in v1.
 
 ## Prices

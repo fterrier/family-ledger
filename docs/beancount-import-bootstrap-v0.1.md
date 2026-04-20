@@ -12,9 +12,7 @@ It is a compatibility/bootstrap tool, not a general long-term ingestion workflow
 
 ## Target Input
 
-The initial target is the current ledger at:
-
-- `projects/accounting/scukas.beancount`
+The initial target is the reference Beancount ledger currently used to validate compatibility.
 
 The importer should be designed around the constructs actually used there before trying to support broader Beancount projects.
 
@@ -69,7 +67,7 @@ The initial importer should support:
 - `price`
 - `balance`
 
-For the current ledger, `option` directives should be handled minimally:
+For the reference ledger, `option` directives should be handled minimally:
 
 - options that map directly to project config should be reported or compared
 - options that do not affect canonical storage may be ignored explicitly
@@ -113,7 +111,7 @@ The initial importer is successful if it can:
 Implementation of the importer should help answer:
 
 - whether the current account/effective-date model is sufficient
-- whether transaction and posting storage is complete enough for the current ledger
+- whether transaction and posting storage is complete enough for the reference ledger
 - whether current price and assertion support is sufficient
 - whether investment and held-at-cost semantics need extension before parity export is attempted
 - whether current option/config handling needs to become stricter

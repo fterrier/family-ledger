@@ -100,7 +100,7 @@ v1 does not require filtered or partial export.
 ## Explicit Non-Goals
 
 The v1 compatibility promise does not include:
-- byte-for-byte reproduction of the current ledger file
+- byte-for-byte reproduction of the reference Beancount file
 - preservation of comments, placeholder markers, or file layout
 - preservation of manual copy-and-paste import workflows
 - preservation of direct ledger-file rewriting scripts

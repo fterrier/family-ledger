@@ -1,6 +1,6 @@
 """rename ledger_name to account_name
 
-Revision ID: 0002_rename_ledger_name_to_account_name
+Revision ID: 0002_account_name
 Revises: 0001_initial_ledger_schema
 Create Date: 2026-04-20 00:00:00
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision = "0002_rename_ledger_name_to_account_name"
+revision = "0002_account_name"
 down_revision = "0001_initial_ledger_schema"
 branch_labels = None
 depends_on = None

@@ -4,10 +4,10 @@
 Describe the implementation order and lock in the first version scope.
 
 ## Version 1 Goal
-Deliver a DB-backed, API-first ledger that can replace the current `scukas.beancount` workflow for day-to-day accounting data entry and validation.
+Deliver a DB-backed, API-first ledger that can replace the current Beancount-based workflow for day-to-day accounting data entry and validation.
 
 Version 1 must provide:
-- an API that correctly replicates the necessary ledger functionality for the existing `scukas.beancount` data
+- an API that correctly replicates the necessary ledger functionality for the existing Beancount data
 - transaction and posting support close to Beancount semantics
 - balance checking and balance assertions
 - deterministic full-ledger Beancount export for read-only Fava usage

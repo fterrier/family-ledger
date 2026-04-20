@@ -42,7 +42,7 @@ Use this shape for units, costs, prices, and assertions:
 
 ```json
 {
-  "account": "accounts/bank-checking-family",
+  "account": "accounts/acc_01jv3m0r7x8c",
   "units": {
     "amount": "-100.00",
     "symbol": "USD"
@@ -70,7 +70,7 @@ Notes:
 
 ```json
 {
-  "name": "transactions/txn-123",
+  "name": "transactions/txn_01jv3m0r7x8c",
   "transaction_date": "2026-04-19",
   "payee": "Migros",
   "narration": "Groceries",
@@ -92,8 +92,8 @@ Notes:
 
 ```json
 {
-  "name": "accounts/bank-checking-family",
-  "ledger_name": "Assets:Bank:Checking:Family",
+  "name": "accounts/acc_01jv3m0r7x8c",
+  "account_name": "Assets:Bank:Checking:Family",
   "effective_start_date": "2020-01-01",
   "effective_end_date": null,
   "entity_metadata": {}
@@ -101,14 +101,15 @@ Notes:
 ```
 
 Notes:
-- `name` is the stable API resource name.
-- `ledger_name` is the mutable hierarchical Beancount export name.
+- `name` is the stable API resource name built from an opaque key.
+- `account_name` is the mutable hierarchical Beancount export name.
+- Hierarchy is encoded by `:`-separated segments in `account_name`.
 
 ### Price Record
 
 ```json
 {
-  "name": "prices/price-123",
+  "name": "prices/prc_01jv3m0r7x8c",
   "price_date": "2026-04-19",
   "base_symbol": "USD",
   "quote": {
@@ -123,9 +124,9 @@ Notes:
 
 ```json
 {
-  "name": "balanceAssertions/bal-123",
+  "name": "balanceAssertions/bal_01jv3m0r7x8c",
   "assertion_date": "2026-04-19",
-  "account": "accounts/bank-checking-family",
+  "account": "accounts/acc_01jv3m0r7x8c",
   "amount": {
     "amount": "1000.00",
     "symbol": "CHF"
@@ -138,7 +139,7 @@ Notes:
 
 ```json
 {
-  "name": "commodities/chf",
+  "name": "commodities/cmd_01jv3m0r7x8c",
   "symbol": "CHF",
   "entity_metadata": {}
 }
@@ -184,8 +185,8 @@ Example request body:
 ```json
 {
   "account": {
-    "name": "accounts/bank-checking-family",
-    "ledger_name": "Assets:Bank:Checking:Family",
+    "name": "accounts/acc_01jv3m0r7x8c",
+    "account_name": "Assets:Bank:Checking:Family",
     "effective_start_date": "2020-01-01"
   }
 }
@@ -193,7 +194,7 @@ Example request body:
 
 Expected fields:
 - `name`
-- `ledger_name`
+- `account_name`
 - `effective_start_date`
 - `effective_end_date` optional
 - `entity_metadata` optional
@@ -201,7 +202,7 @@ Expected fields:
 Validation:
 - account name must be unique
 - account resource name must be stable and unique
-- `ledger_name` must follow Beancount-style hierarchy naming
+- `account_name` must follow Beancount-style hierarchy naming
 - `effective_end_date`, if present, must not be before `effective_start_date`
 
 ### `GET /accounts/{account}`
@@ -216,7 +217,7 @@ Purpose:
 
 Validation:
 - changes that make existing transaction references invalid should fail unless the caller updates the affected transactions separately
-- changing `ledger_name` does not require rewriting stored postings because postings reference the stable account resource name
+- changing `account_name` does not require rewriting stored postings because postings reference the stable account resource name
 
 ## Commodities API
 
@@ -243,7 +244,7 @@ Example request body:
 ```json
 {
   "commodity": {
-    "name": "commodities/chf",
+    "name": "commodities/cmd_01jv3m0r7x8c",
     "symbol": "CHF"
   }
 }
@@ -299,14 +300,14 @@ Example request body:
     },
     "postings": [
       {
-        "account": "accounts/bank-checking-family",
+        "account": "accounts/acc_01jv3m0r7x8c",
         "units": {
           "amount": "-100.00",
           "symbol": "CHF"
         }
       },
       {
-        "account": "accounts/expenses-uncategorized",
+        "account": "accounts/acc_01jv3m0r7x8d",
         "units": {
           "amount": "100.00",
           "symbol": "CHF"
@@ -336,12 +337,12 @@ Validation:
 Response:
 - returns the persisted transaction resource
 
-### `GET /transactions/{transaction_id}`
+### `GET /transactions/{transaction}`
 
 Purpose:
 - fetch one transaction
 
-### `PATCH /transactions/{transaction_id}`
+### `PATCH /transactions/{transaction}`
 
 Purpose:
 - replace the mutable transaction payload, including the full postings array
@@ -351,7 +352,7 @@ Example request body:
 ```json
 {
   "transaction": {
-    "name": "transactions/txn-123",
+    "name": "transactions/txn_01jv3m0r7x8c",
     "transaction_date": "2026-04-19",
     "payee": "Migros",
     "narration": "Updated groceries",
@@ -373,7 +374,7 @@ Behavior:
 Validation:
 - same as `POST /transactions`
 
-### `DELETE /transactions/{transaction_id}`
+### `DELETE /transactions/{transaction}`
 
 Purpose:
 - remove a transaction
@@ -445,7 +446,7 @@ Example request body:
 {
   "balance_assertion": {
     "assertion_date": "2026-04-19",
-    "account": "accounts/bank-checking-family",
+    "account": "accounts/acc_01jv3m0r7x8c",
     "amount": {
       "amount": "1000.00",
       "symbol": "CHF"
@@ -486,7 +487,7 @@ Example request body:
 ```json
 {
   "attachment": {
-    "account": "accounts/bank-checking-family",
+    "account": "accounts/acc_01jv3m0r7x8c",
     "storage_key": "attachments/2026-04/statement.pdf",
     "original_filename": "statement.pdf"
   }
@@ -588,7 +589,7 @@ The first implementation slice should support:
 - `GET /accounts`
 - `POST /commodities`
 - `POST /transactions`
-- `GET /transactions/{transaction_id}`
+- `GET /transactions/{transaction}`
 - `POST /prices`
 - `POST /balance-assertions`
 

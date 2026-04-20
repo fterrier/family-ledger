@@ -28,11 +28,18 @@ def session() -> Generator[Session, None, None]:
 
 
 def test_demo_factories_have_expected_sizes() -> None:
+    accounts = {
+        "checking": "accounts/acc_one",
+        "broker_usd": "accounts/acc_two",
+        "expenses_uncategorized": "accounts/acc_three",
+        "expenses_food": "accounts/acc_four",
+        "income_salary": "accounts/acc_five",
+    }
     assert len(bootstrap_demo.demo_accounts()) == 5
     assert len(bootstrap_demo.demo_commodities()) == 3
-    assert len(bootstrap_demo.demo_transactions()) == 4
+    assert len(bootstrap_demo.demo_transactions(accounts)) == 4
     assert len(bootstrap_demo.demo_prices()) == 1
-    assert len(bootstrap_demo.demo_balance_assertions()) == 1
+    assert len(bootstrap_demo.demo_balance_assertions(accounts)) == 1
 
 
 def test_database_is_empty_true_then_false(session: Session) -> None:
@@ -40,8 +47,8 @@ def test_database_is_empty_true_then_false(session: Session) -> None:
 
     session.add(
         Account(
-            name="accounts/checking-family",
-            ledger_name="Assets:Bank:Checking:Family",
+            name="accounts/acc_one",
+            account_name="Assets:Bank:Checking:Family",
             effective_start_date=date(2020, 1, 1),
         )
     )

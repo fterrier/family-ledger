@@ -35,7 +35,7 @@ class Account(Base):
 
     id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, unique=True)
-    ledger_name: Mapped[str] = mapped_column(Text, unique=True)
+    account_name: Mapped[str] = mapped_column(Text, unique=True)
     effective_start_date: Mapped[date] = mapped_column(Date)
     effective_end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)

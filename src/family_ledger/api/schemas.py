@@ -25,46 +25,73 @@ class ImportMetadata(BaseModel):
     fingerprint: str | None = None
 
 
-class AccountResource(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    name: str
-    ledger_name: str
+class AccountData(BaseModel):
+    account_name: str
     effective_start_date: date
     effective_end_date: date | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class CommodityResource(BaseModel):
+class AccountResource(AccountData):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+
+
+class AccountCreate(AccountData):
+    pass
+
+
+class CommodityData(BaseModel):
     symbol: str
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class PriceResource(BaseModel):
+class CommodityResource(CommodityData):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+
+
+class CommodityCreate(CommodityData):
+    pass
+
+
+class PriceData(BaseModel):
     price_date: date
     base_symbol: str
     quote: MoneyValue
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class BalanceAssertionResource(BaseModel):
+class PriceResource(PriceData):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+
+
+class PriceCreate(PriceData):
+    pass
+
+
+class BalanceAssertionData(BaseModel):
     assertion_date: date
     account: str
     amount: MoneyValue
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class TransactionResource(BaseModel):
+class BalanceAssertionResource(BalanceAssertionData):
+    model_config = ConfigDict(from_attributes=True)
+
     name: str
+
+
+class BalanceAssertionCreate(BalanceAssertionData):
+    pass
+
+
+class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None
     narration: str | None = None
@@ -73,8 +100,16 @@ class TransactionResource(BaseModel):
     postings: list[PostingPayload]
 
 
+class TransactionResource(TransactionData):
+    name: str
+
+
+class TransactionCreate(TransactionData):
+    pass
+
+
 class CreateAccountRequest(BaseModel):
-    account: AccountResource
+    account: AccountCreate
 
 
 class ListAccountsResponse(BaseModel):
@@ -83,7 +118,7 @@ class ListAccountsResponse(BaseModel):
 
 
 class CreateCommodityRequest(BaseModel):
-    commodity: CommodityResource
+    commodity: CommodityCreate
 
 
 class ListCommoditiesResponse(BaseModel):
@@ -97,12 +132,12 @@ class ListTransactionsResponse(BaseModel):
 
 
 class CreateTransactionRequest(BaseModel):
-    transaction: TransactionResource
+    transaction: TransactionCreate
 
 
 class CreatePriceRequest(BaseModel):
-    price: PriceResource
+    price: PriceCreate
 
 
 class CreateBalanceAssertionRequest(BaseModel):
-    balance_assertion: BalanceAssertionResource
+    balance_assertion: BalanceAssertionCreate

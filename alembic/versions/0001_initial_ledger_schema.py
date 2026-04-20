@@ -24,7 +24,7 @@ def upgrade() -> None:
         "accounts",
         sa.Column("id", sa.BigInteger(), autoincrement=True, nullable=False),
         sa.Column("name", sa.Text(), nullable=False),
-        sa.Column("ledger_name", sa.Text(), nullable=False),
+        sa.Column("account_name", sa.Text(), nullable=False),
         sa.Column("effective_start_date", sa.Date(), nullable=False),
         sa.Column("effective_end_date", sa.Date(), nullable=True),
         sa.Column(
@@ -38,7 +38,7 @@ def upgrade() -> None:
             name="accounts_effective_date_range_check",
         ),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("ledger_name"),
+        sa.UniqueConstraint("account_name"),
         sa.UniqueConstraint("name"),
     )
 

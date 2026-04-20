@@ -179,6 +179,7 @@ There are only two checked-in config files now:
 - `docs/compatibility-target-v0.1.md`
 - `docs/domain-model-v0.1.md`
 - `docs/api-v0.1.md`
+- `docs/beancount-import-bootstrap-v0.1.md`
 - `docs/adr/`
 - `docs/requirements-v0.1.md`
 - `docs/roadmap-v0.1.md`

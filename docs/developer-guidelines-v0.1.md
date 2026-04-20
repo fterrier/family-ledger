@@ -23,6 +23,7 @@ The priorities are:
 - Do not leave inspiration, dependency, or comparison claims unreferenced in the docs.
 - Prefer concise but complete documentation over informal notes.
 - Treat `docs/compatibility-target-v0.1.md` as a primary design constraint when making implementation decisions.
+- After editing any design or architecture doc, review the related requirements, domain model, API docs, ADRs, and README to make sure they remain consistent, non-contradictory, and complementary.
 
 ## ADRs
 - Add an ADR for architectural decisions that are structural, non-obvious, costly to reverse, or likely to be revisited.

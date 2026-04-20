@@ -35,17 +35,19 @@ Accounts represent the chart of accounts used by transactions and assertions.
 Recommended fields:
 - `id`
 - `name`
-- `ledger_name`
+- `account_name`
 - `effective_start_date`
 - `effective_end_date` nullable
 - optional `entity_metadata`
 
 Notes:
-- `name` is the stable API resource name, for example `accounts/bank-checking-family`.
-- `ledger_name` is the mutable Beancount-compatible hierarchy name, for example `Assets:Bank:Checking:Family`.
-- Account type is implied by the root name segment of `ledger_name`: `Assets`, `Liabilities`, `Equity`, `Income`, or `Expenses`.
+- `name` is the stable API resource name built from an opaque key, for example `accounts/acc_01jv3m0r7x8c`.
+- `account_name` is the mutable Beancount-compatible hierarchy name, for example `Assets:Bank:Checking:Family`.
+- Hierarchy is encoded by `:`-separated segments in `account_name`; for example `Expenses:Stuff:Things` is inside `Expenses:Stuff`, which is inside `Expenses`.
+- Account type is implied by the root name segment of `account_name`: `Assets`, `Liabilities`, `Equity`, `Income`, or `Expenses`.
 - `open` and `close` semantics are modeled through the effective date fields.
 - Commodity constraints, if any, come from project config rather than from a separate v1 account-role system.
+- Postings reference stable account identity rather than `account_name`, so account renames and hierarchy changes do not require rewriting postings.
 
 ## Commodities
 
@@ -58,7 +60,7 @@ Recommended fields:
 - optional `entity_metadata`
 
 Notes:
-- `name` is the stable API resource name, for example `commodities/chf`.
+- `name` is the stable API resource name built from an opaque key, for example `commodities/cmd_01jv3m0r7x8c`.
 - `symbol` is the canonical ledger symbol used in postings, prices, and assertions, for example `CHF`.
 - Additional metadata may exist, but core accounting logic should not depend on arbitrary metadata.
 
@@ -77,6 +79,7 @@ Recommended fields:
 - `fingerprint`
 
 Notes:
+- `name` is the stable API resource name built from an opaque key, for example `transactions/txn_01jv3m0r7x8c`.
 - Transactions do not have a dedicated status field in v1.
 - Transactions may be balanced or unbalanced; validation is computed separately and is not stored on the resource.
 - Transactions may be categorized or uncategorized; that is also a derived property.
@@ -137,6 +140,7 @@ Recommended fields:
 - optional `entity_metadata`
 
 Notes:
+- `name` is the stable API resource name built from an opaque key, for example `prices/prc_01jv3m0r7x8c`.
 - Prices are distinct from posting price annotations.
 - A posting price annotation records the price attached to that posting.
 - A price record belongs to the global price history.
@@ -155,6 +159,7 @@ Recommended fields:
 - optional `entity_metadata`
 
 Notes:
+- `name` is the stable API resource name built from an opaque key, for example `balanceAssertions/bal_01jv3m0r7x8c`.
 - Balance assertions are validated against derived balances.
 - Project-level tolerance rules come from config.
 
@@ -271,7 +276,7 @@ The database owns:
 
 The v1 schema should enforce at least these uniqueness constraints:
 - unique `accounts.name`
-- unique `accounts.ledger_name`
+- unique `accounts.account_name`
 - unique `commodities.name`
 - unique `commodities.symbol`
 - unique `transactions.source_native_id` when non-null

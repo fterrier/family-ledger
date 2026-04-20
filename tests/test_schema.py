@@ -33,12 +33,12 @@ def test_account_name_must_be_unique(session: Session) -> None:
         [
             Account(
                 name="accounts/checking-family",
-                ledger_name="Assets:Bank:Checking:Family",
+                account_name="Assets:Bank:Checking:Family",
                 effective_start_date=date(2020, 1, 1),
             ),
             Account(
                 name="accounts/checking-family",
-                ledger_name="Assets:Bank:Savings:Family",
+                account_name="Assets:Bank:Savings:Family",
                 effective_start_date=date(2020, 1, 1),
             ),
         ]
@@ -53,12 +53,12 @@ def test_account_ledger_name_must_be_unique(session: Session) -> None:
         [
             Account(
                 name="accounts/checking-family",
-                ledger_name="Assets:Bank:Checking:Family",
+                account_name="Assets:Bank:Checking:Family",
                 effective_start_date=date(2020, 1, 1),
             ),
             Account(
                 name="accounts/savings-family",
-                ledger_name="Assets:Bank:Checking:Family",
+                account_name="Assets:Bank:Checking:Family",
                 effective_start_date=date(2020, 1, 1),
             ),
         ]
@@ -103,7 +103,7 @@ def test_transaction_fingerprint_must_be_unique(session: Session) -> None:
 def test_postings_are_deleted_with_transaction(session: Session) -> None:
     account = Account(
         name="accounts/checking-family",
-        ledger_name="Assets:Bank:Checking:Family",
+        account_name="Assets:Bank:Checking:Family",
         effective_start_date=date(2020, 1, 1),
     )
     transaction = Transaction(

@@ -11,8 +11,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
+    AccountCreate,
     AccountResource,
+    BalanceAssertionCreate,
     BalanceAssertionResource,
+    CommodityCreate,
     CommodityResource,
     ImportMetadata,
     ListAccountsResponse,
@@ -20,11 +23,15 @@ from family_ledger.api.schemas import (
     ListTransactionsResponse,
     MoneyValue,
     PostingPayload,
+    PriceCreate,
     PriceResource,
+    TransactionCreate,
+    TransactionData,
     TransactionResource,
 )
 from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
+from family_ledger.services.identifiers import generate_resource_name
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
@@ -63,7 +70,7 @@ def paginate_query(query: Select, *, offset: int, page_size: int):
     return query.offset(offset).limit(page_size + 1)
 
 
-def transaction_fingerprint_content(payload: TransactionResource) -> dict[str, object]:
+def transaction_fingerprint_content(payload: TransactionData) -> dict[str, object]:
     """Return the canonical content used for transaction dedupe fingerprints.
 
     The fingerprint intentionally tracks current transaction content rather than
@@ -78,29 +85,20 @@ def transaction_fingerprint_content(payload: TransactionResource) -> dict[str, o
         "postings": [
             {
                 "account": posting.account,
-                "units": {
-                    "amount": str(posting.units.amount),
-                    "symbol": posting.units.symbol,
-                },
+                "units": {"amount": str(posting.units.amount), "symbol": posting.units.symbol},
                 "cost": None
                 if posting.cost is None
-                else {
-                    "amount": str(posting.cost.amount),
-                    "symbol": posting.cost.symbol,
-                },
+                else {"amount": str(posting.cost.amount), "symbol": posting.cost.symbol},
                 "price": None
                 if posting.price is None
-                else {
-                    "amount": str(posting.price.amount),
-                    "symbol": posting.price.symbol,
-                },
+                else {"amount": str(posting.price.amount), "symbol": posting.price.symbol},
             }
             for posting in payload.postings
         ],
     }
 
 
-def hash_transaction_payload(payload: TransactionResource) -> str:
+def hash_transaction_payload(payload: TransactionData) -> str:
     content = transaction_fingerprint_content(payload)
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
     return f"sha256:{digest.hexdigest()}"
@@ -121,16 +119,10 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
             units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
             cost=None
             if posting.cost_per_unit is None
-            else MoneyValue(
-                amount=posting.cost_per_unit,
-                symbol=cast(str, posting.cost_symbol),
-            ),
+            else MoneyValue(amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)),
             price=None
             if posting.price_per_unit is None
-            else MoneyValue(
-                amount=posting.price_per_unit,
-                symbol=cast(str, posting.price_symbol),
-            ),
+            else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
             entity_metadata=posting.entity_metadata,
         )
         for posting in transaction.postings
@@ -178,14 +170,11 @@ def resolve_accounts(session: Session, postings: list[PostingPayload]) -> dict[s
     account_names = {resource_name("accounts", posting.account) for posting in postings}
     accounts = session.scalars(select(Account).where(Account.name.in_(account_names))).all()
     by_name = {account.name: account for account in accounts}
-
     missing = sorted(account_names - by_name.keys())
     if missing:
         raise ValidationError(
-            code="account_not_found",
-            message=f"Accounts not found: {', '.join(missing)}",
+            code="account_not_found", message=f"Accounts not found: {', '.join(missing)}"
         )
-
     return by_name
 
 
@@ -194,8 +183,7 @@ def resolve_account(session: Session, account_name: str) -> Account:
     account = session.scalar(select(Account).where(Account.name == resolved_name))
     if account is None:
         raise ValidationError(
-            code="account_not_found",
-            message=f"Account not found: {resolved_name}",
+            code="account_not_found", message=f"Account not found: {resolved_name}"
         )
     return account
 
@@ -209,7 +197,6 @@ def validate_account_dates(transaction_date: date, accounts: dict[str, Account])
             account.effective_end_date is not None and transaction_date > account.effective_end_date
         ):
             invalid.append(account.name)
-
     if invalid:
         raise ValidationError(
             code="account_not_effective",
@@ -227,7 +214,7 @@ def validate_symbols_exist(session: Session, symbols: set[str]) -> None:
         )
 
 
-def validate_transaction_symbols(session: Session, payload: TransactionResource) -> None:
+def validate_transaction_symbols(session: Session, payload: TransactionData) -> None:
     symbols = set()
     for posting in payload.postings:
         symbols.add(posting.units.symbol)
@@ -240,7 +227,7 @@ def validate_transaction_symbols(session: Session, payload: TransactionResource)
 
 def persist_transaction(
     session: Session,
-    payload: TransactionResource,
+    payload: TransactionData,
     transaction: Transaction | None = None,
 ) -> Transaction:
     account_map = resolve_accounts(session, payload.postings)
@@ -248,7 +235,7 @@ def persist_transaction(
     validate_transaction_symbols(session, payload)
 
     if transaction is None:
-        transaction = Transaction(name=payload.name)
+        transaction = Transaction(name=generate_resource_name("transactions", "txn"))
         session.add(transaction)
 
     transaction.transaction_date = payload.transaction_date
@@ -285,27 +272,17 @@ def commit_or_raise(session: Session) -> None:
         session.commit()
     except IntegrityError as exc:
         session.rollback()
-        raise ConflictError(
-            code="integrity_error",
-            message=str(exc.orig),
-        ) from exc
-
-
-def list_accounts(session: Session) -> ListAccountsResponse:
-    return list_accounts_page(session, page_size=None, page_token=None)
+        raise ConflictError(code="integrity_error", message=str(exc.orig)) from exc
 
 
 def list_accounts_page(
-    session: Session,
-    *,
-    page_size: int | None,
-    page_token: str | None,
+    session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListAccountsResponse:
     normalized_page_size = normalize_page_size(page_size)
     offset = decode_page_token(page_token)
     accounts = session.scalars(
         paginate_query(
-            select(Account).order_by(Account.ledger_name),
+            select(Account).order_by(Account.account_name),
             offset=offset,
             page_size=normalized_page_size,
         )
@@ -324,17 +301,14 @@ def get_account_by_name(session: Session, account: str) -> AccountResource:
     resource = resource_name("accounts", account)
     account_row = session.scalar(select(Account).where(Account.name == resource))
     if account_row is None:
-        raise NotFoundError(
-            code="account_not_found",
-            message="Account not found",
-        )
+        raise NotFoundError(code="account_not_found", message="Account not found")
     return serialize_account(account_row)
 
 
-def create_account(session: Session, payload: AccountResource) -> AccountResource:
+def create_account(session: Session, payload: AccountCreate) -> AccountResource:
     account = Account(
-        name=payload.name,
-        ledger_name=payload.ledger_name,
+        name=generate_resource_name("accounts", "acc"),
+        account_name=payload.account_name,
         effective_start_date=payload.effective_start_date,
         effective_end_date=payload.effective_end_date,
         entity_metadata=payload.entity_metadata,
@@ -345,15 +319,8 @@ def create_account(session: Session, payload: AccountResource) -> AccountResourc
     return serialize_account(account)
 
 
-def list_commodities(session: Session) -> ListCommoditiesResponse:
-    return list_commodities_page(session, page_size=None, page_token=None)
-
-
 def list_commodities_page(
-    session: Session,
-    *,
-    page_size: int | None,
-    page_token: str | None,
+    session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListCommoditiesResponse:
     normalized_page_size = normalize_page_size(page_size)
     offset = decode_page_token(page_token)
@@ -378,16 +345,13 @@ def get_commodity_by_name(session: Session, commodity: str) -> CommodityResource
     resource = resource_name("commodities", commodity)
     commodity_row = session.scalar(select(Commodity).where(Commodity.name == resource))
     if commodity_row is None:
-        raise NotFoundError(
-            code="commodity_not_found",
-            message="Commodity not found",
-        )
+        raise NotFoundError(code="commodity_not_found", message="Commodity not found")
     return serialize_commodity(commodity_row)
 
 
-def create_commodity(session: Session, payload: CommodityResource) -> CommodityResource:
+def create_commodity(session: Session, payload: CommodityCreate) -> CommodityResource:
     commodity = Commodity(
-        name=payload.name,
+        name=generate_resource_name("commodities", "cmd"),
         symbol=payload.symbol,
         entity_metadata=payload.entity_metadata,
     )
@@ -397,7 +361,7 @@ def create_commodity(session: Session, payload: CommodityResource) -> CommodityR
     return serialize_commodity(commodity)
 
 
-def create_transaction(session: Session, payload: TransactionResource) -> TransactionResource:
+def create_transaction(session: Session, payload: TransactionCreate) -> TransactionResource:
     transaction = persist_transaction(session, payload)
     commit_or_raise(session)
     session.refresh(transaction)
@@ -422,11 +386,9 @@ def list_transactions_page(
 ) -> ListTransactionsResponse:
     normalized_page_size = normalize_page_size(page_size)
     offset = decode_page_token(page_token)
-
     query = select(Transaction).options(
         selectinload(Transaction.postings).selectinload(Posting.account)
     )
-
     if from_date is not None:
         query = query.where(Transaction.transaction_date >= from_date)
     if to_date is not None:
@@ -441,17 +403,14 @@ def list_transactions_page(
             .where(Account.name == account_name)
             .distinct()
         )
-
     query = query.order_by(Transaction.transaction_date, Transaction.name)
     transactions = session.scalars(
         paginate_query(query, offset=offset, page_size=normalized_page_size)
     ).all()
-
     next_page_token = None
     if len(transactions) > normalized_page_size:
         transactions = transactions[:normalized_page_size]
         next_page_token = encode_page_token(offset + normalized_page_size)
-
     return ListTransactionsResponse(
         transactions=[serialize_transaction(transaction) for transaction in transactions],
         next_page_token=next_page_token,
@@ -466,17 +425,14 @@ def get_transaction_by_name(session: Session, transaction: str) -> TransactionRe
         .where(Transaction.name == resource)
     )
     if transaction_row is None:
-        raise NotFoundError(
-            code="transaction_not_found",
-            message="Transaction not found",
-        )
+        raise NotFoundError(code="transaction_not_found", message="Transaction not found")
     return serialize_transaction(transaction_row)
 
 
-def create_price(session: Session, payload: PriceResource) -> PriceResource:
+def create_price(session: Session, payload: PriceCreate) -> PriceResource:
     validate_symbols_exist(session, {payload.base_symbol, payload.quote.symbol})
     price = Price(
-        name=payload.name,
+        name=generate_resource_name("prices", "prc"),
         price_date=payload.price_date,
         base_symbol=payload.base_symbol,
         quote_symbol=payload.quote.symbol,
@@ -493,21 +449,17 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
     resource = resource_name("prices", price)
     price_row = session.scalar(select(Price).where(Price.name == resource))
     if price_row is None:
-        raise NotFoundError(
-            code="price_not_found",
-            message="Price not found",
-        )
+        raise NotFoundError(code="price_not_found", message="Price not found")
     return serialize_price(price_row)
 
 
 def create_balance_assertion(
-    session: Session,
-    payload: BalanceAssertionResource,
+    session: Session, payload: BalanceAssertionCreate
 ) -> BalanceAssertionResource:
     account = resolve_account(session, payload.account)
     validate_symbols_exist(session, {payload.amount.symbol})
     assertion = BalanceAssertion(
-        name=payload.name,
+        name=generate_resource_name("balanceAssertions", "bal"),
         assertion_date=payload.assertion_date,
         account=account,
         amount=payload.amount.amount,
@@ -527,8 +479,7 @@ def create_balance_assertion(
 
 
 def get_balance_assertion_by_name(
-    session: Session,
-    balance_assertion: str,
+    session: Session, balance_assertion: str
 ) -> BalanceAssertionResource:
     resource = resource_name("balanceAssertions", balance_assertion)
     assertion = session.scalar(
@@ -538,7 +489,6 @@ def get_balance_assertion_by_name(
     )
     if assertion is None:
         raise NotFoundError(
-            code="balance_assertion_not_found",
-            message="Balance assertion not found",
+            code="balance_assertion_not_found", message="Balance assertion not found"
         )
     return serialize_balance_assertion(assertion)

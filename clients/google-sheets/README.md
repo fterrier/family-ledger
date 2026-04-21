@@ -40,6 +40,7 @@ Run from `clients/google-sheets/`:
 ```bash
 npm install
 npm run check
+npm test
 ```
 
 This tooling is intentionally local to this client folder so the Sheets client can move to its own repo later without dragging root-level JavaScript setup with it.

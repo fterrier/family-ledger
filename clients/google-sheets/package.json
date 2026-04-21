@@ -1,0 +1,14 @@
+{
+  "name": "family-ledger-google-sheets",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Google Sheets client tooling for family-ledger",
+  "scripts": {
+    "check": "eslint Code.js"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.38.0",
+    "eslint": "^9.38.0",
+    "globals": "^16.4.0"
+  }
+}

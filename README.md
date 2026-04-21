@@ -184,3 +184,7 @@ There are only two checked-in config files now:
 - `docs/requirements-v0.1.md`
 - `docs/roadmap-v0.1.md`
 - `docs/developer-guidelines-v0.1.md`
+
+## Clients
+
+- `clients/google-sheets/`: narrow Google Sheets POC for category edits and split updates via the API

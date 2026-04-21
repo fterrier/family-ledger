@@ -24,6 +24,9 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Family Ledger')
     .addItem('Set API Base URL', 'setFamilyLedgerBaseUrl')
+    .addItem('Set API Token', 'setFamilyLedgerApiToken')
+    .addItem('Show Current Settings', 'showFamilyLedgerSettings')
+    .addItem('Test Connection', 'testFamilyLedgerConnection')
     .addSeparator()
     .addItem('Sync Accounts', 'syncFamilyLedgerAccounts')
     .addItem('Sync Transactions', 'syncFamilyLedgerTransactions')
@@ -48,6 +51,72 @@ function setFamilyLedgerBaseUrl() {
   const baseUrl = normalizeBaseUrl_(response.getResponseText());
   PropertiesService.getScriptProperties().setProperty('FAMILY_LEDGER_BASE_URL', baseUrl);
   ui.alert('Saved API base URL: ' + baseUrl);
+}
+
+function setFamilyLedgerApiToken() {
+  const ui = SpreadsheetApp.getUi();
+  const response = ui.prompt(
+    'Family Ledger API Token',
+    'Paste the bearer token configured on the server.',
+    ui.ButtonSet.OK_CANCEL
+  );
+
+  if (response.getSelectedButton() !== ui.Button.OK) {
+    return;
+  }
+
+  const token = normalizeApiToken_(response.getResponseText());
+  PropertiesService.getScriptProperties().setProperty('FAMILY_LEDGER_API_TOKEN', token);
+  ui.alert('Saved API token.');
+}
+
+function showFamilyLedgerSettings() {
+  const ui = SpreadsheetApp.getUi();
+  const baseUrl = getFamilyLedgerBaseUrl_();
+  const apiToken = getFamilyLedgerApiToken_();
+  ui.alert(
+    'Family Ledger Settings',
+    'Base URL: ' + (baseUrl || '(not set)') + '\n' +
+      'API token: ' + (apiToken ? maskToken_(apiToken) : '(not set)'),
+    ui.ButtonSet.OK
+  );
+}
+
+function testFamilyLedgerConnection() {
+  const ui = SpreadsheetApp.getUi();
+  const baseUrl = getFamilyLedgerBaseUrl_();
+  const apiToken = getFamilyLedgerApiToken_();
+  if (!baseUrl) {
+    throw new Error('Missing FAMILY_LEDGER_BASE_URL. Run Set API Base URL first.');
+  }
+  if (!apiToken) {
+    throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run Set API Token first.');
+  }
+
+  let healthMessage = 'not checked';
+  let authMessage = 'not checked';
+
+  try {
+    const health = apiFetchJson_('get', '/healthz', undefined, { skipAuth: true });
+    healthMessage = health.status === 'ok' ? 'ok' : 'unexpected response';
+  } catch (error) {
+    healthMessage = error.message;
+  }
+
+  if (healthMessage === 'ok') {
+    try {
+      apiFetchJson_('get', '/accounts?page_size=1');
+      authMessage = 'ok';
+    } catch (error) {
+      authMessage = error.message;
+    }
+  }
+
+  ui.alert(
+    'Family Ledger Connection Test',
+    'Health: ' + healthMessage + '\n' + 'Ledger auth: ' + authMessage,
+    ui.ButtonSet.OK
+  );
 }
 
 function syncFamilyLedgerAccounts() {
@@ -98,6 +167,7 @@ function syncFamilyLedgerTransactions() {
   writeSheet_(sheet, FAMILY_LEDGER_TRANSACTION_HEADERS, rows);
   sheet.setFrozenRows(1);
   applyCategoryValidation_(sheet, rows.length);
+  protectTransactionSheet_(sheet);
   const originalJsonColumn = FAMILY_LEDGER_TRANSACTION_HEADERS.indexOf('original_transaction_json') + 1;
   sheet.hideColumns(originalJsonColumn);
 }
@@ -331,19 +401,26 @@ function pathWithUpdatedPageToken_(path, pageToken) {
   return basePath + '?' + filtered.join('&');
 }
 
-function apiFetchJson_(method, path, payload) {
+function apiFetchJson_(method, path, payload, options) {
+  options = options || {};
   const url = buildApiUrl_(path);
-  const options = {
+  const requestOptions = {
     method: method,
     contentType: 'application/json',
     muteHttpExceptions: true,
   };
 
   if (payload !== undefined) {
-    options.payload = JSON.stringify(payload);
+    requestOptions.payload = JSON.stringify(payload);
   }
 
-  const response = UrlFetchApp.fetch(url, options);
+  if (!options.skipAuth) {
+    requestOptions.headers = {
+      Authorization: 'Bearer ' + getRequiredFamilyLedgerApiToken_(),
+    };
+  }
+
+  const response = UrlFetchApp.fetch(url, requestOptions);
   const statusCode = response.getResponseCode();
   const body = response.getContentText();
 
@@ -386,12 +463,32 @@ function getFamilyLedgerBaseUrl_() {
   return PropertiesService.getScriptProperties().getProperty('FAMILY_LEDGER_BASE_URL');
 }
 
+function getFamilyLedgerApiToken_() {
+  return PropertiesService.getScriptProperties().getProperty('FAMILY_LEDGER_API_TOKEN');
+}
+
+function getRequiredFamilyLedgerApiToken_() {
+  const token = getFamilyLedgerApiToken_();
+  if (!token) {
+    throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run Set API Token first.');
+  }
+  return token;
+}
+
 function normalizeBaseUrl_(value) {
   const trimmed = String(value || '').trim();
   if (!trimmed) {
     throw new Error('API base URL cannot be blank.');
   }
   return trimmed.replace(/\/+$/, '');
+}
+
+function normalizeApiToken_(value) {
+  const trimmed = String(value || '').trim();
+  if (!trimmed) {
+    throw new Error('API token cannot be blank.');
+  }
+  return trimmed;
 }
 
 function getOrCreateSheet_(sheetName) {
@@ -410,6 +507,32 @@ function writeSheet_(sheet, headers, rows) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
+}
+
+function protectTransactionSheet_(sheet) {
+  const existingProtections = sheet.getProtections(SpreadsheetApp.ProtectionType.RANGE);
+  existingProtections.forEach(function(protection) {
+    protection.remove();
+  });
+
+  const protectedHeaders = [
+    'transaction_name',
+    'source_account_name',
+    'amount',
+    'symbol',
+    'original_transaction_json',
+  ];
+
+  protectedHeaders.forEach(function(header) {
+    const column = FAMILY_LEDGER_TRANSACTION_HEADERS.indexOf(header) + 1;
+    if (column <= 0) {
+      return;
+    }
+
+    const protection = sheet.getRange(1, column, Math.max(sheet.getMaxRows(), 1), 1).protect();
+    protection.setDescription('Managed by Family Ledger sync');
+    protection.setWarningOnly(true);
+  });
 }
 
 function rowToObject_(headers, rowValues) {
@@ -446,6 +569,13 @@ function normalizeTransactionDate_(value) {
     return Utilities.formatDate(value, 'UTC', 'yyyy-MM-dd');
   }
   return String(value);
+}
+
+function maskToken_(token) {
+  if (token.length <= 8) {
+    return '********';
+  }
+  return token.slice(0, 4) + '...' + token.slice(-4);
 }
 
 function normalizeDecimalString_(value) {

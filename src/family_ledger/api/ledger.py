@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from family_ledger.api.auth import require_api_token
 from family_ledger.api.schemas import (
     AccountResource,
     BalanceAssertionResource,
@@ -33,7 +34,7 @@ from family_ledger.services.errors import (
     ValidationError,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_api_token)])
 
 DbSession = Annotated[Session, Depends(get_db_session)]
 

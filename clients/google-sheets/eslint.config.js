@@ -26,7 +26,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|setFamilyLedgerBaseUrl|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveFamilyLedgerTransactionRow)$',
+            '^(onOpen|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveFamilyLedgerTransactionRow)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

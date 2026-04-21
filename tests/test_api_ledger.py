@@ -6,7 +6,16 @@ from decimal import Decimal
 from fastapi.testclient import TestClient
 
 
-def make_client() -> TestClient:
+def make_client(api_token: str = "test-token") -> TestClient:
+    main_module = importlib.import_module("family_ledger.main")
+    main_module = importlib.reload(main_module)
+    return TestClient(
+        main_module.create_app(),
+        headers={"Authorization": f"Bearer {api_token}"},
+    )
+
+
+def make_unauthenticated_client() -> TestClient:
     main_module = importlib.import_module("family_ledger.main")
     main_module = importlib.reload(main_module)
     return TestClient(main_module.create_app())
@@ -58,6 +67,24 @@ def test_create_and_list_accounts() -> None:
         ],
         "next_page_token": None,
     }
+
+
+def test_ledger_routes_require_authentication() -> None:
+    client = make_unauthenticated_client()
+
+    response = client.get("/accounts")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unauthenticated"
+
+
+def test_ledger_routes_reject_invalid_token() -> None:
+    client = make_client(api_token="wrong-token")
+
+    response = client.get("/accounts")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unauthenticated"
 
 
 def test_list_accounts_supports_pagination() -> None:

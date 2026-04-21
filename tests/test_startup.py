@@ -4,6 +4,7 @@ import importlib
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 
 def test_create_app_fails_without_ledger_config(
@@ -29,3 +30,19 @@ def test_create_app_succeeds_with_valid_test_configuration() -> None:
     app = main_module.create_app()
 
     assert app.title == "family-ledger"
+
+
+def test_create_app_fails_without_api_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger import config as config_module
+
+    monkeypatch.delenv("FAMILY_LEDGER_API_TOKEN", raising=False)
+    config_module.get_settings.cache_clear()
+    config_module.get_ledger_config.cache_clear()
+
+    with pytest.raises(ValidationError):
+        main_module = importlib.import_module("family_ledger.main")
+        main_module = importlib.reload(main_module)
+        main_module.create_app()
+
+    config_module.get_settings.cache_clear()
+    config_module.get_ledger_config.cache_clear()

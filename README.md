@@ -21,6 +21,7 @@ cp docker/compose/.env.example docker/compose/.env
 ```
 
 2. Edit `docker/compose/.env` and set a real `POSTGRES_PASSWORD`.
+   Also set a real `FAMILY_LEDGER_API_TOKEN`.
 
    `docker/compose/.env.example` is the checked-in template.
    `docker/compose/.env` is your local deployment file and should not be committed.
@@ -42,6 +43,8 @@ docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.e
 ```bash
 curl http://localhost:8000/healthz
 ```
+
+All ledger API routes except `GET /healthz` require `Authorization: Bearer <token>`.
 
 ### Ledger Config
 
@@ -71,6 +74,20 @@ docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.e
 docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env up -d
 docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api alembic upgrade head
 ```
+
+## Google Sheets Access
+
+Google Apps Script runs on Google's servers. It cannot call `localhost`, a private LAN IP, or a plain private Tailscale address.
+
+For the Google Sheets client, the API must be reachable over public HTTPS.
+
+Recommended setup:
+- run `family-ledger` on-prem
+- expose it with `Tailscale Funnel`
+- set a strong `FAMILY_LEDGER_API_TOKEN`
+- configure the same base URL and token in the Sheets client
+
+`GET /healthz` stays open for reachability checks. Ledger routes still require the bearer token.
 
 ## Troubleshooting
 
@@ -113,6 +130,7 @@ For application development, prefer the Python/`uv` workflow rather than Docker 
 | `POSTGRES_DB` | `family_ledger` | PostgreSQL database name |
 | `POSTGRES_USER` | `family_ledger` | PostgreSQL username |
 | `POSTGRES_PASSWORD` | - | **Required**. Set in `.env` |
+| `FAMILY_LEDGER_API_TOKEN` | - | **Required**. Bearer token for all ledger API routes |
 | `FAMILY_LEDGER_IMAGE` | `ghcr.io/fterrier/family-ledger:latest` | Container image to run |
 | `FAMILY_LEDGER_DATABASE_URL` | `postgresql+psycopg://...` | Database connection URL |
 | `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to the mounted ledger config inside the container |

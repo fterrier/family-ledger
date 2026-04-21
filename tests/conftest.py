@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine, text
+
+os.environ.setdefault("FAMILY_LEDGER_API_TOKEN", "test-token")
 
 from family_ledger import config as config_module
 from family_ledger import db as db_module
@@ -24,6 +27,7 @@ def configure_test_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     )
 
     monkeypatch.setenv("FAMILY_LEDGER_DATABASE_URL", f"sqlite+pysqlite:///{db_path}")
+    monkeypatch.setenv("FAMILY_LEDGER_API_TOKEN", "test-token")
     monkeypatch.setenv("FAMILY_LEDGER_LEDGER_CONFIG_PATH", str(config_path))
 
     config_module.get_settings.cache_clear()

@@ -31,6 +31,12 @@ Important hot paths:
 - auto-save
 - fallback manual push
 
+For same-shape saves:
+- do not delete and recreate rows
+- update changed cells in place only
+
+Structural row replacement is allowed only when the rendered transaction shape actually changes.
+
 ### Validation And Protection
 
 Do not rebuild validation or sheet protections for the entire sheet during hot-path actions.

@@ -90,6 +90,11 @@ Edits that trigger save:
 
 Saving always reconstructs the whole transaction for `PATCH /transactions/{transaction}`.
 
+For refreshed transactions:
+- same-shape responses are applied in place without deleting and recreating rows
+- structural row replacement is reserved for true shape changes, such as a changed rendered row count
+- stale save responses must not overwrite newer local edits
+
 `Push Active Transaction` remains available only as a fallback manual retry path.
 
 ## Unsupported Transactions

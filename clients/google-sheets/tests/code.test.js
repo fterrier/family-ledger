@@ -6,6 +6,7 @@ const vm = require('node:vm');
 
 function loadCode(overrides = {}) {
   const properties = new Map();
+  const documentProperties = new Map();
   const fetchCalls = [];
   const codePath = path.join(__dirname, '..', 'Code.js');
   const source = fs.readFileSync(codePath, 'utf8');
@@ -74,6 +75,16 @@ function loadCode(overrides = {}) {
           },
         };
       },
+      getDocumentProperties() {
+        return {
+          getProperty(key) {
+            return documentProperties.has(key) ? documentProperties.get(key) : null;
+          },
+          setProperty(key, value) {
+            documentProperties.set(key, value);
+          },
+        };
+      },
       ...overrides.PropertiesService,
     },
     UrlFetchApp: {
@@ -102,7 +113,7 @@ function loadCode(overrides = {}) {
 
   vm.createContext(sandbox);
   vm.runInContext(source, sandbox, { filename: 'Code.js' });
-  return { sandbox, properties, fetchCalls };
+  return { sandbox, properties, documentProperties, fetchCalls };
 }
 
 function sampleTransaction(overrides = {}) {
@@ -558,4 +569,124 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   assert.equal(rowStore.get(3).amount, '20');
   assert.equal(rowStore.get(3).destination_account_name, 'Expenses:Food');
   assert.equal(rowStore.get(3).split_off_amount, '');
+});
+
+test('canUpdateTransactionRowsInPlace_ accepts same-shape replacement rows', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(
+    sandbox.canUpdateTransactionRowsInPlace_(
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          source_account_name: 'Assets:Bank:Checking',
+          symbol: 'CHF',
+        },
+      ],
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          source_account_name: 'Assets:Bank:Checking',
+          symbol: 'CHF',
+        },
+      ]
+    ),
+    true
+  );
+});
+
+test('canUpdateTransactionRowsInPlace_ rejects row count changes', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(
+    sandbox.canUpdateTransactionRowsInPlace_(
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          source_account_name: 'Assets:Bank:Checking',
+          symbol: 'CHF',
+        },
+      ],
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          source_account_name: 'Assets:Bank:Checking',
+          symbol: 'CHF',
+        },
+        {
+          transaction_name: 'transactions/txn_1',
+          source_account_name: 'Assets:Bank:Checking',
+          symbol: 'CHF',
+        },
+      ]
+    ),
+    false
+  );
+});
+
+test('updateTransactionRowsInPlace_ writes only changed cells', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const fakeSheet = {
+    getRange(row, column) {
+      return {
+        setValue(value) {
+          operations.push({ row: row, column: column, value: value });
+        },
+      };
+    },
+  };
+
+  sandbox.updateTransactionRowsInPlace_(
+    fakeSheet,
+    [2],
+    [
+      {
+        transaction_name: 'transactions/txn_1',
+        transaction_date: '2026-04-19',
+        payee: 'Old',
+        narration: 'Keep',
+        source_account_name: 'Assets:Bank:Checking',
+        destination_account_name: 'Expenses:Food',
+        amount: '84.25',
+        split_off_amount: '',
+        symbol: 'CHF',
+        status: 'saving',
+        last_error: '',
+      },
+    ],
+    [
+      {
+        transaction_name: 'transactions/txn_1',
+        transaction_date: '2026-04-19',
+        payee: 'New',
+        narration: 'Keep',
+        source_account_name: 'Assets:Bank:Checking',
+        destination_account_name: 'Expenses:Food',
+        amount: '84.25',
+        split_off_amount: '',
+        symbol: 'CHF',
+        status: 'saved',
+        last_error: '',
+      },
+    ]
+  );
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { row: 2, column: 3, value: 'New' },
+    { row: 2, column: 10, value: 'saved' },
+  ]);
+});
+
+test('save generation helpers ignore stale responses', () => {
+  const { sandbox, documentProperties } = loadCode();
+
+  const first = sandbox.beginSaveGeneration_('transactions/txn_1');
+  const second = sandbox.beginSaveGeneration_('transactions/txn_1');
+
+  assert.equal(first, '1');
+  assert.equal(second, '2');
+  assert.equal(documentProperties.get('family_ledger_save_generation:transactions/txn_1'), '2');
+  assert.equal(sandbox.isCurrentSaveGeneration_('transactions/txn_1', '1'), false);
+  assert.equal(sandbox.isCurrentSaveGeneration_('transactions/txn_1', '2'), true);
 });

@@ -68,19 +68,30 @@ function handleTransactionEdit(e) {
     return;
   }
 
+  applyTransactionEdit_(sheet, row, header, String(e.range.getValue() || ''), {
+    showSuccessToast: true,
+  });
+}
+
+function applyTransactionEdit_(sheet, rowNumber, header, rawValue, saveOptions) {
+  const transactionName = getTransactionNameForRow_(sheet, rowNumber);
+  if (!transactionName) {
+    return;
+  }
+
   if (header === 'split_off_amount') {
-    const splitValue = String(e.range.getValue() || '').trim();
+    const splitValue = String(rawValue || '').trim();
     if (!splitValue) {
       return;
     }
-    performSplitForRow_(sheet, row, splitValue);
+    performSplitForRow_(sheet, rowNumber, splitValue);
   } else if (header === 'payee' || header === 'narration') {
-    propagateTransactionField_(sheet, transactionName, header, String(e.range.getValue() || ''));
+    propagateTransactionField_(sheet, transactionName, header, String(rawValue || ''));
   } else {
     clearTransactionErrors_(sheet, transactionName);
   }
 
-  saveTransactionByName_(sheet, transactionName, { showSuccessToast: true });
+  saveTransactionByName_(sheet, transactionName, saveOptions || {});
 }
 
 function setFamilyLedgerBaseUrl() {
@@ -260,8 +271,9 @@ function splitSelectedTransactionRow() {
     if (response.getSelectedButton() !== ui.Button.OK) {
       return;
     }
-    performSplitForRow_(sheet, activeRow, response.getResponseText());
-    saveTransactionByName_(sheet, row.transaction_name, { showSuccessToast: true });
+    applyTransactionEdit_(sheet, activeRow, 'split_off_amount', response.getResponseText(), {
+      showSuccessToast: true,
+    });
   });
 }
 
@@ -374,6 +386,7 @@ function saveTransactionByName_(sheet, transactionName, options) {
   options = options || {};
   const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
   const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
+  const saveGeneration = beginSaveGeneration_(transactionName);
   const group = {
     transactionName: transactionName,
     activeIndex: 0,
@@ -399,12 +412,19 @@ function saveTransactionByName_(sheet, transactionName, options) {
     if (replacementRows === null) {
       throw new Error('The updated transaction is no longer editable in this Sheets client.');
     }
+    if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) {
+      return;
+    }
     replacementRows.forEach(function(row) {
       row.split_off_amount = '';
       row.status = 'saved';
       row.last_error = '';
     });
-    replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows);
+    if (canUpdateTransactionRowsInPlace_(rows, replacementRows)) {
+      updateTransactionRowsInPlace_(sheet, rowNumbers, rows, replacementRows);
+    } else {
+      replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows);
+    }
 
     if (options.showSuccessAlert) {
       SpreadsheetApp.getUi().alert(
@@ -417,12 +437,31 @@ function saveTransactionByName_(sheet, transactionName, options) {
       SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
     }
   } catch (error) {
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
+    if (isCurrentSaveGeneration_(transactionName, saveGeneration)) {
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
+    }
     if (options.showSuccessAlert) {
       throw error;
     }
   }
+}
+
+function beginSaveGeneration_(transactionName) {
+  const properties = PropertiesService.getDocumentProperties();
+  const key = getSaveGenerationKey_(transactionName);
+  const currentValue = parseInt(properties.getProperty(key) || '0', 10);
+  const nextValue = String(currentValue + 1);
+  properties.setProperty(key, nextValue);
+  return nextValue;
+}
+
+function isCurrentSaveGeneration_(transactionName, generation) {
+  return PropertiesService.getDocumentProperties().getProperty(getSaveGenerationKey_(transactionName)) === generation;
+}
+
+function getSaveGenerationKey_(transactionName) {
+  return 'family_ledger_save_generation:' + transactionName;
 }
 
 function flattenTransactionForSheet_(transaction, accountNameLookup) {
@@ -578,6 +617,47 @@ function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
   rowNumbers.forEach(function(rowNumber) {
     sheet.getRange(rowNumber, column).setValue(value);
   });
+}
+
+function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacementRows) {
+  rowNumbers.forEach(function(rowNumber, index) {
+    const existingRow = existingRows[index] || {};
+    const replacementRow = replacementRows[index] || {};
+    const changedHeaders = FAMILY_LEDGER_TRANSACTION_HEADERS.filter(function(header) {
+      return normalizeSheetCellValue_(existingRow[header]) !== normalizeSheetCellValue_(replacementRow[header]);
+    });
+
+    changedHeaders.forEach(function(header) {
+      sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] || '');
+    });
+  });
+}
+
+function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
+  if (existingRows.length !== replacementRows.length || existingRows.length === 0) {
+    return false;
+  }
+
+  for (let index = 0; index < existingRows.length; index += 1) {
+    const existingRow = existingRows[index];
+    const replacementRow = replacementRows[index];
+    if (
+      normalizeSheetCellValue_(existingRow.transaction_name) !== normalizeSheetCellValue_(replacementRow.transaction_name) ||
+      normalizeSheetCellValue_(existingRow.source_account_name) !== normalizeSheetCellValue_(replacementRow.source_account_name) ||
+      normalizeSheetCellValue_(existingRow.symbol) !== normalizeSheetCellValue_(replacementRow.symbol)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function normalizeSheetCellValue_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return normalizeTransactionDate_(value);
+  }
+  return String(value || '');
 }
 
 function readTransactionSheetRowsByNumbers_(sheet, rowNumbers) {

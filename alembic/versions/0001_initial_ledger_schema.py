@@ -74,9 +74,9 @@ def upgrade() -> None:
         sa.Column("source_native_id", sa.Text(), nullable=True),
         sa.Column("fingerprint", sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("fingerprint"),
         sa.UniqueConstraint("name"),
     )
+    op.create_index("transactions_fingerprint_idx", "transactions", ["fingerprint"], unique=False)
     op.create_index(
         "transactions_source_native_id_key",
         "transactions",
@@ -195,6 +195,7 @@ def downgrade() -> None:
     )
     op.drop_table("balance_assertions")
     op.drop_table("prices")
+    op.drop_index("transactions_fingerprint_idx", table_name="transactions")
     op.drop_index("transactions_source_native_id_key", table_name="transactions")
     op.drop_table("transactions")
     op.drop_table("commodities")

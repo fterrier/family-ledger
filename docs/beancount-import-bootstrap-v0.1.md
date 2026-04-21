@@ -72,6 +72,8 @@ For the reference ledger, `option` directives should be handled minimally:
 - options that map directly to project config should be reported or compared
 - options that do not affect canonical storage may be ignored explicitly
 
+For commodity handling, the importer should pre-discover symbols from the input ledger and create missing commodity rows before importing transactions, prices, and assertions. This avoids weakening the stricter runtime API validation for normal writes.
+
 ## Initial Unsupported Behavior
 
 The importer may initially reject or report, rather than import:
@@ -94,7 +96,9 @@ That shared normalization currently follows Beancount balancing-weight semantics
 
 The initial supported interpolation scope remains narrow:
 - at most one posting with missing `units`
+- at most one posting with a missing `units.symbol`
 - one or more resulting balancing weights, provided the balancing weights are explicit and unambiguous
+- at most one posting per balancing symbol group with missing `price.amount`
 
 Transactions outside that scope should be skipped and reported rather than approximated.
 

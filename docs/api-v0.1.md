@@ -88,6 +88,7 @@ Notes:
 - Transaction resources do not embed validation state in v1.
 - `import_metadata` is optional.
 - `fingerprint` is stored on transactions and updated on transaction writes.
+- `fingerprint` is a duplicate hint, not a globally unique transaction identity.
 
 ### Account
 
@@ -343,7 +344,9 @@ Purpose:
 Behavior:
 - accepts transaction-shaped input similar to `POST /transactions`
 - may accept at most one posting with missing `units`
-- does not accept missing `cost` or missing `price`
+- may accept at most one posting with `units.amount` present and `units.symbol` missing when one balancing symbol is implied
+- does not accept missing `cost`
+- may accept missing `price.amount` when it is unambiguous within a balancing symbol group
 - runs the same normalization and validation logic as `POST /transactions`
 - returns a fully explicit normalized transaction payload
 - does not persist anything
@@ -359,8 +362,10 @@ Normalization follows Beancount balancing-weight semantics:
 
 Current supported scope is intentionally narrow:
 - at most one posting may omit `units`
+- at most one posting may omit `units.symbol`
 - the missing posting may normalize into one or more explicit postings, one per resulting balancing weight
 - multi-weight normalization is supported when the balancing weights are explicit and unambiguous
+- at most one posting per balancing symbol group may omit `price.amount`
 
 Example request body:
 
@@ -471,6 +476,9 @@ Expected fields:
 - `quote.symbol`
 - `entity_metadata` optional
 
+Validation:
+- `base_symbol` and `quote.symbol` must already exist as commodities
+
 ### `GET /prices/{price}`
 
 Purpose:
@@ -509,6 +517,9 @@ Expected fields:
 - `amount.amount`
 - `amount.symbol`
 - `entity_metadata` optional
+
+Validation:
+- `amount.symbol` must already exist as a commodity
 
 Behavior:
 - assertion validation is handled separately and may report failures later without removing the assertion resource

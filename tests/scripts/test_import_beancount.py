@@ -37,6 +37,16 @@ MISSING_POSTING_FIXTURE = """
   Expenses:Food
 """
 
+COMMODITY_DISCOVERY_FIXTURE = """
+2020-01-01 open Assets:Broker:AAPL AAPL
+2020-01-01 open Assets:Cash:USD USD
+2020-01-01 open Equity:Opening-Balances
+
+2026-04-01 * "Buy AAPL"
+  Assets:Broker:AAPL  1 AAPL {100.00 USD}
+  Equity:Opening-Balances
+"""
+
 
 @pytest.fixture
 def session() -> Generator[Session, None, None]:
@@ -65,6 +75,13 @@ def beancount_file(tmp_path: Path) -> Path:
 def missing_posting_file(tmp_path: Path) -> Path:
     path = tmp_path / "missing-posting.beancount"
     path.write_text(MISSING_POSTING_FIXTURE, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def commodity_discovery_file(tmp_path: Path) -> Path:
+    path = tmp_path / "commodity-discovery.beancount"
+    path.write_text(COMMODITY_DISCOVERY_FIXTURE, encoding="utf-8")
     return path
 
 
@@ -125,6 +142,17 @@ def test_import_beancount_interpolates_one_missing_posting(
 
     assert summary.transactions == 1
     assert summary.skipped_transactions == 0
+
+
+def test_discover_commodity_symbols_from_open_and_postings(
+    commodity_discovery_file: Path,
+) -> None:
+    entries, errors, _options_map = import_beancount.load_beancount_document(
+        commodity_discovery_file
+    )
+
+    assert errors == []
+    assert import_beancount.discover_commodity_symbols(entries) == ["AAPL", "USD"]
 
 
 def test_import_beancount_refuses_non_empty_database(

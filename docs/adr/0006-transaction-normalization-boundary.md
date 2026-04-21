@@ -24,7 +24,9 @@ Normalization and persistence are separate concerns, but they share one normaliz
 
 In v1, the intended normalization scope is narrow:
 - at most one posting may omit `units`
-- missing `cost` and missing `price` are not part of the supported normalization contract
+- at most one posting may provide `units.amount` with a missing `units.symbol`
+- missing `cost` is not part of the supported normalization contract
+- missing `price.amount` may be normalized when unambiguous within a balancing symbol group
 - normalization must be unambiguous
 - normalization follows Beancount balancing-weight semantics rather than a simplistic transaction-currency rule
 
@@ -37,8 +39,10 @@ In particular:
 
 The current supported scope remains intentionally narrow:
 - at most one posting may omit `units`
+- at most one posting may omit `units.symbol`
 - the missing posting may normalize into one or more explicit postings, one per resulting balancing weight
 - multi-weight normalization is supported when the balancing weights are explicit and unambiguous
+- at most one posting per balancing symbol group may omit `price.amount`
 
 The persisted transaction and the returned normalized transaction must both be explicit.
 

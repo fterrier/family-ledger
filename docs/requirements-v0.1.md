@@ -103,6 +103,7 @@ There should be no dedicated UI in v1. See `docs/roadmap-v0.1.md` for the implem
 - Fingerprints should be used when native IDs are unavailable
 - Transactions should carry enough metadata for idempotent import deduplication
 - Imports should be create-or-skip in v1 and must not overwrite existing matching transactions
+- Fingerprints act as duplicate hints and matching aids; they must not assume global uniqueness across all transactions
 
 ### Categorization
 - Easy categorization for non-technical users

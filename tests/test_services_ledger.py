@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 from family_ledger.api.schemas import (
     ImportMetadata,
     MoneyValue,
+    NormalizeMoneyValue,
+    NormalizePriceValue,
     PostingNormalizePayload,
     PostingPayload,
     TransactionCreate,
@@ -327,3 +329,151 @@ def test_normalize_transaction_cost_wins_when_symbols_match() -> None:
     assert normalized.postings[1].units is not None
     assert normalized.postings[1].units.amount == Decimal("-500.00")
     assert normalized.postings[1].units.symbol == "USD"
+
+
+def test_normalize_transaction_infers_missing_symbol_from_balancing_weight() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-160.00"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=NormalizeMoneyValue(amount=Decimal("160.00"), symbol=None),
+            ),
+        ],
+    )
+
+    normalized = ledger_service.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].units is not None
+    assert normalized.postings[1].units.amount == Decimal("160.00")
+    assert normalized.postings[1].units.symbol == "CHF"
+
+
+def test_normalize_transaction_rejects_missing_symbol_with_cost() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-160.00"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=NormalizeMoneyValue(amount=Decimal("160.00"), symbol=None),
+                cost=MoneyValue(amount=Decimal("1.00"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        ledger_service.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_symbol_with_cost_or_price"
+
+
+def test_normalize_transaction_rejects_missing_symbol_with_price() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-160.00"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=NormalizeMoneyValue(amount=Decimal("160.00"), symbol=None),
+                price=MoneyValue(amount=Decimal("1.00"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        ledger_service.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_symbol_with_cost_or_price"
+
+
+def test_normalize_transaction_interpolates_missing_price_amount() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-22.80"), symbol="CHF"),
+                price=MoneyValue(amount=Decimal("0.997999"), symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("1.30"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+        ],
+    )
+
+    normalized = ledger_service.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].price is not None
+    assert normalized.postings[1].price.symbol == "USD"
+    assert normalized.postings[1].price.amount == Decimal("17.50336707692307692307692308")
+
+
+def test_normalize_transaction_rejects_multiple_missing_price_amounts_same_group() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-10.00"), symbol="CHF"),
+                price=MoneyValue(amount=Decimal("1.00"), symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("6.00"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_three",
+                units=MoneyValue(amount=Decimal("4.00"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        ledger_service.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "multiple_missing_price_amounts_in_group"
+
+
+def test_normalize_transaction_allows_missing_price_amounts_in_different_groups() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-10.00"), symbol="CHF"),
+                price=MoneyValue(amount=Decimal("1.00"), symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("6.00"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_three",
+                units=MoneyValue(amount=Decimal("4.00"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="EUR"),
+            ),
+        ],
+    )
+
+    normalized = ledger_service.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].price is not None
+    assert normalized.postings[1].price.amount == Decimal("1.666666666666666666666666667")
+    assert normalized.postings[2].price is not None
+    assert normalized.postings[2].price.amount == Decimal("0")

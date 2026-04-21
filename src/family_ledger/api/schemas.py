@@ -12,6 +12,16 @@ class MoneyValue(BaseModel):
     symbol: str
 
 
+class NormalizeMoneyValue(BaseModel):
+    amount: Decimal
+    symbol: str | None = None
+
+
+class NormalizePriceValue(BaseModel):
+    amount: Decimal | None = None
+    symbol: str
+
+
 class PostingPayload(BaseModel):
     account: str
     units: MoneyValue
@@ -110,9 +120,9 @@ class TransactionCreate(TransactionData):
 
 class PostingNormalizePayload(BaseModel):
     account: str
-    units: MoneyValue | None = None
+    units: MoneyValue | NormalizeMoneyValue | None = None
     cost: MoneyValue | None = None
-    price: MoneyValue | None = None
+    price: MoneyValue | NormalizePriceValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

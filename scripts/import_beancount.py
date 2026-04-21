@@ -19,6 +19,8 @@ from family_ledger.api.schemas import (
     BalanceAssertionCreate,
     CommodityCreate,
     MoneyValue,
+    NormalizeMoneyValue,
+    NormalizePriceValue,
     PostingNormalizePayload,
     PriceCreate,
     TransactionNormalizeData,
@@ -105,19 +107,57 @@ def money_value(amount: Amount) -> MoneyValue:
     return MoneyValue(amount=Decimal(str(number)), symbol=currency)
 
 
-def optional_money_value(amount: Amount | None) -> MoneyValue | None:
+def optional_money_value(amount: Amount | None) -> MoneyValue | NormalizeMoneyValue | None:
     if amount is None:
         return None
 
     number = getattr(amount, "number", None)
     currency = getattr(amount, "currency", None)
 
+    if not isinstance(currency, str):
+        currency = None
+
     if number is None and currency is None:
         return None
+
+    if number is not None and currency is None:
+        return NormalizeMoneyValue(amount=Decimal(str(number)), symbol=None)
+
     if number is None or currency is None:
         raise ValueError(f"Unsupported Beancount amount value: {amount!r}")
 
     return MoneyValue(amount=Decimal(str(number)), symbol=currency)
+
+
+def optional_explicit_money_value(amount: Amount | None) -> MoneyValue | None:
+    value = optional_money_value(amount)
+    if value is None:
+        return None
+    if isinstance(value, NormalizeMoneyValue):
+        raise ValueError(f"Unsupported Beancount amount value: {amount!r}")
+    return value
+
+
+def optional_price_value(amount: Amount | None) -> MoneyValue | NormalizePriceValue | None:
+    if amount is None:
+        return None
+
+    number = getattr(amount, "number", None)
+    currency = getattr(amount, "currency", None)
+
+    if not isinstance(currency, str):
+        currency = None
+
+    # Beancount uses a MISSING sentinel for interpolated price amounts.
+    if number is None or not isinstance(number, Decimal):
+        if currency is not None:
+            return NormalizePriceValue(symbol=currency)
+        return None
+
+    if currency is None:
+        raise ValueError(f"Unsupported Beancount amount value: {amount!r}")
+
+    return MoneyValue(amount=number, symbol=currency)
 
 
 def posting_cost_value(posting: Posting) -> MoneyValue | None:
@@ -149,7 +189,7 @@ def posting_payload(
     posting: Posting,
     account_names: dict[str, str],
 ) -> PostingNormalizePayload:
-    price = optional_money_value(cast(Amount | None, posting.price))
+    price = optional_price_value(cast(Amount | None, posting.price))
     units = optional_money_value(cast(Amount | None, posting.units))
     return PostingNormalizePayload(
         account=account_names[posting.account],
@@ -187,12 +227,40 @@ def create_accounts(session, entries: Sequence[object]) -> dict[str, str]:
     return created
 
 
+def discover_commodity_symbols(entries: Sequence[object]) -> list[str]:
+    symbols: set[str] = set()
+
+    for entry in entries:
+        if isinstance(entry, CommodityEntry):
+            symbols.add(entry.currency)
+        elif isinstance(entry, Open):
+            for currency in getattr(entry, "currencies", ()) or ():
+                if isinstance(currency, str):
+                    symbols.add(currency)
+        elif isinstance(entry, Price):
+            symbols.add(entry.currency)
+            symbols.add(entry.amount.currency)
+        elif isinstance(entry, Balance):
+            symbols.add(entry.amount.currency)
+        elif isinstance(entry, Transaction):
+            for posting in entry.postings:
+                units_currency = getattr(getattr(posting, "units", None), "currency", None)
+                if isinstance(units_currency, str):
+                    symbols.add(units_currency)
+
+                cost_currency = getattr(getattr(posting, "cost", None), "currency", None)
+                if isinstance(cost_currency, str):
+                    symbols.add(cost_currency)
+
+                price_currency = getattr(getattr(posting, "price", None), "currency", None)
+                if isinstance(price_currency, str):
+                    symbols.add(price_currency)
+
+    return sorted(symbols)
+
+
 def create_commodities(session, entries: Sequence[object]) -> int:
-    commodity_symbols = sorted(
-        {entry.currency for entry in entries if isinstance(entry, CommodityEntry)}
-        | {entry.amount.currency for entry in entries if isinstance(entry, Price)}
-        | {entry.currency for entry in entries if isinstance(entry, Price)}
-    )
+    commodity_symbols = discover_commodity_symbols(entries)
 
     for symbol in commodity_symbols:
         ledger_service.create_commodity(session, CommodityCreate(symbol=symbol))

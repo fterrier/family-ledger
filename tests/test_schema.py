@@ -80,7 +80,7 @@ def test_commodity_symbol_must_be_unique(session: Session) -> None:
         session.commit()
 
 
-def test_transaction_fingerprint_must_be_unique(session: Session) -> None:
+def test_transaction_fingerprint_may_repeat(session: Session) -> None:
     session.add_all(
         [
             Transaction(
@@ -96,8 +96,7 @@ def test_transaction_fingerprint_must_be_unique(session: Session) -> None:
         ]
     )
 
-    with pytest.raises(IntegrityError):
-        session.commit()
+    session.commit()
 
 
 def test_postings_are_deleted_with_transaction(session: Session) -> None:

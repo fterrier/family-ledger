@@ -63,6 +63,7 @@ Notes:
 - `name` is the stable API resource name built from an opaque key, for example `commodities/cmd_01jv3m0r7x8c`.
 - `symbol` is the canonical ledger symbol used in postings, prices, and assertions, for example `CHF`.
 - Additional metadata may exist, but core accounting logic should not depend on arbitrary metadata.
+- Runtime writes reference commodity symbols strictly; symbols used by transactions, prices, and assertions are expected to exist as commodity rows.
 
 ## Transactions
 
@@ -85,6 +86,7 @@ Notes:
 - Transactions may be categorized or uncategorized; that is also a derived property.
 - Fingerprints are persisted and recomputed on transaction writes.
 - The API may group the two dedupe fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
+- `fingerprint` is a duplicate hint and lookup aid, not a globally unique transaction identity.
 
 ## Postings
 
@@ -130,6 +132,8 @@ Notes:
 - The API may accept a narrow incomplete transaction form temporarily at the write boundary, but the persisted result is always explicit.
 - Pre-persistence normalization follows Beancount balancing-weight semantics: cost wins over price for balancing, price is used only when cost is absent, and units are used only when neither cost nor price is present.
 - Current normalization support remains limited to one missing posting, but that posting may expand into multiple explicit postings when Beancount balancing weights span multiple symbols.
+- Current normalization may also infer one missing `units.symbol` when the balancing result implies exactly one symbol.
+- Current normalization may also fill in one missing `price.amount` per balancing symbol group when the result is unambiguous.
 - Postings are their own DB table for queryability and ledger computation, but they are not a standalone mutable API resource in v1.
 
 ## Prices
@@ -203,6 +207,7 @@ Rules:
 - Imports never overwrite an existing matching transaction in v1; they create-or-skip only.
 - The stored fingerprint is recomputed on each transaction write from canonical transaction content: transaction date, payee, narration, and ordered postings including account, units, optional cost, and optional price.
 - Fingerprint computation excludes `source_native_id` and free-form metadata.
+- Fingerprints are not globally unique because repeated identical transactions may legitimately exist.
 
 ## Derived Concepts
 
@@ -286,7 +291,7 @@ The v1 schema should enforce at least these uniqueness constraints:
 - unique `commodities.name`
 - unique `commodities.symbol`
 - unique `transactions.source_native_id` when non-null
-- unique `transactions.fingerprint`
+- non-unique indexed `transactions.fingerprint`
 
 ## Deferred Beyond v1
 

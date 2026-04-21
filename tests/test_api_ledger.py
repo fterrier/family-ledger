@@ -356,6 +356,251 @@ def test_create_transaction_matches_normalize_output() -> None:
         assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
+def test_patch_transaction_recategorizes_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    uncategorized = create_account(client, "Expenses:Uncategorized")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "payee": "Migros",
+                "narration": "Groceries",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": uncategorized["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+    created_body = created.json()
+
+    patched = client.patch(
+        f"/{created_body['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "payee": "Migros",
+                "narration": "Groceries",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            },
+            "update_mask": "narration,postings",
+        },
+    )
+
+    assert patched.status_code == 200
+    body = patched.json()
+    assert body["name"] == created_body["name"]
+    assert body["postings"][1]["account"] == food["name"]
+    assert body["import_metadata"]["fingerprint"] != created_body["import_metadata"]["fingerprint"]
+
+
+def test_patch_transaction_splits_posting() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    household = create_account(client, "Expenses:Household")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    patched = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "50.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": household["name"],
+                        "units": {"amount": "34.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert patched.status_code == 200
+    body = patched.json()
+    assert [posting["account"] for posting in body["postings"]] == [
+        checking["name"],
+        food["name"],
+        household["name"],
+    ]
+    assert [Decimal(posting["units"]["amount"]) for posting in body["postings"]] == [
+        Decimal("-84.25"),
+        Decimal("50.00"),
+        Decimal("34.25"),
+    ]
+
+
+def test_patch_transaction_matches_normalize_output() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+    payload = {
+        "transaction": {
+            "transaction_date": "2026-04-19",
+            "payee": "Migros",
+            "postings": [
+                {
+                    "account": checking["name"],
+                    "units": {"amount": "-84.25", "symbol": "CHF"},
+                },
+                {
+                    "account": food["name"],
+                },
+            ],
+        }
+    }
+
+    normalized = client.post("/transactions:normalize", json=payload)
+    patched = client.patch(f"/{created.json()['name']}", json=payload)
+
+    assert normalized.status_code == 200
+    assert patched.status_code == 200
+    for patched_posting, normalized_posting in zip(
+        patched.json()["postings"], normalized.json()["transaction"]["postings"], strict=True
+    ):
+        assert patched_posting["account"] == normalized_posting["account"]
+        assert Decimal(patched_posting["units"]["amount"]) == Decimal(
+            normalized_posting["units"]["amount"]
+        )
+        assert patched_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
+
+
+def test_patch_transaction_rejects_unknown_commodity() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    response = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "USD"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "USD"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "commodity_not_found"
+
+
+def test_patch_missing_transaction_returns_404() -> None:
+    client = make_client()
+
+    response = client.patch(
+        "/transactions/txn_missing",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [],
+            }
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "transaction_not_found"
+
+
 def test_normalize_transaction_expands_multi_currency_missing_posting() -> None:
     client = make_client()
 

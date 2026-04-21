@@ -457,6 +457,9 @@ def persist_transaction(
     )
     transaction.fingerprint = hash_transaction_payload(payload)
     transaction.postings.clear()
+    if transaction.id is not None:
+        # Flush orphaned postings before reusing posting_order values on replacement updates.
+        session.flush()
 
     for index, posting in enumerate(payload.postings, start=1):
         account = account_map[resource_name("accounts", posting.account)]
@@ -483,6 +486,18 @@ def commit_or_raise(session: Session) -> None:
     except IntegrityError as exc:
         session.rollback()
         raise ConflictError(code="integrity_error", message=str(exc.orig)) from exc
+
+
+def get_transaction_row(session: Session, transaction: str) -> Transaction:
+    resource = resource_name("transactions", transaction)
+    transaction_row = session.scalar(
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .where(Transaction.name == resource)
+    )
+    if transaction_row is None:
+        raise NotFoundError(code="transaction_not_found", message="Transaction not found")
+    return transaction_row
 
 
 def list_accounts_page(
@@ -589,6 +604,25 @@ def create_transaction(
     return serialize_transaction(persisted)
 
 
+def update_transaction(
+    session: Session,
+    transaction: str,
+    payload: TransactionCreate | TransactionNormalizeData,
+) -> TransactionResource:
+    transaction_row = get_transaction_row(session, transaction)
+    normalized = normalize_transaction_payload(payload)
+    validate_transaction_payload(session, normalized)
+    persist_transaction(session, normalized, transaction=transaction_row)
+    commit_or_raise(session)
+    persisted = session.scalar(
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .where(Transaction.id == transaction_row.id)
+    )
+    assert persisted is not None
+    return serialize_transaction(persisted)
+
+
 def list_transactions_page(
     session: Session,
     *,
@@ -633,15 +667,7 @@ def list_transactions_page(
 
 
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
-    resource = resource_name("transactions", transaction)
-    transaction_row = session.scalar(
-        select(Transaction)
-        .options(selectinload(Transaction.postings).selectinload(Posting.account))
-        .where(Transaction.name == resource)
-    )
-    if transaction_row is None:
-        raise NotFoundError(code="transaction_not_found", message="Transaction not found")
-    return serialize_transaction(transaction_row)
+    return serialize_transaction(get_transaction_row(session, transaction))
 
 
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:

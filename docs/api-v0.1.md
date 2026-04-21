@@ -405,7 +405,6 @@ Example request body:
 ```json
 {
   "transaction": {
-    "name": "transactions/txn_01jv3m0r7x8c",
     "transaction_date": "2026-04-19",
     "payee": "Migros",
     "narration": "Updated groceries",
@@ -422,6 +421,8 @@ Example request body:
 Behavior:
 - partial posting mutation semantics are not part of v1
 - `update_mask` is present for AIP consistency, but v1 implementations may ignore it and apply replacement-style updates
+- the path transaction resource name is authoritative; the request body does not need a transaction `name`
+- the mutable transaction payload is replaced as a whole, including the full postings array
 - implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
 
 Validation:

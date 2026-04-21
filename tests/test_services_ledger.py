@@ -20,7 +20,7 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.models import Account, Base, Commodity
 from family_ledger.services import ledger as ledger_service
-from family_ledger.services.errors import ValidationError
+from family_ledger.services.errors import NotFoundError, ValidationError
 
 
 @pytest.fixture
@@ -191,6 +191,135 @@ def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
     assert [posting.posting_order for posting in transaction.postings] == [1, 2]
     assert transaction.postings[0].units_amount == Decimal("-100.00")
     assert transaction.postings[1].units_symbol == "CHF"
+
+
+def test_update_transaction_preserves_identity_and_rewrites_postings(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_three",
+                account_name="Expenses:Food",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+
+    created = ledger_service.create_transaction(
+        session,
+        make_transaction_payload().model_copy(
+            update={
+                "postings": [
+                    PostingPayload(
+                        account="accounts/acc_one",
+                        units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                    ),
+                    PostingPayload(
+                        account="accounts/acc_two",
+                        units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    ),
+                ]
+            }
+        ),
+    )
+
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Food split",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("60.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("40.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    assert updated.name == created.name
+    assert [posting.account for posting in updated.postings] == [
+        "accounts/acc_one",
+        "accounts/acc_three",
+        "accounts/acc_two",
+    ]
+    assert updated.narration == "Food split"
+
+
+def test_update_transaction_recomputes_fingerprint(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+
+    payload = make_transaction_payload().model_copy(
+        update={
+            "postings": [
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ]
+        }
+    )
+    created = ledger_service.create_transaction(session, payload)
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        payload.model_copy(update={"narration": "Household"}),
+    )
+
+    assert updated.import_metadata is not None
+    assert created.import_metadata is not None
+    assert updated.import_metadata.fingerprint != created.import_metadata.fingerprint
+
+
+def test_update_transaction_raises_for_missing_transaction(session: Session) -> None:
+    with pytest.raises(NotFoundError) as exc_info:
+        ledger_service.update_transaction(
+            session,
+            "transactions/txn_missing",
+            make_transaction_payload(),
+        )
+
+    assert exc_info.value.code == "transaction_not_found"
 
 
 def test_normalize_transaction_uses_price_when_cost_absent() -> None:

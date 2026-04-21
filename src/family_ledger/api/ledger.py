@@ -22,6 +22,7 @@ from family_ledger.api.schemas import (
     NormalizeTransactionResponse,
     PriceResource,
     TransactionResource,
+    UpdateTransactionRequest,
 )
 from family_ledger.db import get_db_session
 from family_ledger.services import ledger as ledger_service
@@ -164,6 +165,21 @@ def create_transaction(
     request: CreateTransactionRequest, session: DbSession
 ) -> TransactionResource:
     return _call_service(ledger_service.create_transaction, session, request.transaction)
+
+
+@router.patch("/transactions/{transaction:path}", response_model=TransactionResource)
+def update_transaction(
+    transaction: str,
+    request: UpdateTransactionRequest,
+    session: DbSession,
+) -> TransactionResource:
+    # TODO: Implement update_mask semantics instead of ignoring it for full replacement.
+    return _call_service(
+        ledger_service.update_transaction,
+        session,
+        transaction,
+        request.transaction,
+    )
 
 
 @router.get("/transactions/{transaction:path}", response_model=TransactionResource)

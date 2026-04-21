@@ -170,6 +170,11 @@ class CreateTransactionRequest(BaseModel):
     transaction: TransactionNormalizeData
 
 
+class UpdateTransactionRequest(BaseModel):
+    transaction: TransactionNormalizeData
+    update_mask: str | None = None
+
+
 class CreatePriceRequest(BaseModel):
     price: PriceCreate
 

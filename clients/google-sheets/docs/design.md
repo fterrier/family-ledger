@@ -53,6 +53,8 @@ Editable columns:
 - `amount`
 - `split_off_amount`
 
+For imported transactions, `amount` is an allocation amount, not an editable transaction total.
+
 ## Grouping And Ordering
 
 Transaction rows are identified by `transaction_name`.
@@ -73,7 +75,16 @@ When the user enters a value in `split_off_amount`:
 - the original row amount is reduced by the split amount
 - the new row starts with the same `destination_account_name` as the original row
 
+If the user enters `x` or `-` in `split_off_amount`:
+- the selected split row is deleted
+- its amount is merged into a sibling row
+- the imported transaction total remains unchanged
+
 This keeps the user in-sheet and avoids prompt-based workflows as the primary interaction model.
+
+Direct `amount` edits for imported transactions follow the same fixed-total model:
+- lowering an amount creates a split for the difference
+- increasing an amount is rejected and restored
 
 ## Save Behavior
 

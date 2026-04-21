@@ -142,6 +142,91 @@ function sampleTransaction(overrides = {}) {
   };
 }
 
+function makeRowStoreSheet_(sandbox, rowStore, operations) {
+  function materialize(headers, row) {
+    return headers.map(function(header) {
+      return row[header] || '';
+    });
+  }
+
+  return {
+    getLastRow() {
+      return Math.max.apply(null, [1].concat(Array.from(rowStore.keys())));
+    },
+    getRange(row, _column, numRows) {
+      return {
+        getValues() {
+          const headers = sandbox.FAMILY_LEDGER_TRANSACTION_HEADERS || [
+            'transaction_name',
+            'transaction_date',
+            'payee',
+            'narration',
+            'source_account_name',
+            'destination_account_name',
+            'amount',
+            'split_off_amount',
+            'symbol',
+            'status',
+            'last_error',
+          ];
+          const values = [];
+          for (let index = 0; index < numRows; index += 1) {
+            values.push(materialize(headers, rowStore.get(row + index)));
+          }
+          return values;
+        },
+        setValues(values) {
+          const headers = [
+            'transaction_name',
+            'transaction_date',
+            'payee',
+            'narration',
+            'source_account_name',
+            'destination_account_name',
+            'amount',
+            'split_off_amount',
+            'symbol',
+            'status',
+            'last_error',
+          ];
+          operations.push({ type: 'setValues', row: row, values: values });
+          values.forEach(function(rowValues, valueIndex) {
+            const rowNumber = row + valueIndex;
+            const nextRow = {};
+            headers.forEach(function(header, headerIndex) {
+              nextRow[header] = rowValues[headerIndex];
+            });
+            rowStore.set(rowNumber, nextRow);
+          });
+        },
+        setValue(value) {
+          operations.push({ type: 'setValue', row: row, value: value });
+        },
+      };
+    },
+    insertRowsAfter(row, count) {
+      operations.push({ type: 'insertRowsAfter', row: row, count: count });
+      const keys = Array.from(rowStore.keys()).sort(function(a, b) { return b - a; });
+      keys.forEach(function(current) {
+        if (current > row) {
+          rowStore.set(current + count, rowStore.get(current));
+        }
+      });
+    },
+    deleteRow(row) {
+      operations.push({ type: 'deleteRow', row: row });
+      const keys = Array.from(rowStore.keys()).sort(function(a, b) { return a - b; });
+      rowStore.delete(row);
+      keys.forEach(function(current) {
+        if (current > row) {
+          rowStore.set(current - 1, rowStore.get(current));
+          rowStore.delete(current);
+        }
+      });
+    },
+  };
+}
+
 test('normalizeBaseUrl_ trims trailing slashes and rejects blank values', () => {
   const { sandbox } = loadCode();
 
@@ -491,68 +576,8 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
     }],
   ]);
 
-  function materialize(headers, row) {
-    return headers.map(function(header) {
-      return row[header] || '';
-    });
-  }
-
   const { sandbox } = loadCode();
-  const fakeSheet = {
-    getRange(row, column, numRows, numCols) {
-      return {
-        getValues() {
-          const headers = sandbox.FAMILY_LEDGER_TRANSACTION_HEADERS || [
-            'transaction_name',
-            'transaction_date',
-            'payee',
-            'narration',
-            'source_account_name',
-            'destination_account_name',
-            'amount',
-            'split_off_amount',
-            'symbol',
-            'status',
-            'last_error',
-          ];
-          const values = [];
-          for (let index = 0; index < numRows; index += 1) {
-            values.push(materialize(headers, rowStore.get(row + index)));
-          }
-          return values;
-        },
-        setValues(values) {
-          const headers = [
-            'transaction_name',
-            'transaction_date',
-            'payee',
-            'narration',
-            'source_account_name',
-            'destination_account_name',
-            'amount',
-            'split_off_amount',
-            'symbol',
-            'status',
-            'last_error',
-          ];
-          values.forEach(function(rowValues, valueIndex) {
-            const rowNumber = row + valueIndex;
-            const nextRow = {};
-            headers.forEach(function(header, headerIndex) {
-              nextRow[header] = rowValues[headerIndex];
-            });
-            rowStore.set(rowNumber, nextRow);
-          });
-        },
-      };
-    },
-    insertRowsAfter(row, count) {
-      operations.push({ type: 'insertRowsAfter', row: row, count: count });
-      for (let current = Array.from(rowStore.keys()).sort(function(a, b) { return b - a; })[0]; current > row; current -= 1) {
-        rowStore.set(current + count, rowStore.get(current));
-      }
-    },
-  };
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
   sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
     operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
@@ -560,15 +585,132 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   sandbox.performSplitForRow_(fakeSheet, 2, '20');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'insertRowsAfter', row: 2, count: 1 },
-    { type: 'applyValidation', rowNumbers: [3] },
-  ]);
+  assert.equal(operations[0].type, 'insertRowsAfter');
+  assert.equal(operations[1].type, 'setValues');
+  assert.equal(operations[2].type, 'setValues');
+  assert.equal(operations[3].type, 'applyValidation');
   assert.equal(rowStore.get(2).amount, '64.25');
   assert.equal(rowStore.get(2).split_off_amount, '');
   assert.equal(rowStore.get(3).amount, '20');
   assert.equal(rowStore.get(3).destination_account_name, 'Expenses:Food');
   assert.equal(rowStore.get(3).split_off_amount, '');
+});
+
+test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: '50',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+    [3, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Household',
+      amount: '34.25',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  sandbox.performDeleteSplitRow_(fakeSheet, 3);
+
+  assert.equal(rowStore.get(2).amount, '84.25');
+  assert.match(JSON.stringify(operations), /deleteRow/);
+});
+
+test('performDeleteSplitRow_ rejects deleting the only allocation row', () => {
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: '84.25',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  assert.throws(() => sandbox.performDeleteSplitRow_(fakeSheet, 2), /Cannot delete the only allocation row/);
+});
+
+test('handleAmountEdit_ rejects direct increases and restores previous amount', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const fakeSheet = {
+    getRange(row, column) {
+      return {
+        setValue(value) {
+          operations.push({ row: row, column: column, value: value });
+        },
+      };
+    },
+  };
+
+  assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25'), /Imported transaction totals are fixed/);
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { row: 2, column: 7, value: '84.25' },
+  ]);
+});
+
+test('handleAmountEdit_ converts a decrease into a split of the difference', () => {
+  const calls = [];
+  const { sandbox } = loadCode();
+  sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
+    calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
+  };
+
+  sandbox.handleAmountEdit_({}, 2, '50', '84.25');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { rowNumber: 2, oldAmount: '84.25', newAmount: '50' },
+  ]);
+});
+
+test('performSplitInstructionForRow_ treats x and - as delete instructions', () => {
+  const calls = [];
+  const { sandbox } = loadCode();
+  sandbox.performDeleteSplitRow_ = function(_sheet, rowNumber) {
+    calls.push({ type: 'delete', rowNumber: rowNumber });
+  };
+  sandbox.performSplitForRow_ = function(_sheet, rowNumber, amount) {
+    calls.push({ type: 'split', rowNumber: rowNumber, amount: amount });
+  };
+
+  sandbox.performSplitInstructionForRow_({}, 3, 'x');
+  sandbox.performSplitInstructionForRow_({}, 4, '-');
+  sandbox.performSplitInstructionForRow_({}, 5, '12.5');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { type: 'delete', rowNumber: 3 },
+    { type: 'delete', rowNumber: 4 },
+    { type: 'split', rowNumber: 5, amount: '12.5' },
+  ]);
 });
 
 test('canUpdateTransactionRowsInPlace_ accepts same-shape replacement rows', () => {

@@ -68,12 +68,16 @@ function handleTransactionEdit(e) {
     return;
   }
 
-  applyTransactionEdit_(sheet, row, header, String(e.range.getValue() || ''), {
-    showSuccessToast: true,
-  });
+  try {
+    applyTransactionEdit_(sheet, row, header, String(e.range.getValue() || ''), String(e.oldValue || ''), {
+      showSuccessToast: true,
+    });
+  } catch (error) {
+    handleAutomaticEditError_(sheet, transactionName, error);
+  }
 }
 
-function applyTransactionEdit_(sheet, rowNumber, header, rawValue, saveOptions) {
+function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, saveOptions) {
   const transactionName = getTransactionNameForRow_(sheet, rowNumber);
   if (!transactionName) {
     return;
@@ -84,9 +88,11 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, saveOptions) 
     if (!splitValue) {
       return;
     }
-    performSplitForRow_(sheet, rowNumber, splitValue);
+    performSplitInstructionForRow_(sheet, rowNumber, splitValue);
   } else if (header === 'payee' || header === 'narration') {
     propagateTransactionField_(sheet, transactionName, header, String(rawValue || ''));
+  } else if (header === 'amount') {
+    handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
   } else {
     clearTransactionErrors_(sheet, transactionName);
   }
@@ -271,7 +277,7 @@ function splitSelectedTransactionRow() {
     if (response.getSelectedButton() !== ui.Button.OK) {
       return;
     }
-    applyTransactionEdit_(sheet, activeRow, 'split_off_amount', response.getResponseText(), {
+    applyTransactionEdit_(sheet, activeRow, 'split_off_amount', response.getResponseText(), '', {
       showSuccessToast: true,
     });
   });
@@ -369,6 +375,133 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
 }
 
+function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmountRaw) {
+  const row = readTransactionSheetRow_(sheet, rowNumber);
+  if (!row || !row.transaction_name) {
+    throw new Error('The selected row does not contain a transaction.');
+  }
+
+  const oldAmount = normalizeDecimalString_(oldAmountRaw);
+  const newAmount = normalizeDecimalString_(newAmountRaw);
+  if (compareDecimalStrings_(newAmount, '0') <= 0) {
+    throw new Error('Imported transaction allocation amounts must be greater than zero.');
+  }
+  if (compareDecimalStrings_(newAmount, oldAmount) >= 0) {
+    throw new Error(
+      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
+    );
+  }
+
+  const splitAmount = subtractDecimalStrings_(oldAmount, newAmount);
+  const newRow = cloneTransactionSheetRow_(row);
+  newRow.amount = splitAmount;
+  newRow.split_off_amount = '';
+  newRow.status = 'dirty';
+  newRow.last_error = '';
+
+  row.amount = newAmount;
+  row.split_off_amount = '';
+  row.status = 'dirty';
+  row.last_error = '';
+
+  sheet.insertRowsAfter(rowNumber, 1);
+  writeTransactionSheetRow_(sheet, rowNumber, row);
+  writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
+  applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
+}
+
+function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
+  const normalizedInstruction = String(instruction || '').trim();
+  if (!normalizedInstruction) {
+    return;
+  }
+  if (normalizedInstruction === 'x' || normalizedInstruction === 'X' || normalizedInstruction === '-') {
+    performDeleteSplitRow_(sheet, rowNumber);
+    return;
+  }
+  performSplitForRow_(sheet, rowNumber, normalizedInstruction);
+}
+
+function performDeleteSplitRow_(sheet, rowNumber) {
+  const row = readTransactionSheetRow_(sheet, rowNumber);
+  if (!row || !row.transaction_name) {
+    throw new Error('The selected row does not contain a transaction.');
+  }
+
+  const rowNumbers = findTransactionRowNumbers_(sheet, row.transaction_name);
+  if (rowNumbers.length <= 1) {
+    throw new Error('Cannot delete the only allocation row for this transaction.');
+  }
+
+  const currentIndex = rowNumbers.indexOf(rowNumber);
+  const mergeTargetRowNumber = currentIndex > 0 ? rowNumbers[currentIndex - 1] : rowNumbers[currentIndex + 1];
+  const mergeTarget = readTransactionSheetRow_(sheet, mergeTargetRowNumber);
+  const mergedAmount = sumDecimalStrings_([
+    normalizeDecimalString_(mergeTarget.amount),
+    normalizeDecimalString_(row.amount),
+  ]);
+
+  mergeTarget.amount = mergedAmount;
+  mergeTarget.split_off_amount = '';
+  mergeTarget.status = 'dirty';
+  mergeTarget.last_error = '';
+
+  if (mergeTargetRowNumber < rowNumber) {
+    writeTransactionSheetRow_(sheet, mergeTargetRowNumber, mergeTarget);
+    sheet.deleteRow(rowNumber);
+  } else {
+    sheet.deleteRow(rowNumber);
+    writeTransactionSheetRow_(sheet, mergeTargetRowNumber - 1, mergeTarget);
+  }
+}
+
+function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
+  const oldAmount = String(oldRawValue || '').trim();
+  const newAmount = String(rawValue || '').trim();
+  if (!oldAmount) {
+    clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
+    return;
+  }
+
+  let normalizedOldAmount;
+  let normalizedNewAmount;
+  try {
+    normalizedOldAmount = normalizeDecimalString_(oldAmount);
+    normalizedNewAmount = normalizeDecimalString_(newAmount);
+  } catch {
+    restoreAmountCell_(sheet, rowNumber, normalizedFallbackAmount_(oldAmount));
+    throw new Error(
+      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
+    );
+  }
+
+  const comparison = compareDecimalStrings_(normalizedNewAmount, normalizedOldAmount);
+  if (comparison === 0) {
+    clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
+    return;
+  }
+  if (comparison > 0) {
+    restoreAmountCell_(sheet, rowNumber, normalizedOldAmount);
+    throw new Error(
+      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
+    );
+  }
+
+  performSplitFromEditedAmount_(sheet, rowNumber, normalizedOldAmount, normalizedNewAmount);
+}
+
+function restoreAmountCell_(sheet, rowNumber, amount) {
+  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('amount')).setValue(amount);
+}
+
+function normalizedFallbackAmount_(amount) {
+  try {
+    return normalizeDecimalString_(amount);
+  } catch {
+    return amount;
+  }
+}
+
 function propagateTransactionField_(sheet, transactionName, header, value) {
   const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value);
@@ -380,6 +513,12 @@ function clearTransactionErrors_(sheet, transactionName) {
   const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
+}
+
+function handleAutomaticEditError_(sheet, transactionName, error) {
+  setFieldValuesForRowNumbers_(sheet, findTransactionRowNumbers_(sheet, transactionName), 'status', 'error');
+  setFieldValuesForRowNumbers_(sheet, findTransactionRowNumbers_(sheet, transactionName), 'last_error', error.message || String(error));
+  SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
 }
 
 function saveTransactionByName_(sheet, transactionName, options) {

@@ -82,14 +82,19 @@ The first sync also installs the authorized edit trigger used for auto-save.
 
 Normal flow:
 1. Open the `Transactions` sheet.
-2. Edit `payee`, `narration`, `destination_account_name`, or `amount` directly.
+2. Edit `payee`, `narration`, or `destination_account_name` directly.
+3. For imported transactions, treat `amount` as an allocation amount inside a fixed total.
 3. Watch `status` and `last_error`.
 
 For splits:
-1. Enter a positive value in `split_off_amount` on the row you want to split.
+1. Either reduce the row `amount`, or enter a positive value in `split_off_amount`.
 2. The script inserts a sibling row automatically.
 3. The new row starts with the same destination account as the original row.
 4. Change the new row's `destination_account_name` if needed.
+
+To delete a split row:
+1. Enter `x` or `-` in `split_off_amount`.
+2. The row is merged back into a sibling allocation row.
 
 Manual fallback:
 - `Push Active Transaction` is available if automatic save fails and you want to retry explicitly.
@@ -100,6 +105,10 @@ Manual fallback:
 - `saving`: the transaction is being patched to the API
 - `saved`: the transaction was saved successfully
 - `error`: the save failed; see `last_error`
+
+Imported transaction totals are fixed:
+- reducing an `amount` creates a split for the difference
+- increasing an `amount` is rejected and the old value is restored
 
 ## Tailscale Funnel Setup
 
@@ -152,6 +161,11 @@ If a save fails:
 - look at `status`
 - look at `last_error`
 - use `Push Active Transaction` as a fallback retry
+
+If an `amount` edit is rejected:
+- imported transaction totals are fixed
+- reduce an amount to split it
+- direct increases are not allowed
 
 ## Limits
 

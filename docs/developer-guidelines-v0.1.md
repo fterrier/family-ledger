@@ -175,3 +175,4 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - If a change affects validation, add tests first or alongside the change.
 - If a change affects Beancount export, add deterministic export tests.
 - If a change touches imports, verify dedupe behavior explicitly.
+- For Google Sheets and Apps Script clients, optimize hot-path actions for large sheets (thousands of rows). Only full sync/rebuild actions should rewrite the entire sheet; edit-driven and active-row actions should locate the relevant transaction group and update only the affected rows and columns.

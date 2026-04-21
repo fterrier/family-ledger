@@ -15,6 +15,7 @@ module.exports = [
         ...globals.es2022,
         BigInt: 'readonly',
         PropertiesService: 'readonly',
+        ScriptApp: 'readonly',
         SpreadsheetApp: 'readonly',
         UrlFetchApp: 'readonly',
         Utilities: 'readonly',
@@ -26,7 +27,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveFamilyLedgerTransactionRow)$',
+            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|splitSelectedTransactionRow|normalizeActiveTransactionFields|regroupActiveTransaction|pushActiveTransaction)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

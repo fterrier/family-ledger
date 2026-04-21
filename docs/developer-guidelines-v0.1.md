@@ -24,6 +24,9 @@ The priorities are:
 - Prefer concise but complete documentation over informal notes.
 - Treat `docs/compatibility-target-v0.1.md` as a primary design constraint when making implementation decisions.
 - After editing any design or architecture doc, review the related requirements, domain model, API docs, ADRs, and README to make sure they remain consistent, non-contradictory, and complementary.
+- Client-specific documentation should live with the client under its own directory whenever practical.
+- Keep top-level docs focused on shared product, API, domain, and deployment concerns.
+- Do not replicate detailed client usage or design documentation across the repo; link to the client-local docs instead.
 
 ## ADRs
 - Add an ADR for architectural decisions that are structural, non-obvious, costly to reverse, or likely to be revisited.

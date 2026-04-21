@@ -205,4 +205,5 @@ There are only two checked-in config files now:
 
 ## Clients
 
-- `clients/google-sheets/`: narrow Google Sheets POC for category edits and split updates via the API
+- `clients/google-sheets/README.md`: user-facing install and usage guide for the Google Sheets client
+- `clients/google-sheets/docs/`: client-specific design, permissions, and performance notes

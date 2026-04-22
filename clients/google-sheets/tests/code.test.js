@@ -163,9 +163,9 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
             'narration',
             'source_account_name',
             'destination_account_name',
+            'symbol',
             'amount',
             'split_off_amount',
-            'symbol',
             'status',
             'last_error',
           ];
@@ -183,9 +183,9 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
             'narration',
             'source_account_name',
             'destination_account_name',
+            'symbol',
             'amount',
             'split_off_amount',
-            'symbol',
             'status',
             'last_error',
           ];
@@ -578,6 +578,16 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getRange = function(row, column, numRows) {
+    if (numRows === undefined) {
+      return {
+        activate() {
+          operations.push({ type: 'activate', row: row, column: column });
+        },
+      };
+    }
+    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows);
+  };
 
   sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
     operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
@@ -589,11 +599,33 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   assert.equal(operations[1].type, 'setValues');
   assert.equal(operations[2].type, 'setValues');
   assert.equal(operations[3].type, 'applyValidation');
+  assert.equal(operations[4].type, 'activate');
+  assert.equal(operations[4].row, 3);
   assert.equal(rowStore.get(2).amount, '64.25');
   assert.equal(rowStore.get(2).split_off_amount, '');
   assert.equal(rowStore.get(3).amount, '20');
   assert.equal(rowStore.get(3).destination_account_name, 'Expenses:Food');
   assert.equal(rowStore.get(3).split_off_amount, '');
+});
+
+test('focusNewSplitRow_ activates the split helper cell on the inserted row', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const fakeSheet = {
+    getRange(row, column) {
+      return {
+        activate() {
+          operations.push({ row: row, column: column });
+        },
+      };
+    },
+  };
+
+  sandbox.focusNewSplitRow_(fakeSheet, 8);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { row: 8, column: 9 },
+  ]);
 });
 
 test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
@@ -674,7 +706,7 @@ test('handleAmountEdit_ rejects direct increases and restores previous amount', 
 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25'), /Imported transaction totals are fixed/);
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { row: 2, column: 7, value: '84.25' },
+    { row: 2, column: 8, value: '84.25' },
   ]);
 });
 
@@ -766,6 +798,80 @@ test('canUpdateTransactionRowsInPlace_ rejects row count changes', () => {
   );
 });
 
+test('areTransactionRowsEquivalentForRefresh_ ignores transient helper fields', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(
+    sandbox.areTransactionRowsEquivalentForRefresh_(
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          transaction_date: '2026-04-19',
+          payee: 'Migros',
+          narration: 'Groceries',
+          source_account_name: 'Assets:Bank:Checking',
+          destination_account_name: 'Expenses:Food',
+          amount: '84.25',
+          split_off_amount: '10',
+          symbol: 'CHF',
+          status: 'saving',
+          last_error: 'temporary',
+        },
+      ],
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          transaction_date: '2026-04-19',
+          payee: 'Migros',
+          narration: 'Groceries',
+          source_account_name: 'Assets:Bank:Checking',
+          destination_account_name: 'Expenses:Food',
+          amount: '84.25',
+          split_off_amount: '',
+          symbol: 'CHF',
+          status: 'saved',
+          last_error: '',
+        },
+      ]
+    ),
+    true
+  );
+});
+
+test('areTransactionRowsEquivalentForRefresh_ detects business-field differences', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(
+    sandbox.areTransactionRowsEquivalentForRefresh_(
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          transaction_date: '2026-04-19',
+          payee: 'Migros',
+          narration: 'Groceries',
+          source_account_name: 'Assets:Bank:Checking',
+          destination_account_name: 'Expenses:Food',
+          amount: '84.25',
+          symbol: 'CHF',
+        },
+      ],
+      [
+        {
+          transaction_name: 'transactions/txn_1',
+          transaction_date: '2026-04-19',
+          payee: 'Migros',
+          narration: 'Groceries',
+          source_account_name: 'Assets:Bank:Checking',
+          destination_account_name: 'Expenses:Household',
+          amount: '84.25',
+          symbol: 'CHF',
+        },
+      ]
+    ),
+    false
+  );
+});
+
 test('updateTransactionRowsInPlace_ writes only changed cells', () => {
   const operations = [];
   const { sandbox } = loadCode();
@@ -818,6 +924,20 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
     { row: 2, column: 3, value: 'New' },
     { row: 2, column: 10, value: 'saved' },
   ]);
+});
+
+test('hideTechnicalTransactionColumns_ hides the transaction_name column', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const fakeSheet = {
+    hideColumns(column) {
+      operations.push(column);
+    },
+  };
+
+  sandbox.hideTechnicalTransactionColumns_(fakeSheet);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [1]);
 });
 
 test('save generation helpers ignore stale responses', () => {

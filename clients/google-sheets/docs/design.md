@@ -34,9 +34,9 @@ Columns:
 - `narration`
 - `source_account_name`
 - `destination_account_name`
+- `symbol`
 - `amount`
 - `split_off_amount`
-- `symbol`
 - `status`
 - `last_error`
 
@@ -45,6 +45,8 @@ Read-only columns:
 - `transaction_date`
 - `source_account_name`
 - `symbol`
+
+`transaction_name` remains the technical grouping key but is hidden from normal users in the sheet UI.
 
 Editable columns:
 - `payee`
@@ -102,6 +104,7 @@ Edits that trigger save:
 Saving always reconstructs the whole transaction for `PATCH /transactions/{transaction}`.
 
 For refreshed transactions:
+- if the server-rendered rows already match the current local rows, the client skips row rewrites entirely and only updates transient status/error fields
 - same-shape responses are applied in place without deleting and recreating rows
 - structural row replacement is reserved for true shape changes, such as a changed rendered row count
 - stale save responses must not overwrite newer local edits

@@ -78,6 +78,8 @@ Expected result:
 
 The first sync also installs the authorized edit trigger used for auto-save.
 
+The technical `transaction_name` column is kept in the sheet but hidden from normal use.
+
 ## Daily Use
 
 Normal flow:

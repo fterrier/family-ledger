@@ -12,9 +12,9 @@ const FAMILY_LEDGER_TRANSACTION_HEADERS = [
   'narration',
   'source_account_name',
   'destination_account_name',
+  'symbol',
   'amount',
   'split_off_amount',
-  'symbol',
   'status',
   'last_error',
 ];
@@ -373,6 +373,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   writeTransactionSheetRow_(sheet, rowNumber, row);
   writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
   applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
+  focusNewSplitRow_(sheet, rowNumber + 1);
 }
 
 function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmountRaw) {
@@ -408,6 +409,11 @@ function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmount
   writeTransactionSheetRow_(sheet, rowNumber, row);
   writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
   applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
+  focusNewSplitRow_(sheet, rowNumber + 1);
+}
+
+function focusNewSplitRow_(sheet, rowNumber) {
+  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('split_off_amount')).activate();
 }
 
 function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
@@ -503,6 +509,7 @@ function normalizedFallbackAmount_(amount) {
 }
 
 function propagateTransactionField_(sheet, transactionName, header, value) {
+  // TODO: Improve payee and narration UX so grouped transaction-level fields are clearer to edit in-sheet.
   const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
@@ -559,7 +566,10 @@ function saveTransactionByName_(sheet, transactionName, options) {
       row.status = 'saved';
       row.last_error = '';
     });
-    if (canUpdateTransactionRowsInPlace_(rows, replacementRows)) {
+    if (areTransactionRowsEquivalentForRefresh_(rows, replacementRows)) {
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saved');
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
+    } else if (canUpdateTransactionRowsInPlace_(rows, replacementRows)) {
       updateTransactionRowsInPlace_(sheet, rowNumbers, rows, replacementRows);
     } else {
       replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows);
@@ -792,6 +802,35 @@ function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
   return true;
 }
 
+function areTransactionRowsEquivalentForRefresh_(existingRows, replacementRows) {
+  if (existingRows.length !== replacementRows.length) {
+    return false;
+  }
+
+  for (let index = 0; index < existingRows.length; index += 1) {
+    const existingComparable = comparableTransactionSheetRow_(existingRows[index]);
+    const replacementComparable = comparableTransactionSheetRow_(replacementRows[index]);
+    if (JSON.stringify(existingComparable) !== JSON.stringify(replacementComparable)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function comparableTransactionSheetRow_(row) {
+  return {
+    transaction_name: normalizeSheetCellValue_(row.transaction_name),
+    transaction_date: normalizeSheetCellValue_(row.transaction_date),
+    payee: normalizeSheetCellValue_(row.payee),
+    narration: normalizeSheetCellValue_(row.narration),
+    source_account_name: normalizeSheetCellValue_(row.source_account_name),
+    destination_account_name: normalizeSheetCellValue_(row.destination_account_name),
+    amount: normalizeSheetCellValue_(row.amount),
+    symbol: normalizeSheetCellValue_(row.symbol),
+  };
+}
+
 function normalizeSheetCellValue_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]') {
     return normalizeTransactionDate_(value);
@@ -823,6 +862,7 @@ function setTransactionSheetRows_(sheet, rows) {
   sheet.setFrozenRows(1);
   applyAccountValidation_(sheet, materializedRows.length);
   protectTransactionSheet_(sheet);
+  hideTechnicalTransactionColumns_(sheet);
 }
 
 function requireTransactionSheet_() {
@@ -1095,6 +1135,7 @@ function resolveAccountResourceName_(accountNameMap, accountName) {
 }
 
 function applyAccountValidation_(sheet, rowCount) {
+  // TODO: Improve account UX beyond dropdown validation, especially for large account lists.
   if (rowCount === 0) {
     return;
   }
@@ -1320,6 +1361,11 @@ function protectTransactionSheet_(sheet) {
     protection.setDescription('Managed by Family Ledger sync');
     protection.setWarningOnly(true);
   });
+}
+
+function hideTechnicalTransactionColumns_(sheet) {
+  const transactionNameColumn = getTransactionHeaderColumnIndex_('transaction_name');
+  sheet.hideColumns(transactionNameColumn);
 }
 
 function rowToObject_(headers, rowValues) {

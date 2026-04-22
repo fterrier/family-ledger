@@ -40,6 +40,13 @@ Columns:
 - `status`
 - `last_error`
 
+For readability, visible account names are rendered as shortened labels with root markers, for example:
+- `[A] Bank - Checking - Family`
+- `[L] CreditCard - Visa`
+- `[X] Food - Groceries`
+
+The client keeps the hidden technical transaction key and resolves edited destination values back to canonical account resources through the synced accounts lookup.
+
 Read-only columns:
 - `transaction_name`
 - `transaction_date`
@@ -54,6 +61,11 @@ Editable columns:
 - `destination_account_name`
 - `amount`
 - `split_off_amount`
+
+The transaction sheet also uses visual role cues:
+- read-only columns are shaded neutrally
+- editable columns keep a clean editable background
+- `split_off_amount` is styled as an action column
 
 For imported transactions, `amount` is an allocation amount, not an editable transaction total.
 

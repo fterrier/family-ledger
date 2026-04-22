@@ -80,6 +80,18 @@ The first sync also installs the authorized edit trigger used for auto-save.
 
 The technical `transaction_name` column is kept in the sheet but hidden from normal use.
 
+Account names are shortened for readability in the sheet, for example:
+- `[A] Bank - Checking - Family`
+- `[L] CreditCard - Visa`
+- `[X] Food - Groceries`
+
+The marker indicates the account root:
+- `[A]` Assets
+- `[L]` Liabilities
+- `[X]` Expenses
+- `[I]` Income
+- `[Q]` Equity
+
 ## Daily Use
 
 Normal flow:
@@ -100,6 +112,9 @@ To delete a split row:
 
 Manual fallback:
 - `Push Active Transaction` is available if automatic save fails and you want to retry explicitly.
+
+Read-only columns are shaded differently from editable columns.
+The `split_off_amount` column is highlighted as an action field and its header note explains the supported commands.
 
 ## Status Values
 

@@ -30,6 +30,35 @@ function loadCode(overrides = {}) {
       getUi() {
         throw new Error('Unexpected SpreadsheetApp.getUi() call in unit test');
       },
+      newRichTextValue() {
+        return {
+          text: '',
+          style: null,
+          setText(value) {
+            this.text = value;
+            return this;
+          },
+          setTextStyle(_start, _end, style) {
+            this.style = style;
+            return this;
+          },
+          build() {
+            return { text: this.text, style: this.style };
+          },
+        };
+      },
+      newTextStyle() {
+        return {
+          bold: false,
+          setBold(value) {
+            this.bold = value;
+            return this;
+          },
+          build() {
+            return { bold: this.bold };
+          },
+        };
+      },
       newDataValidation() {
         return {
           requireValueInRange() {
@@ -315,6 +344,48 @@ test('classifySupportedTransaction_ accepts simple outgoing transaction', () => 
     destinationIndexes: [1],
     symbol: 'CHF',
   });
+});
+
+test('formatAccountDisplayName_ shortens canonical account names with root markers', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(
+    sandbox.formatAccountDisplayName_('Assets:Bank:Checking:Family'),
+    '[A] Bank - Checking - Family'
+  );
+  assert.equal(
+    sandbox.formatAccountDisplayName_('Expenses:Food:Groceries'),
+    '[X] Food - Groceries'
+  );
+});
+
+test('buildAccountDisplayEntries_ produces display labels for account resources', () => {
+  const { sandbox } = loadCode();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sandbox.buildAccountDisplayEntries_([
+      {
+        name: 'accounts/acc_1',
+        account_name: 'Assets:Bank:Checking:Family',
+      },
+      {
+        name: 'accounts/acc_2',
+        account_name: 'Expenses:Food',
+      },
+    ]))),
+    [
+      {
+        name: 'accounts/acc_1',
+        account_name: 'Assets:Bank:Checking:Family',
+        display_name: '[A] Bank - Checking - Family',
+      },
+      {
+        name: 'accounts/acc_2',
+        account_name: 'Expenses:Food',
+        display_name: '[X] Food',
+      },
+    ]
+  );
 });
 
 test('classifySupportedTransaction_ rejects multiple negative source legs', () => {

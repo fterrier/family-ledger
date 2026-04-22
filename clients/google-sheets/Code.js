@@ -21,6 +21,54 @@ const FAMILY_LEDGER_TRANSACTION_HEADERS = [
 
 const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name'];
 
+const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
+  Assets: '[A]',
+  Liabilities: '[L]',
+  Expenses: '[X]',
+  Income: '[I]',
+  Equity: '[Q]',
+};
+
+const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
+  transaction_date: { width: 95, role: 'readonly', note: 'Read-only transaction date.' },
+  payee: { width: 150, role: 'editable', note: 'Editable payee. Applies to the whole transaction.' },
+  narration: { width: 180, role: 'editable', note: 'Editable narration. Applies to the whole transaction.' },
+  source_account_name: { width: 230, role: 'readonly', note: 'Read-only source account.' },
+  destination_account_name: {
+    width: 280,
+    role: 'editable',
+    note: 'Editable destination allocation account.',
+  },
+  symbol: { width: 55, role: 'readonly', note: 'Read-only commodity symbol.' },
+  amount: {
+    width: 90,
+    role: 'editable',
+    note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
+  },
+  split_off_amount: {
+    width: 95,
+    role: 'action',
+    note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
+  },
+  status: { width: 90, role: 'system', note: 'dirty / saving / saved / error' },
+  last_error: { width: 260, role: 'system', note: 'Most recent validation or save error.' },
+};
+
+const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
+  header: {
+    readonly: '#d1d5db',
+    editable: '#dbeafe',
+    action: '#fde68a',
+    system: '#e5e7eb',
+  },
+  body: {
+    readonly: '#f3f4f6',
+    editable: '#ffffff',
+    action: '#fffbeb',
+    system: '#f9fafb',
+  },
+};
+
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Family Ledger')
@@ -200,17 +248,18 @@ function syncFamilyLedgerAccounts() {
       '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
       'accounts'
     );
-    accounts.sort(function(a, b) {
-      return a.account_name.localeCompare(b.account_name);
+    const displayEntries = buildAccountDisplayEntries_(accounts).sort(function(a, b) {
+      return a.display_name.localeCompare(b.display_name);
     });
 
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
-    const rows = accounts.map(function(account) {
-      return [account.account_name, account.name];
+    const rows = displayEntries.map(function(entry) {
+      return [entry.display_name, entry.name];
     });
 
     writeSheet_(sheet, FAMILY_LEDGER_ACCOUNTS_HEADERS, rows);
     sheet.setFrozenRows(1);
+    applyAccountsSheetLayout_(sheet, rows.length);
     SpreadsheetApp.getUi().alert(
       'Account Sync Complete',
       'Synced ' + accounts.length + ' accounts.',
@@ -894,8 +943,65 @@ function setTransactionSheetRows_(sheet, rows) {
   writeSheet_(sheet, FAMILY_LEDGER_TRANSACTION_HEADERS, materializedRows);
   sheet.setFrozenRows(1);
   applyAccountValidation_(sheet, materializedRows.length);
+  applyTransactionSheetLayout_(sheet, rows);
   protectTransactionSheet_(sheet);
   hideTechnicalTransactionColumns_(sheet);
+}
+
+function applyTransactionSheetLayout_(sheet, rows) {
+  FAMILY_LEDGER_TRANSACTION_HEADERS.forEach(function(header) {
+    const column = getTransactionHeaderColumnIndex_(header);
+    const layout = FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT[header];
+    if (!layout) {
+      return;
+    }
+    sheet.setColumnWidth(column, layout.width);
+    sheet.getRange(1, column).setNote(layout.note || '');
+    sheet
+      .getRange(1, column)
+      .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.header[layout.role])
+      .setFontWeight('bold');
+    if (rows.length > 0) {
+      sheet
+        .getRange(2, column, rows.length, 1)
+        .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[layout.role]);
+    }
+  });
+
+  applyTransactionSheetColumnFormatting_(sheet, rows.length);
+}
+
+function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
+  const dateColumn = getTransactionHeaderColumnIndex_('transaction_date');
+  const payeeColumn = getTransactionHeaderColumnIndex_('payee');
+  const narrationColumn = getTransactionHeaderColumnIndex_('narration');
+  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
+  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
+  const symbolColumn = getTransactionHeaderColumnIndex_('symbol');
+  const amountColumn = getTransactionHeaderColumnIndex_('amount');
+  const splitColumn = getTransactionHeaderColumnIndex_('split_off_amount');
+  const statusColumn = getTransactionHeaderColumnIndex_('status');
+
+  sheet.getRange(1, dateColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, narrationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, sourceColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, destinationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, symbolColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('center');
+  sheet.getRange(1, amountColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
+  sheet.getRange(1, splitColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
+  sheet.getRange(1, statusColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('center');
+}
+
+function applyAccountsSheetLayout_(sheet, rowCount) {
+  sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#e5e7eb');
+  sheet.setColumnWidth(1, 320);
+  sheet.setColumnWidth(2, 180);
+  sheet.getRange(1, 1, Math.max(rowCount + 1, 1), 1).setWrap(false).setHorizontalAlignment('left');
+  sheet.getRange(1, 2, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, 1).setNote('Visible account label used in the Transactions sheet.');
+  sheet.getRange(1, 2).setNote('Technical resource name used by the client.');
+  sheet.hideColumns(2);
 }
 
 function requireTransactionSheet_() {
@@ -1142,6 +1248,28 @@ function cloneTransactionSheetRow_(row) {
   return clone;
 }
 
+function buildAccountDisplayEntries_(accounts) {
+  return accounts.map(function(account) {
+    return {
+      name: account.name,
+      account_name: account.account_name,
+      display_name: formatAccountDisplayName_(account.account_name),
+    };
+  });
+}
+
+function formatAccountDisplayName_(accountName) {
+  const canonical = String(accountName || '').trim();
+  if (!canonical) {
+    return canonical;
+  }
+  const segments = canonical.split(':');
+  const root = segments[0];
+  const marker = FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS[root] || '[?]';
+  const tail = segments.length > 1 ? segments.slice(1) : segments;
+  return marker + ' ' + tail.join(' - ');
+}
+
 function loadAccountNameMap_() {
   const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
   const lastRow = accountsSheet.getLastRow();
@@ -1237,9 +1365,10 @@ function loadAccountsFromApi_() {
     '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
     'accounts'
   );
+  const displayEntries = buildAccountDisplayEntries_(accounts);
   const lookup = {};
-  accounts.forEach(function(account) {
-    lookup[account.name] = account.account_name;
+  displayEntries.forEach(function(account) {
+    lookup[account.name] = account.display_name;
   });
   return lookup;
 }

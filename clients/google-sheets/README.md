@@ -111,6 +111,7 @@ Manual fallback:
 Imported transaction totals are fixed:
 - reducing an `amount` creates a split for the difference
 - increasing an `amount` is rejected and the old value is restored
+- invalid `split_off_amount` commands are cleared immediately
 
 ## Tailscale Funnel Setup
 
@@ -168,6 +169,10 @@ If an `amount` edit is rejected:
 - imported transaction totals are fixed
 - reduce an amount to split it
 - direct increases are not allowed
+
+If a `split_off_amount` command is rejected:
+- the helper cell is cleared immediately
+- allowed commands are a positive number, `x`, or `-`
 
 ## Limits
 

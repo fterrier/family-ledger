@@ -261,6 +261,59 @@ def _posting_weight(posting: PostingPayload | PostingNormalizePayload) -> MoneyV
     return MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol)
 
 
+def _persisted_posting_weight(posting: Posting) -> MoneyValue:
+    if posting.cost_per_unit is not None:
+        assert posting.cost_symbol is not None
+        return MoneyValue(
+            amount=posting.units_amount * posting.cost_per_unit,
+            symbol=posting.cost_symbol,
+        )
+    if posting.price_per_unit is not None:
+        assert posting.price_symbol is not None
+        return MoneyValue(
+            amount=posting.units_amount * posting.price_per_unit,
+            symbol=posting.price_symbol,
+        )
+    return MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol)
+
+
+def transaction_weight_totals_by_symbol_from_payload(
+    payload: TransactionData,
+) -> dict[str, Decimal]:
+    totals: dict[str, Decimal] = {}
+    for posting in payload.postings:
+        weight = _posting_weight(posting)
+        if weight is None or weight.amount >= 0:
+            continue
+        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + (-weight.amount)
+    return totals
+
+
+def transaction_weight_totals_by_symbol_from_row(
+    transaction: Transaction,
+) -> dict[str, Decimal]:
+    totals: dict[str, Decimal] = {}
+    for posting in transaction.postings:
+        weight = _persisted_posting_weight(posting)
+        if weight.amount >= 0:
+            continue
+        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + (-weight.amount)
+    return totals
+
+
+def validate_transaction_total_unchanged(
+    existing: Transaction,
+    payload: TransactionData,
+) -> None:
+    existing_totals = transaction_weight_totals_by_symbol_from_row(existing)
+    updated_totals = transaction_weight_totals_by_symbol_from_payload(payload)
+    if existing_totals != updated_totals:
+        raise ValidationError(
+            code="transaction_total_changed",
+            message="Transactions may not change total value.",
+        )
+
+
 def normalize_transaction_payload(
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionCreate:
@@ -612,6 +665,7 @@ def update_transaction(
     transaction_row = get_transaction_row(session, transaction)
     normalized = normalize_transaction_payload(payload)
     validate_transaction_payload(session, normalized)
+    validate_transaction_total_unchanged(transaction_row, normalized)
     persist_transaction(session, normalized, transaction=transaction_row)
     commit_or_raise(session)
     persisted = session.scalar(

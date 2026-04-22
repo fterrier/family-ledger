@@ -424,6 +424,7 @@ Behavior:
 - the path transaction resource name is authoritative; the request body does not need a transaction `name`
 - the mutable transaction payload is replaced as a whole, including the full postings array
 - implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
+- transaction updates must preserve total value by weight per symbol; recategorization and splitting are allowed, value changes are rejected
 
 Validation:
 - same as `POST /transactions`

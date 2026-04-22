@@ -311,6 +311,66 @@ def test_update_transaction_recomputes_fingerprint(session: Session) -> None:
     assert updated.import_metadata.fingerprint != created.import_metadata.fingerprint
 
 
+def test_update_transaction_rejects_total_change(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+
+    created = ledger_service.create_transaction(
+        session,
+        make_transaction_payload().model_copy(
+            update={
+                "postings": [
+                    PostingPayload(
+                        account="accounts/acc_one",
+                        units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                    ),
+                    PostingPayload(
+                        account="accounts/acc_two",
+                        units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    ),
+                ]
+            }
+        ),
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        ledger_service.update_transaction(
+            session,
+            created.name,
+            TransactionCreate(
+                transaction_date=date(2026, 4, 19),
+                payee="Migros",
+                narration="Groceries",
+                postings=[
+                    PostingPayload(
+                        account="accounts/acc_one",
+                        units=MoneyValue(amount=Decimal("-120.00"), symbol="CHF"),
+                    ),
+                    PostingPayload(
+                        account="accounts/acc_two",
+                        units=MoneyValue(amount=Decimal("120.00"), symbol="CHF"),
+                    ),
+                ],
+            ),
+        )
+
+    assert exc_info.value.code == "transaction_total_changed"
+
+
 def test_update_transaction_raises_for_missing_transaction(session: Session) -> None:
     with pytest.raises(NotFoundError) as exc_info:
         ledger_service.update_transaction(

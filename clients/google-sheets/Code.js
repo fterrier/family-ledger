@@ -73,6 +73,7 @@ function handleTransactionEdit(e) {
       showSuccessToast: true,
     });
   } catch (error) {
+    rollbackFailedEdit_(sheet, row, header, String(e.oldValue || ''));
     handleAutomaticEditError_(sheet, transactionName, error);
   }
 }
@@ -373,7 +374,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   writeTransactionSheetRow_(sheet, rowNumber, row);
   writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
   applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
-  focusNewSplitRow_(sheet, rowNumber + 1);
+  focusPostEnterAfterInsert_(sheet, rowNumber, getTransactionHeaderColumnIndex_('split_off_amount'));
 }
 
 function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmountRaw) {
@@ -409,11 +410,7 @@ function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmount
   writeTransactionSheetRow_(sheet, rowNumber, row);
   writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
   applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
-  focusNewSplitRow_(sheet, rowNumber + 1);
-}
-
-function focusNewSplitRow_(sheet, rowNumber) {
-  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('split_off_amount')).activate();
+  focusPostEnterAfterInsert_(sheet, rowNumber, getTransactionHeaderColumnIndex_('amount'));
 }
 
 function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
@@ -455,10 +452,32 @@ function performDeleteSplitRow_(sheet, rowNumber) {
   if (mergeTargetRowNumber < rowNumber) {
     writeTransactionSheetRow_(sheet, mergeTargetRowNumber, mergeTarget);
     sheet.deleteRow(rowNumber);
+    focusPostEnterAfterDelete_(sheet, rowNumber, getTransactionHeaderColumnIndex_('split_off_amount'));
   } else {
     sheet.deleteRow(rowNumber);
     writeTransactionSheetRow_(sheet, mergeTargetRowNumber - 1, mergeTarget);
+    focusPostEnterAfterDelete_(sheet, rowNumber, getTransactionHeaderColumnIndex_('split_off_amount'));
   }
+}
+
+function focusPostEnterAfterInsert_(sheet, editedRowNumber, editedColumnNumber) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 1) {
+    return;
+  }
+  focusCell_(sheet, Math.min(editedRowNumber + 1, lastRow), editedColumnNumber);
+}
+
+function focusPostEnterAfterDelete_(sheet, editedRowNumber, editedColumnNumber) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 1) {
+    return;
+  }
+  focusCell_(sheet, Math.min(editedRowNumber, lastRow), editedColumnNumber);
+}
+
+function focusCell_(sheet, rowNumber, columnNumber) {
+  sheet.getRange(rowNumber, columnNumber).activate();
 }
 
 function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
@@ -498,6 +517,20 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
 
 function restoreAmountCell_(sheet, rowNumber, amount) {
   sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('amount')).setValue(amount);
+}
+
+function clearSplitInstructionCell_(sheet, rowNumber) {
+  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('split_off_amount')).setValue('');
+}
+
+function rollbackFailedEdit_(sheet, rowNumber, header, oldValue) {
+  if (header === 'amount') {
+    restoreAmountCell_(sheet, rowNumber, normalizedFallbackAmount_(oldValue));
+    return;
+  }
+  if (header === 'split_off_amount') {
+    clearSplitInstructionCell_(sheet, rowNumber);
+  }
 }
 
 function normalizedFallbackAmount_(amount) {

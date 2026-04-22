@@ -562,6 +562,55 @@ def test_patch_transaction_matches_normalize_output() -> None:
         assert patched_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
+def test_patch_transaction_rejects_total_change() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    response = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-90.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "90.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "transaction_total_changed"
+
+
 def test_patch_transaction_rejects_unknown_commodity() -> None:
     client = make_client()
 

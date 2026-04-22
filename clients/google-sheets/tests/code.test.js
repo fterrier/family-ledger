@@ -202,6 +202,9 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         setValue(value) {
           operations.push({ type: 'setValue', row: row, value: value });
         },
+        activate() {
+          operations.push({ type: 'activate', row: row, column: _column });
+        },
       };
     },
     insertRowsAfter(row, count) {
@@ -578,6 +581,16 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return {
+      getRow() {
+        return 3;
+      },
+      getColumn() {
+        return 9;
+      },
+    };
+  };
   fakeSheet.getRange = function(row, column, numRows) {
     if (numRows === undefined) {
       return {
@@ -601,6 +614,7 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   assert.equal(operations[3].type, 'applyValidation');
   assert.equal(operations[4].type, 'activate');
   assert.equal(operations[4].row, 3);
+  assert.equal(operations[4].column, 9);
   assert.equal(rowStore.get(2).amount, '64.25');
   assert.equal(rowStore.get(2).split_off_amount, '');
   assert.equal(rowStore.get(3).amount, '20');
@@ -608,7 +622,91 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   assert.equal(rowStore.get(3).split_off_amount, '');
 });
 
-test('focusNewSplitRow_ activates the split helper cell on the inserted row', () => {
+test('focusPostEnterAfterInsert_ moves focus to the next row in the edited column', () => {
+  const { sandbox } = loadCode();
+  const operations = [];
+  const fakeSheet = {
+    getLastRow() {
+      return 20;
+    },
+    getRange(row, column) {
+      return {
+        activate() {
+          operations.push({ row: row, column: column });
+        },
+      };
+    },
+  };
+
+  sandbox.focusPostEnterAfterInsert_(fakeSheet, 12, 5);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 13, column: 5 }]);
+});
+
+test('focusPostEnterAfterInsert_ clamps to the last row when needed', () => {
+  const { sandbox } = loadCode();
+  const operations = [];
+  const fakeSheet = {
+    getLastRow() {
+      return 10;
+    },
+    getRange(row, column) {
+      return {
+        activate() {
+          operations.push({ row: row, column: column });
+        },
+      };
+    },
+  };
+
+  sandbox.focusPostEnterAfterInsert_(fakeSheet, 10, 5);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 10, column: 5 }]);
+});
+
+test('focusPostEnterAfterDelete_ keeps focus on the edited row in the edited column', () => {
+  const { sandbox } = loadCode();
+  const operations = [];
+  const fakeSheet = {
+    getLastRow() {
+      return 20;
+    },
+    getRange(row, column) {
+      return {
+        activate() {
+          operations.push({ row: row, column: column });
+        },
+      };
+    },
+  };
+
+  sandbox.focusPostEnterAfterDelete_(fakeSheet, 12, 5);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 12, column: 5 }]);
+});
+
+test('focusPostEnterAfterDelete_ clamps to the last row when needed', () => {
+  const { sandbox } = loadCode();
+  const operations = [];
+  const fakeSheet = {
+    getLastRow() {
+      return 10;
+    },
+    getRange(row, column) {
+      return {
+        activate() {
+          operations.push({ row: row, column: column });
+        },
+      };
+    },
+  };
+
+  sandbox.focusPostEnterAfterDelete_(fakeSheet, 12, 5);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 10, column: 5 }]);
+});
+
+test('focusCell_ activates the requested sheet cell', () => {
   const operations = [];
   const { sandbox } = loadCode();
   const fakeSheet = {
@@ -621,11 +719,9 @@ test('focusNewSplitRow_ activates the split helper cell on the inserted row', ()
     },
   };
 
-  sandbox.focusNewSplitRow_(fakeSheet, 8);
+  sandbox.focusCell_(fakeSheet, 9, 9);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { row: 8, column: 9 },
-  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 9, column: 9 }]);
 });
 
 test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
@@ -661,6 +757,16 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
 
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return {
+      getRow() {
+        return 3;
+      },
+      getColumn() {
+        return 9;
+      },
+    };
+  };
 
   sandbox.performDeleteSplitRow_(fakeSheet, 3);
 
@@ -687,6 +793,16 @@ test('performDeleteSplitRow_ rejects deleting the only allocation row', () => {
 
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  fakeSheet.getActiveRange = function() {
+    return {
+      getRow() {
+        return 2;
+      },
+      getColumn() {
+        return 9;
+      },
+    };
+  };
 
   assert.throws(() => sandbox.performDeleteSplitRow_(fakeSheet, 2), /Cannot delete the only allocation row/);
 });
@@ -707,6 +823,26 @@ test('handleAmountEdit_ rejects direct increases and restores previous amount', 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25'), /Imported transaction totals are fixed/);
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { row: 2, column: 8, value: '84.25' },
+  ]);
+});
+
+test('rollbackFailedEdit_ clears invalid split_off_amount commands', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const fakeSheet = {
+    getRange(row, column) {
+      return {
+        setValue(value) {
+          operations.push({ row: row, column: column, value: value });
+        },
+      };
+    },
+  };
+
+  sandbox.rollbackFailedEdit_(fakeSheet, 2, 'split_off_amount', '-123');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { row: 2, column: 9, value: '' },
   ]);
 });
 

@@ -82,11 +82,17 @@ If the user enters `x` or `-` in `split_off_amount`:
 - its amount is merged into a sibling row
 - the imported transaction total remains unchanged
 
+If the helper command is invalid:
+- the `split_off_amount` cell is cleared immediately
+- no save is attempted
+
 This keeps the user in-sheet and avoids prompt-based workflows as the primary interaction model.
 
 Direct `amount` edits for imported transactions follow the same fixed-total model:
 - lowering an amount creates a split for the difference
 - increasing an amount is rejected and restored
+
+The backend also enforces that transaction updates preserve total value by weight per symbol.
 
 ## Save Behavior
 

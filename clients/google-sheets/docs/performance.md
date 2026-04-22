@@ -32,6 +32,7 @@ Important hot paths:
 - fallback manual push
 
 For same-shape saves:
+- if the current local rows already match the server-rendered rows, skip row rewrites entirely
 - do not delete and recreate rows
 - update changed cells in place only
 

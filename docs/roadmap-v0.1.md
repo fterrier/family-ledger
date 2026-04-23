@@ -53,7 +53,7 @@ Phase 1 should deliver:
 
 ## Delivery Phases
 
-### Phase 0: Requirements, Compatibility, and Model
+### Phase 0: Requirements, Compatibility, and Model (done)
 - finalize requirements
 - finalize compatibility target
 - finalize domain model
@@ -61,37 +61,69 @@ Phase 1 should deliver:
 - finalize developer guidelines
 - confirm the minimum Beancount compatibility target
 
-### Phase 1: Deployment Scaffold
+### Phase 1: Deployment Scaffold (done)
 - package the service for Docker Compose
 - make the stack runnable on Synology very early
 - allow tests to run even when some APIs return `Not implemented`
 - document startup, shutdown, and backup basics
 
-### Phase 2: Ledger Core
+### Phase 2: Ledger Core (in progress)
 - implement the DB schema
 - implement transaction and posting writes
 - implement balance checks
 - implement balance assertions
 - implement project-level precision/tolerance config
 
-### Phase 3: Imports
+### Phase 3: Imports (in progress)
 - implement native ID dedupe
 - implement fingerprint dedupe
 - implement direct-to-transaction import behavior
 - keep import behavior create-or-skip with no overwrite path in v1
 
-### Phase 4: Beancount Export
+### Phase 4: Beancount Export (not started)
 - export deterministic full-ledger Beancount
 - verify export against the existing ledger semantics
 - use exported files with Fava in read-only mode
 
-### Phase 5: Spreadsheet Integration
+### Phase 5: Spreadsheet Integration (in progress)
 - expose category-editing workflows through the API
 - connect Google Sheets as a client of the same API
 
+### Phase 6: Spreadsheet Workflow Improvements
+- add support for cash transactions in the Google Sheets workflow
+- improve Sheets UX and styling for day-to-day editing
+- add basic pivot tables and reports for quick spreadsheet-side summaries
+
+### Phase 7: Extended Beancount Compatibility
+- implement `pad` directive import
+- implement `document` directive import
+- implement `balance` directive import
+
+### Phase 8: Export and Backup Workflows
+- export the canonical ledger back to Beancount
+- support Synology-friendly backup/export workflows
+
+### Phase 9: Extensible Import System
+- design an extensible importer architecture
+- add MT940 import support
+- add IBKR import support
+- add payslip import support
+- add Visa Cumulus import support
+- evaluate reusing existing Beancount importers where that reduces duplicated parsing logic
+
+## Current Focus
+- finish the remaining ledger-core work needed for full Beancount-compatible semantics
+- add support for cash transactions in the Google Sheets workflow
+- continue improving Sheets UX and styling
+- add basic pivot tables and reports for quick spreadsheet-side summaries
+- implement `pad`, `document`, and `balance` Beancount import support
+- export the canonical ledger back to Beancount, including Synology-friendly backup workflows
+- build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
+- evaluate where Beancount importers can be reused instead of duplicating parser logic
+
 ## Notes
 - Fava is read-only in v1; changes made there do not sync back to the database.
-- Google Sheets is a planned client workflow for categorization in v1, not the source of truth.
+- Google Sheets is now an implemented client workflow for categorization in v1, but it is not the source of truth.
 - Transactions remain editable in v1; locking and audit history are deferred.
 - Unbalanced transactions remain part of the ledger and may still be exported in v1.
 - The implementation should remain a modular monolith.

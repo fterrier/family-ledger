@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -13,7 +14,8 @@ class LedgerConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     default_currency: str = Field(default="CHF")
-    tolerance: dict[str, str] = Field(default_factory=dict)
+    default_tolerance: Decimal
+    tolerance: dict[str, Decimal] = Field(default_factory=dict)
     uncategorized_accounts: list[str] = Field(default_factory=list)
 
 

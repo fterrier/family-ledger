@@ -47,6 +47,17 @@ COMMODITY_DISCOVERY_FIXTURE = """
   Equity:Opening-Balances
 """
 
+TOLERANCE_FIXTURE = """
+2020-01-01 open Assets:Broker:Cash:USD
+2020-01-01 open Assets:Broker:GOOG
+2020-01-01 commodity USD
+2020-01-01 commodity GOOG
+
+2026-04-01 * "Buy GOOG"
+  Assets:Broker:GOOG      1 GOOG {100.00 USD}
+  Assets:Broker:Cash:USD -100.0000005 USD
+"""
+
 
 @pytest.fixture
 def session() -> Generator[Session, None, None]:
@@ -82,6 +93,13 @@ def missing_posting_file(tmp_path: Path) -> Path:
 def commodity_discovery_file(tmp_path: Path) -> Path:
     path = tmp_path / "commodity-discovery.beancount"
     path.write_text(COMMODITY_DISCOVERY_FIXTURE, encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def tolerance_file(tmp_path: Path) -> Path:
+    path = tmp_path / "tolerance.beancount"
+    path.write_text(TOLERANCE_FIXTURE, encoding="utf-8")
     return path
 
 
@@ -163,3 +181,12 @@ def test_import_beancount_refuses_non_empty_database(
 
     with pytest.raises(RuntimeError, match="expects an empty database"):
         import_beancount.import_beancount(session, beancount_file)
+
+
+def test_import_beancount_accepts_transaction_within_default_tolerance(
+    session: Session, tolerance_file: Path
+) -> None:
+    summary = import_beancount.import_beancount(session, tolerance_file)
+
+    assert summary.transactions == 1
+    assert summary.skipped_transactions == 0

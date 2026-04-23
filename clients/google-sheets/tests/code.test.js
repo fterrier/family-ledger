@@ -151,6 +151,7 @@ function sampleTransaction(overrides = {}) {
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',
+    issues: [],
     postings: [
       {
         account: 'accounts/source',
@@ -197,6 +198,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
             'split_off_amount',
             'status',
             'last_error',
+            'issues',
           ];
           const values = [];
           for (let index = 0; index < numRows; index += 1) {
@@ -217,6 +219,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
             'split_off_amount',
             'status',
             'last_error',
+            'issues',
           ];
           operations.push({ type: 'setValues', row: row, values: values });
           values.forEach(function(rowValues, valueIndex) {
@@ -230,6 +233,29 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         },
         setValue(value) {
           operations.push({ type: 'setValue', row: row, value: value });
+          const headers = [
+            'transaction_name',
+            'transaction_date',
+            'payee',
+            'narration',
+            'source_account_name',
+            'destination_account_name',
+            'symbol',
+            'amount',
+            'split_off_amount',
+            'status',
+            'last_error',
+            'issues',
+          ];
+          const currentRow = rowStore.get(row) || {};
+          currentRow[headers[_column - 1]] = value;
+          rowStore.set(row, currentRow);
+        },
+        setBackground(value) {
+          operations.push({ type: 'setBackground', row: row, column: _column, value: value });
+        },
+        setBackgrounds(values) {
+          operations.push({ type: 'setBackgrounds', row: row, column: _column, values: values });
         },
         activate() {
           operations.push({ type: 'activate', row: row, column: _column });
@@ -417,6 +443,27 @@ test('classifySupportedTransaction_ rejects multiple negative source legs', () =
   assert.equal(shape, null);
 });
 
+test('classifySupportedTransaction_ accepts source-only transaction', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({
+    postings: [
+      {
+        account: 'accounts/source',
+        units: { amount: '-1.5', symbol: 'CHF' },
+        cost: null,
+        price: null,
+      },
+    ],
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
+    sourceIndex: 0,
+    destinationIndexes: [],
+    symbol: 'CHF',
+  });
+});
+
 test('flattenTransactionForSheet_ preserves posting order for split transactions', () => {
   const { sandbox } = loadCode();
 
@@ -451,6 +498,68 @@ test('flattenTransactionForSheet_ preserves posting order for split transactions
   assert.equal(rows[0].destination_account_name, 'Expenses:Food');
   assert.equal(rows[1].destination_account_name, 'Expenses:Household');
   assert.equal(rows[0].split_off_amount, '');
+});
+
+test('flattenTransactionForSheet_ renders persisted issues on every transaction row', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction({
+    issues: [
+      {
+        code: 'transaction_unbalanced',
+        message: 'Transaction is not balanced within tolerance.',
+        details: {
+          symbol: 'CHF',
+          residual_amount: '-4.25',
+          tolerance_amount: '0.005',
+        },
+      },
+    ],
+  }), {
+    'accounts/source': 'Assets:Bank:Checking',
+    'accounts/food': 'Expenses:Food',
+  });
+
+  assert.equal(rows[0].issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
+});
+
+test('flattenTransactionForSheet_ renders source-only transactions as one blank-destination row', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2025-12-31',
+    payee: null,
+    narration: 'Guthabenzins: Guthabenzins',
+    issues: [],
+    postings: [
+      {
+        account: 'accounts/source',
+        units: { amount: '-1.5', symbol: 'CHF' },
+        cost: null,
+        price: null,
+      },
+    ],
+  }, {
+    'accounts/source': 'Assets:Bank:Checking',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].destination_account_name, '');
+  assert.equal(rows[0].amount, '1.5');
+});
+
+test('buildTransactionRowBackgrounds_ highlights rows with persisted issues only', () => {
+  const { sandbox } = loadCode();
+
+  const withIssues = sandbox.buildTransactionRowBackgrounds_({ issues: 'transaction_unbalanced (...)' });
+  const withoutIssues = sandbox.buildTransactionRowBackgrounds_({ issues: '' });
+
+  assert.equal(withIssues.every((color) => color === '#fee2e2'), true);
+  assert.equal(withoutIssues[0], '#ffffff');
+  assert.equal(withoutIssues[1], '#f3f4f6');
+  assert.equal(withoutIssues[2], '#ffffff');
+  assert.equal(withoutIssues[10], '#f9fafb');
 });
 
 test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in sheet row order', () => {
@@ -574,6 +683,78 @@ test('buildTransactionPatchPayloadFromGroup_ rejects inconsistent narration', ()
   }), /Inconsistent narration/);
 });
 
+test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when destination is blank', () => {
+  const { sandbox } = loadCode();
+
+  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
+    transactionName: 'transactions/txn_1',
+    contiguous: true,
+    rows: [
+      {
+        transaction_name: 'transactions/txn_1',
+        transaction_date: '2025-12-31',
+        payee: '',
+        narration: 'Guthabenzins: Guthabenzins',
+        source_account_name: 'Assets:Bank:Checking',
+        destination_account_name: '',
+        amount: '1.5',
+        symbol: 'CHF',
+        __rowNumber: 2,
+      },
+    ],
+  }, {
+    'Assets:Bank:Checking': 'accounts/source',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
+    transaction_date: '2025-12-31',
+    payee: null,
+    narration: 'Guthabenzins: Guthabenzins',
+    postings: [
+      {
+        account: 'accounts/source',
+        units: { amount: '-1.5', symbol: 'CHF' },
+      },
+    ],
+  });
+});
+
+test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank destinations', () => {
+  const { sandbox } = loadCode();
+
+  assert.throws(() => sandbox.buildTransactionPatchPayloadFromGroup_({
+    transactionName: 'transactions/txn_1',
+    contiguous: true,
+    rows: [
+      {
+        transaction_name: 'transactions/txn_1',
+        transaction_date: '2026-04-19',
+        payee: 'Migros',
+        narration: 'Groceries',
+        source_account_name: 'Assets:Bank:Checking',
+        destination_account_name: '',
+        amount: '50',
+        symbol: 'CHF',
+        __rowNumber: 2,
+      },
+      {
+        transaction_name: 'transactions/txn_1',
+        transaction_date: '2026-04-19',
+        payee: 'Migros',
+        narration: 'Groceries',
+        source_account_name: 'Assets:Bank:Checking',
+        destination_account_name: 'Expenses:Food',
+        amount: '34.25',
+        symbol: 'CHF',
+        __rowNumber: 3,
+      },
+    ],
+  }, {
+    'Assets:Bank:Checking': 'accounts/source',
+    'Expenses:Food': 'accounts/food',
+  }), /must either all have destination accounts or all leave destination_account_name blank/);
+});
+
 test('buildTransactionSyncSummaryMessage_ reports synced rows and skipped transactions', () => {
   const { sandbox } = loadCode();
 
@@ -681,11 +862,13 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   assert.equal(operations[0].type, 'insertRowsAfter');
   assert.equal(operations[1].type, 'setValues');
-  assert.equal(operations[2].type, 'setValues');
-  assert.equal(operations[3].type, 'applyValidation');
-  assert.equal(operations[4].type, 'activate');
-  assert.equal(operations[4].row, 3);
-  assert.equal(operations[4].column, 9);
+  assert.equal(operations[2].type, 'setBackgrounds');
+  assert.equal(operations[3].type, 'setValues');
+  assert.equal(operations[4].type, 'setBackgrounds');
+  assert.equal(operations[5].type, 'applyValidation');
+  assert.equal(operations[6].type, 'activate');
+  assert.equal(operations[6].row, 3);
+  assert.equal(operations[6].column, 9);
   assert.equal(rowStore.get(2).amount, '64.25');
   assert.equal(rowStore.get(2).split_off_amount, '');
   assert.equal(rowStore.get(3).amount, '20');
@@ -845,7 +1028,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
   assert.match(JSON.stringify(operations), /deleteRow/);
 });
 
-test('performDeleteSplitRow_ rejects deleting the only allocation row', () => {
+test('performDeleteSplitRow_ resets the last destination row to source-only state', () => {
   const rowStore = new Map([
     [2, {
       transaction_name: 'transactions/txn_1',
@@ -875,7 +1058,11 @@ test('performDeleteSplitRow_ rejects deleting the only allocation row', () => {
     };
   };
 
-  assert.throws(() => sandbox.performDeleteSplitRow_(fakeSheet, 2), /Cannot delete the only allocation row/);
+  sandbox.performDeleteSplitRow_(fakeSheet, 2);
+
+  assert.equal(rowStore.get(2).destination_account_name, '');
+  assert.equal(rowStore.get(2).amount, '84.25');
+  assert.equal(rowStore.get(2).status, 'dirty');
 });
 
 test('handleAmountEdit_ rejects direct increases and restores previous amount', () => {
@@ -894,6 +1081,33 @@ test('handleAmountEdit_ rejects direct increases and restores previous amount', 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25'), /Imported transaction totals are fixed/);
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { row: 2, column: 8, value: '84.25' },
+  ]);
+});
+
+test('handleAmountEdit_ rejects edits for source-only transactions', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2025-12-31',
+      payee: '',
+      narration: 'Guthabenzins: Guthabenzins',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: '',
+      amount: '1.5',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      issues: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '1', '1.5'), /Amount cannot be edited/);
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)).filter((op) => op.type === 'setValue'), [
+    { type: 'setValue', row: 2, value: '1.5' },
   ]);
 });
 
@@ -950,6 +1164,29 @@ test('performSplitInstructionForRow_ treats x and - as delete instructions', () 
     { type: 'delete', rowNumber: 4 },
     { type: 'split', rowNumber: 5, amount: '12.5' },
   ]);
+});
+
+test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2025-12-31',
+      payee: '',
+      narration: 'Guthabenzins: Guthabenzins',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: '',
+      amount: '1.5',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      issues: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  assert.throws(() => sandbox.performSplitInstructionForRow_(fakeSheet, 2, '0.5'), /Split is unavailable/);
 });
 
 test('canUpdateTransactionRowsInPlace_ accepts same-shape replacement rows', () => {
@@ -1133,7 +1370,7 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
   ]);
 });
 
-test('hideTechnicalTransactionColumns_ hides the transaction_name column', () => {
+test('hideTechnicalTransactionColumns_ hides transaction_name and last_error columns', () => {
   const operations = [];
   const { sandbox } = loadCode();
   const fakeSheet = {
@@ -1144,7 +1381,7 @@ test('hideTechnicalTransactionColumns_ hides the transaction_name column', () =>
 
   sandbox.hideTechnicalTransactionColumns_(fakeSheet);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [1]);
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [1, 11]);
 });
 
 test('save generation helpers ignore stale responses', () => {
@@ -1158,4 +1395,48 @@ test('save generation helpers ignore stale responses', () => {
   assert.equal(documentProperties.get('family_ledger_save_generation:transactions/txn_1'), '2');
   assert.equal(sandbox.isCurrentSaveGeneration_('transactions/txn_1', '1'), false);
   assert.equal(sandbox.isCurrentSaveGeneration_('transactions/txn_1', '2'), true);
+});
+
+test('saveTransactionByName_ keeps persisted issues and records transient PATCH errors separately', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: '84.25',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: 'dirty',
+      issues: 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  sandbox.loadAccountNameMap_ = function() {
+    return {};
+  };
+  sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
+    return { transaction_date: '2026-04-19', postings: [] };
+  };
+  sandbox.apiFetchJson_ = function(method) {
+    if (method === 'patch') {
+      throw new Error('transaction_unbalanced: Transaction is not balanced within tolerance.');
+    }
+    return {};
+  };
+
+  sandbox.saveTransactionByName_(fakeSheet, 'transactions/txn_1', {});
+
+  assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
+  assert.equal(
+    rowStore.get(2).last_error,
+    'transaction_unbalanced: Transaction is not balanced within tolerance.'
+  );
+  assert.equal(rowStore.get(2).status, 'error');
 });

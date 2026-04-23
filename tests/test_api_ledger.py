@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import importlib
+from collections.abc import Iterator
 from decimal import Decimal
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 
 
 def make_client(api_token: str = "test-token") -> TestClient:
@@ -19,6 +22,23 @@ def make_unauthenticated_client() -> TestClient:
     main_module = importlib.import_module("family_ledger.main")
     main_module = importlib.reload(main_module)
     return TestClient(main_module.create_app())
+
+
+@contextlib.contextmanager
+def count_sql_statements() -> Iterator[list[str]]:
+    db_module = importlib.import_module("family_ledger.db")
+    statements: list[str] = []
+
+    def before_cursor_execute(
+        _conn, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        statements.append(statement)
+
+    event.listen(db_module.engine, "before_cursor_execute", before_cursor_execute)
+    try:
+        yield statements
+    finally:
+        event.remove(db_module.engine, "before_cursor_execute", before_cursor_execute)
 
 
 def create_account(client: TestClient, account_name: str) -> dict:
@@ -383,6 +403,90 @@ def test_create_transaction_matches_normalize_output() -> None:
         assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
+def test_normalize_transaction_returns_issues_for_unbalanced_payload() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions:normalize",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["issues"] == [
+        {
+            "code": "transaction_unbalanced",
+            "severity": "error",
+            "message": "Transaction is not balanced within tolerance.",
+            "details": {
+                "symbol": "CHF",
+                "residual_amount": "-4.25",
+                "tolerance_amount": "0.01",
+            },
+        }
+    ]
+
+
+def test_create_transaction_returns_persisted_issues_for_unbalanced_payload() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["issues"] == [
+        {
+            "name": response.json()["issues"][0]["name"],
+            "target": response.json()["name"],
+            "code": "transaction_unbalanced",
+            "severity": "error",
+            "message": "Transaction is not balanced within tolerance.",
+            "details": {
+                "symbol": "CHF",
+                "residual_amount": "-4.25",
+                "tolerance_amount": "0.01",
+            },
+        }
+    ]
+
+
 def test_patch_transaction_recategorizes_posting() -> None:
     client = make_client()
 
@@ -562,7 +666,7 @@ def test_patch_transaction_matches_normalize_output() -> None:
         assert patched_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
-def test_patch_transaction_rejects_total_change() -> None:
+def test_patch_transaction_allows_total_change_without_lock() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -607,8 +711,179 @@ def test_patch_transaction_rejects_total_change() -> None:
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "transaction_total_changed"
+    assert response.status_code == 200
+    assert response.json()["postings"][0]["units"]["amount"] == "-90.00"
+
+
+def test_patch_transaction_returns_persisted_issues_for_unbalanced_payload() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    response = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["issues"] == [
+        {
+            "name": response.json()["issues"][0]["name"],
+            "target": created.json()["name"],
+            "code": "transaction_unbalanced",
+            "severity": "error",
+            "message": "Transaction is not balanced within tolerance.",
+            "details": {
+                "symbol": "CHF",
+                "residual_amount": "-4.25",
+                "tolerance_amount": "0.01",
+            },
+        }
+    ]
+
+
+def test_get_and_list_issues_for_transaction() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    ).json()
+
+    fetched = client.get(f"/{created['name']}")
+    listed = client.get("/transactions")
+    issues = client.get(f"/issues?target={created['name']}")
+
+    assert fetched.status_code == 200
+    assert fetched.json()["issues"][0]["code"] == "transaction_unbalanced"
+    assert listed.status_code == 200
+    assert listed.json()["transactions"][0]["issues"][0]["code"] == "transaction_unbalanced"
+    assert issues.status_code == 200
+    assert issues.json()["issues"][0]["target"] == created["name"]
+
+
+def test_get_transaction_uses_bounded_issue_queries() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    ).json()
+
+    with count_sql_statements() as statements:
+        response = client.get(f"/{created['name']}")
+
+    assert response.status_code == 200
+    assert response.json()["issues"][0]["code"] == "transaction_unbalanced"
+    assert len(statements) <= 4
+
+
+def test_list_transactions_issue_queries_remain_bounded() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    for day in range(1, 6):
+        amount = Decimal("80.00") + Decimal(day)
+        client.post(
+            "/transactions",
+            json={
+                "transaction": {
+                    "transaction_date": f"2026-04-0{day}",
+                    "postings": [
+                        {
+                            "account": checking["name"],
+                            "units": {"amount": "-84.25", "symbol": "CHF"},
+                        },
+                        {
+                            "account": food["name"],
+                            "units": {"amount": str(amount), "symbol": "CHF"},
+                        },
+                    ],
+                }
+            },
+        )
+
+    with count_sql_statements() as statements:
+        response = client.get("/transactions?page_size=5")
+
+    assert response.status_code == 200
+    assert len(response.json()["transactions"]) == 5
+    assert all(transaction["issues"] for transaction in response.json()["transactions"])
+    assert len(statements) <= 4
 
 
 def test_patch_transaction_rejects_unknown_commodity() -> None:

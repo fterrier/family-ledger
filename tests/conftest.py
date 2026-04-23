@@ -19,6 +19,7 @@ def configure_test_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     config_path = tmp_path / "ledger.yaml"
     config_path.write_text(
         "default_currency: CHF\n"
+        "default_tolerance: '0.000001'\n"
         "tolerance:\n"
         "  CHF: '0.01'\n"
         "uncategorized_accounts:\n"

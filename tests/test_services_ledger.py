@@ -58,6 +58,27 @@ def make_transaction_payload() -> TransactionCreate:
     )
 
 
+def seed_basic_transaction_dependencies(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+            Commodity(name="commodities/cmd_usd", symbol="USD"),
+            Commodity(name="commodities/cmd_goog", symbol="GOOG"),
+        ]
+    )
+    session.commit()
+
+
 def test_hash_transaction_payload_is_deterministic() -> None:
     payload = make_transaction_payload()
     fingerprint_one = ledger_service.hash_transaction_payload(payload)
@@ -147,6 +168,118 @@ def test_validate_symbols_exist_rejects_missing_symbol(session: Session) -> None
         ledger_service.validate_symbols_exist(session, {"CHF", "USD"})
 
     assert exc_info.value.code == "commodity_not_found"
+
+
+def test_resolve_tolerance_uses_symbol_override(session: Session) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    assert ledger_service.resolve_tolerance(session, "CHF") == Decimal("0.01")
+
+
+def test_resolve_tolerance_uses_default_when_symbol_missing(session: Session) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    assert ledger_service.resolve_tolerance(session, "USD") == Decimal("0.000001")
+
+
+def test_validate_transaction_balanced_allows_small_residual_within_tolerance(
+    session: Session,
+) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    payload = TransactionCreate(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingPayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-10.005"), symbol="CHF"),
+            ),
+            PostingPayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("10.00"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    assert ledger_service.derive_normalize_issues(session, payload) == []
+
+
+def test_derive_normalize_issues_reports_residual_outside_default_tolerance(
+    session: Session,
+) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    payload = TransactionCreate(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingPayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-10.00001"), symbol="EUR"),
+            ),
+            PostingPayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("10.00"), symbol="EUR"),
+            ),
+        ],
+    )
+
+    issues = ledger_service.derive_normalize_issues(session, payload)
+
+    assert len(issues) == 1
+    assert issues[0].code == "transaction_unbalanced"
+    assert issues[0].details == {
+        "symbol": "EUR",
+        "residual_amount": "-0.00001",
+        "tolerance_amount": "0.000001",
+    }
+
+
+def test_validate_transaction_balanced_uses_cost_weight_over_price(session: Session) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    payload = TransactionCreate(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingPayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("5"), symbol="GOOG"),
+                cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                price=MoneyValue(amount=Decimal("150.00"), symbol="USD"),
+            ),
+            PostingPayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("-500.00"), symbol="USD"),
+            ),
+        ],
+    )
+
+    assert ledger_service.derive_normalize_issues(session, payload) == []
+
+
+def test_create_transaction_persists_explicit_unbalanced_payload_with_issue(
+    session: Session,
+) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    created = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("99.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    assert len(created.issues) == 1
+    assert created.issues[0].code == "transaction_unbalanced"
 
 
 def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
@@ -311,7 +444,7 @@ def test_update_transaction_recomputes_fingerprint(session: Session) -> None:
     assert updated.import_metadata.fingerprint != created.import_metadata.fingerprint
 
 
-def test_update_transaction_rejects_total_change(session: Session) -> None:
+def test_update_transaction_allows_total_change_without_lock(session: Session) -> None:
     session.add_all(
         [
             Account(
@@ -347,28 +480,28 @@ def test_update_transaction_rejects_total_change(session: Session) -> None:
         ),
     )
 
-    with pytest.raises(ValidationError) as exc_info:
-        ledger_service.update_transaction(
-            session,
-            created.name,
-            TransactionCreate(
-                transaction_date=date(2026, 4, 19),
-                payee="Migros",
-                narration="Groceries",
-                postings=[
-                    PostingPayload(
-                        account="accounts/acc_one",
-                        units=MoneyValue(amount=Decimal("-120.00"), symbol="CHF"),
-                    ),
-                    PostingPayload(
-                        account="accounts/acc_two",
-                        units=MoneyValue(amount=Decimal("120.00"), symbol="CHF"),
-                    ),
-                ],
-            ),
-        )
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-120.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("120.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
 
-    assert exc_info.value.code == "transaction_total_changed"
+    assert updated.postings[0].units.amount == Decimal("-120.00")
+    assert updated.issues == []
 
 
 def test_update_transaction_raises_for_missing_transaction(session: Session) -> None:

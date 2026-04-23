@@ -157,6 +157,8 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Good service tests cover business logic such as fingerprinting, resolution, validation, serialization, and persistence behavior.
 - If service tests mostly repeat route tests without adding value, prefer collapsing overly thin service code back into the API module.
 - Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
+- On read paths, avoid N+1 query patterns for related resources. Prefer bounded batched queries keyed by indexed columns, or indexed eager loading, over per-entity follow-up queries.
+- For paginated one-to-many reads, page the parent resources first and then load related rows for just that page in a bounded number of queries.
 - Do not add a plugin system unless multiple concrete plugins already exist.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 

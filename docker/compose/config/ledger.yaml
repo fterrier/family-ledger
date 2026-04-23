@@ -1,5 +1,7 @@
 default_currency: CHF
+default_tolerance: "0.000001"
 tolerance:
-  CHF: "0.01"
+  CHF: "0.005"
+  USD: "0.005"
 uncategorized_accounts:
   - Expenses:Uncategorized

@@ -98,7 +98,7 @@ Normal flow:
 1. Open the `Transactions` sheet.
 2. Edit `payee`, `narration`, or `destination_account_name` directly.
 3. For imported transactions, treat `amount` as an allocation amount inside a fixed total.
-3. Watch `status` and `last_error`.
+3. Watch `status`, `issues`, and `last_error`.
 
 For splits:
 1. Either reduce the row `amount`, or enter a positive value in `split_off_amount`.
@@ -122,6 +122,10 @@ The `split_off_amount` column is highlighted as an action field and its header n
 - `saving`: the transaction is being patched to the API
 - `saved`: the transaction was saved successfully
 - `error`: the save failed; see `last_error`
+
+Persisted API issues are shown in the `issues` column.
+Rows with persisted issues are highlighted in light red.
+Transient save failures still use `status=error` and `last_error` without applying the red issue highlight.
 
 Imported transaction totals are fixed:
 - reducing an `amount` creates a split for the difference

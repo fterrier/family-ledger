@@ -19,10 +19,13 @@ from family_ledger.api.schemas import (
     CommodityCreate,
     CommodityResource,
     ImportMetadata,
+    IssueResource,
     ListAccountsResponse,
     ListCommoditiesResponse,
+    ListIssuesResponse,
     ListTransactionsResponse,
     MoneyValue,
+    NormalizeIssue,
     NormalizeTransactionResponse,
     PostingNormalizePayload,
     PostingPayload,
@@ -33,7 +36,16 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
     TransactionResource,
 )
-from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
+from family_ledger.config import get_ledger_config
+from family_ledger.models import (
+    Account,
+    BalanceAssertion,
+    Commodity,
+    Issue,
+    Posting,
+    Price,
+    Transaction,
+)
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 from family_ledger.services.identifiers import generate_resource_name
 
@@ -116,7 +128,13 @@ def serialize_commodity(commodity: Commodity) -> CommodityResource:
     return CommodityResource.model_validate(commodity)
 
 
-def serialize_transaction(transaction: Transaction) -> TransactionResource:
+def serialize_issue(issue: Issue) -> IssueResource:
+    return IssueResource.model_validate(issue)
+
+
+def serialize_transaction(
+    transaction: Transaction, issues: list[Issue] | None = None
+) -> TransactionResource:
     postings = [
         PostingPayload(
             account=posting.account.name,
@@ -147,6 +165,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
         entity_metadata=transaction.entity_metadata,
         import_metadata=import_metadata,
         postings=postings,
+        issues=[] if issues is None else [serialize_issue(issue) for issue in issues],
     )
 
 
@@ -277,41 +296,75 @@ def _persisted_posting_weight(posting: Posting) -> MoneyValue:
     return MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol)
 
 
-def transaction_weight_totals_by_symbol_from_payload(
-    payload: TransactionData,
+def transaction_balance_totals_by_symbol(
+    postings: list[PostingPayload] | list[PostingNormalizePayload],
 ) -> dict[str, Decimal]:
     totals: dict[str, Decimal] = {}
-    for posting in payload.postings:
+    for posting in postings:
         weight = _posting_weight(posting)
-        if weight is None or weight.amount >= 0:
+        if weight is None or weight.amount == 0:
             continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + (-weight.amount)
+        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
     return totals
 
 
-def transaction_weight_totals_by_symbol_from_row(
-    transaction: Transaction,
-) -> dict[str, Decimal]:
-    totals: dict[str, Decimal] = {}
-    for posting in transaction.postings:
-        weight = _persisted_posting_weight(posting)
-        if weight.amount >= 0:
+def resolve_tolerance(session: Session, symbol: str) -> Decimal:
+    config = get_ledger_config()
+    return config.tolerance.get(symbol, config.default_tolerance)
+
+
+def derive_normalize_issues(session: Session, payload: TransactionData) -> list[NormalizeIssue]:
+    totals = transaction_balance_totals_by_symbol(payload.postings)
+    issues: list[NormalizeIssue] = []
+    for symbol, amount in sorted(totals.items()):
+        tolerance = resolve_tolerance(session, symbol)
+        if abs(amount) <= tolerance:
             continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + (-weight.amount)
-    return totals
-
-
-def validate_transaction_total_unchanged(
-    existing: Transaction,
-    payload: TransactionData,
-) -> None:
-    existing_totals = transaction_weight_totals_by_symbol_from_row(existing)
-    updated_totals = transaction_weight_totals_by_symbol_from_payload(payload)
-    if existing_totals != updated_totals:
-        raise ValidationError(
-            code="transaction_total_changed",
-            message="Transactions may not change total value.",
+        issues.append(
+            NormalizeIssue(
+                code="transaction_unbalanced",
+                severity="error",
+                message="Transaction is not balanced within tolerance.",
+                details={
+                    "symbol": symbol,
+                    "residual_amount": str(amount),
+                    "tolerance_amount": str(tolerance),
+                },
+            )
         )
+    return issues
+
+
+def build_persisted_issues(target: str, issues: list[NormalizeIssue]) -> list[Issue]:
+    return [
+        Issue(
+            name=generate_resource_name("issues", "iss"),
+            target=target,
+            code=issue.code,
+            severity=issue.severity,
+            message=issue.message,
+            details=issue.details,
+        )
+        for issue in issues
+    ]
+
+
+def replace_issues_for_target(session: Session, target: str, issues: list[NormalizeIssue]) -> None:
+    session.query(Issue).where(Issue.target == target).delete(synchronize_session=False)
+    for issue in build_persisted_issues(target, issues):
+        session.add(issue)
+
+
+def get_issues_by_targets(session: Session, targets: list[str]) -> dict[str, list[Issue]]:
+    if not targets:
+        return {}
+    issues = session.scalars(
+        select(Issue).where(Issue.target.in_(targets)).order_by(Issue.name)
+    ).all()
+    by_target: dict[str, list[Issue]] = {target: [] for target in targets}
+    for issue in issues:
+        by_target.setdefault(issue.target, []).append(issue)
+    return by_target
 
 
 def normalize_transaction_payload(
@@ -368,16 +421,7 @@ def normalize_transaction_payload(
     if not missing_units and not missing_symbols and not missing_price_amounts:
         return TransactionCreate.model_validate(payload.model_dump())
 
-    weights_by_symbol: dict[str, Decimal] = {}
-    for posting in payload.postings:
-        if posting.units is None:
-            continue
-        weight = _posting_weight(posting)
-        if weight is None or weight.amount == 0:
-            continue
-        weights_by_symbol[weight.symbol] = (
-            weights_by_symbol.get(weight.symbol, Decimal("0")) + weight.amount
-        )
+    weights_by_symbol = transaction_balance_totals_by_symbol(payload.postings)
 
     missing_price_counts: dict[str, int] = {}
     for posting in missing_price_amounts:
@@ -485,9 +529,20 @@ def normalize_transaction(
     session: Session,
     payload: TransactionNormalizeData,
 ) -> NormalizeTransactionResponse:
+    normalized = normalize_and_validate_transaction_payload(session, payload)
+    return NormalizeTransactionResponse(
+        transaction=normalized,
+        issues=derive_normalize_issues(session, normalized),
+    )
+
+
+def normalize_and_validate_transaction_payload(
+    session: Session,
+    payload: TransactionCreate | TransactionNormalizeData,
+) -> TransactionCreate:
     normalized = normalize_transaction_payload(payload)
     validate_transaction_payload(session, normalized)
-    return NormalizeTransactionResponse(transaction=normalized)
+    return normalized
 
 
 def persist_transaction(
@@ -643,9 +698,11 @@ def create_transaction(
     session: Session,
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionResource:
-    normalized = normalize_transaction_payload(payload)
-    validate_transaction_payload(session, normalized)
+    normalized = normalize_and_validate_transaction_payload(session, payload)
     transaction = persist_transaction(session, normalized)
+    replace_issues_for_target(
+        session, transaction.name, derive_normalize_issues(session, normalized)
+    )
     commit_or_raise(session)
     session.refresh(transaction)
     persisted = session.scalar(
@@ -654,7 +711,8 @@ def create_transaction(
         .where(Transaction.id == transaction.id)
     )
     assert persisted is not None
-    return serialize_transaction(persisted)
+    issues_by_target = get_issues_by_targets(session, [persisted.name])
+    return serialize_transaction(persisted, issues_by_target.get(persisted.name, []))
 
 
 def update_transaction(
@@ -663,10 +721,11 @@ def update_transaction(
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
-    normalized = normalize_transaction_payload(payload)
-    validate_transaction_payload(session, normalized)
-    validate_transaction_total_unchanged(transaction_row, normalized)
+    normalized = normalize_and_validate_transaction_payload(session, payload)
     persist_transaction(session, normalized, transaction=transaction_row)
+    replace_issues_for_target(
+        session, transaction_row.name, derive_normalize_issues(session, normalized)
+    )
     commit_or_raise(session)
     persisted = session.scalar(
         select(Transaction)
@@ -674,7 +733,8 @@ def update_transaction(
         .where(Transaction.id == transaction_row.id)
     )
     assert persisted is not None
-    return serialize_transaction(persisted)
+    issues_by_target = get_issues_by_targets(session, [persisted.name])
+    return serialize_transaction(persisted, issues_by_target.get(persisted.name, []))
 
 
 def list_transactions_page(
@@ -714,14 +774,50 @@ def list_transactions_page(
     if len(transactions) > normalized_page_size:
         transactions = transactions[:normalized_page_size]
         next_page_token = encode_page_token(offset + normalized_page_size)
+    issues_by_target = get_issues_by_targets(
+        session, [transaction.name for transaction in transactions]
+    )
     return ListTransactionsResponse(
-        transactions=[serialize_transaction(transaction) for transaction in transactions],
+        transactions=[
+            serialize_transaction(transaction, issues_by_target.get(transaction.name, []))
+            for transaction in transactions
+        ],
         next_page_token=next_page_token,
     )
 
 
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
-    return serialize_transaction(get_transaction_row(session, transaction))
+    transaction_row = get_transaction_row(session, transaction)
+    issues_by_target = get_issues_by_targets(session, [transaction_row.name])
+    return serialize_transaction(transaction_row, issues_by_target.get(transaction_row.name, []))
+
+
+def list_issues_page(
+    session: Session,
+    *,
+    page_size: int | None,
+    page_token: str | None,
+    target: str | None,
+    code: str | None,
+) -> ListIssuesResponse:
+    normalized_page_size = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+    query = select(Issue).order_by(Issue.name)
+    if target is not None:
+        query = query.where(Issue.target == target)
+    if code is not None:
+        query = query.where(Issue.code == code)
+    issues = session.scalars(
+        paginate_query(query, offset=offset, page_size=normalized_page_size)
+    ).all()
+    next_page_token = None
+    if len(issues) > normalized_page_size:
+        issues = issues[:normalized_page_size]
+        next_page_token = encode_page_token(offset + normalized_page_size)
+    return ListIssuesResponse(
+        issues=[serialize_issue(issue) for issue in issues],
+        next_page_token=next_page_token,
+    )
 
 
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:

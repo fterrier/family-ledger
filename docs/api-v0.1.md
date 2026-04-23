@@ -330,11 +330,13 @@ Validation:
 - each `symbol` used by `units`, `cost`, or `price` must already exist as a commodity
 - at most one posting may omit `units`; if so, the server normalizes it before persistence using the same logic as `POST /transactions:normalize`
 - `cost` and `price` must be per-unit values only
-- unbalanced transactions may still be persisted in v1
+- after normalization, transactions may still be stored when residuals exceed configured tolerance
+- transaction balancing uses one required global default tolerance with optional per-symbol overrides
 - strict cost-based matching errors must be reported for reducing postings when applicable
 
 Response:
 - returns the persisted transaction resource with fully explicit postings
+- includes persisted `issues`; currently this includes `transaction_unbalanced` when residuals exceed configured tolerance
 
 ### `POST /transactions:normalize`
 
@@ -349,9 +351,20 @@ Behavior:
 - may accept missing `price.amount` when it is unambiguous within a balancing symbol group
 - runs the same normalization and validation logic as `POST /transactions`
 - returns a fully explicit normalized transaction payload
+- returns derived `issues` for soft validation problems such as imbalance
 - does not persist anything
 - ambiguous interpolation returns a validation error
+- residuals outside configured tolerance return a `transaction_unbalanced` issue instead of a validation error
 - persistence-specific conflicts may still differ from creation because no write occurs
+
+### `GET /issues`
+
+Purpose:
+- list persisted issues across stored entities
+
+Supported filters:
+- `target`
+- `code`
 
 Normalization follows Beancount balancing-weight semantics:
 - units only -> balance on units
@@ -524,12 +537,42 @@ Validation:
 - `amount.symbol` must already exist as a commodity
 
 Behavior:
-- assertion validation is handled separately and may report failures later without removing the assertion resource
+- creating an assertion stores the assertion resource; validation is handled separately
+- assertion validation compares derived posting units for the asserted symbol only
+- posting cost and price annotations do not affect assertion validation
+- parent-account assertions include descendant subaccounts
+- validation failures do not remove the assertion resource
 
 ### `GET /balance-assertions/{assertion}`
 
 Purpose:
 - fetch one assertion
+
+### `GET /balance-assertions/{assertion}/validation`
+
+Purpose:
+- fetch the derived validation result for one assertion
+
+Behavior:
+- compute the derived balance as of `assertion_date`
+- include the asserted account and all descendant subaccounts
+- compare only posting units for `amount.symbol`
+- ignore posting cost and price annotations
+- apply the configured project-level tolerance for `amount.symbol`
+- if no tolerance is configured for the symbol, require an exact match
+
+Expected response fields:
+- `balance_assertion`
+- `passed`
+- `expected.amount`
+- `expected.symbol`
+- `actual.amount`
+- `actual.symbol`
+- `difference.amount`
+- `difference.symbol`
+- `tolerance.amount`
+- `tolerance.symbol`
+- `includes_descendants`
 
 ## Attachments API
 

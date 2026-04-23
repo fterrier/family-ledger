@@ -170,7 +170,11 @@ Recommended fields:
 
 Notes:
 - `name` is the stable API resource name built from an opaque key, for example `balanceAssertions/bal_01jv3m0r7x8c`.
-- Balance assertions are validated against derived balances.
+- Balance assertions are validated against derived account balances as of `assertion_date`.
+- Validation uses posting units only for the asserted symbol; posting cost and price annotations do not affect the result.
+- Validation includes the asserted account and all descendant subaccounts.
+- Validation compares the derived units for the asserted symbol against the asserted amount under project-level tolerance rules.
+- Validation results are derived from stored ledger data and are not persisted on the assertion record.
 - Project-level tolerance rules come from config.
 
 ## Attachments
@@ -244,13 +248,13 @@ Balance validity is derived from transaction postings.
 In v1:
 - transactions may remain unbalanced in the stored ledger
 - unbalanced transactions are included in ledger reads and exports
-- validation reports should still flag them as invalid
+- persisted issues should still flag them as invalid
 
 ## Validation Rules
 
 The v1 model should enforce or compute these rules:
 - transactions referencing accounts outside account effective dates are invalid
-- strict double-entry balancing is the target accounting rule, but imbalance does not block persistence in v1
+- strict double-entry balancing is the target accounting rule, but imbalance does not block persistence in v1 when the transaction can still be stored explicitly
 - balance assertions must validate under project-level tolerance rules
 - reducing postings held at cost use strict booking semantics
 - strict booking means:
@@ -268,6 +272,12 @@ Project config files own:
 - tolerance settings
 - operating/default currency
 - uncategorized placeholder account names
+
+### Database-Owned
+
+The database owns:
+- canonical stored transactions and postings
+- persisted issues for stored entities, such as unbalanced transactions
 - importer-specific static settings
 - export policy settings if needed
 

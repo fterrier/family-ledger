@@ -17,6 +17,7 @@ const FAMILY_LEDGER_TRANSACTION_HEADERS = [
   'split_off_amount',
   'status',
   'last_error',
+  'issues',
 ];
 
 const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name'];
@@ -51,6 +52,7 @@ const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
     note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
   },
   status: { width: 90, role: 'system', note: 'dirty / saving / saved / error' },
+  issues: { width: 420, role: 'system', note: 'Persisted transaction issues returned by the API.' },
   last_error: { width: 260, role: 'system', note: 'Most recent validation or save error.' },
 };
 
@@ -68,6 +70,8 @@ const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
     system: '#f9fafb',
   },
 };
+
+const FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR = '#fee2e2';
 
 function onOpen() {
   SpreadsheetApp.getUi()
@@ -398,6 +402,9 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   if (!row || !row.transaction_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
+  if (isSourceOnlyTransactionRow_(sheet, rowNumber)) {
+    throw new Error('Split is unavailable until a destination account is set.');
+  }
 
   const splitAmount = normalizeDecimalString_(rawSplitAmount);
   const originalAmount = normalizeDecimalString_(row.amount);
@@ -482,7 +489,13 @@ function performDeleteSplitRow_(sheet, rowNumber) {
 
   const rowNumbers = findTransactionRowNumbers_(sheet, row.transaction_name);
   if (rowNumbers.length <= 1) {
-    throw new Error('Cannot delete the only allocation row for this transaction.');
+    row.destination_account_name = '';
+    row.split_off_amount = '';
+    row.status = 'dirty';
+    row.last_error = '';
+    writeTransactionSheetRow_(sheet, rowNumber, row);
+    focusPostEnterAfterDelete_(sheet, rowNumber, getTransactionHeaderColumnIndex_('split_off_amount'));
+    return;
   }
 
   const currentIndex = rowNumbers.indexOf(rowNumber);
@@ -530,6 +543,11 @@ function focusCell_(sheet, rowNumber, columnNumber) {
 }
 
 function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
+  if (isSourceOnlyTransactionRow_(sheet, rowNumber)) {
+    restoreAmountCell_(sheet, rowNumber, normalizedFallbackAmount_(oldRawValue));
+    throw new Error('Amount cannot be edited until a destination account is set.');
+  }
+
   const oldAmount = String(oldRawValue || '').trim();
   const newAmount = String(rawValue || '').trim();
   if (!oldAmount) {
@@ -703,6 +721,24 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
 
   const sourcePosting = transaction.postings[shape.sourceIndex];
   const sourceAccountName = accountNameLookup[sourcePosting.account] || sourcePosting.account;
+  const issues = formatTransactionIssuesForSheet_(transaction.issues || []);
+
+  if (shape.destinationIndexes.length === 0) {
+    return [{
+      transaction_name: transaction.name,
+      transaction_date: transaction.transaction_date,
+      payee: transaction.payee || '',
+      narration: transaction.narration || '',
+      source_account_name: sourceAccountName,
+      destination_account_name: '',
+      amount: normalizeDecimalString_(negateDecimalString_(sourcePosting.units.amount)),
+      split_off_amount: '',
+      symbol: sourcePosting.units.symbol,
+      status: '',
+      issues: issues,
+      last_error: '',
+    }];
+  }
 
   return shape.destinationIndexes.map(function(destinationIndex) {
     const posting = transaction.postings[destinationIndex];
@@ -717,13 +753,42 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
       split_off_amount: '',
       symbol: posting.units.symbol,
       status: '',
+      issues: issues,
       last_error: '',
     };
   });
 }
 
+function formatTransactionIssuesForSheet_(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return '';
+  }
+  return issues.map(formatTransactionIssueForSheet_).join('\n');
+}
+
+function formatTransactionIssueForSheet_(issue) {
+  if (!issue || !issue.code) {
+    return '';
+  }
+  const details = issue.details || {};
+  if (issue.code === 'transaction_unbalanced') {
+    const parts = [];
+    if (details.symbol) {
+      parts.push(String(details.symbol));
+    }
+    if (details.residual_amount) {
+      parts.push('residual ' + String(details.residual_amount));
+    }
+    if (details.tolerance_amount) {
+      parts.push('tolerance ' + String(details.tolerance_amount));
+    }
+    return 'transaction_unbalanced' + (parts.length > 0 ? ' (' + parts.join(', ') + ')' : '');
+  }
+  return issue.code + (issue.message ? ': ' + issue.message : '');
+}
+
 function classifySupportedTransaction_(transaction) {
-  if (!transaction || !Array.isArray(transaction.postings) || transaction.postings.length < 2) {
+  if (!transaction || !Array.isArray(transaction.postings) || transaction.postings.length < 1) {
     return null;
   }
 
@@ -765,10 +830,6 @@ function classifySupportedTransaction_(transaction) {
       return null;
     }
     destinationIndexes.push(index);
-  }
-
-  if (destinationIndexes.length === 0) {
-    return null;
   }
 
   return {
@@ -862,6 +923,7 @@ function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacem
       sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] || '');
     });
   });
+  applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, replacementRows);
 }
 
 function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
@@ -910,6 +972,7 @@ function comparableTransactionSheetRow_(row) {
     destination_account_name: normalizeSheetCellValue_(row.destination_account_name),
     amount: normalizeSheetCellValue_(row.amount),
     symbol: normalizeSheetCellValue_(row.symbol),
+    issues: normalizeSheetCellValue_(row.issues),
   };
 }
 
@@ -930,11 +993,47 @@ function writeTransactionSheetRow_(sheet, rowNumber, row) {
   sheet
     .getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
     .setValues([materializeTransactionSheetRow_(row)]);
+  applyTransactionIssueHighlightingToRowNumbers_(sheet, [rowNumber], [row]);
 }
 
 function materializeTransactionSheetRow_(row) {
   return FAMILY_LEDGER_TRANSACTION_HEADERS.map(function(header) {
     return row[header] || '';
+  });
+}
+
+function applyTransactionIssueHighlighting_(sheet, rows) {
+  if (!rows || rows.length === 0) {
+    return;
+  }
+  sheet
+    .getRange(2, 1, rows.length, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
+    .setBackgrounds(rows.map(buildTransactionRowBackgrounds_));
+}
+
+function applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows) {
+  rowNumbers.forEach(function(rowNumber, index) {
+    const range = sheet.getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length);
+    if (typeof range.setBackgrounds === 'function') {
+      range.setBackgrounds([buildTransactionRowBackgrounds_(rows[index] || {})]);
+      return;
+    }
+    const backgrounds = buildTransactionRowBackgrounds_(rows[index] || {});
+    backgrounds.forEach(function(color, backgroundIndex) {
+      const cell = sheet.getRange(rowNumber, backgroundIndex + 1);
+      if (cell && typeof cell.setBackground === 'function') {
+        cell.setBackground(color);
+      }
+    });
+  });
+}
+
+function buildTransactionRowBackgrounds_(row) {
+  const hasIssues = String((row && row.issues) || '').trim() !== '';
+  return FAMILY_LEDGER_TRANSACTION_HEADERS.map(function(header) {
+    const layout = FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT[header];
+    const baseColor = layout ? FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[layout.role] : '#ffffff';
+    return hasIssues ? FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR : baseColor;
   });
 }
 
@@ -944,6 +1043,7 @@ function setTransactionSheetRows_(sheet, rows) {
   sheet.setFrozenRows(1);
   applyAccountValidation_(sheet, materializedRows.length);
   applyTransactionSheetLayout_(sheet, rows);
+  applyTransactionIssueHighlighting_(sheet, rows);
   protectTransactionSheet_(sheet);
   hideTechnicalTransactionColumns_(sheet);
 }
@@ -981,6 +1081,8 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
   const amountColumn = getTransactionHeaderColumnIndex_('amount');
   const splitColumn = getTransactionHeaderColumnIndex_('split_off_amount');
   const statusColumn = getTransactionHeaderColumnIndex_('status');
+  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
+  const lastErrorColumn = getTransactionHeaderColumnIndex_('last_error');
 
   sheet.getRange(1, dateColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
   sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
@@ -991,6 +1093,8 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
   sheet.getRange(1, amountColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
   sheet.getRange(1, splitColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
   sheet.getRange(1, statusColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('center');
+  sheet.getRange(1, issuesColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, lastErrorColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(true);
 }
 
 function applyAccountsSheetLayout_(sheet, rowCount) {
@@ -1053,14 +1157,14 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   const narration = readOptionalNormalizedValue_(group.rows, 'narration', 'narration', issues);
   const sourceAccount = resolveAccountResourceName_(accountNameMap, sourceAccountName);
   const destinationRows = [];
+  const blankDestinationRowNumbers = [];
   const amounts = [];
 
   group.rows.forEach(function(row, index) {
     const displayRow = row.__rowNumber || index + 2;
     const destinationAccountName = String(row.destination_account_name || '').trim();
     if (!destinationAccountName) {
-      issues.push('Row ' + displayRow + ': destination_account_name is required.');
-      return;
+      blankDestinationRowNumbers.push(displayRow);
     }
 
     let amount;
@@ -1075,15 +1179,22 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
       return;
     }
 
-    destinationRows.push({
-      account: resolveAccountResourceName_(accountNameMap, destinationAccountName),
-      amount: amount,
-    });
+    if (destinationAccountName) {
+      destinationRows.push({
+        account: resolveAccountResourceName_(accountNameMap, destinationAccountName),
+        amount: amount,
+      });
+    }
     amounts.push(amount);
   });
 
-  if (destinationRows.length === 0) {
-    issues.push('The transaction must have at least one destination row.');
+  if (blankDestinationRowNumbers.length > 0 && destinationRows.length > 0) {
+    issues.push(
+      'Rows for this transaction must either all have destination accounts or all leave destination_account_name blank.'
+    );
+  }
+  if (blankDestinationRowNumbers.length > 1) {
+    issues.push('A source-only transaction can only have one visible row.');
   }
   if (!group.contiguous) {
     issues.push('Rows for this transaction are not contiguous. You can still push, but Regroup Active Transaction is recommended.');
@@ -1094,26 +1205,48 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   }
 
   const totalAmount = sumDecimalStrings_(amounts);
+  const postings = [{
+    account: sourceAccount,
+    units: {
+      amount: negateDecimalString_(totalAmount),
+      symbol: symbol,
+    },
+  }];
+  destinationRows.forEach(function(row) {
+    postings.push({
+      account: row.account,
+      units: {
+        amount: row.amount,
+        symbol: symbol,
+      },
+    });
+  });
   return {
     transaction_date: transactionDate,
     payee: payee,
     narration: narration,
-    postings: [{
-      account: sourceAccount,
-      units: {
-        amount: negateDecimalString_(totalAmount),
-        symbol: symbol,
-      },
-    }].concat(destinationRows.map(function(row) {
-      return {
-        account: row.account,
-        units: {
-          amount: row.amount,
-          symbol: symbol,
-        },
-      };
-    })),
+    postings: postings,
   };
+}
+
+function isSourceOnlyTransactionRow_(sheet, rowNumber) {
+  if (!sheet || typeof sheet.getRange !== 'function') {
+    return false;
+  }
+  const probeRange = sheet.getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length);
+  if (!probeRange || typeof probeRange.getValues !== 'function') {
+    return false;
+  }
+  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const transactionName = row && row.transaction_name ? String(row.transaction_name).trim() : '';
+  if (!transactionName) {
+    return false;
+  }
+  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
+  const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
+  return rows.every(function(row) {
+    return !String(row.destination_account_name || '').trim();
+  });
 }
 
 function requireSingleNormalizedValue_(rows, fieldName, label, issues, normalizer) {
@@ -1229,6 +1362,11 @@ function replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows) {
   sheet
     .getRange(insertionRow, 1, replacementRows.length, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
     .setValues(replacementRows.map(materializeTransactionSheetRow_));
+  applyTransactionIssueHighlightingToRowNumbers_(
+    sheet,
+    buildSequentialRowNumbers_(insertionRow, replacementRows.length),
+    replacementRows
+  );
   applyAccountValidationToRowNumbers_(sheet, buildSequentialRowNumbers_(insertionRow, replacementRows.length));
 }
 
@@ -1527,7 +1665,9 @@ function protectTransactionSheet_(sheet) {
 
 function hideTechnicalTransactionColumns_(sheet) {
   const transactionNameColumn = getTransactionHeaderColumnIndex_('transaction_name');
+  const lastErrorColumn = getTransactionHeaderColumnIndex_('last_error');
   sheet.hideColumns(transactionNameColumn);
+  sheet.hideColumns(lastErrorColumn);
 }
 
 function rowToObject_(headers, rowValues) {

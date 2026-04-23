@@ -110,8 +110,23 @@ class TransactionData(BaseModel):
     postings: list[PostingPayload]
 
 
+class NormalizeIssue(BaseModel):
+    code: str
+    severity: str
+    message: str
+    details: dict[str, str] = Field(default_factory=dict)
+
+
+class IssueResource(NormalizeIssue):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    target: str
+
+
 class TransactionResource(TransactionData):
     name: str
+    issues: list[IssueResource] = Field(default_factory=list)
 
 
 class TransactionCreate(TransactionData):
@@ -141,6 +156,7 @@ class NormalizeTransactionRequest(BaseModel):
 
 class NormalizeTransactionResponse(BaseModel):
     transaction: TransactionCreate
+    issues: list[NormalizeIssue] = Field(default_factory=list)
 
 
 class CreateAccountRequest(BaseModel):
@@ -163,6 +179,11 @@ class ListCommoditiesResponse(BaseModel):
 
 class ListTransactionsResponse(BaseModel):
     transactions: list[TransactionResource]
+    next_page_token: str | None = None
+
+
+class ListIssuesResponse(BaseModel):
+    issues: list[IssueResource]
     next_page_token: str | None = None
 
 

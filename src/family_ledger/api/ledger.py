@@ -18,6 +18,7 @@ from family_ledger.api.schemas import (
     CreateTransactionRequest,
     ListAccountsResponse,
     ListCommoditiesResponse,
+    ListIssuesResponse,
     ListTransactionsResponse,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
@@ -143,6 +144,24 @@ def list_transactions(
         to_date=to_date,
         account=account,
         fingerprint=fingerprint,
+    )
+
+
+@router.get("/issues", response_model=ListIssuesResponse)
+def list_issues(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+    target: str | None = None,
+    code: str | None = None,
+) -> ListIssuesResponse:
+    return _call_service(
+        ledger_service.list_issues_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+        target=target,
+        code=code,
     )
 
 

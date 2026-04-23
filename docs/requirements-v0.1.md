@@ -154,9 +154,9 @@ Keep the investment model simple:
 - Full brokerage analytics
 
 ## Validation Requirements
-- The accounting model targets balanced transactions, but unbalanced transactions may still exist in the stored ledger in v1
+- Transactions with storable explicit postings may still be stored when unbalanced, but they must surface persisted issues
 - Balance assertions must be strict
-- Decimal precision tolerance must be configurable at the project level, similar to Beancount
+- Decimal precision tolerance must be configurable at the project level, with one required global default and optional per-symbol overrides
 - Account open/close constraints must be enforced through account effective dates
 - Commodity constraints must be enforced where configured
 - Lot/cost integrity must be enforced, with strict cost-based matching for supported disposals

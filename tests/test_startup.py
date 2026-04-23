@@ -46,3 +46,24 @@ def test_create_app_fails_without_api_token(monkeypatch: pytest.MonkeyPatch) -> 
 
     config_module.get_settings.cache_clear()
     config_module.get_ledger_config.cache_clear()
+
+
+def test_create_app_fails_without_default_tolerance(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from family_ledger import config as config_module
+
+    config_path = tmp_path / "ledger.yaml"
+    config_path.write_text(
+        "default_currency: CHF\nuncategorized_accounts:\n  - Expenses:Uncategorized\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAMILY_LEDGER_LEDGER_CONFIG_PATH", str(config_path))
+    config_module.get_settings.cache_clear()
+    config_module.get_ledger_config.cache_clear()
+
+    with pytest.raises(ValidationError):
+        config_module.get_ledger_config()
+
+    config_module.get_settings.cache_clear()
+    config_module.get_ledger_config.cache_clear()

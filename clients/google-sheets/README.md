@@ -13,12 +13,13 @@ The spreadsheet is a client of the API. It is not the source of truth.
 
 The current Sheets workflow supports transactions that look like:
 - one source posting
-- one or more destination postings
+- zero or more destination postings
 - one symbol across the transaction
 - no cost or price data
 
 In practice, this fits:
 - bank/card spending
+- source-only imported transactions awaiting categorization
 - transfers to another account
 - split categorization of one outgoing
 
@@ -98,7 +99,7 @@ Normal flow:
 1. Open the `Transactions` sheet.
 2. Edit `payee`, `narration`, or `destination_account_name` directly.
 3. For imported transactions, treat `amount` as an allocation amount inside a fixed total.
-3. Watch `status`, `issues`, and `last_error`.
+4. Watch `status` and `issues` during normal use.
 
 For splits:
 1. Either reduce the row `amount`, or enter a positive value in `split_off_amount`.
@@ -126,11 +127,19 @@ The `split_off_amount` column is highlighted as an action field and its header n
 Persisted API issues are shown in the `issues` column.
 Rows with persisted issues are highlighted in light red.
 Transient save failures still use `status=error` and `last_error` without applying the red issue highlight.
+`last_error` is kept as a hidden technical column next to `status`.
 
 Imported transaction totals are fixed:
 - reducing an `amount` creates a split for the difference
 - increasing an `amount` is rejected and the old value is restored
 - invalid `split_off_amount` commands are cleared immediately
+
+Source-only transactions behave differently:
+- they render as one row with a blank destination account
+- setting `destination_account_name` creates the destination posting on save
+- deleting the last destination row with `x` or `-` returns the transaction to source-only state
+- direct `amount` edits are not allowed while the transaction is source-only
+- the split helper is not available while the transaction is source-only
 
 ## Tailscale Funnel Setup
 
@@ -181,7 +190,7 @@ If sync succeeds but rows are missing:
 
 If a save fails:
 - look at `status`
-- look at `last_error`
+- inspect the hidden `last_error` column if needed
 - use `Push Active Transaction` as a fallback retry
 
 If an `amount` edit is rejected:

@@ -11,7 +11,7 @@ This document describes the external HTTP contract, not the internal persistence
 - The API is the write surface for the canonical database.
 - The API should follow relevant `aip.dev` guidance where practical, especially for resource-oriented design, naming, and standard methods.
 - Deviations from `aip.dev` should be explicit and justified by ledger semantics.
-- The API exposes canonical ledger data without embedding validation state into resources.
+- The API exposes canonical ledger data and may include inline persisted issues for convenience.
 - The API does not enforce field-level locking in v1.
 - There is no auth in v1.
 - Money-like value objects use ledger symbols such as `CHF`, `USD`, and `GOOG`, not commodity resource names.
@@ -80,15 +80,39 @@ Notes:
     "source_native_id": null,
     "fingerprint": "sha256:deadbeef"
   },
-  "postings": []
+  "postings": [],
+  "issues": []
 }
 ```
 
 Notes:
-- Transaction resources do not embed validation state in v1.
+- Transaction rows remain canonical source-of-truth data; persisted issues are separate linked resources.
+- Transaction read responses may include inline persisted `issues` for convenience.
 - `import_metadata` is optional.
 - `fingerprint` is stored on transactions and updated on transaction writes.
 - `fingerprint` is a duplicate hint, not a globally unique transaction identity.
+
+### Issue
+
+```json
+{
+  "name": "issues/iss_01jv3m0r7x8c",
+  "target": "transactions/txn_01jv3m0r7x8c",
+  "code": "transaction_unbalanced",
+  "severity": "error",
+  "message": "Transaction is not balanced within tolerance.",
+  "details": {
+    "symbol": "CHF",
+    "residual_amount": "1.50",
+    "tolerance_amount": "0.005"
+  }
+}
+```
+
+Notes:
+- Issues are persisted resources linked to stored entities.
+- Transaction read responses may include inline `issues` using the same shape.
+- `POST /transactions:normalize` returns derived issues using the same fields except for persisted resource identity.
 
 ### Account
 
@@ -275,7 +299,7 @@ Minimum query parameters:
 
 Behavior:
 - returns stored transactions, including unbalanced transactions
-- validation is handled separately and is not embedded into transaction resources in v1
+- may include inline persisted `issues` for each returned transaction
 - returns transactions in a stable order
 - supports AIP-style pagination with `next_page_token`
 
@@ -366,43 +390,6 @@ Supported filters:
 - `target`
 - `code`
 
-Normalization follows Beancount balancing-weight semantics:
-- units only -> balance on units
-- price without cost -> balance on price
-- cost present -> balance on cost
-- cost and price -> cost wins for balancing
-- zero-weight postings do not create ambiguity
-
-Current supported scope is intentionally narrow:
-- at most one posting may omit `units`
-- at most one posting may omit `units.symbol`
-- the missing posting may normalize into one or more explicit postings, one per resulting balancing weight
-- multi-weight normalization is supported when the balancing weights are explicit and unambiguous
-- at most one posting per balancing symbol group may omit `price.amount`
-
-Example request body:
-
-```json
-{
-  "transaction": {
-    "transaction_date": "2026-04-19",
-    "payee": "Migros",
-    "postings": [
-      {
-        "account": "accounts/acc_01jv3m0r7x8c",
-        "units": {
-          "amount": "-84.25",
-          "symbol": "CHF"
-        }
-      },
-      {
-        "account": "accounts/acc_01jv3m0r7x8d"
-      }
-    ]
-  }
-}
-```
-
 ### `GET /transactions/{transaction}`
 
 Purpose:
@@ -437,7 +424,7 @@ Behavior:
 - the path transaction resource name is authoritative; the request body does not need a transaction `name`
 - the mutable transaction payload is replaced as a whole, including the full postings array
 - implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
-- transaction updates must preserve total value by weight per symbol; recategorization and splitting are allowed, value changes are rejected
+- persisted issues must be recomputed from the updated stored transaction in the same write transaction
 
 Validation:
 - same as `POST /transactions`
@@ -559,7 +546,7 @@ Behavior:
 - compare only posting units for `amount.symbol`
 - ignore posting cost and price annotations
 - apply the configured project-level tolerance for `amount.symbol`
-- if no tolerance is configured for the symbol, require an exact match
+- if no per-symbol tolerance is configured, use the required global default tolerance
 
 Expected response fields:
 - `balance_assertion`

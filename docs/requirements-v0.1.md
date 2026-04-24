@@ -86,7 +86,7 @@ There should be no dedicated UI in v1. See `docs/roadmap-v0.1.md` for the implem
 - Per-posting quantity and commodity support
 - Lot/cost tracking where needed
 - Price history
-- Strict transaction balancing
+- Double-entry balancing as the target accounting rule
 - Balance assertions with project-level configurable precision/tolerance
 
 ### Multi-User

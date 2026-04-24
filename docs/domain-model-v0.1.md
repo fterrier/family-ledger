@@ -22,6 +22,7 @@ The canonical v1 entities are:
 - commodity
 - transaction
 - posting
+- issue
 - price
 - balance assertion
 - attachment
@@ -82,11 +83,33 @@ Recommended fields:
 Notes:
 - `name` is the stable API resource name built from an opaque key, for example `transactions/txn_01jv3m0r7x8c`.
 - Transactions do not have a dedicated status field in v1.
-- Transactions may be balanced or unbalanced; validation is computed separately and is not stored on the resource.
+- Transactions may be balanced or unbalanced.
+- Validation fields are not stored on transaction rows themselves.
+- Persisted issues are separate records linked to stored entities and may be returned inline by read APIs.
 - Transactions may be categorized or uncategorized; that is also a derived property.
 - Fingerprints are persisted and recomputed on transaction writes.
 - The API may group the two dedupe fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
 - `fingerprint` is a duplicate hint and lookup aid, not a globally unique transaction identity.
+
+## Issues
+
+Issues are persisted diagnostics attached to stored ledger entities.
+
+Recommended fields:
+- `id`
+- `name`
+- `target`
+- `code`
+- `severity`
+- `message`
+- optional `details`
+
+Notes:
+- `name` is the stable API resource name built from an opaque key.
+- `target` references the affected resource, such as a transaction.
+- Issues are derived from stored state and persisted separately from the target record.
+- Multiple issues may exist for one target.
+- In v1, issues are used to surface storable-but-invalid states such as unbalanced transactions.
 
 ## Postings
 
@@ -248,7 +271,7 @@ Balance validity is derived from transaction postings.
 In v1:
 - transactions may remain unbalanced in the stored ledger
 - unbalanced transactions are included in ledger reads and exports
-- persisted issues should still flag them as invalid
+- persisted issues flag them as invalid
 
 ## Validation Rules
 
@@ -280,14 +303,11 @@ The database owns:
 - persisted issues for stored entities, such as unbalanced transactions
 - importer-specific static settings
 - export policy settings if needed
-
-### Database-Owned
-
-The database owns:
 - accounts
 - commodities
 - transactions
 - postings
+- issues
 - prices
 - balance assertions
 - attachments

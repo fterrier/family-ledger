@@ -8,12 +8,13 @@ This document records the current design choices for the Google Sheets client.
 
 The client is intentionally narrow. It supports transactions with:
 - exactly one source posting
-- one or more destination postings
+- zero or more destination postings
 - one symbol across the transaction
 - no cost or price data
 
 This matches the current target workflow:
 - bank/card outgoing categorization
+- source-only imported transactions awaiting categorization
 - transfers to another account
 - split allocation of one outgoing across multiple destinations
 
@@ -38,6 +39,7 @@ Columns:
 - `amount`
 - `split_off_amount`
 - `status`
+- `issues`
 - `last_error`
 
 For readability, visible account names are rendered as shortened labels with root markers, for example:
@@ -54,6 +56,8 @@ Read-only columns:
 - `symbol`
 
 `transaction_name` remains the technical grouping key but is hidden from normal users in the sheet UI.
+`issues` is visible to users.
+`last_error` is kept hidden as a technical troubleshooting field next to `status`.
 
 Editable columns:
 - `payee`
@@ -104,7 +108,12 @@ Direct `amount` edits for imported transactions follow the same fixed-total mode
 - lowering an amount creates a split for the difference
 - increasing an amount is rejected and restored
 
-The backend also enforces that transaction updates preserve total value by weight per symbol.
+For source-only transactions:
+- the transaction renders as one row with a blank destination account
+- setting a destination account creates the second posting on save
+- deleting the last destination row returns the transaction to source-only state
+- direct `amount` edits are rejected
+- split commands are rejected
 
 ## Save Behavior
 
@@ -126,6 +135,9 @@ For refreshed transactions:
 - same-shape responses are applied in place without deleting and recreating rows
 - structural row replacement is reserved for true shape changes, such as a changed rendered row count
 - stale save responses must not overwrite newer local edits
+- persisted transaction issues are rendered in the visible `issues` column
+- rows with persisted issues are highlighted light red across the full row
+- transient save failures update hidden `last_error` and `status=error` without using the persisted-issue highlight
 
 `Push Active Transaction` remains available only as a fallback manual retry path.
 

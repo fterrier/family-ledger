@@ -106,7 +106,7 @@ Only add integration tests for critical user journeys that unit tests cannot cov
 - import with native ID deduplication
 - import with fingerprint fallback deduplication
 - create a balanced transaction
-- reject an unbalanced transaction
+- create or update an unbalanced but storable transaction and persist its issue
 - security buy/sell with lot tracking and realized gain/loss
 - balance assertion validation using project-level tolerance
 - deterministic Beancount export

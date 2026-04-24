@@ -32,7 +32,7 @@ Phase 1 should deliver:
 - accounts, transactions, postings, commodities, prices
 - multi-currency support
 - lot/cost support for current investment use cases
-- strict transaction balance verification
+- transaction balance verification with persisted issues for storable imbalance
 - balance assertions with project-level tolerance rules
 - deduplication by native ID or fingerprint
 - deterministic full-ledger Beancount export

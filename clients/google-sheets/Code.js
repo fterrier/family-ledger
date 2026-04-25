@@ -1389,7 +1389,7 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
   const lastErrorColumn = getTransactionHeaderColumnIndex_('last_error');
 
   sheet.getRange(1, dateColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
-  sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
   sheet.getRange(1, narrationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
   sheet.getRange(1, sourceColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
   sheet.getRange(1, destinationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);

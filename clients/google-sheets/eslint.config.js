@@ -19,6 +19,7 @@ module.exports = [
         SpreadsheetApp: 'readonly',
         UrlFetchApp: 'readonly',
         Utilities: 'readonly',
+        console: 'readonly',
       },
     },
     rules: {
@@ -27,7 +28,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|splitSelectedTransactionRow|normalizeActiveTransactionFields|regroupActiveTransaction|pushActiveTransaction)$',
+            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|splitSelectedTransactionRow|normalizeActiveTransactionFields|regroupActiveTransaction|pushActiveTransaction|resetSheetLayouts|refreshTransactionIssuesFromDoctor_|applyDoctorIssuesToExistingSheet_|applyTransactionIssueHighlighting_)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

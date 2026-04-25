@@ -1,6 +1,8 @@
 const FAMILY_LEDGER_SHEET_NAMES = {
   accounts: 'Accounts',
   transactions: 'Transactions',
+  doctorTransactionIssues: 'DoctorTransactionIssues',
+  doctorAccountIssues: 'DoctorAccountIssues',
 };
 
 const FAMILY_LEDGER_PAGE_SIZE = 1000;
@@ -20,7 +22,9 @@ const FAMILY_LEDGER_TRANSACTION_HEADERS = [
   'issues',
 ];
 
-const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name'];
+const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name', 'issues'];
+
+const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issues_text'];
 
 const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
   Assets: '[A]',
@@ -119,6 +123,12 @@ function handleTransactionEdit(e) {
   if (!transactionName) {
     return;
   }
+
+  debugLog_('handleTransactionEdit', {
+    row: row,
+    header: header,
+    transactionName: transactionName,
+  });
 
   try {
     applyTransactionEdit_(sheet, row, header, String(e.range.getValue() || ''), String(e.oldValue || ''), {
@@ -258,12 +268,14 @@ function syncFamilyLedgerAccounts() {
 
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
     const rows = displayEntries.map(function(entry) {
-      return [entry.display_name, entry.name];
+      return [entry.display_name, entry.name, ''];
     });
 
     writeSheet_(sheet, FAMILY_LEDGER_ACCOUNTS_HEADERS, rows);
     sheet.setFrozenRows(1);
+    ensureAccountIssueFormulas_(sheet, rows.length);
     applyAccountsSheetLayout_(sheet, rows.length);
+    refreshDoctorIssueSheets_();
     SpreadsheetApp.getUi().alert(
       'Account Sync Complete',
       'Synced ' + accounts.length + ' accounts.',
@@ -280,7 +292,6 @@ function syncFamilyLedgerTransactions() {
       '/transactions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
       'transactions'
     );
-    const doctorIssuesByTarget = fetchLedgerDoctorIssuesByTarget_();
     const rows = [];
     const skippedExamples = [];
     let skippedCount = 0;
@@ -299,10 +310,11 @@ function syncFamilyLedgerTransactions() {
       });
     });
 
-    applyDoctorIssuesToSheetRows_(rows, doctorIssuesByTarget);
+    mergeFetchedDoctorIssuesIntoRows_(rows);
 
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(sheet, rows);
+    refreshDoctorIssueSheets_();
 
     SpreadsheetApp.getUi().alert(
       'Transaction Sync Complete',
@@ -644,6 +656,12 @@ function saveTransactionByName_(sheet, transactionName, options) {
     contiguous: isContiguousRowNumbers_(rowNumbers),
   };
 
+  debugLog_('saveTransactionByName:start', {
+    transactionName: transactionName,
+    rowCount: rowNumbers.length,
+    saveGeneration: saveGeneration,
+  });
+
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 
@@ -653,6 +671,10 @@ function saveTransactionByName_(sheet, transactionName, options) {
     const refreshed = apiFetchJson_('patch', '/' + transactionName, {
       transaction: payload,
       update_mask: 'payee,narration,postings',
+    });
+    debugLog_('saveTransactionByName:patchSucceeded', {
+      transactionName: transactionName,
+      saveGeneration: saveGeneration,
     });
     const accountNameLookup = loadAccountsFromApi_();
     const replacementRows = flattenTransactionForSheet_(refreshed, accountNameLookup);
@@ -686,8 +708,22 @@ function saveTransactionByName_(sheet, transactionName, options) {
     if (options.showSuccessToast) {
       SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
     }
-    refreshTransactionIssuesFromDoctor_(sheet);
+    debugLog_('saveTransactionByName:doctorRefreshStarting', {
+      transactionName: transactionName,
+      saveGeneration: saveGeneration,
+    });
+    ensureTransactionIssueFormulas_(sheet, sheet.getLastRow() - 1);
+    refreshDoctorIssueSheets_();
+    debugLog_('saveTransactionByName:doctorRefreshFinished', {
+      transactionName: transactionName,
+      saveGeneration: saveGeneration,
+    });
   } catch (error) {
+    debugLog_('saveTransactionByName:error', {
+      transactionName: transactionName,
+      saveGeneration: saveGeneration,
+      message: error && error.message ? error.message : String(error),
+    });
     if (isCurrentSaveGeneration_(transactionName, saveGeneration)) {
       setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
       setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
@@ -781,20 +817,60 @@ function fetchLedgerDoctorIssuesByTarget_() {
     }
     byTarget[issue.target].push(issue);
   });
+  debugLog_('fetchLedgerDoctorIssuesByTarget', {
+    issueCount: issues.length,
+    targetCount: Object.keys(byTarget).length,
+    sampleTargets: Object.keys(byTarget).slice(0, 5),
+  });
   return byTarget;
 }
 
-function applyDoctorIssuesToSheetRows_(rows, issuesByTarget) {
+function partitionDoctorIssuesByTargetType_(issuesByTarget) {
+  const transactionIssues = {};
+  const accountIssues = {};
+  Object.keys(issuesByTarget).forEach(function(target) {
+    if (target.indexOf('transactions/') === 0) {
+      transactionIssues[target] = issuesByTarget[target];
+      return;
+    }
+    if (target.indexOf('accounts/') === 0) {
+      accountIssues[target] = issuesByTarget[target];
+    }
+  });
+  return {
+    transactionIssues: transactionIssues,
+    accountIssues: accountIssues,
+  };
+}
+
+function doctorIssuesToSheetRows_(issuesByTarget) {
+  return Object.keys(issuesByTarget)
+    .sort()
+    .map(function(target) {
+      return [target, formatTransactionIssuesForSheet_(issuesByTarget[target] || [])];
+    });
+}
+
+function mergeDoctorIssuesIntoRows_(rows, issuesByTarget) {
   rows.forEach(function(row) {
     row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.transaction_name] || []);
   });
 }
 
-function refreshTransactionIssuesFromDoctor_(sheet) {
+function mergeFetchedDoctorIssuesIntoRows_(rows) {
+  const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
+  mergeDoctorIssuesIntoRows_(rows, issuesByTarget);
+  return issuesByTarget;
+}
+
+function refreshTransactionIssuesFromDoctor_(sheet, transactionName) {
   try {
-    const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
-    applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
+    refreshDoctorIssueSheets_(transactionName);
   } catch (error) {
+    debugLog_('refreshTransactionIssuesFromDoctor:error', {
+      transactionName: transactionName || '',
+      message: error && error.message ? error.message : String(error),
+    });
     SpreadsheetApp.getActiveSpreadsheet().toast(
       'Saved transaction, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
       'Family Ledger',
@@ -803,34 +879,171 @@ function refreshTransactionIssuesFromDoctor_(sheet) {
   }
 }
 
-function applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
+function refreshDoctorIssueSheets_(transactionName) {
+  const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
+  const partitioned = partitionDoctorIssuesByTargetType_(issuesByTarget);
+    debugLog_('refreshTransactionIssuesFromDoctorSync:fetched', {
+    transactionName: transactionName || '',
+    issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
+      return total + issues.length;
+    }, 0),
+    targetFound: transactionName ? Object.prototype.hasOwnProperty.call(issuesByTarget, transactionName) : false,
+  });
+  writeDoctorIssueSheet_(
+    getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues),
+    doctorIssuesToSheetRows_(partitioned.transactionIssues)
+  );
+  writeDoctorIssueSheet_(
+    getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues),
+    doctorIssuesToSheetRows_(partitioned.accountIssues)
+  );
+  debugLog_('refreshDoctorIssueSheets:written', {
+    transactionIssueTargets: Object.keys(partitioned.transactionIssues).length,
+    accountIssueTargets: Object.keys(partitioned.accountIssues).length,
+    transactionName: transactionName || '',
+  });
+}
+
+function applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget, transactionName) {
+  const existing = readVisibleTransactionRows_(sheet);
+  mergeDoctorIssuesIntoRows_(existing.rows, issuesByTarget);
+  const targetRow = transactionName
+    ? existing.rows.find(function(row) {
+      return row.transaction_name === transactionName;
+    })
+    : null;
+  debugLog_('applyFetchedDoctorIssuesToExistingSheet', {
+    transactionName: transactionName || '',
+    visibleRowCount: existing.rowNumbers.length,
+    rowFound: !!targetRow,
+    mergedIssues: targetRow ? String(targetRow.issues || '') : '',
+  });
+  applyDoctorIssuesToSheetRowNumbers_(sheet, existing.rowNumbers, existing.rows);
+}
+
+function readVisibleTransactionRows_(sheet) {
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) {
-    return;
-  }
   const rowNumbers = [];
   const rows = [];
+  if (lastRow <= 1) {
+    return { rowNumbers: rowNumbers, rows: rows };
+  }
   for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
     const row = readTransactionSheetRow_(sheet, rowNumber);
     if (!row || !row.transaction_name) {
       continue;
     }
-    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.transaction_name] || []);
     rowNumbers.push(rowNumber);
     rows.push(row);
   }
-  if (rowNumbers.length === 0) {
-    return;
-  }
-  updateTransactionIssueCells_(sheet, rowNumbers, rows);
+  return { rowNumbers: rowNumbers, rows: rows };
 }
 
-function updateTransactionIssueCells_(sheet, rowNumbers, rows) {
+function applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
+  applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
+}
+
+function getFamilyLedgerDebugLogsEnabled_() {
+  const value = PropertiesService.getScriptProperties().getProperty('FAMILY_LEDGER_DEBUG_LOGS');
+  return String(value || '').trim().toLowerCase() === 'true';
+}
+
+function debugLog_(eventName, fields) {
+  if (!getFamilyLedgerDebugLogsEnabled_()) {
+    return;
+  }
+  let serializedFields = '{}';
+  try {
+    serializedFields = JSON.stringify(fields || {});
+  } catch {
+    serializedFields = '{"serialization_error":true}';
+  }
+  console.log('[family-ledger] ' + eventName + ' ' + serializedFields);
+}
+
+function applyDoctorIssuesToSheetRowNumbers_(sheet, rowNumbers, rows) {
+  if (!rowNumbers || rowNumbers.length === 0) {
+    return;
+  }
   const issuesColumn = getTransactionHeaderColumnIndex_('issues');
   rowNumbers.forEach(function(rowNumber, index) {
     sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
   });
   applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows);
+}
+
+function writeDoctorIssueSheet_(sheet, rows) {
+  writeSheet_(sheet, FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS, rows);
+  hideSheetIfVisible_(sheet);
+}
+
+function buildTransactionIssuesFormula_(rowNumber) {
+  return '=IFERROR(VLOOKUP($A' + rowNumber + ',DoctorTransactionIssues!$A:$B,2,FALSE),"")';
+}
+
+function buildAccountIssuesFormula_(rowNumber) {
+  return '=IFERROR(VLOOKUP($B' + rowNumber + ',DoctorAccountIssues!$A:$B,2,FALSE),"")';
+}
+
+function ensureTransactionIssueFormulas_(sheet, rowCount) {
+  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
+  if (rowCount <= 0) {
+    return;
+  }
+  const formulas = [];
+  for (let rowNumber = 2; rowNumber < rowCount + 2; rowNumber += 1) {
+    formulas.push([buildTransactionIssuesFormula_(rowNumber)]);
+  }
+  sheet.getRange(2, issuesColumn, rowCount, 1).setFormulas(formulas);
+}
+
+function ensureAccountIssueFormulas_(sheet, rowCount) {
+  const issuesColumn = FAMILY_LEDGER_ACCOUNTS_HEADERS.indexOf('issues') + 1;
+  if (rowCount <= 0) {
+    return;
+  }
+  const formulas = [];
+  for (let rowNumber = 2; rowNumber < rowCount + 2; rowNumber += 1) {
+    formulas.push([buildAccountIssuesFormula_(rowNumber)]);
+  }
+  sheet.getRange(2, issuesColumn, rowCount, 1).setFormulas(formulas);
+}
+
+function ensureIssueConditionalFormatting_(sheet, headers) {
+  const issueColumnLetter = columnNumberToLetter_(headers.indexOf('issues') + 1);
+  const ruleFormula = '=$' + issueColumnLetter + '2<>""';
+  const range = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), headers.length);
+  const existingRules = sheet.getConditionalFormatRules();
+  const preservedRules = existingRules.filter(function(rule) {
+    const condition = rule.getBooleanCondition && rule.getBooleanCondition();
+    if (!condition || typeof condition.getCriteriaType !== 'function') {
+      return true;
+    }
+    if (condition.getCriteriaType() !== SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) {
+      return true;
+    }
+    const values = condition.getCriteriaValues();
+    return !values || values.length === 0 || String(values[0]) !== ruleFormula;
+  });
+  preservedRules.push(
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied(ruleFormula)
+      .setBackground(FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR)
+      .setRanges([range])
+      .build()
+  );
+  sheet.setConditionalFormatRules(preservedRules);
+}
+
+function columnNumberToLetter_(columnNumber) {
+  let value = columnNumber;
+  let result = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
 }
 
 function formatTransactionIssueForSheet_(issue) {
@@ -1108,9 +1321,10 @@ function setTransactionSheetRows_(sheet, rows) {
   const materializedRows = rows.map(materializeTransactionSheetRow_);
   writeSheet_(sheet, FAMILY_LEDGER_TRANSACTION_HEADERS, materializedRows);
   sheet.setFrozenRows(1);
+  ensureTransactionIssueFormulas_(sheet, materializedRows.length);
   applyAccountValidation_(sheet, materializedRows.length);
   applyTransactionSheetLayout_(sheet, rows);
-  applyTransactionIssueHighlighting_(sheet, rows);
+  ensureIssueConditionalFormatting_(sheet, FAMILY_LEDGER_TRANSACTION_HEADERS);
   protectTransactionSheet_(sheet);
   hideTechnicalTransactionColumns_(sheet);
 }
@@ -1165,13 +1379,17 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
 }
 
 function applyAccountsSheetLayout_(sheet, rowCount) {
-  sheet.getRange(1, 1, 1, 2).setFontWeight('bold').setBackground('#e5e7eb');
+  sheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#e5e7eb');
   sheet.setColumnWidth(1, 320);
   sheet.setColumnWidth(2, 180);
+  sheet.setColumnWidth(3, 420);
   sheet.getRange(1, 1, Math.max(rowCount + 1, 1), 1).setWrap(false).setHorizontalAlignment('left');
   sheet.getRange(1, 2, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
+  sheet.getRange(1, 3, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(true);
   sheet.getRange(1, 1).setNote('Visible account label used in the Transactions sheet.');
   sheet.getRange(1, 2).setNote('Technical resource name used by the client.');
+  sheet.getRange(1, 3).setNote('Derived ledger doctor issues linked by account resource name.');
+  ensureIssueConditionalFormatting_(sheet, FAMILY_LEDGER_ACCOUNTS_HEADERS);
   sheet.hideColumns(2);
 }
 
@@ -1695,6 +1913,12 @@ function getOrCreateSheet_(sheetName) {
     sheet = spreadsheet.insertSheet(sheetName);
   }
   return sheet;
+}
+
+function hideSheetIfVisible_(sheet) {
+  if (!sheet.isSheetHidden || !sheet.isSheetHidden()) {
+    sheet.hideSheet();
+  }
 }
 
 function writeSheet_(sheet, headers, rows) {

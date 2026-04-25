@@ -27,6 +27,7 @@ function loadCode(overrides = {}) {
     console,
     SpreadsheetApp: {
       ProtectionType: { RANGE: 'RANGE' },
+      BooleanCriteria: { CUSTOM_FORMULA: 'CUSTOM_FORMULA' },
       getUi() {
         throw new Error('Unexpected SpreadsheetApp.getUi() call in unit test');
       },
@@ -71,6 +72,43 @@ function loadCode(overrides = {}) {
             return {};
           },
         };
+      },
+      newConditionalFormatRule() {
+        const rule = {
+          formula: '',
+          background: '',
+          ranges: [],
+          whenFormulaSatisfied(value) {
+            this.formula = value;
+            return this;
+          },
+          setBackground(value) {
+            this.background = value;
+            return this;
+          },
+          setRanges(value) {
+            this.ranges = value;
+            return this;
+          },
+          build() {
+            return {
+              getBooleanCondition() {
+                return {
+                  getCriteriaType() {
+                    return 'CUSTOM_FORMULA';
+                  },
+                  getCriteriaValues() {
+                    return [rule.formula];
+                  },
+                };
+              },
+              formula: rule.formula,
+              background: rule.background,
+              ranges: rule.ranges,
+            };
+          },
+        };
+        return rule;
       },
       ...overrides.SpreadsheetApp,
     },
@@ -173,6 +211,9 @@ function sampleTransaction(overrides = {}) {
 }
 
 function makeRowStoreSheet_(sandbox, rowStore, operations) {
+  const conditionalFormatRules = [];
+  let hidden = false;
+
   function materialize(headers, row) {
     return headers.map(function(header) {
       return row[header] || '';
@@ -181,6 +222,16 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
 
   return {
     getLastRow() {
+      return Math.max.apply(null, [1].concat(Array.from(rowStore.keys())));
+    },
+    clearContents() {
+      operations.push({ type: 'clearContents' });
+      rowStore.clear();
+    },
+    clearFormats() {
+      operations.push({ type: 'clearFormats' });
+    },
+    getMaxRows() {
       return Math.max.apply(null, [1].concat(Array.from(rowStore.keys())));
     },
     getRange(row, _column, numRows) {
@@ -251,6 +302,29 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
           currentRow[headers[_column - 1]] = value;
           rowStore.set(row, currentRow);
         },
+        setFormulas(values) {
+          operations.push({ type: 'setFormulas', row: row, column: _column, values: values });
+          const headers = [
+            'transaction_name',
+            'transaction_date',
+            'payee',
+            'narration',
+            'source_account_name',
+            'destination_account_name',
+            'symbol',
+            'amount',
+            'split_off_amount',
+            'status',
+            'last_error',
+            'issues',
+          ];
+          values.forEach(function(rowValues, valueIndex) {
+            const rowNumber = row + valueIndex;
+            const currentRow = rowStore.get(rowNumber) || {};
+            currentRow[headers[_column - 1]] = rowValues[0];
+            rowStore.set(rowNumber, currentRow);
+          });
+        },
         setBackground(value) {
           operations.push({ type: 'setBackground', row: row, column: _column, value: value });
         },
@@ -281,6 +355,23 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
           rowStore.delete(current);
         }
       });
+    },
+    getConditionalFormatRules() {
+      return conditionalFormatRules.slice();
+    },
+    setConditionalFormatRules(rules) {
+      operations.push({ type: 'setConditionalFormatRules', rules: rules });
+      conditionalFormatRules.length = 0;
+      rules.forEach(function(rule) {
+        conditionalFormatRules.push(rule);
+      });
+    },
+    hideSheet() {
+      hidden = true;
+      operations.push({ type: 'hideSheet' });
+    },
+    isSheetHidden() {
+      return hidden;
     },
   };
 }
@@ -323,6 +414,41 @@ test('maskToken_ masks short and long tokens', () => {
 
   assert.equal(sandbox.maskToken_('short'), '********');
   assert.equal(sandbox.maskToken_('abcdefgh12345678'), 'abcd...5678');
+});
+
+test('debugLog_ is silent when FAMILY_LEDGER_DEBUG_LOGS is not enabled', () => {
+  const { sandbox } = loadCode();
+  const messages = [];
+
+  sandbox.console = {
+    log(message) {
+      messages.push(message);
+    },
+  };
+
+  sandbox.debugLog_('event', { ok: true });
+
+  assert.deepEqual(messages, []);
+});
+
+test('debugLog_ logs structured messages when FAMILY_LEDGER_DEBUG_LOGS is enabled', () => {
+  const { sandbox, properties } = loadCode();
+  const messages = [];
+
+  properties.set('FAMILY_LEDGER_DEBUG_LOGS', 'true');
+  sandbox.console = {
+    log(message) {
+      messages.push(message);
+    },
+  };
+
+  sandbox.debugLog_('event', { ok: true, transactionName: 'transactions/txn_1' });
+
+  assert.equal(messages.length, 1);
+  assert.equal(
+    messages[0],
+    '[family-ledger] event {"ok":true,"transactionName":"transactions/txn_1"}'
+  );
 });
 
 test('getRequiredFamilyLedgerApiToken_ reads script properties and fails when missing', () => {
@@ -500,7 +626,7 @@ test('flattenTransactionForSheet_ preserves posting order for split transactions
   assert.equal(rows[0].split_off_amount, '');
 });
 
-test('applyDoctorIssuesToSheetRows_ merges doctor issues onto every transaction row', () => {
+test('mergeDoctorIssuesIntoRows_ merges doctor issues onto every transaction row', () => {
   const { sandbox } = loadCode();
 
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
@@ -508,7 +634,7 @@ test('applyDoctorIssuesToSheetRows_ merges doctor issues onto every transaction 
     'accounts/food': 'Expenses:Food',
   });
 
-  sandbox.applyDoctorIssuesToSheetRows_(rows, {
+  sandbox.mergeDoctorIssuesIntoRows_(rows, {
     'transactions/txn_1': [
       {
         target: 'transactions/txn_1',
@@ -524,6 +650,36 @@ test('applyDoctorIssuesToSheetRows_ merges doctor issues onto every transaction 
   });
 
   assert.equal(rows[0].issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
+});
+
+test('applyFetchedDoctorIssuesToExistingSheet_ clears stale issues and reapplies row highlighting', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: '84.25',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: 'saved',
+      issues: 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  sandbox.applyFetchedDoctorIssuesToExistingSheet_(fakeSheet, {});
+
+  assert.equal(rowStore.get(2).issues, '');
+  assert.equal(
+    operations.some((operation) => operation.type === 'setBackgrounds' || operation.type === 'setBackground'),
+    true
+  );
 });
 
 test('flattenTransactionForSheet_ renders source-only transactions as one blank-destination row', () => {
@@ -1461,7 +1617,29 @@ test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without 
       last_error: '',
     }],
   ]);
-  const { sandbox } = loadCode();
+  const doctorTransactionSheet = makeRowStoreSheet_(null, new Map(), []);
+  const doctorAccountSheet = makeRowStoreSheet_(null, new Map(), []);
+  const sheetsByName = {
+    DoctorTransactionIssues: doctorTransactionSheet,
+    DoctorAccountIssues: doctorAccountSheet,
+  };
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getSheetByName(name) {
+            return sheetsByName[name] || null;
+          },
+          insertSheet(name) {
+            const sheet = makeRowStoreSheet_(sandbox, new Map(), []);
+            sheetsByName[name] = sheet;
+            return sheet;
+          },
+          toast() {},
+        };
+      },
+    },
+  });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
   sandbox.apiFetchJson_ = function(method, path) {
@@ -1486,7 +1664,7 @@ test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without 
 
   sandbox.refreshTransactionIssuesFromDoctor_(fakeSheet);
 
-  assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
+  assert.equal(doctorTransactionSheet.getLastRow(), 2);
   assert.equal(rowStore.get(2).status, 'saved');
   assert.equal(rowStore.get(2).last_error, '');
 });

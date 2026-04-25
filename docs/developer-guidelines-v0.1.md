@@ -106,7 +106,7 @@ Only add integration tests for critical user journeys that unit tests cannot cov
 - import with native ID deduplication
 - import with fingerprint fallback deduplication
 - create a balanced transaction
-- create or update an unbalanced but storable transaction and persist its issue
+- create or update an unbalanced but storable transaction and surface it through derived diagnostics
 - security buy/sell with lot tracking and realized gain/loss
 - balance assertion validation using project-level tolerance
 - deterministic Beancount export
@@ -150,11 +150,15 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Do not assume FIFO is sufficient for security disposals; preserve strict cost-based matching.
 - Prefer explicit validations over hidden magic.
 - Keep HTTP concerns out of services; service modules should raise domain exceptions and let the API layer translate them into response codes and payloads.
+- Keep domain logic as pure as practical. Prefer input/output helpers for normalization, balancing, booking, and similar rule-heavy logic over helpers that also fetch from the database or mutate persistence state.
+- Keep database, session, and config access at the edges. Service entrypoints may orchestrate persistence and queries, but extracted domain modules should avoid hidden side effects whenever practical.
+- If a helper both fetches from the database and performs dense business logic, treat it as a candidate to split into a thinner orchestration layer plus a more focused domain module.
 - When normalization and persistence differ, document the boundary explicitly and keep normalization out of canonical persistence endpoints unless that behavior is an intentional API contract decision.
 - If a normalize-style endpoint and a persistence endpoint accept the same input shape, they should share one normalization/validation implementation rather than duplicating rules.
 - When a file starts mixing route wiring, request/response schemas, validation, serialization, and persistence logic, split it into smaller modules rather than growing one large API file.
 - Keep a service layer only when it supports meaningful tests that are not duplicates of route-level API tests.
-- Good service tests cover business logic such as fingerprinting, resolution, validation, serialization, and persistence behavior.
+- Deep edge-case tests for balancing, normalization, booking, and similar rule engines should live at the extracted module level. Service tests should focus on the additional orchestration and persistence behavior those modules do not cover.
+- Good service tests cover orchestration, persistence behavior, resource loading, and integration of extracted modules into top-level service results.
 - If service tests mostly repeat route tests without adding value, prefer collapsing overly thin service code back into the API module.
 - Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
 - On read paths, avoid N+1 query patterns for related resources. Prefer bounded batched queries keyed by indexed columns, or indexed eager loading, over per-entity follow-up queries.

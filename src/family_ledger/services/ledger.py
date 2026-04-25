@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
-from collections.abc import Sequence
 from datetime import date
-from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import Select, select
@@ -19,17 +17,12 @@ from family_ledger.api.schemas import (
     BalanceAssertionResource,
     CommodityCreate,
     CommodityResource,
-    DoctorIssue,
-    DoctorLedgerRequest,
-    DoctorLedgerResponse,
     ImportMetadata,
     ListAccountsResponse,
     ListCommoditiesResponse,
     ListTransactionsResponse,
     MoneyValue,
-    NormalizeIssue,
     NormalizeTransactionResponse,
-    PostingNormalizePayload,
     PostingPayload,
     PriceCreate,
     PriceResource,
@@ -38,7 +31,6 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
     TransactionResource,
 )
-from family_ledger.config import get_ledger_config
 from family_ledger.models import (
     Account,
     BalanceAssertion,
@@ -47,21 +39,21 @@ from family_ledger.models import (
     Price,
     Transaction,
 )
-from family_ledger.services.booking import (
-    BookingMethod,
-    BookingReplay,
-    LotKey,
-    TransactionLotDelta,
-)
+from family_ledger.services.balancing import derive_normalize_issues
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 from family_ledger.services.identifiers import generate_resource_name
+from family_ledger.services.normalization import (
+    normalize_and_validate_transaction_payload,
+)
+from family_ledger.services.validation import (
+    resolve_account,
+    resolve_accounts,
+    resource_name,
+    validate_symbols_exist,
+)
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
-
-
-def resource_name(prefix: str, value: str) -> str:
-    return value if "/" in value else f"{prefix}/{value}"
 
 
 def normalize_page_size(page_size: int | None) -> int:
@@ -127,11 +119,6 @@ def hash_transaction_payload(payload: TransactionData) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
-def decimal_to_string(value: Decimal) -> str:
-    normalized = value.normalize()
-    return format(normalized, "f")
-
-
 def serialize_account(account: Account) -> AccountResource:
     return AccountResource.model_validate(account)
 
@@ -194,401 +181,6 @@ def serialize_balance_assertion(assertion: BalanceAssertion) -> BalanceAssertion
     )
 
 
-def resolve_accounts(session: Session, postings: list[PostingPayload]) -> dict[str, Account]:
-    account_names = {resource_name("accounts", posting.account) for posting in postings}
-    accounts = session.scalars(select(Account).where(Account.name.in_(account_names))).all()
-    by_name = {account.name: account for account in accounts}
-    missing = sorted(account_names - by_name.keys())
-    if missing:
-        raise ValidationError(
-            code="account_not_found", message=f"Accounts not found: {', '.join(missing)}"
-        )
-    return by_name
-
-
-def resolve_account(session: Session, account_name: str) -> Account:
-    resolved_name = resource_name("accounts", account_name)
-    account = session.scalar(select(Account).where(Account.name == resolved_name))
-    if account is None:
-        raise ValidationError(
-            code="account_not_found", message=f"Account not found: {resolved_name}"
-        )
-    return account
-
-
-def validate_account_dates(transaction_date: date, accounts: dict[str, Account]) -> None:
-    invalid = []
-    for account in accounts.values():
-        if transaction_date < account.effective_start_date:
-            invalid.append(account.name)
-        elif (
-            account.effective_end_date is not None and transaction_date > account.effective_end_date
-        ):
-            invalid.append(account.name)
-    if invalid:
-        raise ValidationError(
-            code="account_not_effective",
-            message=f"Accounts not effective on transaction date: {', '.join(sorted(invalid))}",
-        )
-
-
-def validate_symbols_exist(session: Session, symbols: set[str]) -> None:
-    existing = session.scalars(select(Commodity.symbol).where(Commodity.symbol.in_(symbols))).all()
-    missing = sorted(symbols - set(existing))
-    if missing:
-        raise ValidationError(
-            code="commodity_not_found",
-            message=f"Commodities not found: {', '.join(missing)}",
-        )
-
-
-def validate_transaction_symbols(session: Session, payload: TransactionData) -> None:
-    symbols = set()
-    for posting in payload.postings:
-        symbols.add(posting.units.symbol)
-        if posting.cost is not None:
-            symbols.add(posting.cost.symbol)
-        if posting.price is not None:
-            symbols.add(posting.price.symbol)
-    validate_symbols_exist(session, symbols)
-
-
-def validate_transaction_payload(session: Session, payload: TransactionData) -> None:
-    account_map = resolve_accounts(session, payload.postings)
-    validate_account_dates(payload.transaction_date, account_map)
-    validate_transaction_symbols(session, payload)
-
-
-def _posting_weight(posting: PostingPayload | PostingNormalizePayload) -> MoneyValue | None:
-    if posting.units is None or posting.units.symbol is None:
-        return None
-    if (
-        posting.cost is not None
-        and posting.price is not None
-        and posting.price.amount is not None
-        and posting.cost.symbol != posting.price.symbol
-    ):
-        raise ValidationError(
-            code="cost_price_symbol_mismatch",
-            message="Postings with both cost and price must use the same symbol.",
-        )
-    if posting.cost is not None:
-        return MoneyValue(
-            amount=posting.units.amount * posting.cost.amount,
-            symbol=posting.cost.symbol,
-        )
-    if posting.price is not None and posting.price.amount is not None:
-        return MoneyValue(
-            amount=posting.units.amount * posting.price.amount,
-            symbol=posting.price.symbol,
-        )
-    return MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol)
-
-
-def _persisted_posting_weight(posting: Posting) -> MoneyValue:
-    if posting.cost_per_unit is not None:
-        assert posting.cost_symbol is not None
-        return MoneyValue(
-            amount=posting.units_amount * posting.cost_per_unit,
-            symbol=posting.cost_symbol,
-        )
-    if posting.price_per_unit is not None:
-        assert posting.price_symbol is not None
-        return MoneyValue(
-            amount=posting.units_amount * posting.price_per_unit,
-            symbol=posting.price_symbol,
-        )
-    return MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol)
-
-
-def transaction_balance_totals_by_symbol(
-    postings: list[PostingPayload] | list[PostingNormalizePayload],
-) -> dict[str, Decimal]:
-    totals: dict[str, Decimal] = {}
-    for posting in postings:
-        weight = _posting_weight(posting)
-        if weight is None or weight.amount == 0:
-            continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
-    return totals
-
-
-def resolve_tolerance(session: Session, symbol: str) -> Decimal:
-    config = get_ledger_config()
-    return config.tolerance.get(symbol, config.default_tolerance)
-
-
-def build_transaction_unbalanced_issues(
-    session: Session, transaction: Transaction
-) -> list[DoctorIssue]:
-    totals: dict[str, Decimal] = {}
-    for posting in transaction.postings:
-        weight = _persisted_posting_weight(posting)
-        if weight.amount == 0:
-            continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
-
-    issues: list[DoctorIssue] = []
-    for symbol, amount in sorted(totals.items()):
-        tolerance = resolve_tolerance(session, symbol)
-        if abs(amount) <= tolerance:
-            continue
-        issues.append(
-            DoctorIssue(
-                target=transaction.name,
-                code="transaction_unbalanced",
-                severity="error",
-                message="Transaction is not balanced within tolerance.",
-                details={
-                    "symbol": symbol,
-                    "residual_amount": decimal_to_string(amount),
-                    "tolerance_amount": decimal_to_string(tolerance),
-                },
-            )
-        )
-    return issues
-
-
-def derive_normalize_issues(session: Session, payload: TransactionData) -> list[NormalizeIssue]:
-    totals = transaction_balance_totals_by_symbol(payload.postings)
-    issues: list[NormalizeIssue] = []
-    for symbol, amount in sorted(totals.items()):
-        tolerance = resolve_tolerance(session, symbol)
-        if abs(amount) <= tolerance:
-            continue
-        issues.append(
-            NormalizeIssue(
-                code="transaction_unbalanced",
-                severity="error",
-                message="Transaction is not balanced within tolerance.",
-                details={
-                    "symbol": symbol,
-                    "residual_amount": decimal_to_string(amount),
-                    "tolerance_amount": decimal_to_string(tolerance),
-                },
-            )
-        )
-    return issues
-
-
-def lot_key_for_posting(posting: Posting) -> LotKey | None:
-    if posting.cost_per_unit is None or posting.cost_symbol is None:
-        return None
-    return LotKey(
-        account=posting.account.name,
-        units_symbol=posting.units_symbol,
-        cost_symbol=posting.cost_symbol,
-        cost_per_unit=posting.cost_per_unit,
-    )
-
-
-def transaction_lot_deltas(
-    transactions: Sequence[Transaction],
-) -> dict[LotKey, list[TransactionLotDelta]]:
-    lot_deltas: dict[LotKey, list[TransactionLotDelta]] = {}
-    ordered_transactions = sorted(transactions, key=lambda tx: (tx.transaction_date, tx.name))
-
-    for transaction in ordered_transactions:
-        per_transaction: dict[LotKey, Decimal] = {}
-        for posting in transaction.postings:
-            lot_key = lot_key_for_posting(posting)
-            if lot_key is None:
-                continue
-            per_transaction[lot_key] = (
-                per_transaction.get(lot_key, Decimal("0")) + posting.units_amount
-            )
-        for lot_key, amount in sorted(per_transaction.items()):
-            if amount == 0:
-                continue
-            lot_deltas.setdefault(lot_key, []).append(
-                TransactionLotDelta(transaction_name=transaction.name, amount=amount)
-            )
-    return lot_deltas
-
-
-def build_lot_match_missing_issues(
-    transactions: Sequence[Transaction],
-    booking_method: BookingMethod = BookingMethod.FIFO,
-) -> list[DoctorIssue]:
-    lot_deltas = transaction_lot_deltas(transactions)
-    failures = BookingReplay(booking_method).replay(lot_deltas).failures
-    return [
-        DoctorIssue(
-            target=failure.target,
-            code="lot_match_missing",
-            severity="error",
-            message="Not enough lots to reduce.",
-            details={
-                "account": failure.lot_key.account,
-                "units_symbol": failure.lot_key.units_symbol,
-                "cost_symbol": failure.lot_key.cost_symbol,
-                "cost_per_unit": decimal_to_string(failure.lot_key.cost_per_unit),
-                "requested_amount": decimal_to_string(failure.requested_amount),
-                "available_amount": decimal_to_string(failure.available_amount),
-            },
-        )
-        for failure in failures
-    ]
-
-
-def normalize_transaction_payload(
-    payload: TransactionCreate | TransactionNormalizeData,
-) -> TransactionCreate:
-    missing_units = [posting for posting in payload.postings if posting.units is None]
-    missing_symbols = [
-        posting
-        for posting in payload.postings
-        if posting.units is not None and posting.units.symbol is None
-    ]
-    missing_price_amounts = [
-        posting
-        for posting in payload.postings
-        if posting.price is not None and posting.price.amount is None
-    ]
-    if len(missing_units) > 1:
-        raise ValidationError(
-            code="multiple_missing_postings",
-            message="At most one posting may omit units when normalizing a transaction.",
-        )
-    if len(missing_symbols) > 1:
-        raise ValidationError(
-            code="multiple_missing_symbols",
-            message="At most one posting may omit the units symbol when normalizing a transaction.",
-        )
-
-    for posting in payload.postings:
-        if posting.units is None and (posting.cost is not None or posting.price is not None):
-            raise ValidationError(
-                code="missing_units_with_cost_or_price",
-                message="A posting with missing units cannot also specify cost or price.",
-            )
-        if posting.units is not None and posting.units.symbol is None:
-            if posting.cost is not None or posting.price is not None:
-                raise ValidationError(
-                    code="missing_symbol_with_cost_or_price",
-                    message=(
-                        "A posting with a missing units symbol cannot also specify cost or price."
-                    ),
-                )
-        if posting.price is not None and posting.price.amount is None:
-            if posting.cost is not None:
-                raise ValidationError(
-                    code="missing_price_with_cost",
-                    message="A posting with a missing price amount cannot also specify cost.",
-                )
-            if posting.units is None or posting.units.symbol is None:
-                raise ValidationError(
-                    code="missing_price_without_explicit_units",
-                    message="A posting with a missing price amount requires explicit units.",
-                )
-
-    if not missing_units and not missing_symbols and not missing_price_amounts:
-        return TransactionCreate.model_validate(payload.model_dump())
-
-    weights_by_symbol = transaction_balance_totals_by_symbol(payload.postings)
-
-    missing_price_counts: dict[str, int] = {}
-    for posting in missing_price_amounts:
-        assert posting.price is not None
-        missing_price_counts[posting.price.symbol] = (
-            missing_price_counts.get(posting.price.symbol, 0) + 1
-        )
-    for symbol, count in missing_price_counts.items():
-        if count > 1:
-            raise ValidationError(
-                code="multiple_missing_price_amounts_in_group",
-                message=(
-                    "At most one posting per balancing symbol group may omit a price amount. "
-                    f"Found multiple missing price amounts for {symbol}."
-                ),
-            )
-
-    if not weights_by_symbol:
-        raise ValidationError(
-            code="ambiguous_interpolation_symbol",
-            message="Transaction interpolation requires at least one non-zero balancing weight.",
-        )
-
-    inferred_symbols = sorted(weights_by_symbol)
-    if missing_symbols and len(inferred_symbols) != 1:
-        raise ValidationError(
-            code="ambiguous_missing_symbol",
-            message=(
-                "A posting with a missing units symbol requires one unambiguous balancing symbol."
-            ),
-        )
-
-    normalized_postings = []
-    for posting in payload.postings:
-        if posting.units is None:
-            for symbol, amount in weights_by_symbol.items():
-                normalized_postings.append(
-                    PostingPayload(
-                        account=posting.account,
-                        units=MoneyValue(amount=-amount, symbol=symbol),
-                        cost=None,
-                        price=None,
-                        entity_metadata=posting.entity_metadata,
-                    )
-                )
-        elif posting.units.symbol is None:
-            normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=inferred_symbols[0]),
-                    cost=None,
-                    price=None,
-                    entity_metadata=posting.entity_metadata,
-                )
-            )
-        elif posting.price is not None and posting.price.amount is None:
-            symbol = posting.price.symbol
-            if posting.units.amount == 0:
-                raise ValidationError(
-                    code="missing_price_with_zero_units",
-                    message="A posting with zero units cannot infer a missing price amount.",
-                )
-            implied_weight = weights_by_symbol.get(symbol, Decimal("0"))
-            normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
-                    cost=None,
-                    price=MoneyValue(
-                        amount=(-implied_weight / posting.units.amount),
-                        symbol=symbol,
-                    ),
-                    entity_metadata=posting.entity_metadata,
-                )
-            )
-        else:
-            explicit_price = None
-            if posting.price is not None:
-                assert posting.price.amount is not None
-                explicit_price = MoneyValue(
-                    amount=posting.price.amount,
-                    symbol=posting.price.symbol,
-                )
-            normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
-                    cost=posting.cost,
-                    price=explicit_price,
-                    entity_metadata=posting.entity_metadata,
-                )
-            )
-
-    return TransactionCreate(
-        transaction_date=payload.transaction_date,
-        payee=payload.payee,
-        narration=payload.narration,
-        entity_metadata=payload.entity_metadata,
-        import_metadata=payload.import_metadata,
-        postings=normalized_postings,
-    )
-
-
 def normalize_transaction(
     session: Session,
     payload: TransactionNormalizeData,
@@ -596,17 +188,8 @@ def normalize_transaction(
     normalized = normalize_and_validate_transaction_payload(session, payload)
     return NormalizeTransactionResponse(
         transaction=normalized,
-        issues=derive_normalize_issues(session, normalized),
+        issues=derive_normalize_issues(normalized),
     )
-
-
-def normalize_and_validate_transaction_payload(
-    session: Session,
-    payload: TransactionCreate | TransactionNormalizeData,
-) -> TransactionCreate:
-    normalized = normalize_transaction_payload(payload)
-    validate_transaction_payload(session, normalized)
-    return normalized
 
 
 def persist_transaction(
@@ -839,33 +422,6 @@ def list_transactions_page(
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
     return serialize_transaction(transaction_row)
-
-
-def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
-    del request
-    transactions = session.scalars(
-        select(Transaction)
-        .options(selectinload(Transaction.postings).selectinload(Posting.account))
-        .order_by(Transaction.transaction_date, Transaction.name)
-    ).all()
-    transaction_order = {transaction.name: index for index, transaction in enumerate(transactions)}
-    issues = [
-        *[
-            issue
-            for transaction in transactions
-            for issue in build_transaction_unbalanced_issues(session, transaction)
-        ],
-        *build_lot_match_missing_issues(transactions),
-    ]
-    return DoctorLedgerResponse(
-        issues=sorted(
-            issues,
-            key=lambda issue: (
-                transaction_order.get(issue.target, len(transaction_order)),
-                issue.code,
-            ),
-        )
-    )
 
 
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:

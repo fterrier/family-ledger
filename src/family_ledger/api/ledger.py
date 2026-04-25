@@ -28,6 +28,7 @@ from family_ledger.api.schemas import (
     UpdateTransactionRequest,
 )
 from family_ledger.db import get_db_session, read_only_transaction
+from family_ledger.services import doctor as doctor_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import (
     ConflictError,
@@ -151,7 +152,7 @@ def list_transactions(
 @router.post("/ledger:doctor", response_model=DoctorLedgerResponse)
 def doctor_ledger(request: DoctorLedgerRequest, session: DbSession) -> DoctorLedgerResponse:
     with read_only_transaction(session):
-        return _call_service(ledger_service.doctor_ledger, session, request)
+        return _call_service(doctor_service.doctor_ledger, session, request)
 
 
 @router.post(

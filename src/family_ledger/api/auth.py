@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, status
@@ -13,7 +14,7 @@ def require_api_token(
 ) -> None:
     assert settings is not None
     expected = f"Bearer {settings.api_token}"
-    if authorization != expected:
+    if authorization is None or not secrets.compare_digest(authorization, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={

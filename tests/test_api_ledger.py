@@ -107,6 +107,15 @@ def test_ledger_routes_reject_invalid_token() -> None:
     assert response.json()["detail"]["code"] == "unauthenticated"
 
 
+def test_ledger_routes_reject_partial_token() -> None:
+    client = make_client(api_token="test-toke")
+
+    response = client.get("/accounts")
+
+    assert response.status_code == 401
+    assert response.json()["detail"]["code"] == "unauthenticated"
+
+
 def test_list_accounts_supports_pagination() -> None:
     client = make_client()
 

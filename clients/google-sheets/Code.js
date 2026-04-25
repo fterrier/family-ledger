@@ -36,8 +36,8 @@ const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
 
 const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
   transaction_date: { width: 95, role: 'readonly', note: 'Read-only transaction date.' },
-  payee: { width: 150, role: 'editable', note: 'Editable payee. Applies to the whole transaction.' },
-  narration: { width: 180, role: 'editable', note: 'Editable narration. Applies to the whole transaction.' },
+  payee: { width: 280, role: 'editable', note: 'Editable payee. Applies to the whole transaction.' },
+  narration: { width: 200, role: 'editable', note: 'Editable narration. Applies to the whole transaction.' },
   source_account_name: { width: 230, role: 'readonly', note: 'Read-only source account.' },
   destination_account_name: {
     width: 280,
@@ -89,7 +89,30 @@ function onOpen() {
     .addItem('Sync Transactions', 'syncFamilyLedgerTransactions')
     .addSeparator()
     .addItem('Push Active Transaction', 'pushActiveTransaction')
+    .addSeparator()
+    .addItem('Reset Sheet Layouts', 'resetSheetLayouts')
     .addToUi();
+}
+
+function resetSheetLayouts() {
+  runUserAction_('Reset Sheet Layouts', function() {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+    const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+    if (txSheet) {
+      const lastRow = txSheet.getLastRow();
+      const rows = lastRow > 1 ? new Array(lastRow - 1) : [];
+      applyTransactionSheetLayout_(txSheet, rows);
+    }
+
+    const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
+    if (accSheet) {
+      const lastRow = accSheet.getLastRow();
+      applyAccountsSheetLayout_(accSheet, lastRow > 1 ? lastRow - 1 : 0);
+    }
+
+    SpreadsheetApp.getUi().alert('Reset Sheet Layouts', 'Layouts have been reset to their default configurations.', SpreadsheetApp.getUi().ButtonSet.OK);
+  });
 }
 
 function handleTransactionEdit(e) {

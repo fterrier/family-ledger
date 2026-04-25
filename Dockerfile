@@ -16,7 +16,10 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY config ./config
 
-RUN pip install --no-cache-dir .[dev]
+RUN pip install --no-cache-dir .
+
+RUN useradd -m appuser && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 

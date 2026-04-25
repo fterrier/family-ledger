@@ -23,18 +23,16 @@ Allow unbalanced transactions to be persisted in v1.
 
 Do not store validation fields such as error lists or convenience flags on canonical transaction rows themselves.
 
-Persist derived issues as separate resources linked to stored entities.
-
-Allow read APIs to include those persisted issues inline for convenience, while keeping canonical ledger state and diagnostics separate in storage.
+Expose ledger diagnostics through separate derived validation endpoints instead of persisting issue records.
 
 ## Consequences
 
 Positive:
 - Canonical ledger resources stay focused on source-of-truth data.
 - Validation can evolve independently and at ledger scope.
-- The model remains honest about the difference between canonical stored state and persisted diagnostics.
-- Clients can read transaction data and persisted issues together without a second mandatory lookup.
+- The model remains honest about the difference between canonical stored state and derived diagnostics.
+- Ledger-relative checks can move freely when historical transactions change without any issue rewrite churn.
 
 Negative:
-- Some invalid states can exist in the stored ledger until issues are consulted.
-- The system now owns an additional persisted issue model and its lifecycle.
+- Some invalid states can exist in the stored ledger until diagnostics are consulted.
+- Clients that want diagnostics must call a separate endpoint.

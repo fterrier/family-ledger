@@ -500,12 +500,18 @@ test('flattenTransactionForSheet_ preserves posting order for split transactions
   assert.equal(rows[0].split_off_amount, '');
 });
 
-test('flattenTransactionForSheet_ renders persisted issues on every transaction row', () => {
+test('applyDoctorIssuesToSheetRows_ merges doctor issues onto every transaction row', () => {
   const { sandbox } = loadCode();
 
-  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction({
-    issues: [
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
+    'accounts/source': 'Assets:Bank:Checking',
+    'accounts/food': 'Expenses:Food',
+  });
+
+  sandbox.applyDoctorIssuesToSheetRows_(rows, {
+    'transactions/txn_1': [
       {
+        target: 'transactions/txn_1',
         code: 'transaction_unbalanced',
         message: 'Transaction is not balanced within tolerance.',
         details: {
@@ -515,9 +521,6 @@ test('flattenTransactionForSheet_ renders persisted issues on every transaction 
         },
       },
     ],
-  }), {
-    'accounts/source': 'Assets:Bank:Checking',
-    'accounts/food': 'Expenses:Food',
   });
 
   assert.equal(rows[0].issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
@@ -531,7 +534,6 @@ test('flattenTransactionForSheet_ renders source-only transactions as one blank-
     transaction_date: '2025-12-31',
     payee: null,
     narration: 'Guthabenzins: Guthabenzins',
-    issues: [],
     postings: [
       {
         account: 'accounts/source',
@@ -549,7 +551,7 @@ test('flattenTransactionForSheet_ renders source-only transactions as one blank-
   assert.equal(rows[0].amount, '1.5');
 });
 
-test('buildTransactionRowBackgrounds_ highlights rows with persisted issues only', () => {
+test('buildTransactionRowBackgrounds_ highlights rows with doctor issues only', () => {
   const { sandbox } = loadCode();
 
   const withIssues = sandbox.buildTransactionRowBackgrounds_({ issues: 'transaction_unbalanced (...)' });
@@ -1397,7 +1399,7 @@ test('save generation helpers ignore stale responses', () => {
   assert.equal(sandbox.isCurrentSaveGeneration_('transactions/txn_1', '2'), true);
 });
 
-test('saveTransactionByName_ keeps persisted issues and records transient PATCH errors separately', () => {
+test('saveTransactionByName_ keeps doctor issues and records transient PATCH errors separately', () => {
   const operations = [];
   const rowStore = new Map([
     [2, {
@@ -1439,4 +1441,52 @@ test('saveTransactionByName_ keeps persisted issues and records transient PATCH 
     'transaction_unbalanced: Transaction is not balanced within tolerance.'
   );
   assert.equal(rowStore.get(2).status, 'error');
+});
+
+test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without touching status', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: '84.25',
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: 'saved',
+      issues: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  sandbox.apiFetchJson_ = function(method, path) {
+    if (method === 'post' && path === '/ledger:doctor') {
+      return {
+        issues: [
+          {
+            target: 'transactions/txn_1',
+            code: 'transaction_unbalanced',
+            message: 'Transaction is not balanced within tolerance.',
+            details: {
+              symbol: 'CHF',
+              residual_amount: '-4.25',
+              tolerance_amount: '0.005',
+            },
+          },
+        ],
+      };
+    }
+    throw new Error('unexpected api call');
+  };
+
+  sandbox.refreshTransactionIssuesFromDoctor_(fakeSheet);
+
+  assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
+  assert.equal(rowStore.get(2).status, 'saved');
+  assert.equal(rowStore.get(2).last_error, '');
 });

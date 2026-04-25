@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import cast
@@ -18,11 +19,12 @@ from family_ledger.api.schemas import (
     BalanceAssertionResource,
     CommodityCreate,
     CommodityResource,
+    DoctorIssue,
+    DoctorLedgerRequest,
+    DoctorLedgerResponse,
     ImportMetadata,
-    IssueResource,
     ListAccountsResponse,
     ListCommoditiesResponse,
-    ListIssuesResponse,
     ListTransactionsResponse,
     MoneyValue,
     NormalizeIssue,
@@ -41,10 +43,15 @@ from family_ledger.models import (
     Account,
     BalanceAssertion,
     Commodity,
-    Issue,
     Posting,
     Price,
     Transaction,
+)
+from family_ledger.services.booking import (
+    BookingMethod,
+    BookingReplay,
+    LotKey,
+    TransactionLotDelta,
 )
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 from family_ledger.services.identifiers import generate_resource_name
@@ -120,6 +127,11 @@ def hash_transaction_payload(payload: TransactionData) -> str:
     return f"sha256:{digest.hexdigest()}"
 
 
+def decimal_to_string(value: Decimal) -> str:
+    normalized = value.normalize()
+    return format(normalized, "f")
+
+
 def serialize_account(account: Account) -> AccountResource:
     return AccountResource.model_validate(account)
 
@@ -128,13 +140,7 @@ def serialize_commodity(commodity: Commodity) -> CommodityResource:
     return CommodityResource.model_validate(commodity)
 
 
-def serialize_issue(issue: Issue) -> IssueResource:
-    return IssueResource.model_validate(issue)
-
-
-def serialize_transaction(
-    transaction: Transaction, issues: list[Issue] | None = None
-) -> TransactionResource:
+def serialize_transaction(transaction: Transaction) -> TransactionResource:
     postings = [
         PostingPayload(
             account=posting.account.name,
@@ -165,7 +171,6 @@ def serialize_transaction(
         entity_metadata=transaction.entity_metadata,
         import_metadata=import_metadata,
         postings=postings,
-        issues=[] if issues is None else [serialize_issue(issue) for issue in issues],
     )
 
 
@@ -313,6 +318,37 @@ def resolve_tolerance(session: Session, symbol: str) -> Decimal:
     return config.tolerance.get(symbol, config.default_tolerance)
 
 
+def build_transaction_unbalanced_issues(
+    session: Session, transaction: Transaction
+) -> list[DoctorIssue]:
+    totals: dict[str, Decimal] = {}
+    for posting in transaction.postings:
+        weight = _persisted_posting_weight(posting)
+        if weight.amount == 0:
+            continue
+        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
+
+    issues: list[DoctorIssue] = []
+    for symbol, amount in sorted(totals.items()):
+        tolerance = resolve_tolerance(session, symbol)
+        if abs(amount) <= tolerance:
+            continue
+        issues.append(
+            DoctorIssue(
+                target=transaction.name,
+                code="transaction_unbalanced",
+                severity="error",
+                message="Transaction is not balanced within tolerance.",
+                details={
+                    "symbol": symbol,
+                    "residual_amount": decimal_to_string(amount),
+                    "tolerance_amount": decimal_to_string(tolerance),
+                },
+            )
+        )
+    return issues
+
+
 def derive_normalize_issues(session: Session, payload: TransactionData) -> list[NormalizeIssue]:
     totals = transaction_balance_totals_by_symbol(payload.postings)
     issues: list[NormalizeIssue] = []
@@ -327,44 +363,72 @@ def derive_normalize_issues(session: Session, payload: TransactionData) -> list[
                 message="Transaction is not balanced within tolerance.",
                 details={
                     "symbol": symbol,
-                    "residual_amount": str(amount),
-                    "tolerance_amount": str(tolerance),
+                    "residual_amount": decimal_to_string(amount),
+                    "tolerance_amount": decimal_to_string(tolerance),
                 },
             )
         )
     return issues
 
 
-def build_persisted_issues(target: str, issues: list[NormalizeIssue]) -> list[Issue]:
+def lot_key_for_posting(posting: Posting) -> LotKey | None:
+    if posting.cost_per_unit is None or posting.cost_symbol is None:
+        return None
+    return LotKey(
+        account=posting.account.name,
+        units_symbol=posting.units_symbol,
+        cost_symbol=posting.cost_symbol,
+        cost_per_unit=posting.cost_per_unit,
+    )
+
+
+def transaction_lot_deltas(
+    transactions: Sequence[Transaction],
+) -> dict[LotKey, list[TransactionLotDelta]]:
+    lot_deltas: dict[LotKey, list[TransactionLotDelta]] = {}
+    ordered_transactions = sorted(transactions, key=lambda tx: (tx.transaction_date, tx.name))
+
+    for transaction in ordered_transactions:
+        per_transaction: dict[LotKey, Decimal] = {}
+        for posting in transaction.postings:
+            lot_key = lot_key_for_posting(posting)
+            if lot_key is None:
+                continue
+            per_transaction[lot_key] = (
+                per_transaction.get(lot_key, Decimal("0")) + posting.units_amount
+            )
+        for lot_key, amount in sorted(per_transaction.items()):
+            if amount == 0:
+                continue
+            lot_deltas.setdefault(lot_key, []).append(
+                TransactionLotDelta(transaction_name=transaction.name, amount=amount)
+            )
+    return lot_deltas
+
+
+def build_lot_match_missing_issues(
+    transactions: Sequence[Transaction],
+    booking_method: BookingMethod = BookingMethod.FIFO,
+) -> list[DoctorIssue]:
+    lot_deltas = transaction_lot_deltas(transactions)
+    failures = BookingReplay(booking_method).replay(lot_deltas).failures
     return [
-        Issue(
-            name=generate_resource_name("issues", "iss"),
-            target=target,
-            code=issue.code,
-            severity=issue.severity,
-            message=issue.message,
-            details=issue.details,
+        DoctorIssue(
+            target=failure.target,
+            code="lot_match_missing",
+            severity="error",
+            message="Not enough lots to reduce.",
+            details={
+                "account": failure.lot_key.account,
+                "units_symbol": failure.lot_key.units_symbol,
+                "cost_symbol": failure.lot_key.cost_symbol,
+                "cost_per_unit": decimal_to_string(failure.lot_key.cost_per_unit),
+                "requested_amount": decimal_to_string(failure.requested_amount),
+                "available_amount": decimal_to_string(failure.available_amount),
+            },
         )
-        for issue in issues
+        for failure in failures
     ]
-
-
-def replace_issues_for_target(session: Session, target: str, issues: list[NormalizeIssue]) -> None:
-    session.query(Issue).where(Issue.target == target).delete(synchronize_session=False)
-    for issue in build_persisted_issues(target, issues):
-        session.add(issue)
-
-
-def get_issues_by_targets(session: Session, targets: list[str]) -> dict[str, list[Issue]]:
-    if not targets:
-        return {}
-    issues = session.scalars(
-        select(Issue).where(Issue.target.in_(targets)).order_by(Issue.name)
-    ).all()
-    by_target: dict[str, list[Issue]] = {target: [] for target in targets}
-    for issue in issues:
-        by_target.setdefault(issue.target, []).append(issue)
-    return by_target
 
 
 def normalize_transaction_payload(
@@ -700,9 +764,6 @@ def create_transaction(
 ) -> TransactionResource:
     normalized = normalize_and_validate_transaction_payload(session, payload)
     transaction = persist_transaction(session, normalized)
-    replace_issues_for_target(
-        session, transaction.name, derive_normalize_issues(session, normalized)
-    )
     commit_or_raise(session)
     session.refresh(transaction)
     persisted = session.scalar(
@@ -711,8 +772,7 @@ def create_transaction(
         .where(Transaction.id == transaction.id)
     )
     assert persisted is not None
-    issues_by_target = get_issues_by_targets(session, [persisted.name])
-    return serialize_transaction(persisted, issues_by_target.get(persisted.name, []))
+    return serialize_transaction(persisted)
 
 
 def update_transaction(
@@ -723,9 +783,6 @@ def update_transaction(
     transaction_row = get_transaction_row(session, transaction)
     normalized = normalize_and_validate_transaction_payload(session, payload)
     persist_transaction(session, normalized, transaction=transaction_row)
-    replace_issues_for_target(
-        session, transaction_row.name, derive_normalize_issues(session, normalized)
-    )
     commit_or_raise(session)
     persisted = session.scalar(
         select(Transaction)
@@ -733,8 +790,7 @@ def update_transaction(
         .where(Transaction.id == transaction_row.id)
     )
     assert persisted is not None
-    issues_by_target = get_issues_by_targets(session, [persisted.name])
-    return serialize_transaction(persisted, issues_by_target.get(persisted.name, []))
+    return serialize_transaction(persisted)
 
 
 def list_transactions_page(
@@ -774,49 +830,41 @@ def list_transactions_page(
     if len(transactions) > normalized_page_size:
         transactions = transactions[:normalized_page_size]
         next_page_token = encode_page_token(offset + normalized_page_size)
-    issues_by_target = get_issues_by_targets(
-        session, [transaction.name for transaction in transactions]
-    )
     return ListTransactionsResponse(
-        transactions=[
-            serialize_transaction(transaction, issues_by_target.get(transaction.name, []))
-            for transaction in transactions
-        ],
+        transactions=[serialize_transaction(transaction) for transaction in transactions],
         next_page_token=next_page_token,
     )
 
 
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
-    issues_by_target = get_issues_by_targets(session, [transaction_row.name])
-    return serialize_transaction(transaction_row, issues_by_target.get(transaction_row.name, []))
+    return serialize_transaction(transaction_row)
 
 
-def list_issues_page(
-    session: Session,
-    *,
-    page_size: int | None,
-    page_token: str | None,
-    target: str | None,
-    code: str | None,
-) -> ListIssuesResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    query = select(Issue).order_by(Issue.name)
-    if target is not None:
-        query = query.where(Issue.target == target)
-    if code is not None:
-        query = query.where(Issue.code == code)
-    issues = session.scalars(
-        paginate_query(query, offset=offset, page_size=normalized_page_size)
+def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
+    del request
+    transactions = session.scalars(
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .order_by(Transaction.transaction_date, Transaction.name)
     ).all()
-    next_page_token = None
-    if len(issues) > normalized_page_size:
-        issues = issues[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
-    return ListIssuesResponse(
-        issues=[serialize_issue(issue) for issue in issues],
-        next_page_token=next_page_token,
+    transaction_order = {transaction.name: index for index, transaction in enumerate(transactions)}
+    issues = [
+        *[
+            issue
+            for transaction in transactions
+            for issue in build_transaction_unbalanced_issues(session, transaction)
+        ],
+        *build_lot_match_missing_issues(transactions),
+    ]
+    return DoctorLedgerResponse(
+        issues=sorted(
+            issues,
+            key=lambda issue: (
+                transaction_order.get(issue.target, len(transaction_order)),
+                issue.code,
+            ),
+        )
     )
 
 

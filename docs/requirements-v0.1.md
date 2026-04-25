@@ -154,12 +154,12 @@ Keep the investment model simple:
 - Full brokerage analytics
 
 ## Validation Requirements
-- Transactions with storable explicit postings may still be stored when unbalanced, but they must surface persisted issues
+- Transactions with storable explicit postings may still be stored when unbalanced, but ledger diagnostics must surface them as derived issues
 - Balance assertions must be strict
 - Decimal precision tolerance must be configurable at the project level, with one required global default and optional per-symbol overrides
 - Account open/close constraints must be enforced through account effective dates
 - Commodity constraints must be enforced where configured
-- Lot/cost integrity must be enforced, with strict cost-based matching for supported disposals
+- Lot/cost integrity must be enforced through derived ledger diagnostics; v1 lot-booking diagnostics use FIFO only, with room for richer Beancount-like booking methods later
 - Balance assertions are not the same thing as reconciliation; reconciliation can stay lightweight or be deferred
 
 ## Change Management

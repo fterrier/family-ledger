@@ -124,10 +124,11 @@ The `split_off_amount` column is highlighted as an action field and its header n
 - `saved`: the transaction was saved successfully
 - `error`: the save failed; see `last_error`
 
-Persisted API issues are shown in the `issues` column.
-Rows with persisted issues are highlighted in light red.
+Derived `ledger:doctor` issues are shown in the `issues` column.
+Rows with doctor issues are highlighted in light red.
 Transient save failures still use `status=error` and `last_error` without applying the red issue highlight.
 `last_error` is kept as a hidden technical column next to `status`.
+The sheet refreshes doctor issues separately after sync and after each successful save.
 
 Imported transaction totals are fixed:
 - reducing an `amount` creates a split for the difference

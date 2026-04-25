@@ -85,31 +85,10 @@ Notes:
 - Transactions do not have a dedicated status field in v1.
 - Transactions may be balanced or unbalanced.
 - Validation fields are not stored on transaction rows themselves.
-- Persisted issues are separate records linked to stored entities and may be returned inline by read APIs.
 - Transactions may be categorized or uncategorized; that is also a derived property.
 - Fingerprints are persisted and recomputed on transaction writes.
 - The API may group the two dedupe fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
 - `fingerprint` is a duplicate hint and lookup aid, not a globally unique transaction identity.
-
-## Issues
-
-Issues are persisted diagnostics attached to stored ledger entities.
-
-Recommended fields:
-- `id`
-- `name`
-- `target`
-- `code`
-- `severity`
-- `message`
-- optional `details`
-
-Notes:
-- `name` is the stable API resource name built from an opaque key.
-- `target` references the affected resource, such as a transaction.
-- Issues are derived from stored state and persisted separately from the target record.
-- Multiple issues may exist for one target.
-- In v1, issues are used to surface storable-but-invalid states such as unbalanced transactions.
 
 ## Postings
 
@@ -271,7 +250,20 @@ Balance validity is derived from transaction postings.
 In v1:
 - transactions may remain unbalanced in the stored ledger
 - unbalanced transactions are included in ledger reads and exports
-- persisted issues flag them as invalid
+- derived diagnostics flag them as invalid when the ledger is checked
+
+### Lot Booking Diagnostics
+
+Lot-booking diagnostics are derived from stored postings and are not persisted.
+
+In v1:
+- `ledger:doctor` replays held-at-cost postings by exact lot bucket
+- the exact lot bucket is `account + units_symbol + cost_symbol + cost_per_unit`
+- postings in the same transaction and same exact lot bucket are aggregated before booking checks
+- the implemented booking method is FIFO only
+- the replay logic should live in a dedicated booking component so doctor and any future inventory projection can share the same reduction behavior
+- the replay engine is intended to grow toward additional Beancount-like booking methods later
+- lot date and lot label are not part of the stored v1 lot identity yet
 
 ## Validation Rules
 
@@ -279,11 +271,7 @@ The v1 model should enforce or compute these rules:
 - transactions referencing accounts outside account effective dates are invalid
 - strict double-entry balancing is the target accounting rule, but imbalance does not block persistence in v1 when the transaction can still be stored explicitly
 - balance assertions must validate under project-level tolerance rules
-- reducing postings held at cost use strict booking semantics
-- strict booking means:
-  - unique match succeeds
-  - total-match across all matching lots succeeds
-  - ambiguous partial matches fail
+- reducing postings held at cost are checked through derived FIFO lot-booking diagnostics in v1
 
 There is no support for per-account booking methods in v1.
 
@@ -300,14 +288,12 @@ Project config files own:
 
 The database owns:
 - canonical stored transactions and postings
-- persisted issues for stored entities, such as unbalanced transactions
 - importer-specific static settings
 - export policy settings if needed
 - accounts
 - commodities
 - transactions
 - postings
-- issues
 - prices
 - balance assertions
 - attachments

@@ -16,9 +16,10 @@ from family_ledger.api.schemas import (
     CreateCommodityRequest,
     CreatePriceRequest,
     CreateTransactionRequest,
+    DoctorLedgerRequest,
+    DoctorLedgerResponse,
     ListAccountsResponse,
     ListCommoditiesResponse,
-    ListIssuesResponse,
     ListTransactionsResponse,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
@@ -26,7 +27,7 @@ from family_ledger.api.schemas import (
     TransactionResource,
     UpdateTransactionRequest,
 )
-from family_ledger.db import get_db_session
+from family_ledger.db import get_db_session, read_only_transaction
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import (
     ConflictError,
@@ -147,22 +148,10 @@ def list_transactions(
     )
 
 
-@router.get("/issues", response_model=ListIssuesResponse)
-def list_issues(
-    session: DbSession,
-    page_size: int | None = None,
-    page_token: str | None = None,
-    target: str | None = None,
-    code: str | None = None,
-) -> ListIssuesResponse:
-    return _call_service(
-        ledger_service.list_issues_page,
-        session,
-        page_size=page_size,
-        page_token=page_token,
-        target=target,
-        code=code,
-    )
+@router.post("/ledger:doctor", response_model=DoctorLedgerResponse)
+def doctor_ledger(request: DoctorLedgerRequest, session: DbSession) -> DoctorLedgerResponse:
+    with read_only_transaction(session):
+        return _call_service(ledger_service.doctor_ledger, session, request)
 
 
 @router.post(

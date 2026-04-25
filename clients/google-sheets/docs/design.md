@@ -135,9 +135,10 @@ For refreshed transactions:
 - same-shape responses are applied in place without deleting and recreating rows
 - structural row replacement is reserved for true shape changes, such as a changed rendered row count
 - stale save responses must not overwrite newer local edits
-- persisted transaction issues are rendered in the visible `issues` column
-- rows with persisted issues are highlighted light red across the full row
-- transient save failures update hidden `last_error` and `status=error` without using the persisted-issue highlight
+- ledger doctor issues are rendered in the visible `issues` column
+- rows with doctor issues are highlighted light red across the full row
+- transient save failures update hidden `last_error` and `status=error` without using the doctor-issue highlight
+- the client refreshes `ledger:doctor` asynchronously after sync and after each successful save
 
 `Push Active Transaction` remains available only as a fallback manual retry path.
 

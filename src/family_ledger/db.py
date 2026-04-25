@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from contextlib import contextmanager
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -29,3 +30,16 @@ def get_db_session() -> Generator[Session, None, None]:
         yield session
     finally:
         session.close()
+
+
+@contextmanager
+def read_only_transaction(session: Session) -> Generator[Session, None, None]:
+    if session.in_transaction():
+        raise RuntimeError("read_only_transaction requires an inactive session")
+
+    with session.begin():
+        bind = session.get_bind()
+        if bind is not None and bind.dialect.name == "postgresql":
+            session.execute(text("SET TRANSACTION READ ONLY"))
+        with session.no_autoflush:
+            yield session

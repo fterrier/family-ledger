@@ -52,7 +52,7 @@ const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
     note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
   },
   status: { width: 90, role: 'system', note: 'dirty / saving / saved / error' },
-  issues: { width: 420, role: 'system', note: 'Persisted transaction issues returned by the API.' },
+  issues: { width: 420, role: 'system', note: 'Derived ledger doctor issues merged by transaction.' },
   last_error: { width: 260, role: 'system', note: 'Most recent validation or save error.' },
 };
 
@@ -280,6 +280,7 @@ function syncFamilyLedgerTransactions() {
       '/transactions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
       'transactions'
     );
+    const doctorIssuesByTarget = fetchLedgerDoctorIssuesByTarget_();
     const rows = [];
     const skippedExamples = [];
     let skippedCount = 0;
@@ -297,6 +298,8 @@ function syncFamilyLedgerTransactions() {
         rows.push(row);
       });
     });
+
+    applyDoctorIssuesToSheetRows_(rows, doctorIssuesByTarget);
 
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(sheet, rows);
@@ -647,12 +650,10 @@ function saveTransactionByName_(sheet, transactionName, options) {
   try {
     const accountNameMap = loadAccountNameMap_();
     const payload = buildTransactionPatchPayloadFromGroup_(group, accountNameMap);
-    apiFetchJson_('patch', '/' + transactionName, {
+    const refreshed = apiFetchJson_('patch', '/' + transactionName, {
       transaction: payload,
       update_mask: 'payee,narration,postings',
     });
-
-    const refreshed = apiFetchJson_('get', '/' + transactionName);
     const accountNameLookup = loadAccountsFromApi_();
     const replacementRows = flattenTransactionForSheet_(refreshed, accountNameLookup);
     if (replacementRows === null) {
@@ -685,6 +686,7 @@ function saveTransactionByName_(sheet, transactionName, options) {
     if (options.showSuccessToast) {
       SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
     }
+    refreshTransactionIssuesFromDoctor_(sheet);
   } catch (error) {
     if (isCurrentSaveGeneration_(transactionName, saveGeneration)) {
       setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
@@ -721,7 +723,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
 
   const sourcePosting = transaction.postings[shape.sourceIndex];
   const sourceAccountName = accountNameLookup[sourcePosting.account] || sourcePosting.account;
-  const issues = formatTransactionIssuesForSheet_(transaction.issues || []);
+  const issues = '';
 
   if (shape.destinationIndexes.length === 0) {
     return [{
@@ -764,6 +766,71 @@ function formatTransactionIssuesForSheet_(issues) {
     return '';
   }
   return issues.map(formatTransactionIssueForSheet_).join('\n');
+}
+
+function fetchLedgerDoctorIssuesByTarget_() {
+  const response = apiFetchJson_('post', '/ledger:doctor', {});
+  const byTarget = {};
+  const issues = Array.isArray(response.issues) ? response.issues : [];
+  issues.forEach(function(issue) {
+    if (!issue || !issue.target) {
+      return;
+    }
+    if (!byTarget[issue.target]) {
+      byTarget[issue.target] = [];
+    }
+    byTarget[issue.target].push(issue);
+  });
+  return byTarget;
+}
+
+function applyDoctorIssuesToSheetRows_(rows, issuesByTarget) {
+  rows.forEach(function(row) {
+    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.transaction_name] || []);
+  });
+}
+
+function refreshTransactionIssuesFromDoctor_(sheet) {
+  try {
+    const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
+    applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
+  } catch (error) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Saved transaction, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
+      'Family Ledger',
+      5
+    );
+  }
+}
+
+function applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return;
+  }
+  const rowNumbers = [];
+  const rows = [];
+  for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
+    const row = readTransactionSheetRow_(sheet, rowNumber);
+    if (!row || !row.transaction_name) {
+      continue;
+    }
+    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.transaction_name] || []);
+    rowNumbers.push(rowNumber);
+    rows.push(row);
+  }
+  if (rowNumbers.length === 0) {
+    return;
+  }
+  updateTransactionIssueCells_(sheet, rowNumbers, rows);
+}
+
+function updateTransactionIssueCells_(sheet, rowNumbers, rows) {
+  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
+  rowNumbers.forEach(function(rowNumber, index) {
+    sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
+  });
+  applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows);
 }
 
 function formatTransactionIssueForSheet_(issue) {

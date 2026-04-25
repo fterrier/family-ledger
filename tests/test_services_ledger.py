@@ -256,7 +256,7 @@ def test_validate_transaction_balanced_uses_cost_weight_over_price(session: Sess
     assert ledger_service.derive_normalize_issues(session, payload) == []
 
 
-def test_create_transaction_persists_explicit_unbalanced_payload_with_issue(
+def test_create_transaction_persists_explicit_unbalanced_payload_without_inline_issues(
     session: Session,
 ) -> None:
     seed_basic_transaction_dependencies(session)
@@ -278,8 +278,7 @@ def test_create_transaction_persists_explicit_unbalanced_payload_with_issue(
         ),
     )
 
-    assert len(created.issues) == 1
-    assert created.issues[0].code == "transaction_unbalanced"
+    assert not hasattr(created, "issues")
 
 
 def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
@@ -501,7 +500,278 @@ def test_update_transaction_allows_total_change_without_lock(session: Session) -
     )
 
     assert updated.postings[0].units.amount == Decimal("-120.00")
-    assert updated.issues == []
+
+
+def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
+    session: Session,
+) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Broker:Stocks",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Assets:Broker:Cash",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_three",
+                account_name="Expenses:Food",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+            Commodity(name="commodities/cmd_usd", symbol="USD"),
+            Commodity(name="commodities/cmd_aapl", symbol="AAPL"),
+        ]
+    )
+    session.commit()
+
+    unbalanced = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("99.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 2),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("5"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-500.00"), symbol="USD"),
+                ),
+            ],
+        ),
+    )
+    ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 3),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("5"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-500.00"), symbol="USD"),
+                ),
+            ],
+        ),
+    )
+    crossing = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 4),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-15"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("1500.00"), symbol="USD"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = ledger_service.doctor_ledger(session, ledger_service.DoctorLedgerRequest())
+
+    assert diagnosed.issues == [
+        ledger_service.DoctorIssue(
+            target=unbalanced.name,
+            code="transaction_unbalanced",
+            severity="error",
+            message="Transaction is not balanced within tolerance.",
+            details={
+                "symbol": "CHF",
+                "residual_amount": "-1",
+                "tolerance_amount": "0.01",
+            },
+        ),
+        ledger_service.DoctorIssue(
+            target=crossing.name,
+            code="lot_match_missing",
+            severity="error",
+            message="Not enough lots to reduce.",
+            details={
+                "account": "accounts/acc_one",
+                "units_symbol": "AAPL",
+                "cost_symbol": "USD",
+                "cost_per_unit": "100",
+                "requested_amount": "15",
+                "available_amount": "10",
+            },
+        ),
+    ]
+
+
+def test_doctor_ledger_allows_fifo_partial_match_before_reporting_shortage(
+    session: Session,
+) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Broker:Stocks",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Assets:Broker:Cash",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_usd", symbol="USD"),
+            Commodity(name="commodities/cmd_aapl", symbol="AAPL"),
+        ]
+    )
+    session.commit()
+
+    last_created = None
+    for transaction_date, stock_amount, cash_amount in [
+        (date(2026, 4, 1), Decimal("5"), Decimal("-500")),
+        (date(2026, 4, 2), Decimal("5"), Decimal("-500")),
+        (date(2026, 4, 3), Decimal("-7"), Decimal("700")),
+        (date(2026, 4, 4), Decimal("-7"), Decimal("700")),
+    ]:
+        last_created = ledger_service.create_transaction(
+            session,
+            TransactionCreate(
+                transaction_date=transaction_date,
+                postings=[
+                    PostingPayload(
+                        account="accounts/acc_one",
+                        units=MoneyValue(amount=stock_amount, symbol="AAPL"),
+                        cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                    ),
+                    PostingPayload(
+                        account="accounts/acc_two",
+                        units=MoneyValue(amount=cash_amount, symbol="USD"),
+                    ),
+                ],
+            ),
+        )
+
+    diagnosed = ledger_service.doctor_ledger(session, ledger_service.DoctorLedgerRequest())
+    assert last_created is not None
+
+    assert diagnosed.issues == [
+        ledger_service.DoctorIssue(
+            target=last_created.name,
+            code="lot_match_missing",
+            severity="error",
+            message="Not enough lots to reduce.",
+            details={
+                "account": "accounts/acc_one",
+                "units_symbol": "AAPL",
+                "cost_symbol": "USD",
+                "cost_per_unit": "100",
+                "requested_amount": "7",
+                "available_amount": "3",
+            },
+        )
+    ]
+
+
+def test_doctor_ledger_aggregates_same_lot_postings_within_transaction(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Broker:Stocks",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Assets:Broker:Cash",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_usd", symbol="USD"),
+            Commodity(name="commodities/cmd_aapl", symbol="AAPL"),
+        ]
+    )
+    session.commit()
+
+    ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("5"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-500"), symbol="USD"),
+                ),
+            ],
+        ),
+    )
+    aggregated = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 2),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-3"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-4"), symbol="AAPL"),
+                    cost=MoneyValue(amount=Decimal("100.00"), symbol="USD"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("700"), symbol="USD"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = ledger_service.doctor_ledger(session, ledger_service.DoctorLedgerRequest())
+
+    assert diagnosed.issues == [
+        ledger_service.DoctorIssue(
+            target=aggregated.name,
+            code="lot_match_missing",
+            severity="error",
+            message="Not enough lots to reduce.",
+            details={
+                "account": "accounts/acc_one",
+                "units_symbol": "AAPL",
+                "cost_symbol": "USD",
+                "cost_per_unit": "100",
+                "requested_amount": "7",
+                "available_amount": "5",
+            },
+        )
+    ]
 
 
 def test_update_transaction_raises_for_missing_transaction(session: Session) -> None:

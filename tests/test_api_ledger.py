@@ -444,7 +444,7 @@ def test_normalize_transaction_returns_issues_for_unbalanced_payload() -> None:
     ]
 
 
-def test_create_transaction_returns_persisted_issues_for_unbalanced_payload() -> None:
+def test_create_transaction_returns_canonical_resource_without_issues() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -471,20 +471,7 @@ def test_create_transaction_returns_persisted_issues_for_unbalanced_payload() ->
     )
 
     assert response.status_code == 201
-    assert response.json()["issues"] == [
-        {
-            "name": response.json()["issues"][0]["name"],
-            "target": response.json()["name"],
-            "code": "transaction_unbalanced",
-            "severity": "error",
-            "message": "Transaction is not balanced within tolerance.",
-            "details": {
-                "symbol": "CHF",
-                "residual_amount": "-4.25",
-                "tolerance_amount": "0.01",
-            },
-        }
-    ]
+    assert "issues" not in response.json()
 
 
 def test_patch_transaction_recategorizes_posting() -> None:
@@ -715,7 +702,7 @@ def test_patch_transaction_allows_total_change_without_lock() -> None:
     assert response.json()["postings"][0]["units"]["amount"] == "-90.00"
 
 
-def test_patch_transaction_returns_persisted_issues_for_unbalanced_payload() -> None:
+def test_patch_transaction_returns_canonical_resource_without_issues() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -761,23 +748,10 @@ def test_patch_transaction_returns_persisted_issues_for_unbalanced_payload() -> 
     )
 
     assert response.status_code == 200
-    assert response.json()["issues"] == [
-        {
-            "name": response.json()["issues"][0]["name"],
-            "target": created.json()["name"],
-            "code": "transaction_unbalanced",
-            "severity": "error",
-            "message": "Transaction is not balanced within tolerance.",
-            "details": {
-                "symbol": "CHF",
-                "residual_amount": "-4.25",
-                "tolerance_amount": "0.01",
-            },
-        }
-    ]
+    assert "issues" not in response.json()
 
 
-def test_get_and_list_issues_for_transaction() -> None:
+def test_get_and_list_transactions_do_not_inline_issues() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -805,17 +779,13 @@ def test_get_and_list_issues_for_transaction() -> None:
 
     fetched = client.get(f"/{created['name']}")
     listed = client.get("/transactions")
-    issues = client.get(f"/issues?target={created['name']}")
-
     assert fetched.status_code == 200
-    assert fetched.json()["issues"][0]["code"] == "transaction_unbalanced"
+    assert "issues" not in fetched.json()
     assert listed.status_code == 200
-    assert listed.json()["transactions"][0]["issues"][0]["code"] == "transaction_unbalanced"
-    assert issues.status_code == 200
-    assert issues.json()["issues"][0]["target"] == created["name"]
+    assert "issues" not in listed.json()["transactions"][0]
 
 
-def test_get_transaction_uses_bounded_issue_queries() -> None:
+def test_ledger_doctor_reports_unbalanced_transactions() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -841,15 +811,112 @@ def test_get_transaction_uses_bounded_issue_queries() -> None:
         },
     ).json()
 
-    with count_sql_statements() as statements:
-        response = client.get(f"/{created['name']}")
+    response = client.post("/ledger:doctor", json={})
 
     assert response.status_code == 200
-    assert response.json()["issues"][0]["code"] == "transaction_unbalanced"
-    assert len(statements) <= 4
+    assert response.json()["issues"] == [
+        {
+            "target": created["name"],
+            "code": "transaction_unbalanced",
+            "severity": "error",
+            "message": "Transaction is not balanced within tolerance.",
+            "details": {
+                "symbol": "CHF",
+                "residual_amount": "-4.25",
+                "tolerance_amount": "0.01",
+            },
+        }
+    ]
 
 
-def test_list_transactions_issue_queries_remain_bounded() -> None:
+def test_ledger_doctor_reports_fifo_lot_match_missing() -> None:
+    client = make_client()
+
+    broker = create_account(client, "Assets:Broker:Stocks")
+    cash = create_account(client, "Assets:Broker:Cash")
+    create_commodity(client, "AAPL")
+    create_commodity(client, "USD")
+
+    client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-01",
+                "postings": [
+                    {
+                        "account": broker["name"],
+                        "units": {"amount": "5", "symbol": "AAPL"},
+                        "cost": {"amount": "100.00", "symbol": "USD"},
+                    },
+                    {
+                        "account": cash["name"],
+                        "units": {"amount": "-500.00", "symbol": "USD"},
+                    },
+                ],
+            }
+        },
+    ).json()
+    client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-02",
+                "postings": [
+                    {
+                        "account": broker["name"],
+                        "units": {"amount": "5", "symbol": "AAPL"},
+                        "cost": {"amount": "100.00", "symbol": "USD"},
+                    },
+                    {
+                        "account": cash["name"],
+                        "units": {"amount": "-500.00", "symbol": "USD"},
+                    },
+                ],
+            }
+        },
+    ).json()
+    reducing = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-03",
+                "postings": [
+                    {
+                        "account": broker["name"],
+                        "units": {"amount": "-15", "symbol": "AAPL"},
+                        "cost": {"amount": "100.00", "symbol": "USD"},
+                    },
+                    {
+                        "account": cash["name"],
+                        "units": {"amount": "1500.00", "symbol": "USD"},
+                    },
+                ],
+            }
+        },
+    ).json()
+
+    response = client.post("/ledger:doctor", json={})
+
+    assert response.status_code == 200
+    assert response.json()["issues"] == [
+        {
+            "target": reducing["name"],
+            "code": "lot_match_missing",
+            "severity": "error",
+            "message": "Not enough lots to reduce.",
+            "details": {
+                "account": broker["name"],
+                "units_symbol": "AAPL",
+                "cost_symbol": "USD",
+                "cost_per_unit": "100",
+                "requested_amount": "15",
+                "available_amount": "10",
+            },
+        }
+    ]
+
+
+def test_ledger_doctor_uses_bounded_queries() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -878,12 +945,11 @@ def test_list_transactions_issue_queries_remain_bounded() -> None:
         )
 
     with count_sql_statements() as statements:
-        response = client.get("/transactions?page_size=5")
+        response = client.post("/ledger:doctor", json={})
 
     assert response.status_code == 200
-    assert len(response.json()["transactions"]) == 5
-    assert all(transaction["issues"] for transaction in response.json()["transactions"])
-    assert len(statements) <= 4
+    assert len(response.json()["issues"]) == 5
+    assert len(statements) <= 3
 
 
 def test_patch_transaction_rejects_unknown_commodity() -> None:

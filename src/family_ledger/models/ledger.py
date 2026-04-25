@@ -102,18 +102,6 @@ class Posting(Base):
     account: Mapped[Account] = relationship(back_populates="postings")
 
 
-class Issue(Base):
-    __tablename__ = "issues"
-
-    id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(Text, unique=True)
-    target: Mapped[str] = mapped_column(Text, index=True)
-    code: Mapped[str] = mapped_column(Text, index=True)
-    severity: Mapped[str] = mapped_column(Text)
-    message: Mapped[str] = mapped_column(Text)
-    details: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
-
-
 class Price(Base):
     __tablename__ = "prices"
     __table_args__ = (

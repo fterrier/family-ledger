@@ -49,7 +49,7 @@ Compatibility requirement:
 Supported investment use cases must preserve derived lot identity from held-at-cost postings.
 
 Compatibility requirement:
-- a disposal must use strict cost-based matching, not an implicit FIFO-only rule
+- a disposal must preserve enough lot identity to support richer Beancount-like booking later; the current v1 doctor implementation uses FIFO only as a derived diagnostic approximation
 - realized gains and losses must be derived from the matched lot or lots
 
 In v1, lots are matched by commodity and per-unit cost only.

@@ -11,7 +11,7 @@ This document describes the external HTTP contract, not the internal persistence
 - The API is the write surface for the canonical database.
 - The API should follow relevant `aip.dev` guidance where practical, especially for resource-oriented design, naming, and standard methods.
 - Deviations from `aip.dev` should be explicit and justified by ledger semantics.
-- The API exposes canonical ledger data and may include inline persisted issues for convenience.
+- The API exposes canonical ledger data separately from derived ledger diagnostics.
 - The API does not enforce field-level locking in v1.
 - There is no auth in v1.
 - Money-like value objects use ledger symbols such as `CHF`, `USD`, and `GOOG`, not commodity resource names.
@@ -80,23 +80,21 @@ Notes:
     "source_native_id": null,
     "fingerprint": "sha256:deadbeef"
   },
-  "postings": [],
-  "issues": []
+  "postings": []
 }
 ```
 
 Notes:
-- Transaction rows remain canonical source-of-truth data; persisted issues are separate linked resources.
-- Transaction read responses may include inline persisted `issues` for convenience.
+- Transaction rows remain canonical source-of-truth data.
+- Ledger diagnostics are exposed separately through `POST /ledger:doctor`.
 - `import_metadata` is optional.
 - `fingerprint` is stored on transactions and updated on transaction writes.
 - `fingerprint` is a duplicate hint, not a globally unique transaction identity.
 
-### Issue
+### Doctor Issue
 
 ```json
 {
-  "name": "issues/iss_01jv3m0r7x8c",
   "target": "transactions/txn_01jv3m0r7x8c",
   "code": "transaction_unbalanced",
   "severity": "error",
@@ -110,9 +108,9 @@ Notes:
 ```
 
 Notes:
-- Issues are persisted resources linked to stored entities.
-- Transaction read responses may include inline `issues` using the same shape.
-- `POST /transactions:normalize` returns derived issues using the same fields except for persisted resource identity.
+- Doctor issues are derived diagnostics, not persisted resources.
+- `target` is the affected resource name.
+- `POST /transactions:normalize` returns candidate-only derived issues for the proposed payload.
 
 ### Account
 
@@ -299,7 +297,6 @@ Minimum query parameters:
 
 Behavior:
 - returns stored transactions, including unbalanced transactions
-- may include inline persisted `issues` for each returned transaction
 - returns transactions in a stable order
 - supports AIP-style pagination with `next_page_token`
 
@@ -356,11 +353,31 @@ Validation:
 - `cost` and `price` must be per-unit values only
 - after normalization, transactions may still be stored when residuals exceed configured tolerance
 - transaction balancing uses one required global default tolerance with optional per-symbol overrides
-- strict cost-based matching errors must be reported for reducing postings when applicable
+- derived lot-booking diagnostics may report `lot_match_missing` for held-at-cost postings when FIFO replay cannot fully consume prior opposite-side lots
 
 Response:
 - returns the persisted transaction resource with fully explicit postings
-- includes persisted `issues`; currently this includes `transaction_unbalanced` when residuals exceed configured tolerance
+
+### `POST /ledger:doctor`
+
+Purpose:
+- compute whole-ledger diagnostics across persisted transactions
+
+Behavior:
+- whole-ledger only in v1
+- returns a flat list of derived issues
+- does not persist anything
+- runs in a read-only database transaction
+- currently includes:
+  - `transaction_unbalanced`
+  - `lot_match_missing`
+- `lot_match_missing` is produced by replaying exact held-at-cost lot buckets with FIFO
+- exact lot buckets are keyed by `account`, `units_symbol`, `cost_symbol`, and `cost_per_unit`
+- postings in the same transaction and same exact lot bucket are aggregated before booking checks
+- the internal replay engine is intended to support additional Beancount-like booking methods later, but v1 implements FIFO only
+
+Response:
+- returns `issues[]`, where each issue includes `target`, `code`, `severity`, `message`, and `details`
 
 ### `POST /transactions:normalize`
 
@@ -380,15 +397,6 @@ Behavior:
 - ambiguous interpolation returns a validation error
 - residuals outside configured tolerance return a `transaction_unbalanced` issue instead of a validation error
 - persistence-specific conflicts may still differ from creation because no write occurs
-
-### `GET /issues`
-
-Purpose:
-- list persisted issues across stored entities
-
-Supported filters:
-- `target`
-- `code`
 
 ### `GET /transactions/{transaction}`
 
@@ -424,7 +432,6 @@ Behavior:
 - the path transaction resource name is authoritative; the request body does not need a transaction `name`
 - the mutable transaction payload is replaced as a whole, including the full postings array
 - implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
-- persisted issues must be recomputed from the updated stored transaction in the same write transaction
 
 Validation:
 - same as `POST /transactions`

@@ -117,16 +117,8 @@ class NormalizeIssue(BaseModel):
     details: dict[str, str] = Field(default_factory=dict)
 
 
-class IssueResource(NormalizeIssue):
-    model_config = ConfigDict(from_attributes=True)
-
-    name: str
-    target: str
-
-
 class TransactionResource(TransactionData):
     name: str
-    issues: list[IssueResource] = Field(default_factory=list)
 
 
 class TransactionCreate(TransactionData):
@@ -182,11 +174,6 @@ class ListTransactionsResponse(BaseModel):
     next_page_token: str | None = None
 
 
-class ListIssuesResponse(BaseModel):
-    issues: list[IssueResource]
-    next_page_token: str | None = None
-
-
 class CreateTransactionRequest(BaseModel):
     transaction: TransactionNormalizeData
 
@@ -194,6 +181,22 @@ class CreateTransactionRequest(BaseModel):
 class UpdateTransactionRequest(BaseModel):
     transaction: TransactionNormalizeData
     update_mask: str | None = None
+
+
+class DoctorIssue(BaseModel):
+    target: str
+    code: str
+    severity: str
+    message: str
+    details: dict[str, str] = Field(default_factory=dict)
+
+
+class DoctorLedgerRequest(BaseModel):
+    pass
+
+
+class DoctorLedgerResponse(BaseModel):
+    issues: list[DoctorIssue] = Field(default_factory=list)
 
 
 class CreatePriceRequest(BaseModel):

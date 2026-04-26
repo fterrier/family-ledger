@@ -117,11 +117,10 @@ docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.e
 
 ## Local Development
 
-For application development, prefer the Python/`uv` workflow rather than Docker image rebuilding:
+For application development, prefer the local Docker workflow rather than setting up a local Python environment:
 
-- use `uv` locally
-- run tests locally
-- use Docker primarily for deployment verification
+- use `docker compose` to run the stack
+- run tests and scripts inside the container
 
 ## Environment Variables
 
@@ -143,15 +142,13 @@ for a real deployment.
 Run tests locally:
 
 ```bash
-uv venv
-uv pip install --python .venv/bin/python -e .[dev]
-uv run pytest
+pytest
 ```
 
-Install the local git hooks:
+Install the local git hooks (requires local python environment):
 
 ```bash
-uv run pre-commit install
+pre-commit install
 ```
 
 ## Migrations
@@ -167,12 +164,6 @@ The project includes an initial Alembic schema migration for the core ledger tab
 ## Demo Data
 
 You can bootstrap a small example ledger into an empty database for local testing.
-
-Local Python environment:
-
-```bash
-uv run python scripts/bootstrap_demo.py
-```
 
 Docker deployment:
 

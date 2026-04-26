@@ -12,3 +12,4 @@ build/
 htmlcov/
 *.pyc
 node_modules/
+AGENTS_local.md

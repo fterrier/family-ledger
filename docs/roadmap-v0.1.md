@@ -90,6 +90,7 @@ Phase 1 should deliver:
 - connect Google Sheets as a client of the same API
 
 ### Phase 6: Spreadsheet Workflow Improvements
+- add support for non-trivial transactions in the Sheets client (multi-source legs, FX/cost/price-heavy transactions, display and editing)
 - add support for cash transactions in the Google Sheets workflow
 - improve Sheets UX and styling for day-to-day editing
 - add basic pivot tables and reports for quick spreadsheet-side summaries
@@ -105,6 +106,7 @@ Phase 1 should deliver:
 
 ### Phase 9: Extensible Import System (in progress)
 - design an extensible importer architecture (done)
+- make the Beancount importer idempotent (remove the `database_is_empty()` guard, add skip-on-conflict for accounts and commodities)
 - add MT940 import support
 - add IBKR import support
 - add payslip import support

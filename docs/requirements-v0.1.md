@@ -97,6 +97,8 @@ There should be no dedicated UI in v1. See `docs/roadmap-v0.1.md` for the implem
 ### Imports
 - File-based imports from phone or computer
 - Bank, broker, PDF, CSV, and manual imports
+- Imports are managed via a modular plugin architecture where dependencies (e.g. PDF parsers) are isolated in UV workspaces.
+- Users configure `Importer` profiles that map parsers to default ledger accounts.
 - Import lineage must be preserved
 - Deduplication must be part of import processing
 - Native source IDs should be used when available

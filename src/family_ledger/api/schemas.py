@@ -6,6 +6,10 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from family_ledger.importers.base import EntityCounts as EntityCounts  # noqa: F401
+from family_ledger.importers.base import EntityErrors as EntityErrors  # noqa: F401
+from family_ledger.importers.base import ImportResult as ImportResult  # noqa: F401
+
 
 class MoneyValue(BaseModel):
     amount: Decimal
@@ -205,3 +209,31 @@ class CreatePriceRequest(BaseModel):
 
 class CreateBalanceAssertionRequest(BaseModel):
     balance_assertion: BalanceAssertionCreate
+
+
+class ImporterResource(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str
+    plugin_name: str
+    display_name: str
+    config: dict[str, Any] = Field(default_factory=dict)
+    importer_schema: dict[str, Any] = Field(default_factory=dict, alias="schema")
+
+
+class ListImportersResponse(BaseModel):
+    importers: list[ImporterResource]
+
+
+class UpdateImporterData(BaseModel):
+    name: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdateImporterRequest(BaseModel):
+    importer: UpdateImporterData
+    update_mask: str | None = None
+
+
+class ImportResponse(BaseModel):
+    result: ImportResult

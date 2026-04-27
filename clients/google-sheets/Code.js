@@ -1,82 +1,3 @@
-const FAMILY_LEDGER_SHEET_NAMES = {
-  accounts: 'Accounts',
-  transactions: 'Transactions',
-  doctorTransactionIssues: 'DoctorTransactionIssues',
-  doctorAccountIssues: 'DoctorAccountIssues',
-};
-
-const FAMILY_LEDGER_PAGE_SIZE = 1000;
-
-const FAMILY_LEDGER_TRANSACTION_HEADERS = [
-  'transaction_name',
-  'transaction_date',
-  'payee',
-  'narration',
-  'source_account_name',
-  'destination_account_name',
-  'symbol',
-  'amount',
-  'split_off_amount',
-  'status',
-  'last_error',
-  'issues',
-];
-
-const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name', 'issues'];
-
-const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issues_text'];
-
-const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
-  Assets: '[A]',
-  Liabilities: '[L]',
-  Expenses: '[X]',
-  Income: '[I]',
-  Equity: '[Q]',
-};
-
-const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
-  transaction_date: { width: 95, role: 'readonly', note: 'Read-only transaction date.' },
-  payee: { width: 280, role: 'editable', note: 'Editable payee. Applies to the whole transaction.' },
-  narration: { width: 200, role: 'editable', note: 'Editable narration. Applies to the whole transaction.' },
-  source_account_name: { width: 230, role: 'readonly', note: 'Read-only source account.' },
-  destination_account_name: {
-    width: 280,
-    role: 'editable',
-    note: 'Editable destination allocation account.',
-  },
-  symbol: { width: 55, role: 'readonly', note: 'Read-only commodity symbol.' },
-  amount: {
-    width: 90,
-    role: 'editable',
-    note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
-  },
-  split_off_amount: {
-    width: 95,
-    role: 'action',
-    note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
-  },
-  status: { width: 90, role: 'system', note: 'dirty / saving / saved / error' },
-  issues: { width: 420, role: 'system', note: 'Derived ledger doctor issues merged by transaction.' },
-  last_error: { width: 260, role: 'system', note: 'Most recent validation or save error.' },
-};
-
-const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
-  header: {
-    readonly: '#d1d5db',
-    editable: '#dbeafe',
-    action: '#fde68a',
-    system: '#e5e7eb',
-  },
-  body: {
-    readonly: '#f3f4f6',
-    editable: '#ffffff',
-    action: '#fffbeb',
-    system: '#f9fafb',
-  },
-};
-
-const FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR = '#fee2e2';
-
 function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('Family Ledger')
@@ -89,6 +10,8 @@ function onOpen() {
     .addItem('Sync Transactions', 'syncFamilyLedgerTransactions')
     .addSeparator()
     .addItem('Push Active Transaction', 'pushActiveTransaction')
+    .addSeparator()
+    .addItem('Import data', 'showImportDialog')
     .addSeparator()
     .addItem('Reset Sheet Layouts', 'resetSheetLayouts')
     .addToUi();
@@ -2107,4 +2030,58 @@ function bigIntToDecimalString_(value, scale) {
     return (negative ? '-' : '') + integerPart;
   }
   return (negative ? '-' : '') + integerPart + '.' + fractionalPart;
+}
+
+// ---------------------------------------------------------------------------
+// Import dialog
+// ---------------------------------------------------------------------------
+
+function showImportDialog() {
+  const html = HtmlService.createHtmlOutputFromFile('ImportDialog')
+    .setWidth(480)
+    .setHeight(560);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Import data');
+}
+
+function getImportersForDialog() {
+  return apiFetchJson_('GET', '/importers', undefined);
+}
+
+function getAccountsForDialog() {
+  return fetchFamilyLedgerPagedResource_('/accounts?page_size=500', 'accounts');
+}
+
+function runImportFromDialog(importerName, base64Content, mimeType, fileName, configOverride) {
+  const bytes = Utilities.base64Decode(base64Content);
+  const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', fileName);
+  const url = buildApiUrl_(importerName + ':import');
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post',
+    muteHttpExceptions: true,
+    headers: { Authorization: 'Bearer ' + getRequiredFamilyLedgerApiToken_() },
+    payload: {
+      file: blob,
+      config_override: configOverride ? JSON.stringify(configOverride) : '',
+    },
+  });
+  const statusCode = resp.getResponseCode();
+  const body = resp.getContentText();
+  if (statusCode >= 400) {
+    const err = buildApiError_(statusCode, body);
+    SpreadsheetApp.getActiveSpreadsheet().toast(err.message, 'Import failed', 10);
+    throw err;
+  }
+  const result = JSON.parse(body);
+  SpreadsheetApp.getActiveSpreadsheet()
+    .toast(buildImportToastSummary_(result.result), 'Import complete', 15);
+  return result;
+}
+
+function buildImportToastSummary_(result) {
+  const entities = result.entities || {};
+  const parts = Object.keys(entities).map(function(type) {
+    const counts = entities[type];
+    return counts.created + ' ' + type + (counts.created !== 1 ? 's' : '') + ' created';
+  });
+  return parts.length ? parts.join(', ') : 'No entities imported';
 }

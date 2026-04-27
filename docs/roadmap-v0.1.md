@@ -112,14 +112,15 @@ Phase 1 should deliver:
 - evaluate reusing existing Beancount importers where that reduces duplicated parsing logic
 
 ## Current Focus
+- add remarks on postings, and reconcile with narration from transaction (what takes precendence ?)
+- build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
+- evaluate where Beancount importers can be reused instead of duplicating parser logic
+- export the canonical ledger back to Beancount, including Synology-friendly backup workflows and fava integration
 - finish the remaining ledger-core work needed for full Beancount-compatible semantics
 - add support for cash transactions in the Google Sheets workflow
 - continue improving Sheets UX and styling
 - add basic pivot tables and reports for quick spreadsheet-side summaries
 - implement `pad`, `document`, and `balance` Beancount import support
-- export the canonical ledger back to Beancount, including Synology-friendly backup workflows
-- build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
-- evaluate where Beancount importers can be reused instead of duplicating parser logic
 
 ## Notes
 - Fava is read-only in v1; changes made there do not sync back to the database.

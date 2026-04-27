@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+    padding: 16px;
+  }
+
+  .section { margin-bottom: 16px; }
+
+  label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  select, input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+  }
+
+  select:disabled, input[type="text"]:disabled {
+    background: #f1f3f4;
+    color: #80868b;
+  }
+
+  input[readonly] {
+    background: #f1f3f4;
+    color: #5f6368;
+    cursor: default;
+  }
+
+  .config-note {
+    color: #5f6368;
+    font-style: italic;
+  }
+
+  .config-field { margin-bottom: 10px; }
+
+  .config-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .config-header label { margin-bottom: 0; }
+
+  .edit-config-btn {
+    font-size: 12px;
+    color: #1a73e8;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    text-decoration: underline;
+  }
+
+  .edit-config-btn:hover { color: #1557b0; }
+
+  .file-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .file-label-btn {
+    display: inline-block;
+    padding: 6px 12px;
+    background: #f1f3f4;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+
+  .file-label-btn:hover { background: #e8eaed; }
+
+  #fileInput { display: none; }
+
+  #fileName {
+    color: #5f6368;
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
+
+  .btn-primary {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+
+  .btn-primary:hover:not(:disabled) { background: #1557b0; }
+
+  .btn-primary:disabled {
+    background: #dadce0;
+    color: #80868b;
+    cursor: default;
+  }
+
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .btn-secondary:hover { background: #f1f3f4; }
+
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+
+  #loadingMsg { color: #5f6368; }
+
+  /* Result phase */
+  .result-title {
+    font-size: 15px;
+    font-weight: bold;
+    margin-bottom: 12px;
+    color: #137333;
+  }
+
+  .entity-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+
+  .entity-table th {
+    text-align: left;
+    color: #5f6368;
+    font-weight: normal;
+    padding: 3px 6px 3px 0;
+    border-bottom: 1px solid #dadce0;
+  }
+
+  .entity-table td {
+    padding: 4px 6px 4px 0;
+    vertical-align: top;
+  }
+
+  .entity-table td:not(:first-child) { text-align: right; padding-right: 12px; }
+  .entity-table th:not(:first-child) { text-align: right; padding-right: 12px; }
+
+  .error-count { color: #c5221f; }
+
+  .error-examples {
+    list-style: none;
+    margin: 2px 0 0 0;
+    padding: 0;
+  }
+
+  .error-examples li {
+    font-size: 11px;
+    color: #c5221f;
+    padding: 1px 0;
+  }
+
+  .warnings-section { margin-top: 8px; }
+
+  .warnings-title {
+    font-weight: bold;
+    color: #e37400;
+    margin-bottom: 4px;
+  }
+
+  .warnings-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .warnings-list li {
+    font-size: 12px;
+    color: #e37400;
+    padding: 2px 0;
+  }
+  .warnings-list li::before { content: '• '; }
+</style>
+</head>
+<body>
+
+<!-- Phase A: loading -->
+<div id="phaseLoading">
+  <p id="loadingMsg">Loading importers…</p>
+</div>
+
+<!-- Phase B: select + configure + upload -->
+<div id="phaseForm" style="display:none">
+  <div class="section">
+    <label for="importerSelect">Importer</label>
+    <select id="importerSelect"></select>
+  </div>
+
+  <div class="section" id="configSection">
+    <div class="config-header">
+      <label>Configuration</label>
+      <button class="edit-config-btn" id="editConfigBtn" style="display:none"
+              onclick="onEditConfig()">Edit config ✎</button>
+    </div>
+    <div id="configFields"></div>
+  </div>
+
+  <div class="section">
+    <label>File</label>
+    <div class="file-row">
+      <label class="file-label-btn" for="fileInput">Choose file</label>
+      <input type="file" id="fileInput">
+      <span id="fileName">No file chosen</span>
+    </div>
+  </div>
+
+  <div id="errorBox"></div>
+
+  <div class="actions">
+    <button class="btn-primary" id="importBtn" disabled onclick="onImport()">Import</button>
+  </div>
+</div>
+
+<!-- Phase C: result -->
+<div id="phaseResult" style="display:none">
+  <p class="result-title">Import complete</p>
+  <table class="entity-table" id="entityTable">
+    <thead>
+      <tr>
+        <th>Entity</th>
+        <th>Created</th>
+        <th>Duplicate</th>
+        <th>Errors</th>
+      </tr>
+    </thead>
+    <tbody id="entityBody"></tbody>
+  </table>
+  <div id="warningsSection" class="warnings-section" style="display:none">
+    <p class="warnings-title">Warnings</p>
+    <ul class="warnings-list" id="warningsList"></ul>
+  </div>
+  <div class="actions" style="margin-top:16px">
+    <button class="btn-secondary" onclick="onImportAnother()">Import another file</button>
+  </div>
+</div>
+
+<script>
+  var importers = [];         // full list from API
+  var currentImporter = null; // selected importer object
+  var pendingFile = null;     // { base64, mimeType, name }
+  var accountsCache = null;   // loaded lazily
+
+  // ---------------------------------------------------------------------------
+  // Init
+  // ---------------------------------------------------------------------------
+
+  google.script.run
+    .withSuccessHandler(onImportersLoaded)
+    .withFailureHandler(onLoadError)
+    .getImportersForDialog();
+
+  function onImportersLoaded(response) {
+    importers = (response && response.importers) || [];
+    document.getElementById('phaseLoading').style.display = 'none';
+    if (importers.length === 0) {
+      document.getElementById('phaseLoading').style.display = 'block';
+      document.getElementById('loadingMsg').textContent = 'No importers are installed.';
+      return;
+    }
+    populateImporterDropdown();
+    document.getElementById('phaseForm').style.display = 'block';
+    selectImporter(importers[0]);
+  }
+
+  function onLoadError(err) {
+    document.getElementById('loadingMsg').textContent =
+      'Failed to load importers: ' + (err.message || String(err));
+  }
+
+  // ---------------------------------------------------------------------------
+  // Importer dropdown
+  // ---------------------------------------------------------------------------
+
+  function populateImporterDropdown() {
+    var select = document.getElementById('importerSelect');
+    importers.forEach(function(imp) {
+      var opt = document.createElement('option');
+      opt.value = imp.name;
+      opt.textContent = imp.display_name || imp.plugin_name;
+      select.appendChild(opt);
+    });
+    select.addEventListener('change', function() {
+      var imp = importers.find(function(i) { return i.name === this.value; }, select);
+      if (imp) selectImporter(imp);
+    });
+  }
+
+  function selectImporter(imp) {
+    currentImporter = imp;
+    pendingFile = null;
+    document.getElementById('fileName').textContent = 'No file chosen';
+    document.getElementById('importBtn').disabled = true;
+    renderConfigForm(imp);
+    hideError();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Config form
+  // ---------------------------------------------------------------------------
+
+  function renderConfigForm(imp) {
+    var container = document.getElementById('configFields');
+    container.innerHTML = '';
+
+    var schema = imp.schema || {};
+    var config = imp.config || {};
+    var props = schema.properties || {};
+    var keys = Object.keys(props);
+
+    var editBtn = document.getElementById('editConfigBtn');
+    editBtn.style.display = keys.length > 0 ? 'inline' : 'none';
+
+    if (keys.length === 0) {
+      var note = document.createElement('p');
+      note.className = 'config-note';
+      note.textContent = 'No configuration required.';
+      container.appendChild(note);
+      return;
+    }
+
+    var needsAccounts = keys.some(function(k) {
+      return (props[k]['x-resource-type'] === 'account');
+    });
+
+    if (needsAccounts && accountsCache === null) {
+      google.script.run
+        .withSuccessHandler(function(accounts) {
+          accountsCache = accounts;
+          renderConfigForm(imp);
+        })
+        .withFailureHandler(function() {
+          accountsCache = [];
+          renderConfigForm(imp);
+        })
+        .getAccountsForDialog();
+      var note = document.createElement('p');
+      note.className = 'config-note';
+      note.textContent = 'Loading accounts…';
+      container.appendChild(note);
+      return;
+    }
+
+    keys.forEach(function(key) {
+      var prop = props[key];
+      var value = config[key];
+      var hasValue = value !== undefined && value !== null && value !== '';
+
+      var div = document.createElement('div');
+      div.className = 'config-field';
+
+      var lbl = document.createElement('label');
+      lbl.textContent = prop.title || key;
+      div.appendChild(lbl);
+
+      if (prop['x-resource-type'] === 'account') {
+        var sel = document.createElement('select');
+        sel.name = key;
+        if (hasValue) sel.setAttribute('readonly', true);
+        var accounts = accountsCache || [];
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = '— select account —';
+        sel.appendChild(blank);
+        accounts.forEach(function(acc) {
+          var opt = document.createElement('option');
+          opt.value = acc.name;
+          opt.textContent = acc.display_name || acc.name;
+          if (acc.name === value) opt.selected = true;
+          sel.appendChild(opt);
+        });
+        if (hasValue) sel.disabled = true;
+        div.appendChild(sel);
+      } else {
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.name = key;
+        input.value = hasValue ? value : '';
+        if (hasValue) input.readOnly = true;
+        div.appendChild(input);
+      }
+
+      container.appendChild(div);
+    });
+  }
+
+  function onEditConfig() {
+    // Future: open a separate PATCH /importers/{name} dialog.
+    // For now, inform the user this is not yet implemented.
+    alert('Editing persistent importer configuration is not yet available in this version.');
+  }
+
+  function getConfigOverride() {
+    var schema = (currentImporter && currentImporter.schema) || {};
+    var props = schema.properties || {};
+    var config = (currentImporter && currentImporter.config) || {};
+    var override = {};
+    Object.keys(props).forEach(function(key) {
+      var hasValue = config[key] !== undefined && config[key] !== null && config[key] !== '';
+      if (hasValue) return; // skip read-only fields
+      var el = document.querySelector('[name="' + key + '"]');
+      if (el && el.value !== '') override[key] = el.value;
+    });
+    return Object.keys(override).length > 0 ? override : null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // File input
+  // ---------------------------------------------------------------------------
+
+  document.getElementById('fileInput').addEventListener('change', function() {
+    var file = this.files[0];
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var dataUrl = e.target.result;
+      var base64 = dataUrl.split(',')[1];
+      pendingFile = {
+        base64: base64,
+        mimeType: file.type || 'application/octet-stream',
+        name: file.name,
+      };
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('importBtn').disabled = false;
+      hideError();
+    };
+    reader.readAsDataURL(file);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Import
+  // ---------------------------------------------------------------------------
+
+  function onImport() {
+    if (!pendingFile || !currentImporter) return;
+
+    var importBtn = document.getElementById('importBtn');
+    var fileInput = document.getElementById('fileInput');
+    var importerSelect = document.getElementById('importerSelect');
+
+    importBtn.disabled = true;
+    importBtn.textContent = 'Importing…';
+    fileInput.disabled = true;
+    importerSelect.disabled = true;
+    hideError();
+
+    var configOverride = getConfigOverride();
+
+    google.script.run
+      .withSuccessHandler(function(response) {
+        showResult(response.result);
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        importBtn.disabled = false;
+        importBtn.textContent = 'Import';
+        fileInput.disabled = false;
+        importerSelect.disabled = false;
+      })
+      .runImportFromDialog(
+        currentImporter.name,
+        pendingFile.base64,
+        pendingFile.mimeType,
+        pendingFile.name,
+        configOverride
+      );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Result display
+  // ---------------------------------------------------------------------------
+
+  function showResult(result) {
+    document.getElementById('phaseForm').style.display = 'none';
+    document.getElementById('phaseResult').style.display = 'block';
+
+    var tbody = document.getElementById('entityBody');
+    tbody.innerHTML = '';
+    var entities = result.entities || {};
+    Object.keys(entities).forEach(function(type) {
+      var counts = entities[type];
+      var tr = document.createElement('tr');
+
+      var tdType = document.createElement('td');
+      tdType.textContent = type;
+      tr.appendChild(tdType);
+
+      var tdCreated = document.createElement('td');
+      tdCreated.textContent = counts.created;
+      tr.appendChild(tdCreated);
+
+      var tdDup = document.createElement('td');
+      tdDup.textContent = counts.duplicate;
+      tr.appendChild(tdDup);
+
+      var tdErr = document.createElement('td');
+      var errCount = counts.errors && counts.errors.count ? counts.errors.count : 0;
+      tdErr.textContent = errCount;
+      if (errCount > 0) {
+        tdErr.className = 'error-count';
+        var examples = counts.errors.examples || [];
+        if (examples.length > 0) {
+          var ul = document.createElement('ul');
+          ul.className = 'error-examples';
+          examples.forEach(function(ex) {
+            var li = document.createElement('li');
+            li.textContent = ex;
+            ul.appendChild(li);
+          });
+          tdErr.appendChild(ul);
+        }
+      }
+      tr.appendChild(tdErr);
+
+      tbody.appendChild(tr);
+    });
+
+    if (Object.keys(entities).length === 0) {
+      var tr = document.createElement('tr');
+      var td = document.createElement('td');
+      td.colSpan = 4;
+      td.className = 'config-note';
+      td.textContent = 'No entities were imported.';
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    }
+
+    var warnings = result.warnings || [];
+    var warnSection = document.getElementById('warningsSection');
+    if (warnings.length > 0) {
+      warnSection.style.display = 'block';
+      var warnList = document.getElementById('warningsList');
+      warnList.innerHTML = '';
+      warnings.forEach(function(w) {
+        var li = document.createElement('li');
+        li.textContent = w;
+        warnList.appendChild(li);
+      });
+    } else {
+      warnSection.style.display = 'none';
+    }
+  }
+
+  function onImportAnother() {
+    document.getElementById('phaseResult').style.display = 'none';
+    document.getElementById('phaseForm').style.display = 'block';
+
+    // Reset file input but keep importer selection
+    pendingFile = null;
+    var fileInput = document.getElementById('fileInput');
+    fileInput.value = '';
+    fileInput.disabled = false;
+    document.getElementById('importerSelect').disabled = false;
+    document.getElementById('fileName').textContent = 'No file chosen';
+    document.getElementById('importBtn').disabled = true;
+    document.getElementById('importBtn').textContent = 'Import';
+    hideError();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers
+  // ---------------------------------------------------------------------------
+
+  function showError(message) {
+    var box = document.getElementById('errorBox');
+    box.textContent = message;
+    box.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('errorBox').style.display = 'none';
+  }
+</script>
+</body>
+</html>

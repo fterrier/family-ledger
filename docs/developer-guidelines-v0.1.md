@@ -144,6 +144,7 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Keep investment events as normal postings inside transactions.
 - Keep transaction dedupe metadata minimal: source native ID and fingerprint.
 - Consider adherence to relevant `aip.dev` guidance by default when modifying API resources, methods, or payload shapes.
+- Strictly follow AIP-122 for Resource Names: external API IDs should be strings formatted as `collection/id` (e.g., `transactions/12345`, `importers/1`), even if the internal database primary key is just the integer ID.
 - Consider relevant `aip.dev` guidance for response codes as well; invalid references and request-state problems should not default to `404` just because a named dependency is missing from the request body.
 - Keep `update_mask` in the API contract for AIP consistency even if v1 implementations initially ignore it.
 - Use deterministic export output.
@@ -163,7 +164,7 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
 - On read paths, avoid N+1 query patterns for related resources. Prefer bounded batched queries keyed by indexed columns, or indexed eager loading, over per-entity follow-up queries.
 - For paginated one-to-many reads, page the parent resources first and then load related rows for just that page in a bounded number of queries.
-- Do not add a plugin system unless multiple concrete plugins already exist.
+- Do not add a plugin system unless multiple concrete plugins already exist. Exception: the importer entry point registry is an accepted plugin system for the import use case; see `docs/modular-import-system-v0.1.md`.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 
 ## Anti-Goals

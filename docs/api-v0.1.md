@@ -607,34 +607,85 @@ Purpose:
 
 ## Import API
 
-Imports in v1 operate directly on transactions rather than through a separate staged import entity.
+Imports in v1 are managed through a modular importer system. Each `Importer` entity binds a specific parser (like Beancount) to a persistent user configuration. See `docs/modular-import-system-v0.1.md` for the full design.
 
-### `POST /imports/{source_type}`
+### `GET /importers`
 
 Purpose:
-- ingest import payloads for a concrete source type
+- list available importers and the JSON Schema for their configuration
+
+Response shape:
+
+```json
+{
+  "importers": [
+    {
+      "name": "importers/imp_01jv3m0r7x8c",
+      "display_name": "Beancount",
+      "plugin_name": "beancount",
+      "config": {},
+      "schema": {}
+    }
+  ]
+}
+```
+
+Notes:
+- `display_name` and `schema` are injected from the in-memory parser class at query time; they are not stored in the database.
+- If a parser is no longer installed, `display_name` falls back to `plugin_name` and `schema` is empty.
+
+### `PATCH /importers/{importer}`
+
+Purpose:
+- update the persistent configuration of an importer
+
+Example request body:
+```json
+{
+  "importer": {
+    "name": "importers/imp_01jv3m0r7x8c",
+    "config": {
+      "bank_account": "accounts/acc_01jv3m0r7x8c"
+    }
+  },
+  "update_mask": "config"
+}
+```
+
+Validation:
+- the new `config` is validated against the parser's JSON schema before persisting
+- returns 400 if the config fails schema validation
+
+### `POST /importers/{importer}:import`
+
+Purpose:
+- ingest a file payload using `multipart/form-data` and execute the import
 
 Behavior:
-- parse input into one or more transactions
-- use `import_metadata.source_native_id` when available
-- fall back to `import_metadata.fingerprint` otherwise
-- create new transactions when no match exists
-- leave matching transactions untouched when either identifier already matches an existing transaction
+- accepts a `file` and an optional `config_override` JSON string
+- merges the persistent importer `config` with `config_override` (override wins on key conflicts)
+- validates the merged config against the parser's JSON schema; returns 400 if invalid
+- executes the import; each entity type is created-or-skipped individually (idempotent)
+- uses `source_native_id` for deduplication when available; falls back to `fingerprint`
+- creates new entities when no match exists; skips without error when a match exists
 
 Response:
 
 ```json
 {
-  "created": 0,
-  "updated": 0,
-  "untouched": 0,
+  "accounts": {"created": 0, "skipped": 0},
+  "commodities": {"created": 0, "skipped": 0},
+  "transactions": {"created": 0, "skipped": 0},
+  "prices": {"created": 0, "skipped": 0},
+  "balance_assertions": {"created": 0, "skipped": 0},
   "errors": []
 }
 ```
 
-Note:
-- the concrete request payload depends on the source type and may vary by importer
-- importer-specific payload contracts do not need to be standardized in this document yet
+Notes:
+- transaction-centric importers (bank statements, payslips) only populate `transactions`; all other counts remain zero.
+- full-ledger importers (Beancount) populate all entity type counts.
+- `errors` contains a flat list of human-readable strings describing entries that could not be parsed or written.
 
 ## Export API
 

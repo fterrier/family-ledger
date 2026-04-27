@@ -26,6 +26,7 @@ The canonical v1 entities are:
 - price
 - balance assertion
 - attachment
+- importer
 
 There is no separate canonical `import_job`, `import_item`, `inventory`, or `lot` table in v1.
 
@@ -179,6 +180,23 @@ Notes:
 - Validation results are derived from stored ledger data and are not persisted on the assertion record.
 - Project-level tolerance rules come from config.
 
+## Importers
+
+Importers bind a file-parsing plugin to a user-defined configuration.
+
+Recommended fields:
+- `id`
+- `name`
+- `plugin_name`
+- `config`
+
+Notes:
+- `name` is the stable API resource name built from an opaque key, for example `importers/imp_01jv3m0r7x8c`.
+- `plugin_name` maps the DB record to a specific Python parser class (e.g., `beancount`).
+- `config` is a JSONB column containing user preferences (e.g., default account assignments).
+- `display_name` is defined on the parser class in code and is not stored in the database. The API injects it at query time from the in-memory parser registry.
+- Importers are automatically bootstrapped 1:1 with Python parsers on application startup via entry point discovery.
+
 ## Attachments
 
 Attachments exist independently in v1.
@@ -288,7 +306,7 @@ Project config files own:
 
 The database owns:
 - canonical stored transactions and postings
-- importer-specific static settings
+- persistent importer configurations (`config`)
 - export policy settings if needed
 - accounts
 - commodities

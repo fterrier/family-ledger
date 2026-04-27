@@ -4,7 +4,9 @@
   "include": [
     "src",
     "scripts",
-    "tests"
+    "tests",
+    "importers/src",
+    "importers/tests"
   ],
   "typeCheckingMode": "basic",
   "reportMissingImports": true,

@@ -41,19 +41,66 @@ Recommended remote access setup:
 ## Files
 
 - `Code.js`: Apps Script source
+- `ImportDialog.html`: HTML modal for the Import data dialog
 - `appsscript.json`: Apps Script manifest
-- `package.json`: local validation tooling
-- `eslint.config.js`: local lint configuration
+- `package.json`: local tooling (lint, tests, clasp)
+- `eslint.config.js`: lint configuration
+- `.clasp.json`: clasp project config — not committed, contains the script ID
 
-## Installation
+## Deploying with clasp
+
+`clasp` is the preferred way to push changes. It is already configured in `package.json`.
+
+### One-time setup
+
+1. **Enable the Apps Script API** for your Google account:
+   `https://script.google.com/home/usersettings` → turn on "Google Apps Script API".
+
+2. **Install dependencies** (includes `@google/clasp`):
+   ```bash
+   npm install
+   ```
+
+3. **Log in**:
+   ```bash
+   npm run clasp:login
+   ```
+   This opens a browser for OAuth and writes credentials to `~/.clasprc.json`. Only needed once per machine.
+
+4. **Create `.clasp.json`** with your Apps Script project's script ID. Find it in the Apps Script editor under `Project Settings → Script ID`:
+   ```bash
+   SCRIPT_ID=<your-script-id> npx clasp create --type sheets --title "family-ledger" 2>/dev/null || \
+     echo "{\"scriptId\":\"$SCRIPT_ID\",\"rootDir\":\".\"}" > .clasp.json
+   ```
+   Or just create `.clasp.json` manually:
+   ```json
+   {"scriptId": "<your-script-id>", "rootDir": "."}
+   ```
+
+### Pushing changes
+
+```bash
+npm run push
+```
+
+This uploads `Code.js`, `ImportDialog.html`, and `appsscript.json` to the Apps Script project. Reload the spreadsheet after pushing to pick up menu changes.
+
+### What is excluded
+
+`.claspignore` prevents `node_modules/`, `tests/`, `docs/`, and config files from being uploaded. Only the three runtime files are pushed.
+
+## Manual Installation (alternative)
+
+If clasp is not available:
 
 1. Create a Google Sheet.
 2. Open `Extensions -> Apps Script`.
 3. Replace the default script contents with `Code.js` from this directory.
 4. In the Apps Script editor, enable `Show "appsscript.json" manifest file in editor` in `Project Settings`.
 5. Replace the manifest contents with `appsscript.json` from this directory.
-6. Save the Apps Script project.
-7. Return to the spreadsheet and reload the page.
+6. Create an HTML file named `ImportDialog` and paste in `ImportDialog.html`.
+7. Save the Apps Script project.
+8. Return to the spreadsheet and reload the page.
 
 If the permission prompt does not appear automatically:
 
@@ -142,6 +189,43 @@ Source-only transactions behave differently:
 - direct `amount` edits are not allowed while the transaction is source-only
 - the split helper is not available while the transaction is source-only
 
+## Importing Data
+
+`Family Ledger → Import data` opens a modal dialog that lets you load ledger data from
+external files directly into the API.
+
+### Workflow
+
+1. **Select an importer** from the dropdown. Available importers depend on what is
+   installed on the server.
+2. **Review configuration**. If the importer has required configuration (for example, a
+   target account), fields are shown. Fields already saved on the server are read-only;
+   empty fields can be filled in for this import run only.
+3. **Choose a file** using the file picker.
+4. Click **Import**. The file is uploaded to the API and the import runs synchronously.
+5. The result table shows per-entity counts:
+   - **Created**: new entities added to the database
+   - **Duplicate**: entities already present, skipped without error
+   - **Errors**: entries that could not be imported, with example messages
+   Warnings (non-fatal notices from the importer) are listed below the table.
+6. Click **Import another file** to run a follow-up import with the same settings.
+
+### Beancount importer
+
+The server ships with the **Beancount** importer. It loads accounts, commodities,
+transactions, prices, and balance assertions from a `.beancount` file.
+
+The Beancount importer requires an **empty database**. It is a one-time bootstrap tool
+for migrating an existing Beancount ledger into family-ledger. Running it on a populated
+database returns an error. No configuration is required.
+
+### Persistent configuration
+
+Some importers have persistent configuration stored on the server (visible as read-only
+fields in the dialog). To update persistent config, use `PATCH /importers/{importer}`
+directly on the API. Editing persistent config from within the dialog is not yet
+supported.
+
 ## Tailscale Funnel Setup
 
 Google Apps Script cannot call `localhost` or a private-only network address.
@@ -208,7 +292,7 @@ If a `split_off_amount` command is rejected:
 This client does not currently support:
 - arbitrary multi-leg ledger editing
 - FX/cost/price-heavy transactions
-- server-side creation of accounts, commodities, prices, assertions, or transactions
+- manual creation of accounts, commodities, prices, or balance assertions from the sheet
 - spreadsheet-as-source-of-truth workflows
 
 ## More Documentation

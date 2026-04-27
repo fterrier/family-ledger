@@ -22,10 +22,11 @@ If you need to make a change, start by identifying the relevant domain below. Yo
 - **`alembic/`**: Database migrations. `alembic/versions/` contains the migration scripts.
 - **`tests/`**: Pytest suite. Mirrored structure to `src/family_ledger/`.
 - **`config/`**: Default application configuration files (e.g., `ledger.yaml`).
-- **`scripts/`**: Utility scripts (e.g., `bootstrap_demo.py`, `import_beancount.py`).
+- **`scripts/`**: Utility scripts (e.g., `bootstrap_demo.py`).
 - **`docker/`**: Docker deployment configurations (`docker/compose/`).
 - **`docs/`**: Extensive documentation (architecture, requirements, ADRs, etc.).
 - **`clients/`**: Front-end clients, such as the Google Sheets client.
+- **`importers/`**: Standalone installable package (`family-ledger-importers`) containing importer implementations (e.g., `BeancountImporter`). Declares importers via Python entry points under the `family_ledger.importers` group. Must be installed separately alongside `family-ledger`.
 
 ## Agentic Workflow & Vibe Coding Standards
 
@@ -67,6 +68,9 @@ To ensure smooth "vibe coding" and high-quality contributions, follow these rule
 - **Linting & Formatting**: Run `ruff check` and `ruff format`.
 - **Type Checking**: Run `basedpyright`.
 - **Local Dev Server**: Handled via `uvicorn` (check `main.py`).
+- **Importers Package**: The `importers/` package must be installed separately. Run
+  `pip install -e ./importers` (or the local equivalent) before running tests or the dev
+  server if importer functionality is needed.
 
 ## Key Constraints & Conventions
 - **Authentication**: All ledger API routes except `GET /healthz` require Bearer token authentication (`Authorization: Bearer <token>`).

@@ -4,12 +4,28 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 
+const CLIENT_DIR = path.join(__dirname, '..');
+
+// Files loaded in dependency order: constants first, then helpers, then Code.js.
+const SOURCE_FILES = [
+  'Constants.js',
+  'Decimal.js',
+  'ApiClient.js',
+  'Utils.js',
+  'Accounts.js',
+  'SheetIO.js',
+  'Layout.js',
+  'Doctor.js',
+  'Code.js',
+];
+
 function loadCode(overrides = {}) {
   const properties = new Map();
   const documentProperties = new Map();
   const fetchCalls = [];
-  const codePath = path.join(__dirname, '..', 'Code.js');
-  const source = fs.readFileSync(codePath, 'utf8');
+  const source = SOURCE_FILES
+    .map((name) => fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8'))
+    .join('\n');
 
   const sandbox = {
     JSON,
@@ -179,7 +195,7 @@ function loadCode(overrides = {}) {
   };
 
   vm.createContext(sandbox);
-  vm.runInContext(source, sandbox, { filename: 'Code.js' });
+  vm.runInContext(source, sandbox, { filename: 'family-ledger-sheets' });
   return { sandbox, properties, documentProperties, fetchCalls };
 }
 
@@ -375,6 +391,24 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
     },
   };
 }
+
+test('no duplicate const/let declarations across source files', () => {
+  const identifierPattern = /^(?:const|let)\s+([A-Za-z_$][A-Za-z0-9_$]*)/;
+  const seen = new Map(); // identifier -> filename
+  SOURCE_FILES.forEach((name) => {
+    const lines = fs.readFileSync(path.join(CLIENT_DIR, name), 'utf8').split('\n');
+    lines.forEach((line) => {
+      const match = line.match(identifierPattern);
+      if (!match) return;
+      const identifier = match[1];
+      assert.ok(
+        !seen.has(identifier),
+        `'${identifier}' declared in both '${seen.get(identifier)}' and '${name}'`
+      );
+      seen.set(identifier, name);
+    });
+  });
+});
 
 test('normalizeBaseUrl_ trims trailing slashes and rejects blank values', () => {
   const { sandbox } = loadCode();

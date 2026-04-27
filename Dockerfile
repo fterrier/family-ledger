@@ -15,8 +15,9 @@ COPY scripts ./scripts
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY config ./config
+COPY importers ./importers
 
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir . && pip install --no-cache-dir ./importers
 
 RUN useradd -m appuser && chown -R appuser:appuser /app
 USER appuser

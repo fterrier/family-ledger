@@ -1,0 +1,9 @@
+node_modules/**
+tests/**
+docs/**
+eslint.config.js
+package.json
+package-lock.json
+README.md
+.claspignore
+.clasp.json

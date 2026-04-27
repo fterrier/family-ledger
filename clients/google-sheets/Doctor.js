@@ -85,11 +85,12 @@ function mergeFetchedDoctorIssuesIntoRows_(rows) {
   return issuesByTarget;
 }
 
-function refreshTransactionIssuesFromDoctor_(sheet) {
+function refreshTransactionIssuesFromDoctor_(sheet, transactionName) {
   try {
-    refreshDoctorIssueSheets_();
+    refreshDoctorIssueSheets_(transactionName);
   } catch (error) {
     debugLog_('refreshTransactionIssuesFromDoctor:error', {
+      transactionName: transactionName || '',
       message: error && error.message ? error.message : String(error),
     });
     SpreadsheetApp.getActiveSpreadsheet().toast(

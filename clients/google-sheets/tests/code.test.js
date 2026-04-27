@@ -190,6 +190,7 @@ function loadCode(overrides = {}) {
       formatDate(value) {
         return value.toISOString().slice(0, 10);
       },
+      sleep(_ms) {},
       ...overrides.Utilities,
     },
   };
@@ -350,6 +351,10 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         activate() {
           operations.push({ type: 'activate', row: row, column: _column });
         },
+        createFilter() {
+          operations.push({ type: 'createFilter', row: row, numRows: numRows });
+          return { setColumnFilterCriteria() {} };
+        },
       };
     },
     insertRowsAfter(row, count) {
@@ -388,6 +393,9 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
     },
     isSheetHidden() {
       return hidden;
+    },
+    getFilter() {
+      return null;
     },
   };
 }
@@ -507,6 +515,54 @@ test('apiFetchJson_ includes bearer auth by default and supports skipAuth', () =
   assert.equal(fetchCalls[1].options.headers, undefined);
 });
 
+test('isBandwidthQuotaError_ recognizes bandwidth quota exceptions', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(sandbox.isBandwidthQuotaError_(new Error('Bandwidth quota exceeded: https://example.com')), true);
+  assert.equal(sandbox.isBandwidthQuotaError_(new Error('Some other error')), false);
+  assert.equal(sandbox.isBandwidthQuotaError_(null), false);
+});
+
+test('apiFetchJson_ retries on bandwidth quota errors and succeeds', () => {
+  let attempts = 0;
+  const sleepCalls = [];
+  const { sandbox, properties } = loadCode({
+    fetchImpl() {
+      attempts++;
+      if (attempts < 3) {
+        throw new Error('Bandwidth quota exceeded: https://ledger.example/test');
+      }
+      return { getResponseCode() { return 200; }, getContentText() { return '{}'; } };
+    },
+    Utilities: { sleep(ms) { sleepCalls.push(ms); } },
+  });
+
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
+
+  const result = sandbox.apiFetchJson_('get', '/test');
+  assert.equal(attempts, 3);
+  assert.equal(sleepCalls.length, 2);
+  assert.deepEqual(result, {});
+});
+
+test('apiFetchJson_ re-throws after max retries exceeded', () => {
+  let attempts = 0;
+  const { sandbox, properties } = loadCode({
+    fetchImpl() {
+      attempts++;
+      throw new Error('Bandwidth quota exceeded: https://ledger.example/test');
+    },
+    Utilities: { sleep(_ms) {} },
+  });
+
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
+
+  assert.throws(() => sandbox.apiFetchJson_('get', '/test'), /Bandwidth quota exceeded/);
+  assert.equal(attempts, 4); // initial attempt + 3 retries
+});
+
 test('buildApiError_ formats structured API errors', () => {
   const { sandbox } = loadCode();
 
@@ -517,7 +573,7 @@ test('buildApiError_ formats structured API errors', () => {
     },
   }));
 
-  assert.equal(error.message, 'unauthenticated: Missing or invalid API token');
+  assert.equal(error.message, '401 unauthenticated: Missing or invalid API token');
 });
 
 test('classifySupportedTransaction_ accepts simple outgoing transaction', () => {
@@ -1701,4 +1757,66 @@ test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without 
   assert.equal(doctorTransactionSheet.getLastRow(), 2);
   assert.equal(rowStore.get(2).status, 'saved');
   assert.equal(rowStore.get(2).last_error, '');
+});
+
+test('parseDateString_ converts yyyy-MM-dd string to midnight UTC Date', () => {
+  const { sandbox } = loadCode();
+
+  const d = sandbox.parseDateString_('2026-04-19');
+  assert.ok(d instanceof Date);
+  assert.equal(d.toISOString(), '2026-04-19T00:00:00.000Z');
+
+  assert.equal(sandbox.parseDateString_(''), null);
+  assert.equal(sandbox.parseDateString_('not-a-date'), null);
+});
+
+test('flattenTransactionForSheet_ produces Date objects for transaction_date', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
+    'accounts/source': 'Assets:Bank:Checking',
+    'accounts/food': 'Expenses:Food',
+  });
+
+  assert.ok(rows[0].transaction_date instanceof Date);
+  assert.equal(rows[0].transaction_date.toISOString(), '2026-04-19T00:00:00.000Z');
+});
+
+test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API payload', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
+    'accounts/source': 'Assets:Bank:Checking',
+    'accounts/food': 'Expenses:Food',
+  });
+
+  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
+    transactionName: 'transactions/txn_1',
+    contiguous: true,
+    rows: rows,
+  }, {
+    'Assets:Bank:Checking': 'accounts/source',
+    'Expenses:Food': 'accounts/food',
+  });
+
+  assert.equal(payload.transaction_date, '2026-04-19');
+});
+
+test('ensureTransactionSheetFilter_ creates a filter covering all transaction columns', () => {
+  const operations = [];
+  const rowStore = new Map([[2, {
+    transaction_name: 'transactions/txn_1', transaction_date: new Date('2026-04-19T00:00:00.000Z'),
+    payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking',
+    destination_account_name: 'Expenses:Food', amount: '84.25', split_off_amount: '',
+    symbol: 'CHF', status: '', issues: '', last_error: '',
+  }]]);
+  const { sandbox } = loadCode();
+  const sheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+
+  sandbox.ensureTransactionSheetFilter_(sheet);
+
+  const filterOp = operations.find((op) => op.type === 'createFilter');
+  assert.ok(filterOp, 'createFilter should have been called');
+  assert.equal(filterOp.row, 1);
+  assert.equal(filterOp.numRows, 2);
 });

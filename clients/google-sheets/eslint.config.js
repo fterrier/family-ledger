@@ -76,6 +76,7 @@ module.exports = [
         setTransactionSheetRows_: 'readonly',
         subtractDecimalStrings_: 'readonly',
         sumDecimalStrings_: 'readonly',
+        parseDateString_: 'readonly',
         uniqueNonBlankValues_: 'readonly',
         updateTransactionRowsInPlace_: 'readonly',
         writeSheet_: 'readonly',

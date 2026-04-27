@@ -48,7 +48,25 @@ function apiFetchJson_(method, path, payload, options) {
     };
   }
 
-  const response = UrlFetchApp.fetch(url, requestOptions);
+  const maxRetries = 3;
+  let response;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = Math.pow(2, attempt - 1) * 5000; // 5 s, 10 s, 20 s
+      debugLog_('apiFetchJson_:bandwidth_retry', { attempt: attempt, delayMs: delay, url: url });
+      Utilities.sleep(delay);
+    }
+    try {
+      response = UrlFetchApp.fetch(url, requestOptions);
+      break;
+    } catch (error) {
+      if (isBandwidthQuotaError_(error) && attempt < maxRetries) {
+        continue;
+      }
+      throw error;
+    }
+  }
+
   const statusCode = response.getResponseCode();
   const body = response.getContentText();
 
@@ -59,6 +77,10 @@ function apiFetchJson_(method, path, payload, options) {
   return body ? JSON.parse(body) : {};
 }
 
+function isBandwidthQuotaError_(error) {
+  return !!(error && error.message && error.message.indexOf('Bandwidth quota exceeded') !== -1);
+}
+
 function buildApiError_(statusCode, body) {
   if (!body) {
     return new Error('API request failed with status ' + statusCode + '.');
@@ -67,7 +89,7 @@ function buildApiError_(statusCode, body) {
   try {
     const parsed = JSON.parse(body);
     if (parsed.detail && parsed.detail.message) {
-      return new Error(parsed.detail.code + ': ' + parsed.detail.message);
+      return new Error(statusCode + ' ' + parsed.detail.code + ': ' + parsed.detail.message);
     }
   } catch {
     // Fall through to the raw body error below.

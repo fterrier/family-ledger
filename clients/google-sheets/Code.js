@@ -26,6 +26,7 @@ function resetSheetLayouts() {
       const lastRow = txSheet.getLastRow();
       const rows = lastRow > 1 ? new Array(lastRow - 1) : [];
       applyTransactionSheetLayout_(txSheet, rows);
+      ensureTransactionSheetFilter_(txSheet);
     }
 
     const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
@@ -261,6 +262,7 @@ function syncFamilyLedgerTransactions() {
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(sheet, rows);
     refreshDoctorIssueSheets_();
+    ensureTransactionSheetFilter_(sheet);
 
     SpreadsheetApp.getUi().alert(
       'Transaction Sync Complete',
@@ -293,6 +295,14 @@ function ensureEditTriggerInstalled_() {
       .onEdit()
       .create();
   }
+}
+
+function ensureTransactionSheetFilter_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+  const existing = sheet.getFilter();
+  if (existing) existing.remove();
+  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_TRANSACTION_HEADERS.length).createFilter();
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
@@ -647,7 +657,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   if (shape.destinationIndexes.length === 0) {
     return [{
       transaction_name: transaction.name,
-      transaction_date: transaction.transaction_date,
+      transaction_date: parseDateString_(transaction.transaction_date),
       payee: transaction.payee || '',
       narration: transaction.narration || '',
       source_account_name: sourceAccountName,
@@ -665,7 +675,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
     const posting = transaction.postings[destinationIndex];
     return {
       transaction_name: transaction.name,
-      transaction_date: transaction.transaction_date,
+      transaction_date: parseDateString_(transaction.transaction_date),
       payee: transaction.payee || '',
       narration: transaction.narration || '',
       source_account_name: sourceAccountName,

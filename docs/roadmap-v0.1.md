@@ -67,14 +67,14 @@ Phase 1 should deliver:
 - allow tests to run even when some APIs return `Not implemented`
 - document startup, shutdown, and backup basics
 
-### Phase 2: Ledger Core (in progress)
+### Phase 2: Ledger Core (done)
 - implement the DB schema
 - implement transaction and posting writes
 - implement balance checks
 - implement balance assertions
 - implement project-level precision/tolerance config
 
-### Phase 3: Imports (in progress)
+### Phase 3: Imports (done)
 - implement native ID dedupe
 - implement fingerprint dedupe
 - implement direct-to-transaction import behavior
@@ -85,7 +85,7 @@ Phase 1 should deliver:
 - verify export against the existing ledger semantics
 - use exported files with Fava in read-only mode
 
-### Phase 5: Spreadsheet Integration (in progress)
+### Phase 5: Spreadsheet Integration (done)
 - expose category-editing workflows through the API
 - connect Google Sheets as a client of the same API
 
@@ -103,8 +103,8 @@ Phase 1 should deliver:
 - export the canonical ledger back to Beancount
 - support Synology-friendly backup/export workflows
 
-### Phase 9: Extensible Import System
-- design an extensible importer architecture
+### Phase 9: Extensible Import System (in progress)
+- design an extensible importer architecture (done)
 - add MT940 import support
 - add IBKR import support
 - add payslip import support
@@ -112,11 +112,10 @@ Phase 1 should deliver:
 - evaluate reusing existing Beancount importers where that reduces duplicated parsing logic
 
 ## Current Focus
-- add remarks on postings, and reconcile with narration from transaction (what takes precendence ?)
+- add remarks on postings, and reconcile with narration from transaction (what takes precedence?)
 - build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
 - evaluate where Beancount importers can be reused instead of duplicating parser logic
 - export the canonical ledger back to Beancount, including Synology-friendly backup workflows and fava integration
-- finish the remaining ledger-core work needed for full Beancount-compatible semantics
 - add support for cash transactions in the Google Sheets workflow
 - continue improving Sheets UX and styling
 - add basic pivot tables and reports for quick spreadsheet-side summaries

@@ -270,55 +270,6 @@ function syncFamilyLedgerTransactions() {
   });
 }
 
-function splitSelectedTransactionRow() {
-  runUserAction_('Split Selected Row', function() {
-    const sheet = requireTransactionSheet_();
-    const activeRow = sheet.getActiveRange().getRow();
-    if (activeRow <= 1) {
-      throw new Error('Select a transaction data row before splitting.');
-    }
-
-    const row = readTransactionSheetRow_(sheet, activeRow);
-    if (!row || !row.transaction_name) {
-      throw new Error('The selected row does not contain a transaction.');
-    }
-
-    const ui = SpreadsheetApp.getUi();
-    const response = ui.prompt(
-      'Split Selected Row',
-      'Enter the amount to split off from the selected row.',
-      ui.ButtonSet.OK_CANCEL
-    );
-    if (response.getSelectedButton() !== ui.Button.OK) {
-      return;
-    }
-    applyTransactionEdit_(sheet, activeRow, 'split_off_amount', response.getResponseText(), '', {
-      showSuccessToast: true,
-    });
-  });
-}
-
-function normalizeActiveTransactionFields() {
-  runUserAction_('Normalize Active Transaction Fields', function() {
-    const sheet = requireTransactionSheet_();
-    const group = getActiveTransactionGroupFromSheet_(sheet);
-    const activeRow = group.rows[group.activeIndex];
-    propagateTransactionField_(sheet, group.transactionName, 'payee', String(activeRow.payee || ''));
-    propagateTransactionField_(sheet, group.transactionName, 'narration', String(activeRow.narration || ''));
-  });
-}
-
-function regroupActiveTransaction() {
-  runUserAction_('Regroup Active Transaction', function() {
-    const sheet = requireTransactionSheet_();
-    const group = getActiveTransactionGroupFromSheet_(sheet);
-    if (group.contiguous) {
-      return;
-    }
-    replaceTransactionRowsInSheet_(sheet, group.rowNumbers, group.rows);
-  });
-}
-
 function pushActiveTransaction() {
   runUserAction_('Push Active Transaction', function() {
     const sheet = requireTransactionSheet_();
@@ -326,7 +277,6 @@ function pushActiveTransaction() {
     saveTransactionByName_(sheet, group.transactionName, { showSuccessAlert: true });
   });
 }
-
 
 function ensureEditTriggerInstalled_() {
   const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
@@ -730,7 +680,6 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   });
 }
 
-
 function classifySupportedTransaction_(transaction) {
   if (!transaction || !Array.isArray(transaction.postings) || transaction.postings.length < 1) {
     return null;
@@ -803,7 +752,6 @@ function buildTransactionSyncSummaryMessage_(totalCount, syncedRowCount, skipped
 
   return message;
 }
-
 
 function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   const issues = [];
@@ -945,7 +893,6 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   }
   return distinct.length === 0 ? null : distinct[0];
 }
-
 
 // ---------------------------------------------------------------------------
 // Import dialog

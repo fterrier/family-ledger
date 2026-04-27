@@ -88,7 +88,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|splitSelectedTransactionRow|normalizeActiveTransactionFields|regroupActiveTransaction|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog|refreshTransactionIssuesFromDoctor_|applyDoctorIssuesToExistingSheet_|applyTransactionIssueHighlighting_)$',
+            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

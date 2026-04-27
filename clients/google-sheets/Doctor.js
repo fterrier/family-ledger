@@ -143,10 +143,6 @@ function applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget, transac
   applyDoctorIssuesToSheetRowNumbers_(sheet, existing.rowNumbers, existing.rows);
 }
 
-function applyDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
-  applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
-}
-
 function applyDoctorIssuesToSheetRowNumbers_(sheet, rowNumbers, rows) {
   if (!rowNumbers || rowNumbers.length === 0) {
     return;

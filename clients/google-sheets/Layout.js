@@ -67,15 +67,6 @@ function columnNumberToLetter_(columnNumber) {
   return result;
 }
 
-function applyTransactionIssueHighlighting_(sheet, rows) {
-  if (!rows || rows.length === 0) {
-    return;
-  }
-  sheet
-    .getRange(2, 1, rows.length, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
-    .setBackgrounds(rows.map(buildTransactionRowBackgrounds_));
-}
-
 function applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows) {
   rowNumbers.forEach(function(rowNumber, index) {
     const range = sheet.getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length);

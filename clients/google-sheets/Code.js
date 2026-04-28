@@ -8,6 +8,7 @@ function onOpen() {
     .addSeparator()
     .addItem('Sync Accounts', 'syncFamilyLedgerAccounts')
     .addItem('Sync Transactions', 'syncFamilyLedgerTransactions')
+    .addItem('Quick Filter', 'showQuickFilter')
     .addSeparator()
     .addItem('Push Active Transaction', 'pushActiveTransaction')
     .addSeparator()
@@ -956,4 +957,56 @@ function buildImportToastSummary_(result) {
     return counts.created + ' ' + type + (counts.created !== 1 ? 's' : '') + ' created';
   });
   return parts.length ? parts.join(', ') : 'No entities imported';
+}
+
+function showQuickFilter() {
+  const html = HtmlService.createHtmlOutputFromFile('FilterSidebar').setTitle('Quick Filter');
+  SpreadsheetApp.getUi().showSidebar(html);
+}
+
+function getTransactionFilterYears() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  const dateCol = getTransactionHeaderColumnIndex_('transaction_date');
+  const values = sheet.getRange(2, dateCol, sheet.getLastRow() - 1, 1).getValues();
+  const seen = {};
+  values.forEach(function(row) {
+    const v = row[0];
+    if (v instanceof Date && !isNaN(v.getTime())) {
+      seen[v.getFullYear()] = true;
+    }
+  });
+  return Object.keys(seen).map(Number).sort(function(a, b) { return b - a; });
+}
+
+function applyTransactionQuickFilter(year, month) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (!sheet) throw new Error('Transactions sheet not found.');
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+  let filter = sheet.getFilter();
+  if (!filter) {
+    filter = sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_TRANSACTION_HEADERS.length).createFilter();
+  }
+  const dateCol = getTransactionHeaderColumnIndex_('transaction_date');
+  const col = String.fromCharCode(64 + dateCol);
+  const formula = month
+    ? '=AND(YEAR(' + col + '2)=' + year + ',MONTH(' + col + '2)=' + month + ')'
+    : '=YEAR(' + col + '2)=' + year;
+  filter.setColumnFilterCriteria(
+    dateCol,
+    SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()
+  );
+}
+
+function clearTransactionQuickFilter() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (!sheet) throw new Error('Transactions sheet not found.');
+  const filter = sheet.getFilter();
+  if (filter) {
+    filter.removeColumnFilterCriteria(getTransactionHeaderColumnIndex_('transaction_date'));
+  }
 }

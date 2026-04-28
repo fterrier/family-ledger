@@ -89,7 +89,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog)$',
+            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog|showQuickFilter|getTransactionFilterYears|applyTransactionQuickFilter|clearTransactionQuickFilter)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

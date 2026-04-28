@@ -126,6 +126,20 @@ function loadCode(overrides = {}) {
         };
         return rule;
       },
+      newFilterCriteria() {
+        let _formula = null;
+        return {
+          whenFormulaSatisfied(f) { _formula = f; return this; },
+          build() { return { formula: _formula }; },
+        };
+      },
+      getActiveSpreadsheet() {
+        return {
+          getSheetByName(name) {
+            return (overrides.sheetsByName || {})[name] || null;
+          },
+        };
+      },
       ...overrides.SpreadsheetApp,
     },
     ScriptApp: {
@@ -1819,4 +1833,91 @@ test('ensureTransactionSheetFilter_ creates a filter covering all transaction co
   assert.ok(filterOp, 'createFilter should have been called');
   assert.equal(filterOp.row, 1);
   assert.equal(filterOp.numRows, 2);
+});
+
+test('getTransactionFilterYears returns unique years from transaction dates in descending order', () => {
+  const dates = [
+    new Date(Date.UTC(2024, 0, 15)),
+    new Date(Date.UTC(2026, 2, 20)),
+    new Date(Date.UTC(2024, 5, 10)),
+    new Date(Date.UTC(2025, 11, 31)),
+  ];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return dates.length + 1; },
+        getRange(_row, _col, numRows) {
+          return {
+            getValues() { return dates.slice(0, numRows).map(function(d) { return [d]; }); },
+          };
+        },
+      },
+    },
+  });
+
+  const years = sandbox.getTransactionFilterYears();
+  assert.deepEqual(years, [2026, 2025, 2024]);
+});
+
+test('applyTransactionQuickFilter sets year formula on date column', () => {
+  const filterCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return {
+            setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); },
+          };
+        },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionQuickFilter(2026, null);
+
+  assert.equal(filterCriteria.length, 1);
+  assert.equal(filterCriteria[0].col, 2);
+  assert.equal(filterCriteria[0].criteria.formula, '=YEAR(B2)=2026');
+});
+
+test('applyTransactionQuickFilter sets year+month formula on date column', () => {
+  const filterCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return {
+            setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); },
+          };
+        },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionQuickFilter(2026, 4);
+
+  assert.equal(filterCriteria.length, 1);
+  assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)=2026,MONTH(B2)=4)');
+});
+
+test('clearTransactionQuickFilter removes filter criteria from date column', () => {
+  const removed = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return { removeColumnFilterCriteria(col) { removed.push(col); } };
+        },
+      },
+    },
+  });
+
+  sandbox.clearTransactionQuickFilter();
+
+  assert.deepEqual(removed, [2]);
 });

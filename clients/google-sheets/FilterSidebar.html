@@ -11,7 +11,6 @@
       color: #3c4043;
       margin: 0;
     }
-    .section { margin-bottom: 16px; }
     .section-label {
       font-size: 11px;
       font-weight: 600;
@@ -20,9 +19,9 @@
       color: #80868b;
       margin-bottom: 8px;
     }
-    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
     .btn {
-      padding: 5px 14px;
+      padding: 5px 12px;
       border: 1px solid #dadce0;
       border-radius: 16px;
       background: #fff;
@@ -30,21 +29,26 @@
       font-size: 13px;
       color: #3c4043;
     }
-    .btn:hover:not(:disabled) { background: #f8f9fa; border-color: #bdc1c6; }
+    .btn:hover { background: #f8f9fa; border-color: #bdc1c6; }
     .btn.selected { background: #1a73e8; color: #fff; border-color: #1a73e8; }
-    .btn.selected:hover:not(:disabled) { background: #1765cc; border-color: #1765cc; }
-    .btn:disabled { opacity: 0.38; cursor: default; }
-    .month-grid {
-      display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 4px;
-    }
-    .month-grid .btn {
-      padding: 5px 0;
-      text-align: center;
+    .btn.selected:hover { background: #1765cc; border-color: #1765cc; }
+    .divider { border: none; border-top: 1px solid #e8eaed; margin: 4px 0 14px; }
+    .range-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .range-col { flex: 1; min-width: 0; }
+    .month-input {
+      width: 100%;
+      min-width: 0;
+      padding: 5px 4px;
+      border: 1px solid #dadce0;
       border-radius: 4px;
+      font-size: 12px;
+      color: #3c4043;
+      background: #fff;
+      cursor: pointer;
     }
-    .divider { border: none; border-top: 1px solid #e8eaed; margin: 4px 0 12px; }
+    .month-input:focus { outline: none; border-color: #1a73e8; }
+    /* Hide the "---- --" placeholder text when empty; keep the calendar icon. */
+    .month-input.empty::-webkit-datetime-edit { color: transparent; }
     .clear-btn {
       width: 100%;
       padding: 8px;
@@ -59,52 +63,51 @@
     .status {
       font-size: 11px;
       color: #80868b;
-      margin-top: 10px;
+      margin-top: 8px;
       min-height: 14px;
     }
     .status.error { color: #d93025; }
   </style>
 </head>
 <body>
-  <div class="section">
-    <div class="section-label">Year</div>
-    <div id="years" class="btn-group">
-      <span style="color:#80868b;font-size:12px">Loading&#8230;</span>
-    </div>
+  <div class="section-label">Year</div>
+  <div id="years" class="btn-group">
+    <span style="color:#80868b;font-size:12px">Loading&#8230;</span>
   </div>
 
   <hr class="divider">
 
-  <div class="section">
-    <div class="section-label">Month</div>
-    <div class="month-grid" id="months"></div>
+  <div class="section-label">Custom range</div>
+  <div class="range-row">
+    <div class="range-col">
+      <div class="section-label">From</div>
+      <input type="month" id="fromInput" class="month-input empty">
+    </div>
+    <div class="range-col">
+      <div class="section-label">To</div>
+      <input type="month" id="toInput" class="month-input empty">
+    </div>
   </div>
 
-  <button class="clear-btn" onclick="clearFilter()">Clear filter</button>
+  <button class="clear-btn" onclick="clearFilter()">Clear</button>
   <div id="status" class="status"></div>
 
   <script>
-    var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    var selectedYear = null;
-    var selectedMonth = null;
+    var fromInput = document.getElementById('fromInput');
+    var toInput = document.getElementById('toInput');
 
-    // Build month grid (all disabled initially).
-    var monthsEl = document.getElementById('months');
-    MONTHS.forEach(function(label, i) {
-      var btn = document.createElement('button');
-      btn.className = 'btn';
-      btn.textContent = label;
-      btn.disabled = true;
-      btn.dataset.month = String(i + 1);
-      btn.onclick = function() { onMonthClick(i + 1); };
-      monthsEl.appendChild(btn);
-    });
+    // Track year button range state.
+    var years = [];      // ascending list from server
+    var fromYear = null; // integer or null
+    var toYear = null;   // integer or null
 
+    // Load years from server (ascending).
     google.script.run
-      .withSuccessHandler(function(years) {
+      .withSuccessHandler(function(loadedYears) {
+        years = (loadedYears || []).slice().reverse(); // display ascending
         var yearsEl = document.getElementById('years');
         yearsEl.innerHTML = '';
-        if (!years || !years.length) {
+        if (!years.length) {
           yearsEl.innerHTML = '<span style="color:#80868b;font-size:12px">No transactions found.</span>';
           return;
         }
@@ -120,49 +123,132 @@
       .withFailureHandler(showError)
       .getTransactionFilterYears();
 
+    // --- Year button logic ---
+
     function onYearClick(year) {
-      selectedYear = year;
-      selectedMonth = null;
+      if (fromYear === null) {
+        // Nothing selected: start selection.
+        fromYear = toYear = year;
+      } else if (year === fromYear && year === toYear) {
+        // Only year in range: clicking it deselects.
+        fromYear = toYear = null;
+      } else if (year === fromYear) {
+        // Clicking start of range: advance start to next button year.
+        var idx = years.indexOf(year);
+        var next = (idx >= 0 && idx + 1 < years.length) ? years[idx + 1] : null;
+        if (next !== null && next <= toYear) {
+          fromYear = next;
+        } else {
+          fromYear = toYear = null;
+        }
+      } else if (year === toYear) {
+        // Clicking end of range: retreat end to previous button year.
+        var idx = years.indexOf(year);
+        var prev = (idx > 0) ? years[idx - 1] : null;
+        if (prev !== null && prev >= fromYear) {
+          toYear = prev;
+        } else {
+          fromYear = toYear = null;
+        }
+      } else if (year < fromYear || year > toYear) {
+        // Outside range: extend it.
+        if (year < fromYear) fromYear = year;
+        else toYear = year;
+      } else {
+        // Inside range: restart as single selection.
+        fromYear = toYear = year;
+      }
+
+      syncYearButtons();
+      if (fromYear !== null) {
+        var from = fromYear + '-01';
+        var to = toYear + '-12';
+        setInputValue(fromInput, from);
+        setInputValue(toInput, to);
+        runFilter(from, to);
+      } else {
+        setInputValue(fromInput, '');
+        setInputValue(toInput, '');
+        clearServerFilter();
+      }
+    }
+
+    function syncYearButtons() {
       document.querySelectorAll('#years .btn').forEach(function(b) {
-        b.classList.toggle('selected', Number(b.dataset.year) === year);
+        var y = Number(b.dataset.year);
+        b.classList.toggle('selected', fromYear !== null && y >= fromYear && y <= toYear);
       });
-      document.querySelectorAll('#months .btn').forEach(function(b) {
-        b.disabled = false;
-        b.classList.remove('selected');
-      });
-      runFilter();
     }
 
-    function onMonthClick(month) {
-      if (!selectedYear) return;
-      selectedMonth = (selectedMonth === month) ? null : month;
-      document.querySelectorAll('#months .btn').forEach(function(b) {
-        b.classList.toggle('selected', Number(b.dataset.month) === selectedMonth);
-      });
-      runFilter();
+    // --- Custom range inputs (auto-apply on committed change) ---
+
+    fromInput.addEventListener('change', onRangeChange);
+    toInput.addEventListener('change', onRangeChange);
+
+    // Clear year button highlight while user is editing the inputs.
+    fromInput.addEventListener('input', function() {
+      syncInputClass(fromInput);
+      fromYear = toYear = null;
+      syncYearButtons();
+    });
+    toInput.addEventListener('input', function() {
+      syncInputClass(toInput);
+      fromYear = toYear = null;
+      syncYearButtons();
+    });
+
+    function onRangeChange() {
+      syncInputClass(fromInput);
+      syncInputClass(toInput);
+      var from = fromInput.value;
+      var to = toInput.value;
+      if (!from || !to) return; // wait until both are set
+      if (from > to) {
+        setStatus('"From" must not be after "To".', true);
+        return;
+      }
+      // Re-sync year buttons if range matches buttons.
+      fromYear = parseInt(from.split('-')[0], 10);
+      toYear = parseInt(to.split('-')[0], 10);
+      syncYearButtons();
+      runFilter(from, to);
     }
 
-    function runFilter() {
+    // --- Filter actions ---
+
+    function runFilter(from, to) {
       setStatus('Applying…', false);
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
         .withFailureHandler(showError)
-        .applyTransactionQuickFilter(selectedYear, selectedMonth || null);
+        .applyTransactionQuickFilter(from, to);
     }
 
-    function clearFilter() {
-      selectedYear = null;
-      selectedMonth = null;
-      document.querySelectorAll('#years .btn').forEach(function(b) { b.classList.remove('selected'); });
-      document.querySelectorAll('#months .btn').forEach(function(b) {
-        b.classList.remove('selected');
-        b.disabled = true;
-      });
+    function clearServerFilter() {
       setStatus('Clearing…', false);
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
         .withFailureHandler(showError)
         .clearTransactionQuickFilter();
+    }
+
+    function clearFilter() {
+      fromYear = toYear = null;
+      setInputValue(fromInput, '');
+      setInputValue(toInput, '');
+      syncYearButtons();
+      clearServerFilter();
+    }
+
+    // --- Helpers ---
+
+    function setInputValue(input, value) {
+      input.value = value;
+      syncInputClass(input);
+    }
+
+    function syncInputClass(input) {
+      input.classList.toggle('empty', !input.value);
     }
 
     function setStatus(msg, isError) {

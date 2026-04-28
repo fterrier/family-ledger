@@ -1859,7 +1859,7 @@ test('getTransactionFilterYears returns unique years from transaction dates in d
   assert.deepEqual(years, [2026, 2025, 2024]);
 });
 
-test('applyTransactionQuickFilter sets year formula on date column', () => {
+test('applyTransactionQuickFilter sets range formula for full year', () => {
   const filterCriteria = [];
   const { sandbox } = loadCode({
     sheetsByName: {
@@ -1875,14 +1875,14 @@ test('applyTransactionQuickFilter sets year formula on date column', () => {
     },
   });
 
-  sandbox.applyTransactionQuickFilter(2026, null);
+  sandbox.applyTransactionQuickFilter('2026-01', '2026-12');
 
   assert.equal(filterCriteria.length, 1);
   assert.equal(filterCriteria[0].col, 2);
-  assert.equal(filterCriteria[0].criteria.formula, '=YEAR(B2)=2026');
+  assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)*100+MONTH(B2)>=202601,YEAR(B2)*100+MONTH(B2)<=202612)');
 });
 
-test('applyTransactionQuickFilter sets year+month formula on date column', () => {
+test('applyTransactionQuickFilter sets range formula for custom date range', () => {
   const filterCriteria = [];
   const { sandbox } = loadCode({
     sheetsByName: {
@@ -1898,10 +1898,10 @@ test('applyTransactionQuickFilter sets year+month formula on date column', () =>
     },
   });
 
-  sandbox.applyTransactionQuickFilter(2026, 4);
+  sandbox.applyTransactionQuickFilter('2025-03', '2026-06');
 
   assert.equal(filterCriteria.length, 1);
-  assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)=2026,MONTH(B2)=4)');
+  assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)*100+MONTH(B2)>=202503,YEAR(B2)*100+MONTH(B2)<=202606)');
 });
 
 test('clearTransactionQuickFilter removes filter criteria from date column', () => {

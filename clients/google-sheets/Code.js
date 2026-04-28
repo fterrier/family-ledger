@@ -980,7 +980,7 @@ function getTransactionFilterYears() {
   return Object.keys(seen).map(Number).sort(function(a, b) { return b - a; });
 }
 
-function applyTransactionQuickFilter(year, month) {
+function applyTransactionQuickFilter(from, to) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
   if (!sheet) throw new Error('Transactions sheet not found.');
@@ -992,9 +992,12 @@ function applyTransactionQuickFilter(year, month) {
   }
   const dateCol = getTransactionHeaderColumnIndex_('transaction_date');
   const col = String.fromCharCode(64 + dateCol);
-  const formula = month
-    ? '=AND(YEAR(' + col + '2)=' + year + ',MONTH(' + col + '2)=' + month + ')'
-    : '=YEAR(' + col + '2)=' + year;
+  const fromParts = from.split('-');
+  const toParts = to.split('-');
+  const fromKey = parseInt(fromParts[0], 10) * 100 + parseInt(fromParts[1], 10);
+  const toKey = parseInt(toParts[0], 10) * 100 + parseInt(toParts[1], 10);
+  const expr = 'YEAR(' + col + '2)*100+MONTH(' + col + '2)';
+  const formula = '=AND(' + expr + '>=' + fromKey + ',' + expr + '<=' + toKey + ')';
   filter.setColumnFilterCriteria(
     dateCol,
     SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()

@@ -2087,6 +2087,36 @@ test('ensureTransactionSheetFilter_ creates a filter covering all transaction co
   assert.equal(filterOp.numRows, 2);
 });
 
+test('ensureTransactionSheetFilter_ restores existing filter criteria on the new filter', () => {
+  const { sandbox } = loadCode();
+  const criteriaByCol = { 2: { formula: '=B2>0' }, 5: { formula: '=E2="x"' } };
+  const restored = [];
+  const sheet = {
+    getLastRow() { return 3; },
+    getFilter() {
+      return {
+        getColumnFilterCriteria(col) { return criteriaByCol[col] || null; },
+        remove() {},
+      };
+    },
+    getRange(_row, _col, _numRows, _numCols) {
+      return {
+        createFilter() {
+          return { setColumnFilterCriteria(col, criteria) { restored.push({ col, criteria }); } };
+        },
+      };
+    },
+    getMaxRows() { return 3; },
+  };
+
+  sandbox.ensureTransactionSheetFilter_(sheet);
+
+  assert.equal(restored.length, 2);
+  assert.deepEqual(restored.map((r) => r.col).sort((a, b) => a - b), [2, 5]);
+  assert.equal(restored.find((r) => r.col === 2).criteria, criteriaByCol[2]);
+  assert.equal(restored.find((r) => r.col === 5).criteria, criteriaByCol[5]);
+});
+
 test('getTransactionFilterYears returns unique years from transaction dates in descending order', () => {
   const dates = [
     new Date(Date.UTC(2024, 0, 15)),

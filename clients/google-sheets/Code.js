@@ -301,8 +301,20 @@ function ensureTransactionSheetFilter_(sheet) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
   const existing = sheet.getFilter();
-  if (existing) existing.remove();
-  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_TRANSACTION_HEADERS.length).createFilter();
+  const savedCriteria = {};
+  if (existing) {
+    FAMILY_LEDGER_TRANSACTION_HEADERS.forEach(function(header, index) {
+      const criteria = existing.getColumnFilterCriteria(index + 1);
+      if (criteria) {
+        savedCriteria[index + 1] = criteria;
+      }
+    });
+    existing.remove();
+  }
+  const filter = sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_TRANSACTION_HEADERS.length).createFilter();
+  Object.keys(savedCriteria).forEach(function(columnIndex) {
+    filter.setColumnFilterCriteria(Number(columnIndex), savedCriteria[columnIndex]);
+  });
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {

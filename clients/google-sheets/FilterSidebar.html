@@ -7,19 +7,38 @@
     body {
       font-family: Arial, sans-serif;
       font-size: 13px;
-      padding: 12px 16px;
+      padding: 0 16px 12px;
       color: #3c4043;
       margin: 0;
     }
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+      padding: 8px 0;
+      user-select: none;
+      border-top: 1px solid #e8eaed;
+    }
+    .toggle-icon { font-size: 9px; margin-right: 6px; color: #80868b; flex-shrink: 0; }
     .section-label {
       font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #80868b;
-      margin-bottom: 8px;
     }
-    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+    .section-summary {
+      margin-left: 6px;
+      font-size: 11px;
+      color: #1a73e8;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .collapsible.collapsed .toggle-icon { transform: rotate(-90deg); }
+    .collapsible.collapsed .collapsible-body { display: none; }
+    .collapsible-body { padding-bottom: 8px; }
+    .btn-group { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
     .btn {
       padding: 5px 12px;
       border: 1px solid #dadce0;
@@ -32,9 +51,16 @@
     .btn:hover { background: #f8f9fa; border-color: #bdc1c6; }
     .btn.selected { background: #1a73e8; color: #fff; border-color: #1a73e8; }
     .btn.selected:hover { background: #1765cc; border-color: #1765cc; }
-    .divider { border: none; border-top: 1px solid #e8eaed; margin: 4px 0 14px; }
-    .range-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .range-row { display: flex; gap: 8px; margin-bottom: 8px; }
     .range-col { flex: 1; min-width: 0; }
+    .range-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #80868b;
+      margin-bottom: 4px;
+    }
     .month-input {
       width: 100%;
       min-width: 0;
@@ -47,8 +73,16 @@
       cursor: pointer;
     }
     .month-input:focus { outline: none; border-color: #1a73e8; }
-    /* Hide the "---- --" placeholder text when empty; keep the calendar icon. */
     .month-input.empty::-webkit-datetime-edit { color: transparent; }
+    .account-select {
+      width: 100%;
+      padding: 5px 6px;
+      margin-bottom: 6px;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #3c4043;
+    }
     .clear-btn {
       width: 100%;
       padding: 8px;
@@ -58,104 +92,150 @@
       cursor: pointer;
       font-size: 13px;
       color: #3c4043;
+      margin-top: 8px;
     }
     .clear-btn:hover { background: #e8eaed; }
-    .status {
-      font-size: 11px;
-      color: #80868b;
-      margin-top: 8px;
-      min-height: 14px;
-    }
+    .status { font-size: 11px; color: #80868b; margin-top: 8px; min-height: 14px; }
     .status.error { color: #d93025; }
   </style>
 </head>
 <body>
-  <div class="section-label">Year</div>
-  <div id="years" class="btn-group">
-    <span style="color:#80868b;font-size:12px">Loading&#8230;</span>
+  <div class="collapsible" id="dateSection">
+    <div class="collapsible-header" onclick="toggleSection('dateSection')">
+      <span class="toggle-icon">▼</span>
+      <span class="section-label">Date</span>
+      <span class="section-summary" id="dateSummary"></span>
+    </div>
+    <div class="collapsible-body">
+      <div id="years" class="btn-group">
+        <span style="color:#80868b;font-size:12px">Loading&#8230;</span>
+      </div>
+      <div class="range-row">
+        <div class="range-col">
+          <div class="range-label">From</div>
+          <input type="month" id="fromInput" class="month-input empty">
+        </div>
+        <div class="range-col">
+          <div class="range-label">To</div>
+          <input type="month" id="toInput" class="month-input empty">
+        </div>
+      </div>
+    </div>
   </div>
 
-  <hr class="divider">
-
-  <div class="section-label">Custom range</div>
-  <div class="range-row">
-    <div class="range-col">
-      <div class="section-label">From</div>
-      <input type="month" id="fromInput" class="month-input empty">
+  <div class="collapsible" id="acctSection">
+    <div class="collapsible-header" onclick="toggleSection('acctSection')">
+      <span class="toggle-icon">▼</span>
+      <span class="section-label">Account</span>
+      <span class="section-summary" id="acctSummary"></span>
     </div>
-    <div class="range-col">
-      <div class="section-label">To</div>
-      <input type="month" id="toInput" class="month-input empty">
+    <div class="collapsible-body">
+      <div id="acctDropdowns"></div>
     </div>
   </div>
 
-  <button class="clear-btn" onclick="clearFilter()">Clear</button>
+  <button class="clear-btn" onclick="clearAll()">Clear all</button>
   <div id="status" class="status"></div>
 
   <script>
     var fromInput = document.getElementById('fromInput');
     var toInput = document.getElementById('toInput');
 
-    // Track year button range state.
-    var years = [];      // ascending list from server
-    var fromYear = null; // integer or null
-    var toYear = null;   // integer or null
+    // Year button state
+    var years = [];
+    var fromYear = null;
+    var toYear = null;
 
-    // Load years from server (ascending).
+    // Account data
+    var TYPE_LABELS = {'[A]':'Assets','[L]':'Liabilities','[X]':'Expenses','[I]':'Income','[Q]':'Equity'};
+    var accountTree = {};
+
+    // --- Collapsible sections ---
+
+    function toggleSection(id) {
+      document.getElementById(id).classList.toggle('collapsed');
+      refreshSummaries();
+    }
+
+    function refreshSummaries() {
+      document.getElementById('dateSummary').textContent = getDateSummary();
+      document.getElementById('acctSummary').textContent = acctCtrl.getSummary();
+    }
+
+    function getDateSummary() {
+      var from = fromInput.value;
+      var to = toInput.value;
+      if (!from && !to) return '';
+      var fromY = from ? from.split('-')[0] : '';
+      var toY = to ? to.split('-')[0] : '';
+      if (fromY === toY && from === fromY + '-01' && to === toY + '-12') return fromY;
+      if (from && to) return from + ' – ' + to;
+      return from || to;
+    }
+
+    // --- Startup: load all data and restore persisted filter state in one call ---
+
     google.script.run
-      .withSuccessHandler(function(loadedYears) {
-        years = (loadedYears || []).slice().reverse(); // display ascending
+      .withSuccessHandler(function(data) {
+        // Render year buttons
+        years = (data.years || []).slice().reverse();
         var yearsEl = document.getElementById('years');
         yearsEl.innerHTML = '';
         if (!years.length) {
           yearsEl.innerHTML = '<span style="color:#80868b;font-size:12px">No transactions found.</span>';
-          return;
+        } else {
+          years.forEach(function(year) {
+            var btn = document.createElement('button');
+            btn.className = 'btn';
+            btn.textContent = String(year);
+            btn.dataset.year = String(year);
+            btn.onclick = function() { onYearClick(year); };
+            yearsEl.appendChild(btn);
+          });
         }
-        years.forEach(function(year) {
-          var btn = document.createElement('button');
-          btn.className = 'btn';
-          btn.textContent = String(year);
-          btn.dataset.year = String(year);
-          btn.onclick = function() { onYearClick(year); };
-          yearsEl.appendChild(btn);
-        });
+        // Restore date filter
+        if (data.from && data.to) {
+          setInputValue(fromInput, data.from);
+          setInputValue(toInput, data.to);
+          fromYear = parseInt(data.from.split('-')[0], 10);
+          toYear = parseInt(data.to.split('-')[0], 10);
+        }
+        syncYearButtons();
+        // Build account tree and restore account filter
+        accountTree = buildAccountTree(data.accountNames || []);
+        acctCtrl.restore(parsePrefix(data.accountPrefix || ''));
+        refreshSummaries();
       })
       .withFailureHandler(showError)
-      .getTransactionFilterYears();
+      .getQuickFilterSidebarData();
 
-    // --- Year button logic ---
+    // --- Year buttons ---
 
     function onYearClick(year) {
       if (fromYear === null) {
-        // Nothing selected: start selection.
         fromYear = toYear = year;
       } else if (year === fromYear && year === toYear) {
-        // Only year in range: clicking it deselects.
         fromYear = toYear = null;
       } else if (year === fromYear) {
-        // Clicking start of range: advance start to next button year.
-        var idx = years.indexOf(year);
-        var next = (idx >= 0 && idx + 1 < years.length) ? years[idx + 1] : null;
+        var idxFrom = years.indexOf(year);
+        var next = (idxFrom >= 0 && idxFrom + 1 < years.length) ? years[idxFrom + 1] : null;
         if (next !== null && next <= toYear) {
           fromYear = next;
         } else {
           fromYear = toYear = null;
         }
       } else if (year === toYear) {
-        // Clicking end of range: retreat end to previous button year.
-        var idx = years.indexOf(year);
-        var prev = (idx > 0) ? years[idx - 1] : null;
+        var idxTo = years.indexOf(year);
+        var prev = (idxTo > 0) ? years[idxTo - 1] : null;
         if (prev !== null && prev >= fromYear) {
           toYear = prev;
         } else {
           fromYear = toYear = null;
         }
       } else if (year < fromYear || year > toYear) {
-        // Outside range: extend it.
         if (year < fromYear) fromYear = year;
         else toYear = year;
       } else {
-        // Inside range: restart as single selection.
         fromYear = toYear = year;
       }
 
@@ -169,8 +249,9 @@
       } else {
         setInputValue(fromInput, '');
         setInputValue(toInput, '');
-        clearServerFilter();
+        clearDateServerFilter();
       }
+      refreshSummaries();
     }
 
     function syncYearButtons() {
@@ -180,12 +261,11 @@
       });
     }
 
-    // --- Custom range inputs (auto-apply on committed change) ---
+    // --- Custom range inputs ---
 
     fromInput.addEventListener('change', onRangeChange);
     toInput.addEventListener('change', onRangeChange);
 
-    // Clear year button highlight while user is editing the inputs.
     fromInput.addEventListener('input', function() {
       syncInputClass(fromInput);
       fromYear = toYear = null;
@@ -202,19 +282,19 @@
       syncInputClass(toInput);
       var from = fromInput.value;
       var to = toInput.value;
-      if (!from || !to) return; // wait until both are set
+      if (!from || !to) return;
       if (from > to) {
         setStatus('"From" must not be after "To".', true);
         return;
       }
-      // Re-sync year buttons if range matches buttons.
       fromYear = parseInt(from.split('-')[0], 10);
       toYear = parseInt(to.split('-')[0], 10);
       syncYearButtons();
       runFilter(from, to);
+      refreshSummaries();
     }
 
-    // --- Filter actions ---
+    // --- Date filter server calls ---
 
     function runFilter(from, to) {
       setStatus('Applying…', false);
@@ -224,7 +304,7 @@
         .applyTransactionQuickFilter(from, to);
     }
 
-    function clearServerFilter() {
+    function clearDateServerFilter() {
       setStatus('Clearing…', false);
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
@@ -232,13 +312,139 @@
         .clearTransactionQuickFilter();
     }
 
-    function clearFilter() {
+    // --- Account controller ---
+
+    function makeAccountController(containerId) {
+      var prefixes = [];
+
+      function render() {
+        var el = document.getElementById(containerId);
+        el.innerHTML = '';
+        var typeOptions = Object.keys(accountTree).sort().concat(['__blank__']);
+        addDropdown(el, 0, '— All accounts', typeOptions, function(k) {
+          if (k === '__blank__') return 'No account set';
+          return (TYPE_LABELS[k] || k) + '  ' + k;
+        });
+        if (prefixes.length > 0 && prefixes[0] !== '__blank__') {
+          for (var i = 0; i < prefixes.length; i++) {
+            var node = nodeAt(prefixes.slice(0, i + 1));
+            var children = Object.keys(node || {}).sort();
+            if (!children.length) break;
+            addDropdown(el, i + 1, '— All', children, function(k) { return k; });
+          }
+        }
+      }
+
+      function addDropdown(el, level, allLabel, options, labelFn) {
+        var sel = document.createElement('select');
+        sel.className = 'account-select';
+        var opt = document.createElement('option');
+        opt.value = ''; opt.textContent = allLabel;
+        sel.appendChild(opt);
+        options.forEach(function(o) {
+          var item = document.createElement('option');
+          item.value = o; item.textContent = labelFn(o);
+          sel.appendChild(item);
+        });
+        if (prefixes[level] !== undefined) sel.value = prefixes[level];
+        sel.onchange = function() { onChange(level, sel.value); };
+        el.appendChild(sel);
+      }
+
+      function onChange(level, value) {
+        prefixes = prefixes.slice(0, level);
+        if (value) prefixes.push(value);
+        render();
+        applyAccountFilter();
+        refreshSummaries();
+      }
+
+      function applyAccountFilter() {
+        if (!prefixes.length) {
+          google.script.run.withSuccessHandler(done).withFailureHandler(showError)
+            .clearTransactionAccountFilter();
+        } else {
+          setStatus('Applying…', false);
+          google.script.run.withSuccessHandler(done).withFailureHandler(showError)
+            .applyTransactionAccountFilter(buildPrefix(prefixes));
+        }
+      }
+
+      function clear() { prefixes = []; render(); }
+
+      function restore(pArr) { prefixes = pArr.slice(); render(); }
+
+      function getSummary() {
+        if (!prefixes.length) return '';
+        if (prefixes[0] === '__blank__') return 'No account set';
+        var parts = [TYPE_LABELS[prefixes[0]] || prefixes[0]];
+        for (var i = 1; i < prefixes.length; i++) parts.push(prefixes[i]);
+        return parts.join(' > ');
+      }
+
+      return { clear: clear, getSummary: getSummary, restore: restore };
+    }
+
+    function nodeAt(pArr) {
+      var node = accountTree[pArr[0]];
+      for (var i = 1; i < pArr.length; i++) { if (!node) return null; node = node[pArr[i]]; }
+      return node;
+    }
+
+    function buildPrefix(pArr) {
+      var r = pArr[0];
+      for (var i = 1; i < pArr.length; i++) r += (i === 1 ? ' ' : ' - ') + pArr[i];
+      return r;
+    }
+
+    function parsePrefix(prefix) {
+      if (!prefix) return [];
+      if (prefix === '__blank__') return ['__blank__'];
+      var markerEnd = prefix.indexOf(']');
+      if (markerEnd < 0) return [];
+      var marker = prefix.slice(0, markerEnd + 1);
+      var rest = prefix.slice(markerEnd + 2);
+      var pArr = [marker];
+      if (rest) rest.split(' - ').forEach(function(seg) { pArr.push(seg); });
+      return pArr;
+    }
+
+    function buildAccountTree(names) {
+      var tree = {};
+      names.forEach(function(name) {
+        var str = String(name);
+        var markerEnd = str.indexOf(']');
+        if (markerEnd < 0) return;
+        var marker = str.slice(0, markerEnd + 1);
+        var rest = str.slice(markerEnd + 2);
+        var parts = rest ? rest.split(' - ') : [];
+        if (!tree[marker]) tree[marker] = {};
+        var node = tree[marker];
+        parts.forEach(function(seg) {
+          if (!node[seg]) node[seg] = {};
+          node = node[seg];
+        });
+      });
+      return tree;
+    }
+
+    var acctCtrl = makeAccountController('acctDropdowns');
+
+    // --- Clear all ---
+
+    function clearAll() {
       fromYear = toYear = null;
       setInputValue(fromInput, '');
       setInputValue(toInput, '');
       syncYearButtons();
-      clearServerFilter();
+      acctCtrl.clear();
+      refreshSummaries();
+      setStatus('Clearing…', false);
+      google.script.run.withSuccessHandler(done).withFailureHandler(showError)
+        .clearTransactionQuickFilter();
     }
+
+    function done() { setStatus('', false); }
 
     // --- Helpers ---
 

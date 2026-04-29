@@ -32,8 +32,7 @@ function resetSheetLayouts() {
 
     const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
     if (accSheet) {
-      const lastRow = accSheet.getLastRow();
-      applyAccountsSheetLayout_(accSheet, lastRow > 1 ? lastRow - 1 : 0);
+      applyAccountsSheetLayout_(accSheet);
     }
 
     SpreadsheetApp.getUi().alert('Reset Sheet Layouts', 'Layouts have been reset to their default configurations.', SpreadsheetApp.getUi().ButtonSet.OK);
@@ -222,7 +221,7 @@ function syncFamilyLedgerAccounts() {
     writeSheet_(sheet, FAMILY_LEDGER_ACCOUNTS_HEADERS, rows);
     sheet.setFrozenRows(1);
     ensureAccountIssueFormulas_(sheet, rows.length);
-    applyAccountsSheetLayout_(sheet, rows.length);
+    applyAccountsSheetLayout_(sheet);
     refreshDoctorIssueSheets_();
     SpreadsheetApp.getUi().alert(
       'Account Sync Complete',

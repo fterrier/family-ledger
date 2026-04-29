@@ -79,7 +79,6 @@ function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacem
       sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] ?? '');
     });
   });
-  applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, replacementRows);
 }
 
 function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
@@ -149,7 +148,6 @@ function writeTransactionSheetRow_(sheet, rowNumber, row) {
   sheet
     .getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
     .setValues([materializeTransactionSheetRow_(row)]);
-  applyTransactionIssueHighlightingToRowNumbers_(sheet, [rowNumber], [row]);
 }
 
 function materializeTransactionSheetRow_(row) {
@@ -274,11 +272,6 @@ function replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows) {
   sheet
     .getRange(insertionRow, 1, replacementRows.length, FAMILY_LEDGER_TRANSACTION_HEADERS.length)
     .setValues(replacementRows.map(materializeTransactionSheetRow_));
-  applyTransactionIssueHighlightingToRowNumbers_(
-    sheet,
-    buildSequentialRowNumbers_(insertionRow, replacementRows.length),
-    replacementRows
-  );
   applyAccountValidationToRowNumbers_(sheet, buildSequentialRowNumbers_(insertionRow, replacementRows.length));
 }
 
@@ -315,7 +308,6 @@ function hideSheetIfVisible_(sheet) {
 
 function writeSheet_(sheet, headers, rows) {
   sheet.clearContents();
-  sheet.clearFormats();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);

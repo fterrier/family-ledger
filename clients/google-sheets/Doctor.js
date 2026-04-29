@@ -151,7 +151,6 @@ function applyDoctorIssuesToSheetRowNumbers_(sheet, rowNumbers, rows) {
   rowNumbers.forEach(function(rowNumber, index) {
     sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
   });
-  applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows);
 }
 
 function writeDoctorIssueSheet_(sheet, rows) {

@@ -60,6 +60,7 @@ module.exports = [
         loadAccountsFromApi_: 'readonly',
         maskToken_: 'readonly',
         mergeFetchedDoctorIssuesIntoRows_: 'readonly',
+        absDecimalString_: 'readonly',
         negateDecimalString_: 'readonly',
         normalizeApiToken_: 'readonly',
         normalizeBaseUrl_: 'readonly',
@@ -89,7 +90,7 @@ module.exports = [
         'error',
         {
           varsIgnorePattern:
-            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog|showQuickFilter|getTransactionFilterYears|applyTransactionQuickFilter|clearTransactionQuickFilter)$',
+            '^(onOpen|handleTransactionEdit|setFamilyLedgerBaseUrl|setFamilyLedgerApiToken|showFamilyLedgerSettings|testFamilyLedgerConnection|syncFamilyLedgerAccounts|syncFamilyLedgerTransactions|pushActiveTransaction|resetSheetLayouts|showImportDialog|getImportersForDialog|getAccountsForDialog|runImportFromDialog|showQuickFilter|getQuickFilterSidebarData|applyTransactionQuickFilter|clearTransactionQuickFilter|applyTransactionAccountFilter|clearTransactionAccountFilter)$',
           caughtErrorsIgnorePattern: '^_',
         },
       ],

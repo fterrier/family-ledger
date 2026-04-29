@@ -860,10 +860,6 @@ test('applyFetchedDoctorIssuesToExistingSheet_ clears stale issues and reapplies
   sandbox.applyFetchedDoctorIssuesToExistingSheet_(fakeSheet, {});
 
   assert.equal(rowStore.get(2).issues, '');
-  assert.equal(
-    operations.some((operation) => operation.type === 'setBackgrounds' || operation.type === 'setBackground'),
-    true
-  );
 });
 
 test('flattenTransactionForSheet_ renders source-only transactions as one blank-destination row', () => {
@@ -954,18 +950,6 @@ test('flattenTransactionForSheet_ shows abs amount for source-only with positive
   assert.equal(rows[0].amount, 5524.65);
 });
 
-test('buildTransactionRowBackgrounds_ highlights rows with doctor issues only', () => {
-  const { sandbox } = loadCode();
-
-  const withIssues = sandbox.buildTransactionRowBackgrounds_({ issues: 'transaction_unbalanced (...)' });
-  const withoutIssues = sandbox.buildTransactionRowBackgrounds_({ issues: '' });
-
-  assert.equal(withIssues.every((color) => color === '#fee2e2'), true);
-  assert.equal(withoutIssues[0], '#ffffff');
-  assert.equal(withoutIssues[1], '#f3f4f6');
-  assert.equal(withoutIssues[2], '#ffffff');
-  assert.equal(withoutIssues[10], '#f9fafb');
-});
 
 test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in sheet row order', () => {
   const { sandbox } = loadCode();
@@ -1302,13 +1286,11 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   assert.equal(operations[0].type, 'insertRowsAfter');
   assert.equal(operations[1].type, 'setValues');
-  assert.equal(operations[2].type, 'setBackgrounds');
-  assert.equal(operations[3].type, 'setValues');
-  assert.equal(operations[4].type, 'setBackgrounds');
-  assert.equal(operations[5].type, 'applyValidation');
-  assert.equal(operations[6].type, 'activate');
-  assert.equal(operations[6].row, 3);
-  assert.equal(operations[6].column, 9);
+  assert.equal(operations[2].type, 'setValues');
+  assert.equal(operations[3].type, 'applyValidation');
+  assert.equal(operations[4].type, 'activate');
+  assert.equal(operations[4].row, 3);
+  assert.equal(operations[4].column, 9);
   assert.equal(rowStore.get(2).amount, 64.25);
   assert.equal(rowStore.get(2).split_off_amount, '');
   assert.equal(rowStore.get(3).amount, 20);

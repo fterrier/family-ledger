@@ -11,19 +11,25 @@ The spreadsheet is a client of the API. It is not the source of truth.
 
 ## What It Can Edit
 
-The current Sheets workflow supports transactions that look like:
-- one source posting
-- zero or more destination postings
-- one symbol across the transaction
-- no cost or price data
+The Sheets workflow classifies each transaction's postings by account type, not by posting sign:
 
-In practice, this fits:
-- bank/card spending
-- source-only imported transactions awaiting categorization
-- transfers to another account
-- split categorization of one outgoing
+- **Source** = the Assets or Liabilities posting (balance-sheet account, marker `[A]` or `[L]`).
+  If several balance-sheet accounts are present, the one with a negative amount is preferred so destination amounts appear positive.
+  If no balance-sheet account is found, the single negative posting is used as source (old rule, preserved as fallback).
+- **Destinations** = all remaining postings.
+- **Amounts** are shown as the destination posting amounts directly; they can be negative (e.g. income rows where the Income account appears as destination).
 
-Unsupported transaction shapes are skipped during sync and reported back in the sync summary.
+Supported shapes:
+- Normal spending: `[A]Bank −X` → `[X]Expense +X` (source=Bank, amount positive)
+- Income: `[I]Salary −X` → `[A]Bank +X` (source=Bank, destination=Salary with negative amount)
+- Transfer: `[A]Checking −X` → `[A]Savings +X` (source=Checking, negative balance-sheet preferred)
+- Source-only: one balance-sheet posting, no destinations (shows with blank destination, positive amount)
+- Zero postings: renders as a placeholder row with blank financial fields
+- Multi-destination splits: one source, several destination postings
+
+One symbol across the transaction is required; cost and price data are not supported.
+
+Transactions that cannot be classified (e.g. two positive flow-account postings with no balance-sheet account) are skipped during sync and reported in the sync summary.
 
 ## Requirements
 
@@ -140,6 +146,25 @@ The marker indicates the account root:
 - `[I]` Income
 - `[Q]` Equity
 
+## Quick Filter
+
+`Family Ledger → Quick Filter` opens a sidebar for narrowing the visible rows.
+
+**Date section** — filter by year or custom month range:
+- Click year buttons to select one or a contiguous range of years.
+- Use the `From` / `To` month pickers for a custom range.
+- Year buttons and month pickers stay in sync.
+
+**Account section** — filter by account with cascading dropdowns:
+- The first dropdown lists account types (`Assets`, `Liabilities`, `Expenses`, `Income`, `Equity`).
+- Each subsequent dropdown narrows to the next level of the hierarchy.
+- The filter matches on both the source *and* destination account columns (OR logic), so any row touching the selected account is included.
+- Select `No account set` to show only rows with a blank destination account.
+
+Filter state persists: the sidebar restores the previous filter when reopened.
+
+`Clear all` removes all filter criteria.
+
 ## Daily Use
 
 Normal flow:
@@ -149,10 +174,13 @@ Normal flow:
 4. Watch `status` and `issues` during normal use.
 
 For splits:
-1. Either reduce the row `amount`, or enter a positive value in `split_off_amount`.
+1. Either change the row `amount`, or enter a value in `split_off_amount`.
 2. The script inserts a sibling row automatically.
-3. The new row starts with the same destination account as the original row.
-4. Change the new row's `destination_account_name` if needed.
+3. The invariant is: the two resulting pieces must sum to the original amount. Neither piece may be zero.
+4. The new row starts with the same destination account as the original row.
+5. Change the new row's `destination_account_name` if needed.
+
+Split amounts can be of any sign. A positive split amount on a negative-amount row (e.g. an income row) is allowed, and vice versa, as long as neither resulting piece is zero.
 
 To delete a split row:
 1. Enter `x` or `-` in `split_off_amount`.
@@ -177,9 +205,9 @@ Transient save failures still use `status=error` and `last_error` without applyi
 `last_error` is kept as a hidden technical column next to `status`.
 The sheet refreshes doctor issues separately after sync and after each successful save.
 
-Imported transaction totals are fixed:
-- reducing an `amount` creates a split for the difference
-- increasing an `amount` is rejected and the old value is restored
+Imported transaction totals follow the split invariant:
+- changing an `amount` (up or down) creates a split for the difference; the two pieces must sum to the original and neither can be zero
+- if the resulting split-off amount would be zero the edit is rejected
 - invalid `split_off_amount` commands are cleared immediately
 
 Source-only transactions behave differently:
@@ -279,9 +307,8 @@ If a save fails:
 - use `Push Active Transaction` as a fallback retry
 
 If an `amount` edit is rejected:
-- imported transaction totals are fixed
-- reduce an amount to split it
-- direct increases are not allowed
+- the resulting split-off amount would be zero (both pieces must be non-zero)
+- or the row is source-only (amount edits are not allowed while destination is blank)
 
 If a `split_off_amount` command is rejected:
 - the helper cell is cleared immediately

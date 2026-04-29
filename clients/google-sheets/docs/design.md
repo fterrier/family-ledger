@@ -6,17 +6,35 @@ This document records the current design choices for the Google Sheets client.
 
 ## Supported Transaction Family
 
-The client is intentionally narrow. It supports transactions with:
-- exactly one source posting
-- zero or more destination postings
-- one symbol across the transaction
-- no cost or price data
+The client classifies transactions by account type, not by posting sign.
 
-This matches the current target workflow:
-- bank/card outgoing categorization
-- source-only imported transactions awaiting categorization
-- transfers to another account
-- split allocation of one outgoing across multiple destinations
+**Source selection:**
+- The source posting is the Assets or Liabilities posting (marker `[A]` or `[L]`).
+- When multiple balance-sheet accounts exist, the one with a negative amount is preferred (so that destination amounts appear positive — e.g. a transfer from Checking to Savings).
+- If no balance-sheet account is found, the fallback is the single negative posting (classic rule). If there is still no unambiguous source, the transaction is rejected.
+
+**Destination postings:**
+- All postings other than the source are destinations.
+- Destination amounts are written to the sheet as-is and may be negative. A negative destination amount naturally arises for income transactions, where an Income account (negative Beancount balance) is the destination and the bank is the source.
+
+**Amount display:**
+- For source-only transactions (no destinations): the displayed amount is the absolute value of the source posting.
+- For zero-posting transactions: a placeholder row is rendered with blank financial fields.
+
+**Accepted shapes:**
+| Shape | Source | Destinations | Notes |
+|---|---|---|---|
+| Normal spending | `[A]Bank −X` | `[X]Expense +X` | amount positive |
+| Income | `[A]Bank +X` | `[I]Salary −X` | amount negative |
+| Transfer | `[A]Checking −X` | `[A]Savings +X` | negative balance-sheet preferred |
+| Source-only | single balance-sheet posting | none | blank destination row |
+| Zero postings | none | none | placeholder row |
+| Multi-destination | one balance-sheet | many | split model |
+
+**Rejected shapes:**
+- Two positive flow-account postings with no balance-sheet account (ambiguous source)
+- Mixed symbols
+- Postings with cost or price data
 
 Unsupported transactions are skipped during sync rather than rendered into an ambiguous editing model.
 
@@ -104,9 +122,11 @@ If the helper command is invalid:
 
 This keeps the user in-sheet and avoids prompt-based workflows as the primary interaction model.
 
-Direct `amount` edits for imported transactions follow the same fixed-total model:
-- lowering an amount creates a split for the difference
-- increasing an amount is rejected and restored
+Direct `amount` edits for imported transactions follow the same invariant:
+- any change (increase or decrease) creates a split for the difference
+- the two resulting pieces must sum to the original; neither may be zero
+- a degenerate edit (new amount equals original, or new amount equals zero) is rejected
+- split amounts may cross sign boundaries: a positive `split_off_amount` on a negative-amount row is valid if neither resulting piece is zero, and vice versa
 
 For source-only transactions:
 - the transaction renders as one row with a blank destination account
@@ -114,6 +134,27 @@ For source-only transactions:
 - deleting the last destination row returns the transaction to source-only state
 - direct `amount` edits are rejected
 - split commands are rejected
+
+## Quick Filter Sidebar
+
+`Family Ledger → Quick Filter` opens a persistent sidebar. It applies a native Google Sheets `BasicFilter` with `whenFormulaSatisfied()` criteria to the transaction sheet without altering any data.
+
+**Date filter:**
+- Year buttons select a contiguous range of years; clicking the same year twice deselects it.
+- Month pickers set an arbitrary `YYYY-MM` range.
+- Year buttons and month pickers stay in sync: selecting a year range sets the month inputs to January–December of that range.
+- The filter applies a regex on the `transaction_date` column.
+
+**Account filter:**
+- A cascading set of dropdowns navigates the account hierarchy (type → sub-account → ...).
+- The applied formula is an OR across both the `source_account_name` and `destination_account_name` columns, so a row is included if either account matches.
+- At the type level, `LEFT(E2,4)="[X] "` style matching is used.
+- At sub-levels, both exact-match and prefix-match clauses are OR-ed to include the account itself and all its children.
+- The `No account set` option filters for rows with a blank destination account using `=F2=""`.
+
+**Persistence:**
+- The active filter is stored in Google Sheets document properties (`QUICK_FILTER_FROM`, `QUICK_FILTER_TO`, `QUICK_FILTER_ACCOUNT_PREFIX`).
+- On sidebar open, the persisted state is fetched in a single `getQuickFilterSidebarData()` call alongside the available years and account names.
 
 ## Save Behavior
 

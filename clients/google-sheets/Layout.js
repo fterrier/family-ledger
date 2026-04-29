@@ -32,27 +32,63 @@ function ensureAccountIssueFormulas_(sheet, rowCount) {
 
 function ensureIssueConditionalFormatting_(sheet, headers) {
   const issueColumnLetter = columnNumberToLetter_(headers.indexOf('issues') + 1);
-  const ruleFormula = '=$' + issueColumnLetter + '2<>""';
-  const range = sheet.getRange(2, 1, Math.max(sheet.getMaxRows() - 1, 1), headers.length);
+  const issueFormula = '=$' + issueColumnLetter + '2<>""';
+  const totalRows = sheet.getMaxRows();
+  const fullRange = sheet.getRange(2, 1, Math.max(totalRows - 1, 1), headers.length);
+
+  const roleColumns = {};
+  headers.forEach(function(header, index) {
+    const layout = FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT[header];
+    if (!layout) { return; }
+    if (!roleColumns[layout.role]) { roleColumns[layout.role] = []; }
+    roleColumns[layout.role].push(index + 1);
+  });
+
+  const managedFormulas = new Set([issueFormula]);
+  Object.keys(roleColumns).forEach(function(role) {
+    const cols = roleColumns[role];
+    const formula = cols.length === 1
+      ? '=COLUMN()=' + cols[0]
+      : '=OR(' + cols.map(function(c) { return 'COLUMN()=' + c; }).join(',') + ')';
+    managedFormulas.add(formula);
+  });
+
   const existingRules = sheet.getConditionalFormatRules();
   const preservedRules = existingRules.filter(function(rule) {
     const condition = rule.getBooleanCondition && rule.getBooleanCondition();
-    if (!condition || typeof condition.getCriteriaType !== 'function') {
-      return true;
-    }
-    if (condition.getCriteriaType() !== SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) {
-      return true;
-    }
+    if (!condition || typeof condition.getCriteriaType !== 'function') { return true; }
+    if (condition.getCriteriaType() !== SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA) { return true; }
     const values = condition.getCriteriaValues();
-    return !values || values.length === 0 || String(values[0]) !== ruleFormula;
+    if (!values || values.length === 0) { return true; }
+    return !managedFormulas.has(String(values[0]));
   });
+
   preservedRules.push(
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(ruleFormula)
+      .whenFormulaSatisfied(issueFormula)
       .setBackground(FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR)
-      .setRanges([range])
+      .setRanges([fullRange])
       .build()
   );
+
+  Object.keys(roleColumns).forEach(function(role) {
+    const cols = roleColumns[role];
+    const color = FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[role];
+    const formula = cols.length === 1
+      ? '=COLUMN()=' + cols[0]
+      : '=OR(' + cols.map(function(c) { return 'COLUMN()=' + c; }).join(',') + ')';
+    const ranges = cols.map(function(col) {
+      return sheet.getRange(2, col, Math.max(totalRows - 1, 1), 1);
+    });
+    preservedRules.push(
+      SpreadsheetApp.newConditionalFormatRule()
+        .whenFormulaSatisfied(formula)
+        .setBackground(color)
+        .setRanges(ranges)
+        .build()
+    );
+  });
+
   sheet.setConditionalFormatRules(preservedRules);
 }
 
@@ -65,32 +101,6 @@ function columnNumberToLetter_(columnNumber) {
     value = Math.floor((value - 1) / 26);
   }
   return result;
-}
-
-function applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, rows) {
-  rowNumbers.forEach(function(rowNumber, index) {
-    const range = sheet.getRange(rowNumber, 1, 1, FAMILY_LEDGER_TRANSACTION_HEADERS.length);
-    if (typeof range.setBackgrounds === 'function') {
-      range.setBackgrounds([buildTransactionRowBackgrounds_(rows[index] || {})]);
-      return;
-    }
-    const backgrounds = buildTransactionRowBackgrounds_(rows[index] || {});
-    backgrounds.forEach(function(color, backgroundIndex) {
-      const cell = sheet.getRange(rowNumber, backgroundIndex + 1);
-      if (cell && typeof cell.setBackground === 'function') {
-        cell.setBackground(color);
-      }
-    });
-  });
-}
-
-function buildTransactionRowBackgrounds_(row) {
-  const hasIssues = String((row && row.issues) || '').trim() !== '';
-  return FAMILY_LEDGER_TRANSACTION_HEADERS.map(function(header) {
-    const layout = FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT[header];
-    const baseColor = layout ? FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[layout.role] : '#ffffff';
-    return hasIssues ? FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR : baseColor;
-  });
 }
 
 function applyTransactionSheetLayout_(sheet, rows) {
@@ -106,17 +116,12 @@ function applyTransactionSheetLayout_(sheet, rows) {
       .getRange(1, column)
       .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.header[layout.role])
       .setFontWeight('bold');
-    if (rows.length > 0) {
-      sheet
-        .getRange(2, column, rows.length, 1)
-        .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[layout.role]);
-    }
   });
 
-  applyTransactionSheetColumnFormatting_(sheet, rows.length);
+  applyTransactionSheetColumnFormatting_(sheet);
 }
 
-function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
+function applyTransactionSheetColumnFormatting_(sheet) {
   const dateColumn = getTransactionHeaderColumnIndex_('transaction_date');
   const payeeColumn = getTransactionHeaderColumnIndex_('payee');
   const narrationColumn = getTransactionHeaderColumnIndex_('narration');
@@ -134,26 +139,27 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
   if (totalSheetRows > 1) {
     sheet.getRange(2, dateColumn, totalSheetRows - 1, 1).setNumberFormat('yyyy-mm-dd');
   }
-  sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
-  sheet.getRange(1, narrationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
-  sheet.getRange(1, sourceColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
-  sheet.getRange(1, destinationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
-  sheet.getRange(1, symbolColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('center');
-  sheet.getRange(1, amountColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
-  sheet.getRange(1, splitColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('right');
-  sheet.getRange(1, statusColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('center');
-  sheet.getRange(1, issuesColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(false);
-  sheet.getRange(1, lastErrorColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(true);
+  sheet.getRange(1, payeeColumn, totalSheetRows, 1).setHorizontalAlignment('left').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
+  sheet.getRange(1, narrationColumn, totalSheetRows, 1).setHorizontalAlignment('left');
+  sheet.getRange(1, sourceColumn, totalSheetRows, 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, destinationColumn, totalSheetRows, 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, symbolColumn, totalSheetRows, 1).setHorizontalAlignment('center');
+  sheet.getRange(1, amountColumn, totalSheetRows, 1).setHorizontalAlignment('right');
+  sheet.getRange(1, splitColumn, totalSheetRows, 1).setHorizontalAlignment('right');
+  sheet.getRange(1, statusColumn, totalSheetRows, 1).setHorizontalAlignment('center');
+  sheet.getRange(1, issuesColumn, totalSheetRows, 1).setHorizontalAlignment('left').setWrap(false);
+  sheet.getRange(1, lastErrorColumn, totalSheetRows, 1).setHorizontalAlignment('left').setWrap(true);
 }
 
-function applyAccountsSheetLayout_(sheet, rowCount) {
+function applyAccountsSheetLayout_(sheet) {
+  const totalSheetRows = sheet.getMaxRows();
   sheet.getRange(1, 1, 1, 3).setFontWeight('bold').setBackground('#e5e7eb');
   sheet.setColumnWidth(1, 320);
   sheet.setColumnWidth(2, 180);
   sheet.setColumnWidth(3, 420);
-  sheet.getRange(1, 1, Math.max(rowCount + 1, 1), 1).setWrap(false).setHorizontalAlignment('left');
-  sheet.getRange(1, 2, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
-  sheet.getRange(1, 3, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrap(true);
+  sheet.getRange(1, 1, totalSheetRows, 1).setWrap(false).setHorizontalAlignment('left');
+  sheet.getRange(1, 2, totalSheetRows, 1).setHorizontalAlignment('left');
+  sheet.getRange(1, 3, totalSheetRows, 1).setHorizontalAlignment('left').setWrap(true);
   sheet.getRange(1, 1).setNote('Visible account label used in the Transactions sheet.');
   sheet.getRange(1, 2).setNote('Technical resource name used by the client.');
   sheet.getRange(1, 3).setNote('Derived ledger doctor issues linked by account resource name.');

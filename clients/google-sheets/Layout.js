@@ -129,9 +129,10 @@ function applyTransactionSheetColumnFormatting_(sheet, rowCount) {
   const issuesColumn = getTransactionHeaderColumnIndex_('issues');
   const lastErrorColumn = getTransactionHeaderColumnIndex_('last_error');
 
-  sheet.getRange(1, dateColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');
-  if (rowCount > 0) {
-    sheet.getRange(2, dateColumn, rowCount, 1).setNumberFormat('yyyy-mm-dd');
+  const totalSheetRows = sheet.getMaxRows();
+  sheet.getRange(1, dateColumn, totalSheetRows, 1).setHorizontalAlignment('left');
+  if (totalSheetRows > 1) {
+    sheet.getRange(2, dateColumn, totalSheetRows - 1, 1).setNumberFormat('yyyy-mm-dd');
   }
   sheet.getRange(1, payeeColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left').setWrapStrategy(SpreadsheetApp.WrapStrategy.CLIP);
   sheet.getRange(1, narrationColumn, Math.max(rowCount + 1, 1), 1).setHorizontalAlignment('left');

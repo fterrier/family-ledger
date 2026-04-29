@@ -180,6 +180,9 @@ function loadCode(overrides = {}) {
           setProperty(key, value) {
             documentProperties.set(key, value);
           },
+          deleteProperty(key) {
+            documentProperties.delete(key);
+          },
         };
       },
       ...overrides.PropertiesService,
@@ -455,15 +458,6 @@ test('pathWithUpdatedPageToken_ preserves query parameters and replaces page_tok
   );
 });
 
-test('decimal helpers keep exact semantics', () => {
-  const { sandbox } = loadCode();
-
-  assert.equal(sandbox.normalizeDecimalString_('0010.5000'), '10.5');
-  assert.equal(sandbox.sumDecimalStrings_(['50.00', '34.25', '-4.25']), '80');
-  assert.equal(sandbox.subtractDecimalStrings_('84.25', '34.25'), '50');
-  assert.equal(sandbox.negateDecimalString_('84.25'), '-84.25');
-  assert.equal(sandbox.compareDecimalStrings_('10', '2'), 1);
-});
 
 test('maskToken_ masks short and long tokens', () => {
   const { sandbox } = loadCode();
@@ -600,6 +594,92 @@ test('classifySupportedTransaction_ accepts simple outgoing transaction', () => 
     destinationIndexes: [1],
     symbol: 'CHF',
   });
+});
+
+test('classifySupportedTransaction_ accepts zero postings', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({ postings: [] });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
+    sourceIndex: null,
+    destinationIndexes: [],
+    symbol: null,
+  });
+});
+
+test('classifySupportedTransaction_ uses balance-sheet account as source for income transaction', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({
+    postings: [
+      { account: 'accounts/salary', units: { amount: '-5000', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/bank', units: { amount: '5000', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/salary': '[I] Salary',
+    'accounts/bank': '[A] Bank',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
+    sourceIndex: 1,
+    destinationIndexes: [0],
+    symbol: 'CHF',
+  });
+});
+
+test('classifySupportedTransaction_ accepts single positive balance-sheet posting', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({
+    postings: [
+      { account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/savings': '[A] Savings',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
+    sourceIndex: 0,
+    destinationIndexes: [],
+    symbol: 'CHF',
+  });
+});
+
+test('classifySupportedTransaction_ prefers negative balance-sheet account as source for transfers', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/savings', units: { amount: '100', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/checking': '[A] Checking',
+    'accounts/savings': '[A] Savings',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
+    sourceIndex: 0,
+    destinationIndexes: [1],
+    symbol: 'CHF',
+  });
+});
+
+test('classifySupportedTransaction_ rejects two positive postings with no balance-sheet account', () => {
+  const { sandbox } = loadCode();
+
+  const shape = sandbox.classifySupportedTransaction_({
+    postings: [
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/household', units: { amount: '50', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/food': '[X] Food',
+    'accounts/household': '[X] Household',
+  });
+
+  assert.equal(shape, null);
 });
 
 test('formatAccountDisplayName_ shortens canonical account names with root markers', () => {
@@ -766,7 +846,7 @@ test('applyFetchedDoctorIssuesToExistingSheet_ clears stale issues and reapplies
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '84.25',
+      amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
       status: 'saved',
@@ -808,7 +888,70 @@ test('flattenTransactionForSheet_ renders source-only transactions as one blank-
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].destination_account_name, '');
-  assert.equal(rows[0].amount, '1.5');
+  assert.equal(rows[0].amount, 1.5);
+});
+
+test('flattenTransactionForSheet_ renders zero-posting transactions as a placeholder row', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_empty',
+    transaction_date: '2025-01-01',
+    payee: '',
+    narration: 'No postings yet',
+    postings: [],
+  }, {});
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source_account_name, '');
+  assert.equal(rows[0].destination_account_name, '');
+  assert.equal(rows[0].amount, '');
+  assert.equal(rows[0].symbol, '');
+});
+
+test('flattenTransactionForSheet_ uses balance-sheet account as source with negative destination for income', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2026-01-31',
+    payee: '',
+    narration: 'Monthly salary',
+    postings: [
+      { account: 'accounts/salary', units: { amount: '-5000', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/bank', units: { amount: '5000', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/salary': '[I] Salary',
+    'accounts/bank': '[A] Bank',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source_account_name, '[A] Bank');
+  assert.equal(rows[0].destination_account_name, '[I] Salary');
+  assert.equal(rows[0].amount, -5000);
+  assert.equal(rows[0].symbol, 'CHF');
+});
+
+test('flattenTransactionForSheet_ shows abs amount for source-only with positive balance-sheet posting', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2025-03-18',
+    payee: '',
+    narration: 'Incomplete transfer',
+    postings: [
+      { account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/savings': '[A] Savings',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source_account_name, '[A] Savings');
+  assert.equal(rows[0].destination_account_name, '');
+  assert.equal(rows[0].amount, 5524.65);
 });
 
 test('buildTransactionRowBackgrounds_ highlights rows with doctor issues only', () => {
@@ -838,7 +981,7 @@ test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in
         narration: 'Groceries split',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Household',
-        amount: '34.25',
+        amount: 34.25,
         symbol: 'CHF',
         __rowNumber: 4,
       },
@@ -849,7 +992,7 @@ test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in
         narration: 'Groceries split',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '50.00',
+        amount: 50,
         symbol: 'CHF',
         __rowNumber: 5,
       },
@@ -895,7 +1038,7 @@ test('buildTransactionPatchPayloadFromGroup_ normalizes Sheets date objects to y
         narration: 'Groceries',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '84.25',
+        amount: 84.25,
         symbol: 'CHF',
         __rowNumber: 2,
       },
@@ -922,7 +1065,7 @@ test('buildTransactionPatchPayloadFromGroup_ rejects inconsistent narration', ()
         narration: 'A',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '50',
+        amount: 50,
         symbol: 'CHF',
         __rowNumber: 2,
       },
@@ -933,7 +1076,7 @@ test('buildTransactionPatchPayloadFromGroup_ rejects inconsistent narration', ()
         narration: 'B',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Household',
-        amount: '34.25',
+        amount: 34.25,
         symbol: 'CHF',
         __rowNumber: 3,
       },
@@ -959,7 +1102,7 @@ test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when 
         narration: 'Guthabenzins: Guthabenzins',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: '',
-        amount: '1.5',
+        amount: 1.5,
         symbol: 'CHF',
         __rowNumber: 2,
       },
@@ -995,7 +1138,7 @@ test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank d
         narration: 'Groceries',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: '',
-        amount: '50',
+        amount: 50,
         symbol: 'CHF',
         __rowNumber: 2,
       },
@@ -1006,7 +1149,7 @@ test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank d
         narration: 'Groceries',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '34.25',
+        amount: 34.25,
         symbol: 'CHF',
         __rowNumber: 3,
       },
@@ -1015,6 +1158,41 @@ test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank d
     'Assets:Bank:Checking': 'accounts/source',
     'Expenses:Food': 'accounts/food',
   }), /must either all have destination accounts or all leave destination_account_name blank/);
+});
+
+test('buildTransactionPatchPayloadFromGroup_ accepts negative destination amounts for income rows', () => {
+  const { sandbox } = loadCode();
+
+  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
+    transactionName: 'transactions/txn_income',
+    contiguous: true,
+    rows: [
+      {
+        transaction_name: 'transactions/txn_income',
+        transaction_date: '2026-01-31',
+        payee: '',
+        narration: 'Monthly salary',
+        source_account_name: '[A] Bank',
+        destination_account_name: '[I] Salary',
+        amount: -5000,
+        symbol: 'CHF',
+        __rowNumber: 2,
+      },
+    ],
+  }, {
+    '[A] Bank': 'accounts/bank',
+    '[I] Salary': 'accounts/salary',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
+    transaction_date: '2026-01-31',
+    payee: null,
+    narration: 'Monthly salary',
+    postings: [
+      { account: 'accounts/bank', units: { amount: '5000', symbol: 'CHF' } },
+      { account: 'accounts/salary', units: { amount: '-5000', symbol: 'CHF' } },
+    ],
+  });
 });
 
 test('buildTransactionSyncSummaryMessage_ reports synced rows and skipped transactions', () => {
@@ -1085,7 +1263,7 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '84.25',
+      amount: 84.25,
       split_off_amount: '20',
       symbol: 'CHF',
       status: '',
@@ -1131,11 +1309,88 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   assert.equal(operations[6].type, 'activate');
   assert.equal(operations[6].row, 3);
   assert.equal(operations[6].column, 9);
-  assert.equal(rowStore.get(2).amount, '64.25');
+  assert.equal(rowStore.get(2).amount, 64.25);
   assert.equal(rowStore.get(2).split_off_amount, '');
-  assert.equal(rowStore.get(3).amount, '20');
+  assert.equal(rowStore.get(3).amount, 20);
   assert.equal(rowStore.get(3).destination_account_name, 'Expenses:Food');
   assert.equal(rowStore.get(3).split_off_amount, '');
+});
+
+test('performSplitForRow_ splits a negative-amount row using a positive split amount', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_income',
+      transaction_date: '2026-01-31',
+      payee: '',
+      narration: 'Monthly salary',
+      source_account_name: '[A] Bank',
+      destination_account_name: '[I] Salary',
+      amount: -5000,
+      split_off_amount: '2000',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return { getRow() { return 3; }, getColumn() { return 9; } };
+  };
+  fakeSheet.getRange = function(row, column, numRows) {
+    if (numRows === undefined) {
+      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
+    }
+    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows);
+  };
+  sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
+    operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
+  };
+
+  sandbox.performSplitForRow_(fakeSheet, 2, '2000');
+
+  assert.equal(rowStore.get(2).amount, -7000);
+  assert.equal(rowStore.get(3).amount, 2000);
+  assert.equal(rowStore.get(3).destination_account_name, '[I] Salary');
+});
+
+test('performSplitForRow_ writes 0 amount to sheet without coercing to blank', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: 84.25,
+      split_off_amount: '0',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return { getRow() { return 3; }, getColumn() { return 9; } };
+  };
+  fakeSheet.getRange = function(row, column, numRows) {
+    if (numRows === undefined) {
+      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
+    }
+    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows);
+  };
+  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+
+  sandbox.performSplitForRow_(fakeSheet, 2, '0');
+
+  assert.equal(rowStore.get(2).amount, 84.25);
+  assert.equal(rowStore.get(3).amount, 0);
 });
 
 test('focusPostEnterAfterInsert_ moves focus to the next row in the edited column', () => {
@@ -1250,7 +1505,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '50',
+      amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
       status: '',
@@ -1263,7 +1518,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Household',
-      amount: '34.25',
+      amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
       status: '',
@@ -1286,7 +1541,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
 
   sandbox.performDeleteSplitRow_(fakeSheet, 3);
 
-  assert.equal(rowStore.get(2).amount, '84.25');
+  assert.equal(rowStore.get(2).amount, 84.25);
   assert.match(JSON.stringify(operations), /deleteRow/);
 });
 
@@ -1299,7 +1554,7 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '84.25',
+      amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
       status: '',
@@ -1323,26 +1578,21 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
   sandbox.performDeleteSplitRow_(fakeSheet, 2);
 
   assert.equal(rowStore.get(2).destination_account_name, '');
-  assert.equal(rowStore.get(2).amount, '84.25');
+  assert.equal(rowStore.get(2).amount, 84.25);
   assert.equal(rowStore.get(2).status, 'dirty');
 });
 
-test('handleAmountEdit_ rejects direct increases and restores previous amount', () => {
-  const operations = [];
+test('handleAmountEdit_ delegates direct increases to performSplitFromEditedAmount_', () => {
+  const calls = [];
   const { sandbox } = loadCode();
-  const fakeSheet = {
-    getRange(row, column) {
-      return {
-        setValue(value) {
-          operations.push({ row: row, column: column, value: value });
-        },
-      };
-    },
+  sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
+    calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
   };
 
-  assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25'), /Imported transaction totals are fixed/);
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { row: 2, column: 8, value: '84.25' },
+  sandbox.handleAmountEdit_({}, 2, '90', '84.25');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { rowNumber: 2, oldAmount: 84.25, newAmount: 90 },
   ]);
 });
 
@@ -1356,7 +1606,7 @@ test('handleAmountEdit_ rejects edits for source-only transactions', () => {
       narration: 'Guthabenzins: Guthabenzins',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: '',
-      amount: '1.5',
+      amount: 1.5,
       split_off_amount: '',
       symbol: 'CHF',
       status: '',
@@ -1369,7 +1619,7 @@ test('handleAmountEdit_ rejects edits for source-only transactions', () => {
 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '1', '1.5'), /Amount cannot be edited/);
   assert.deepEqual(JSON.parse(JSON.stringify(operations)).filter((op) => op.type === 'setValue'), [
-    { type: 'setValue', row: 2, value: '1.5' },
+    { type: 'setValue', row: 2, value: 1.5 },
   ]);
 });
 
@@ -1403,7 +1653,23 @@ test('handleAmountEdit_ converts a decrease into a split of the difference', () 
   sandbox.handleAmountEdit_({}, 2, '50', '84.25');
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    { rowNumber: 2, oldAmount: '84.25', newAmount: '50' },
+    { rowNumber: 2, oldAmount: 84.25, newAmount: 50 },
+  ]);
+});
+
+test('applyTransactionEdit_ treats numeric 0 as a valid new amount for amount column', () => {
+  const calls = [];
+  const { sandbox } = loadCode();
+  sandbox.getTransactionNameForRow_ = function() { return 'transactions/txn_1'; };
+  sandbox.handleAmountEdit_ = function(_sheet, rowNumber, rawValue, oldRawValue) {
+    calls.push({ rowNumber: rowNumber, rawValue: rawValue, oldRawValue: oldRawValue });
+  };
+  sandbox.saveTransactionByName_ = function() {};
+
+  sandbox.applyTransactionEdit_({}, 2, 'amount', 0, '84.25', {});
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { rowNumber: 2, rawValue: 0, oldRawValue: '84.25' },
   ]);
 });
 
@@ -1428,6 +1694,22 @@ test('performSplitInstructionForRow_ treats x and - as delete instructions', () 
   ]);
 });
 
+test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_off_amount column', () => {
+  const calls = [];
+  const { sandbox } = loadCode();
+  sandbox.getTransactionNameForRow_ = function() { return 'transactions/txn_1'; };
+  sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
+    calls.push({ rowNumber: rowNumber, instruction: instruction });
+  };
+  sandbox.saveTransactionByName_ = function() {};
+
+  sandbox.applyTransactionEdit_({}, 5, 'split_off_amount', 0, '', {});
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    { rowNumber: 5, instruction: '0' },
+  ]);
+});
+
 test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {
   const rowStore = new Map([
     [2, {
@@ -1437,7 +1719,7 @@ test('performSplitInstructionForRow_ rejects splits for source-only transactions
       narration: 'Guthabenzins: Guthabenzins',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: '',
-      amount: '1.5',
+      amount: 1.5,
       split_off_amount: '',
       symbol: 'CHF',
       status: '',
@@ -1517,7 +1799,7 @@ test('areTransactionRowsEquivalentForRefresh_ ignores transient helper fields', 
           narration: 'Groceries',
           source_account_name: 'Assets:Bank:Checking',
           destination_account_name: 'Expenses:Food',
-          amount: '84.25',
+          amount: 84.25,
           split_off_amount: '10',
           symbol: 'CHF',
           status: 'saving',
@@ -1532,7 +1814,7 @@ test('areTransactionRowsEquivalentForRefresh_ ignores transient helper fields', 
           narration: 'Groceries',
           source_account_name: 'Assets:Bank:Checking',
           destination_account_name: 'Expenses:Food',
-          amount: '84.25',
+          amount: 84.25,
           split_off_amount: '',
           symbol: 'CHF',
           status: 'saved',
@@ -1557,7 +1839,7 @@ test('areTransactionRowsEquivalentForRefresh_ detects business-field differences
           narration: 'Groceries',
           source_account_name: 'Assets:Bank:Checking',
           destination_account_name: 'Expenses:Food',
-          amount: '84.25',
+          amount: 84.25,
           symbol: 'CHF',
         },
       ],
@@ -1569,7 +1851,7 @@ test('areTransactionRowsEquivalentForRefresh_ detects business-field differences
           narration: 'Groceries',
           source_account_name: 'Assets:Bank:Checking',
           destination_account_name: 'Expenses:Household',
-          amount: '84.25',
+          amount: 84.25,
           symbol: 'CHF',
         },
       ]
@@ -1602,7 +1884,7 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
         narration: 'Keep',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '84.25',
+        amount: 84.25,
         split_off_amount: '',
         symbol: 'CHF',
         status: 'saving',
@@ -1617,7 +1899,7 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
         narration: 'Keep',
         source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food',
-        amount: '84.25',
+        amount: 84.25,
         split_off_amount: '',
         symbol: 'CHF',
         status: 'saved',
@@ -1669,7 +1951,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '84.25',
+      amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
       status: 'dirty',
@@ -1713,7 +1995,7 @@ test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without 
       narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food',
-      amount: '84.25',
+      amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
       status: 'saved',
@@ -1773,18 +2055,7 @@ test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without 
   assert.equal(rowStore.get(2).last_error, '');
 });
 
-test('parseDateString_ converts yyyy-MM-dd string to midnight UTC Date', () => {
-  const { sandbox } = loadCode();
-
-  const d = sandbox.parseDateString_('2026-04-19');
-  assert.ok(d instanceof Date);
-  assert.equal(d.toISOString(), '2026-04-19T00:00:00.000Z');
-
-  assert.equal(sandbox.parseDateString_(''), null);
-  assert.equal(sandbox.parseDateString_('not-a-date'), null);
-});
-
-test('flattenTransactionForSheet_ produces Date objects for transaction_date', () => {
+test('flattenTransactionForSheet_ passes transaction_date string through unchanged', () => {
   const { sandbox } = loadCode();
 
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
@@ -1792,8 +2063,7 @@ test('flattenTransactionForSheet_ produces Date objects for transaction_date', (
     'accounts/food': 'Expenses:Food',
   });
 
-  assert.ok(rows[0].transaction_date instanceof Date);
-  assert.equal(rows[0].transaction_date.toISOString(), '2026-04-19T00:00:00.000Z');
+  assert.equal(rows[0].transaction_date, '2026-04-19');
 });
 
 test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API payload', () => {
@@ -1821,7 +2091,7 @@ test('ensureTransactionSheetFilter_ creates a filter covering all transaction co
   const rowStore = new Map([[2, {
     transaction_name: 'transactions/txn_1', transaction_date: new Date('2026-04-19T00:00:00.000Z'),
     payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking',
-    destination_account_name: 'Expenses:Food', amount: '84.25', split_off_amount: '',
+    destination_account_name: 'Expenses:Food', amount: 84.25, split_off_amount: '',
     symbol: 'CHF', status: '', issues: '', last_error: '',
   }]]);
   const { sandbox } = loadCode();
@@ -1904,7 +2174,7 @@ test('applyTransactionQuickFilter sets range formula for custom date range', () 
   assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)*100+MONTH(B2)>=202503,YEAR(B2)*100+MONTH(B2)<=202606)');
 });
 
-test('clearTransactionQuickFilter removes filter criteria from date column', () => {
+test('clearTransactionQuickFilter removes filter criteria from date, source, and destination columns', () => {
   const removed = [];
   const { sandbox } = loadCode({
     sheetsByName: {
@@ -1919,5 +2189,189 @@ test('clearTransactionQuickFilter removes filter criteria from date column', () 
 
   sandbox.clearTransactionQuickFilter();
 
-  assert.deepEqual(removed, [2]);
+  assert.deepEqual(removed, [2, 5, 6]);
+});
+
+test('getTransactionAccountNames returns sorted display names from Accounts sheet', () => {
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Accounts: {
+        getLastRow() { return 4; },
+        getRange(_row, _col, numRows) {
+          const rows = [['[X] Food - Groceries'], ['[A] Bank - Checking'], ['[X] Housing']];
+          return { getValues() { return rows.slice(0, numRows); } };
+        },
+      },
+    },
+  });
+
+  const names = sandbox.getTransactionAccountNames();
+  assert.deepEqual(JSON.parse(JSON.stringify(names)), ['[A] Bank - Checking', '[X] Food - Groceries', '[X] Housing']);
+});
+
+test('applyTransactionAccountFilter sets OR formula covering both account columns for type-level prefix', () => {
+  const filterCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return { setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); } };
+        },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionAccountFilter('[X]');
+
+  assert.equal(filterCriteria.length, 1);
+  assert.equal(filterCriteria[0].col, 5);
+  assert.equal(filterCriteria[0].criteria.formula, '=OR(LEFT(E2,4)="[X] ",LEFT(F2,4)="[X] ")');
+});
+
+test('applyTransactionAccountFilter sets OR formula covering both account columns for sub-level prefix', () => {
+  const filterCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return { setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); } };
+        },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionAccountFilter('[X] Food');
+
+  assert.equal(filterCriteria.length, 1);
+  assert.equal(filterCriteria[0].col, 5);
+  assert.equal(filterCriteria[0].criteria.formula, '=OR(E2="[X] Food",LEFT(E2,11)="[X] Food - ",F2="[X] Food",LEFT(F2,11)="[X] Food - ")');
+});
+
+test('applyTransactionAccountFilter sets blank destination formula', () => {
+  const filterCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return { setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); } };
+        },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionAccountFilter('__blank__');
+
+  assert.equal(filterCriteria.length, 1);
+  assert.equal(filterCriteria[0].col, 5);
+  assert.equal(filterCriteria[0].criteria.formula, '=F2=""');
+});
+
+test('applyTransactionAccountFilter persists prefix in document properties', () => {
+  const { sandbox, documentProperties } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionAccountFilter('[X]');
+
+  assert.equal(documentProperties.get('QUICK_FILTER_ACCOUNT_PREFIX'), '[X]');
+});
+
+test('clearTransactionAccountFilter removes source_account_name filter criteria', () => {
+  const removed = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() {
+          return { removeColumnFilterCriteria(col) { removed.push(col); } };
+        },
+      },
+    },
+  });
+
+  sandbox.clearTransactionAccountFilter();
+
+  assert.deepEqual(removed, [5]);
+});
+
+test('applyTransactionQuickFilter persists from/to in document properties', () => {
+  const { sandbox, documentProperties } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+        getRange() { return { createFilter() { return { setColumnFilterCriteria() {} }; } }; },
+      },
+    },
+  });
+
+  sandbox.applyTransactionQuickFilter('2025-03', '2025-12');
+
+  assert.equal(documentProperties.get('QUICK_FILTER_FROM'), '2025-03');
+  assert.equal(documentProperties.get('QUICK_FILTER_TO'), '2025-12');
+});
+
+test('clearTransactionQuickFilter clears all persisted filter state', () => {
+  const { sandbox, documentProperties } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria() {} }; },
+      },
+    },
+  });
+
+  documentProperties.set('QUICK_FILTER_FROM', '2025-01');
+  documentProperties.set('QUICK_FILTER_TO', '2025-12');
+  documentProperties.set('QUICK_FILTER_ACCOUNT_PREFIX', '[X]');
+
+  sandbox.clearTransactionQuickFilter();
+
+  assert.equal(documentProperties.has('QUICK_FILTER_FROM'), false);
+  assert.equal(documentProperties.has('QUICK_FILTER_TO'), false);
+  assert.equal(documentProperties.has('QUICK_FILTER_ACCOUNT_PREFIX'), false);
+});
+
+test('getQuickFilterSidebarData returns combined years, account names, and persisted filter state', () => {
+  const dates = [new Date(Date.UTC(2025, 5, 1))];
+  const { sandbox, documentProperties } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 2; },
+        getRange(_row, _col, numRows) {
+          return { getValues() { return dates.slice(0, numRows).map((d) => [d]); } };
+        },
+      },
+      Accounts: {
+        getLastRow() { return 2; },
+        getRange(_row, _col, numRows) {
+          return { getValues() { return [['[X] Food']].slice(0, numRows); } };
+        },
+      },
+    },
+  });
+
+  documentProperties.set('QUICK_FILTER_FROM', '2025-01');
+  documentProperties.set('QUICK_FILTER_TO', '2025-12');
+  documentProperties.set('QUICK_FILTER_ACCOUNT_PREFIX', '[X]');
+
+  const data = sandbox.getQuickFilterSidebarData();
+
+  assert.deepEqual(data.years, [2025]);
+  assert.deepEqual(JSON.parse(JSON.stringify(data.accountNames)), ['[X] Food']);
+  assert.equal(data.from, '2025-01');
+  assert.equal(data.to, '2025-12');
+  assert.equal(data.accountPrefix, '[X]');
 });

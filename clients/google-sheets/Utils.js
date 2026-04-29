@@ -60,15 +60,6 @@ function normalizeTransactionDate_(value) {
   return String(value || '').trim();
 }
 
-function parseDateString_(dateString) {
-  const parts = String(dateString || '').trim().split('-');
-  if (parts.length !== 3) return null;
-  const year = parseInt(parts[0], 10);
-  const month = parseInt(parts[1], 10);
-  const day = parseInt(parts[2], 10);
-  if (isNaN(year) || isNaN(month) || isNaN(day)) return null;
-  return new Date(Date.UTC(year, month - 1, day));
-}
 
 function uniqueNonBlankValues_(values) {
   const unique = [];

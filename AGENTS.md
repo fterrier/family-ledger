@@ -36,7 +36,8 @@ To ensure smooth "vibe coding" and high-quality contributions, follow these rule
 2. **Consult Core Docs First**: Before proposing architectural changes or large refactors, read the relevant files in `docs/` (especially `domain-model-v0.1.md` and `developer-guidelines-v0.1.md`).
 3. **Strict Typing**: This project enforces strict type checking (`basedpyright`). Use explicit type hints everywhere.
 4. **Test-Driven / Verified Changes**: Never assume your code works. After making changes, write tests and actively run `pytest` to verify them before telling the user the task is complete.
-5. **Small, Focused Edits**: Make targeted changes. Do not rewrite entire files unnecessarily or remove unrelated comments.
+5. **Regression Tests for Bug Fixes**: Every bug fix must be accompanied by a regression test that reproduces the original failure. The test must fail before the fix and pass after. This prevents the same bug from silently reappearing.
+6. **Small, Focused Edits**: Make targeted changes. Do not rewrite entire files unnecessarily or remove unrelated comments.
 
 ## Making Common Changes
 

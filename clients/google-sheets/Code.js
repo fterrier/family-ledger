@@ -79,11 +79,11 @@ function handleTransactionEdit(e) {
   });
 
   try {
-    applyTransactionEdit_(sheet, row, header, String(e.range.getValue() || ''), String(e.oldValue || ''), {
+    applyTransactionEdit_(sheet, row, header, e.range.getValue() ?? '', String(e.oldValue ?? ''), {
       showSuccessToast: true,
     });
   } catch (error) {
-    rollbackFailedEdit_(sheet, row, header, String(e.oldValue || ''));
+    rollbackFailedEdit_(sheet, row, header, String(e.oldValue ?? ''));
     handleAutomaticEditError_(sheet, transactionName, error);
   }
 }
@@ -95,7 +95,7 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
   }
 
   if (header === 'split_off_amount') {
-    const splitValue = String(rawValue || '').trim();
+    const splitValue = String(rawValue ?? '').trim();
     if (!splitValue) {
       return;
     }
@@ -315,13 +315,10 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
     throw new Error('Split is unavailable until a destination account is set.');
   }
 
-  const splitAmount = normalizeDecimalString_(rawSplitAmount);
-  const originalAmount = normalizeDecimalString_(row.amount);
-  if (compareDecimalStrings_(splitAmount, '0') <= 0) {
-    throw new Error('Split amount must be greater than zero.');
-  }
-  if (compareDecimalStrings_(splitAmount, originalAmount) >= 0) {
-    throw new Error('Split amount must be less than the selected row amount.');
+  const splitAmount = parseFloat(rawSplitAmount);
+  const originalAmount = row.amount;
+  if (splitAmount === originalAmount) {
+    throw new Error('Split amount must differ from the row amount.');
   }
 
   const newRow = cloneTransactionSheetRow_(row);
@@ -330,7 +327,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   newRow.status = 'dirty';
   newRow.last_error = '';
 
-  row.amount = subtractDecimalStrings_(originalAmount, splitAmount);
+  row.amount = originalAmount - splitAmount;
   row.split_off_amount = '';
   row.status = 'dirty';
   row.last_error = '';
@@ -342,24 +339,15 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   focusPostEnterAfterInsert_(sheet, rowNumber, getTransactionHeaderColumnIndex_('split_off_amount'));
 }
 
-function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmountRaw) {
+function performSplitFromEditedAmount_(sheet, rowNumber, oldAmount, newAmount) {
   const row = readTransactionSheetRow_(sheet, rowNumber);
   if (!row || !row.transaction_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
-
-  const oldAmount = normalizeDecimalString_(oldAmountRaw);
-  const newAmount = normalizeDecimalString_(newAmountRaw);
-  if (compareDecimalStrings_(newAmount, '0') <= 0) {
-    throw new Error('Imported transaction allocation amounts must be greater than zero.');
+  if (newAmount === oldAmount) {
+    throw new Error('Imported transaction totals are fixed. Change the amount to split the row.');
   }
-  if (compareDecimalStrings_(newAmount, oldAmount) >= 0) {
-    throw new Error(
-      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
-    );
-  }
-
-  const splitAmount = subtractDecimalStrings_(oldAmount, newAmount);
+  const splitAmount = oldAmount - newAmount;
   const newRow = cloneTransactionSheetRow_(row);
   newRow.amount = splitAmount;
   newRow.split_off_amount = '';
@@ -379,7 +367,7 @@ function performSplitFromEditedAmount_(sheet, rowNumber, oldAmountRaw, newAmount
 }
 
 function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
-  const normalizedInstruction = String(instruction || '').trim();
+  const normalizedInstruction = String(instruction ?? '').trim();
   if (!normalizedInstruction) {
     return;
   }
@@ -410,12 +398,7 @@ function performDeleteSplitRow_(sheet, rowNumber) {
   const currentIndex = rowNumbers.indexOf(rowNumber);
   const mergeTargetRowNumber = currentIndex > 0 ? rowNumbers[currentIndex - 1] : rowNumbers[currentIndex + 1];
   const mergeTarget = readTransactionSheetRow_(sheet, mergeTargetRowNumber);
-  const mergedAmount = sumDecimalStrings_([
-    normalizeDecimalString_(mergeTarget.amount),
-    normalizeDecimalString_(row.amount),
-  ]);
-
-  mergeTarget.amount = mergedAmount;
+  mergeTarget.amount = mergeTarget.amount + row.amount;
   mergeTarget.split_off_amount = '';
   mergeTarget.status = 'dirty';
   mergeTarget.last_error = '';
@@ -457,38 +440,24 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
     throw new Error('Amount cannot be edited until a destination account is set.');
   }
 
-  const oldAmount = String(oldRawValue || '').trim();
-  const newAmount = String(rawValue || '').trim();
-  if (!oldAmount) {
+  const oldAmount = parseFloat(oldRawValue);
+  const newAmount = parseFloat(rawValue);
+  if (isNaN(oldAmount)) {
     clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
     return;
   }
 
-  let normalizedOldAmount;
-  let normalizedNewAmount;
-  try {
-    normalizedOldAmount = normalizeDecimalString_(oldAmount);
-    normalizedNewAmount = normalizeDecimalString_(newAmount);
-  } catch {
-    restoreAmountCell_(sheet, rowNumber, normalizedFallbackAmount_(oldAmount));
-    throw new Error(
-      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
-    );
+  if (isNaN(newAmount)) {
+    restoreAmountCell_(sheet, rowNumber, normalizedFallbackAmount_(oldRawValue));
+    throw new Error('Invalid amount — enter a valid number.');
   }
 
-  const comparison = compareDecimalStrings_(normalizedNewAmount, normalizedOldAmount);
-  if (comparison === 0) {
+  if (newAmount === oldAmount) {
     clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
     return;
   }
-  if (comparison > 0) {
-    restoreAmountCell_(sheet, rowNumber, normalizedOldAmount);
-    throw new Error(
-      'Imported transaction totals are fixed. Reduce an amount to split it; direct increases are not allowed.'
-    );
-  }
 
-  performSplitFromEditedAmount_(sheet, rowNumber, normalizedOldAmount, normalizedNewAmount);
+  performSplitFromEditedAmount_(sheet, rowNumber, oldAmount, newAmount);
 }
 
 function restoreAmountCell_(sheet, rowNumber, amount) {
@@ -510,11 +479,8 @@ function rollbackFailedEdit_(sheet, rowNumber, header, oldValue) {
 }
 
 function normalizedFallbackAmount_(amount) {
-  try {
-    return normalizeDecimalString_(amount);
-  } catch {
-    return amount;
-  }
+  const n = parseFloat(amount);
+  return isNaN(n) ? '' : n;
 }
 
 function propagateTransactionField_(sheet, transactionName, header, value) {
@@ -646,9 +612,26 @@ function getSaveGenerationKey_(transactionName) {
 }
 
 function flattenTransactionForSheet_(transaction, accountNameLookup) {
-  const shape = classifySupportedTransaction_(transaction);
+  const shape = classifySupportedTransaction_(transaction, accountNameLookup);
   if (shape === null) {
     return null;
+  }
+
+  if (shape.sourceIndex === null) {
+    return [{
+      transaction_name: transaction.name,
+      transaction_date: transaction.transaction_date,
+      payee: transaction.payee || '',
+      narration: transaction.narration || '',
+      source_account_name: '',
+      destination_account_name: '',
+      amount: '',
+      split_off_amount: '',
+      symbol: '',
+      status: '',
+      issues: '',
+      last_error: '',
+    }];
   }
 
   const sourcePosting = transaction.postings[shape.sourceIndex];
@@ -658,12 +641,12 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   if (shape.destinationIndexes.length === 0) {
     return [{
       transaction_name: transaction.name,
-      transaction_date: parseDateString_(transaction.transaction_date),
+      transaction_date: transaction.transaction_date,
       payee: transaction.payee || '',
       narration: transaction.narration || '',
       source_account_name: sourceAccountName,
       destination_account_name: '',
-      amount: normalizeDecimalString_(negateDecimalString_(sourcePosting.units.amount)),
+      amount: Math.abs(parseFloat(sourcePosting.units.amount)),
       split_off_amount: '',
       symbol: sourcePosting.units.symbol,
       status: '',
@@ -676,12 +659,12 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
     const posting = transaction.postings[destinationIndex];
     return {
       transaction_name: transaction.name,
-      transaction_date: parseDateString_(transaction.transaction_date),
+      transaction_date: transaction.transaction_date,
       payee: transaction.payee || '',
       narration: transaction.narration || '',
       source_account_name: sourceAccountName,
       destination_account_name: accountNameLookup[posting.account] || posting.account,
-      amount: normalizeDecimalString_(posting.units.amount),
+      amount: parseFloat(posting.units.amount),
       split_off_amount: '',
       symbol: posting.units.symbol,
       status: '',
@@ -691,56 +674,56 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   });
 }
 
-function classifySupportedTransaction_(transaction) {
-  if (!transaction || !Array.isArray(transaction.postings) || transaction.postings.length < 1) {
+function classifySupportedTransaction_(transaction, accountNameLookup) {
+  if (!transaction || !Array.isArray(transaction.postings)) {
     return null;
   }
 
   const postings = transaction.postings;
-  let sourceIndex = null;
-  let symbol = null;
 
-  for (let index = 0; index < postings.length; index += 1) {
-    const posting = postings[index];
-    if (!posting.units || posting.cost || posting.price) {
-      return null;
-    }
-    if (symbol === null) {
-      symbol = posting.units.symbol;
-    } else if (symbol !== posting.units.symbol) {
-      return null;
-    }
-
-    const amount = normalizeDecimalString_(posting.units.amount);
-    if (compareDecimalStrings_(amount, '0') < 0) {
-      if (sourceIndex !== null) {
-        return null;
-      }
-      sourceIndex = index;
-    }
+  if (postings.length === 0) {
+    return { sourceIndex: null, destinationIndexes: [], symbol: null };
   }
 
-  if (sourceIndex === null) {
-    return null;
+  let symbol = null;
+  for (let i = 0; i < postings.length; i++) {
+    const p = postings[i];
+    if (!p.units || p.cost || p.price) return null;
+    if (symbol === null) symbol = p.units.symbol;
+    else if (symbol !== p.units.symbol) return null;
+  }
+
+  const lookup = accountNameLookup || {};
+  const balanceIndexes = [];
+  for (let i = 0; i < postings.length; i++) {
+    const name = lookup[postings[i].account] || '';
+    if (name.startsWith('[A]') || name.startsWith('[L]')) balanceIndexes.push(i);
+  }
+
+  let sourceIndex;
+  if (balanceIndexes.length > 0) {
+    let negativeBalanceIndex = -1;
+    for (let i = 0; i < balanceIndexes.length; i++) {
+      if (parseFloat(postings[balanceIndexes[i]].units.amount) < 0) { negativeBalanceIndex = balanceIndexes[i]; break; }
+    }
+    sourceIndex = negativeBalanceIndex >= 0 ? negativeBalanceIndex : balanceIndexes[0];
+  } else {
+    let negIndex = -1;
+    for (let i = 0; i < postings.length; i++) {
+      if (parseFloat(postings[i].units.amount) < 0) {
+        if (negIndex >= 0) return null;
+        negIndex = i;
+      }
+    }
+    if (negIndex < 0) return null;
+    sourceIndex = negIndex;
   }
 
   const destinationIndexes = [];
-  for (let index = 0; index < postings.length; index += 1) {
-    if (index === sourceIndex) {
-      continue;
-    }
-    const amount = normalizeDecimalString_(postings[index].units.amount);
-    if (compareDecimalStrings_(amount, '0') <= 0) {
-      return null;
-    }
-    destinationIndexes.push(index);
+  for (let i = 0; i < postings.length; i++) {
+    if (i !== sourceIndex) destinationIndexes.push(i);
   }
-
-  return {
-    sourceIndex: sourceIndex,
-    destinationIndexes: destinationIndexes,
-    symbol: symbol,
-  };
+  return { sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, symbol: symbol };
 }
 
 function describeTransactionForSyncSkip_(transaction) {
@@ -794,15 +777,9 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
       blankDestinationRowNumbers.push(displayRow);
     }
 
-    let amount;
-    try {
-      amount = normalizeDecimalString_(row.amount);
-    } catch (error) {
-      issues.push('Row ' + displayRow + ': ' + error.message);
-      return;
-    }
-    if (compareDecimalStrings_(amount, '0') <= 0) {
-      issues.push('Row ' + displayRow + ': amount must be greater than zero.');
+    const amount = row.amount;
+    if (typeof amount !== 'number' || isNaN(amount)) {
+      issues.push('Row ' + displayRow + ': invalid amount');
       return;
     }
 
@@ -831,11 +808,11 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
     throw new Error(issues.join('\n'));
   }
 
-  const totalAmount = sumDecimalStrings_(amounts);
+  const totalAmount = amounts.reduce(function(a, b) { return a + b; }, 0);
   const postings = [{
     account: sourceAccount,
     units: {
-      amount: negateDecimalString_(totalAmount),
+      amount: String(-totalAmount),
       symbol: symbol,
     },
   }];
@@ -843,7 +820,7 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
     postings.push({
       account: row.account,
       units: {
-        amount: row.amount,
+        amount: String(row.amount),
         symbol: symbol,
       },
     });
@@ -964,6 +941,17 @@ function showQuickFilter() {
   SpreadsheetApp.getUi().showSidebar(html);
 }
 
+function getQuickFilterSidebarData() {
+  const props = PropertiesService.getDocumentProperties();
+  return {
+    years: getTransactionFilterYears(),
+    accountNames: getTransactionAccountNames(),
+    from: props.getProperty('QUICK_FILTER_FROM') || '',
+    to: props.getProperty('QUICK_FILTER_TO') || '',
+    accountPrefix: props.getProperty('QUICK_FILTER_ACCOUNT_PREFIX') || '',
+  };
+}
+
 function getTransactionFilterYears() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
@@ -1002,6 +990,9 @@ function applyTransactionQuickFilter(from, to) {
     dateCol,
     SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()
   );
+  const props = PropertiesService.getDocumentProperties();
+  props.setProperty('QUICK_FILTER_FROM', from);
+  props.setProperty('QUICK_FILTER_TO', to);
 }
 
 function clearTransactionQuickFilter() {
@@ -1011,5 +1002,67 @@ function clearTransactionQuickFilter() {
   const filter = sheet.getFilter();
   if (filter) {
     filter.removeColumnFilterCriteria(getTransactionHeaderColumnIndex_('transaction_date'));
+    filter.removeColumnFilterCriteria(getTransactionHeaderColumnIndex_('source_account_name'));
+    filter.removeColumnFilterCriteria(getTransactionHeaderColumnIndex_('destination_account_name'));
   }
+  const props = PropertiesService.getDocumentProperties();
+  props.deleteProperty('QUICK_FILTER_FROM');
+  props.deleteProperty('QUICK_FILTER_TO');
+  props.deleteProperty('QUICK_FILTER_ACCOUNT_PREFIX');
+}
+
+function getTransactionAccountNames() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  const names = [];
+  values.forEach(function(row) {
+    if (row[0]) names.push(String(row[0]));
+  });
+  names.sort();
+  return names;
+}
+
+function applyTransactionAccountFilter(prefix) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (!sheet) throw new Error('Transactions sheet not found.');
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+  let filter = sheet.getFilter();
+  if (!filter) {
+    filter = sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_TRANSACTION_HEADERS.length).createFilter();
+  }
+  const srcCol = getTransactionHeaderColumnIndex_('source_account_name');
+  const dstCol = getTransactionHeaderColumnIndex_('destination_account_name');
+  const s = String.fromCharCode(64 + srcCol);
+  const d = String.fromCharCode(64 + dstCol);
+  let formula;
+  if (prefix === '__blank__') {
+    formula = '=' + d + '2=""';
+  } else if (prefix.endsWith(']')) {
+    const n = prefix.length + 1;
+    const q = '"' + prefix + ' "';
+    formula = '=OR(LEFT(' + s + '2,' + n + ')=' + q + ',LEFT(' + d + '2,' + n + ')=' + q + ')';
+  } else {
+    const n = prefix.length + 3;
+    const eq = '"' + prefix + '"';
+    const pq = '"' + prefix + ' - "';
+    formula = '=OR(' + s + '2=' + eq + ',LEFT(' + s + '2,' + n + ')=' + pq + ',' + d + '2=' + eq + ',LEFT(' + d + '2,' + n + ')=' + pq + ')';
+  }
+  filter.setColumnFilterCriteria(
+    srcCol,
+    SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()
+  );
+  PropertiesService.getDocumentProperties().setProperty('QUICK_FILTER_ACCOUNT_PREFIX', prefix);
+}
+
+function clearTransactionAccountFilter() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (!sheet) throw new Error('Transactions sheet not found.');
+  const filter = sheet.getFilter();
+  if (filter) filter.removeColumnFilterCriteria(getTransactionHeaderColumnIndex_('source_account_name'));
+  PropertiesService.getDocumentProperties().deleteProperty('QUICK_FILTER_ACCOUNT_PREFIX');
 }

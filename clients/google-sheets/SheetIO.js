@@ -76,7 +76,7 @@ function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacem
     });
 
     changedHeaders.forEach(function(header) {
-      sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] || '');
+      sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] ?? '');
     });
   });
   applyTransactionIssueHighlightingToRowNumbers_(sheet, rowNumbers, replacementRows);
@@ -136,7 +136,7 @@ function normalizeSheetCellValue_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]') {
     return normalizeTransactionDate_(value);
   }
-  return String(value || '');
+  return String(value ?? '');
 }
 
 function readTransactionSheetRowsByNumbers_(sheet, rowNumbers) {
@@ -154,7 +154,7 @@ function writeTransactionSheetRow_(sheet, rowNumber, row) {
 
 function materializeTransactionSheetRow_(row) {
   return FAMILY_LEDGER_TRANSACTION_HEADERS.map(function(header) {
-    return row[header] || '';
+    return row[header] ?? '';
   });
 }
 

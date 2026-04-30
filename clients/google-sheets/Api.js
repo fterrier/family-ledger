@@ -108,19 +108,3 @@ function buildApiUrl_(path) {
   }
   return baseUrl + '/' + path;
 }
-
-function getFamilyLedgerBaseUrl_() {
-  return PropertiesService.getScriptProperties().getProperty('FAMILY_LEDGER_BASE_URL');
-}
-
-function getFamilyLedgerApiToken_() {
-  return PropertiesService.getScriptProperties().getProperty('FAMILY_LEDGER_API_TOKEN');
-}
-
-function getRequiredFamilyLedgerApiToken_() {
-  const token = getFamilyLedgerApiToken_();
-  if (!token) {
-    throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run Set API Token first.');
-  }
-  return token;
-}

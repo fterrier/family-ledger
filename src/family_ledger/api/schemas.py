@@ -29,6 +29,7 @@ class NormalizePriceValue(BaseModel):
 class PostingPayload(BaseModel):
     account: str
     units: MoneyValue
+    narration: str | None = None
     cost: MoneyValue | None = None
     price: MoneyValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
@@ -132,6 +133,7 @@ class TransactionCreate(TransactionData):
 class PostingNormalizePayload(BaseModel):
     account: str
     units: MoneyValue | NormalizeMoneyValue | None = None
+    narration: str | None = None
     cost: MoneyValue | None = None
     price: MoneyValue | NormalizePriceValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)

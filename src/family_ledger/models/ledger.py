@@ -92,6 +92,7 @@ class Posting(Base):
     posting_order: Mapped[int] = mapped_column(Integer)
     units_amount: Mapped[Decimal] = mapped_column(Numeric)
     units_symbol: Mapped[str] = mapped_column(Text)
+    narration: Mapped[str | None] = mapped_column(Text, nullable=True)
     cost_per_unit: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     cost_symbol: Mapped[str | None] = mapped_column(Text, nullable=True)
     price_per_unit: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)

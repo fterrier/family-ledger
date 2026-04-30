@@ -32,7 +32,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "importers/src"]
 testpaths = ["tests", "importers/tests"]
 
 [tool.ruff]

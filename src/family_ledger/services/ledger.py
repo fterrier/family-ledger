@@ -101,6 +101,7 @@ def transaction_fingerprint_content(payload: TransactionData) -> dict[str, objec
             {
                 "account": posting.account,
                 "units": {"amount": str(posting.units.amount), "symbol": posting.units.symbol},
+                "narration": posting.narration,
                 "cost": None
                 if posting.cost is None
                 else {"amount": str(posting.cost.amount), "symbol": posting.cost.symbol},
@@ -132,6 +133,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
         PostingPayload(
             account=posting.account.name,
             units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
+            narration=posting.narration,
             cost=None
             if posting.cost_per_unit is None
             else MoneyValue(amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)),
@@ -224,6 +226,7 @@ def persist_transaction(
                 posting_order=index,
                 units_amount=posting.units.amount,
                 units_symbol=posting.units.symbol,
+                narration=posting.narration,
                 cost_per_unit=None if posting.cost is None else posting.cost.amount,
                 cost_symbol=None if posting.cost is None else posting.cost.symbol,
                 price_per_unit=None if posting.price is None else posting.price.amount,

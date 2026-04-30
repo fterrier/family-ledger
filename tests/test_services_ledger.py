@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import date
 from decimal import Decimal
+from typing import Any, cast
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -93,9 +94,49 @@ def test_transaction_fingerprint_content_excludes_import_metadata() -> None:
     assert content["transaction_date"] == "2026-04-19"
 
 
+def test_transaction_fingerprint_content_includes_posting_narration() -> None:
+    payload = make_transaction_payload().model_copy(
+        update={
+            "postings": [
+                PostingPayload(
+                    account="accounts/checking-family",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/expenses-uncategorized",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    narration="Card fee",
+                ),
+            ]
+        }
+    )
+
+    content = ledger_service.transaction_fingerprint_content(payload)
+
+    postings = cast(list[dict[str, Any]], content["postings"])
+
+    assert postings[1]["narration"] == "Card fee"
+
+
 def test_hash_transaction_payload_changes_when_content_changes() -> None:
     payload = make_transaction_payload()
     updated_payload = payload.model_copy(update={"narration": "Household"})
+    assert ledger_service.hash_transaction_payload(
+        payload
+    ) != ledger_service.hash_transaction_payload(updated_payload)
+
+
+def test_hash_transaction_payload_changes_when_posting_narration_changes() -> None:
+    payload = make_transaction_payload()
+    updated_payload = payload.model_copy(
+        update={
+            "postings": [
+                payload.postings[0],
+                payload.postings[1].model_copy(update={"narration": "Groceries: produce"}),
+            ]
+        }
+    )
+
     assert ledger_service.hash_transaction_payload(
         payload
     ) != ledger_service.hash_transaction_payload(updated_payload)
@@ -156,6 +197,7 @@ def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
                 PostingPayload(
                     account="accounts/acc_two",
                     units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    narration="Household allocation",
                 ),
             ]
         }
@@ -168,6 +210,7 @@ def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
     assert [posting.posting_order for posting in transaction.postings] == [1, 2]
     assert transaction.postings[0].units_amount == Decimal("-100.00")
     assert transaction.postings[1].units_symbol == "CHF"
+    assert transaction.postings[1].narration == "Household allocation"
 
 
 def test_update_transaction_preserves_identity_and_rewrites_postings(session: Session) -> None:
@@ -286,6 +329,103 @@ def test_update_transaction_recomputes_fingerprint(session: Session) -> None:
     assert updated.import_metadata is not None
     assert created.import_metadata is not None
     assert updated.import_metadata.fingerprint != created.import_metadata.fingerprint
+
+
+def test_update_transaction_round_trips_posting_narration(session: Session) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    created = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    narration="Produce",
+                ),
+            ],
+        ),
+    )
+
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("60.00"), symbol="CHF"),
+                    narration="Produce",
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("40.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    assert [posting.narration for posting in updated.postings] == [None, "Produce", None]
+
+
+def test_update_transaction_clears_posting_narration(session: Session) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    created = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                    narration="Produce",
+                ),
+            ],
+        ),
+    )
+
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    assert updated.postings[1].narration is None
 
 
 def test_update_transaction_allows_total_change_without_lock(session: Session) -> None:

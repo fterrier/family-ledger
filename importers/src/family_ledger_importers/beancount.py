@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
@@ -32,6 +33,8 @@ from family_ledger.services.errors import ConflictError
 
 SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balance)
 MAX_SKIPPED_EXAMPLES_PER_REASON = 10
+POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
+POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 
 
 def _database_is_empty(session: Session) -> bool:
@@ -111,12 +114,31 @@ def _posting_cost_value(posting: Posting) -> MoneyValue | None:
     return MoneyValue(amount=Decimal(str(number)), symbol=currency)
 
 
-def _posting_payload(posting: Posting, account_names: dict[str, str]) -> PostingNormalizePayload:
+def _posting_comment_by_line(text: str) -> dict[int, str]:
+    comments: dict[int, str] = {}
+    for index, line in enumerate(text.splitlines(), start=1):
+        if not POSTING_LINE_PATTERN.match(line):
+            continue
+        comment_start = line.find(";")
+        if comment_start < 0:
+            continue
+        comment = line[comment_start + 1 :].strip()
+        if comment:
+            comments[index] = comment
+    return comments
+
+
+def _posting_payload(
+    posting: Posting,
+    account_names: dict[str, str],
+    narration: str | None = None,
+) -> PostingNormalizePayload:
     price = _optional_price_value(cast(Amount | None, posting.price))
     units = _optional_money_value(cast(Amount | None, posting.units))
     return PostingNormalizePayload(
         account=account_names[posting.account],
         units=units,
+        narration=narration,
         cost=_posting_cost_value(posting),
         price=price,
     )
@@ -166,6 +188,23 @@ class BeancountImporter(BaseImporter):
     name = "beancount"
     display_name = "Beancount"
 
+    def get_schema(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                POSTING_COMMENT_CONFIG_KEY: {
+                    "type": "boolean",
+                    "default": False,
+                    "description": (
+                        "Import trailing Beancount posting comments ('; ...') as posting "
+                        "narrations. Only supported for directly uploaded files; "
+                        "Beancount include directives are not supported."
+                    ),
+                }
+            },
+            "additionalProperties": False,
+        }
+
     def execute(
         self,
         session: Session,
@@ -180,6 +219,9 @@ class BeancountImporter(BaseImporter):
 
         text = file_data.decode("utf-8")
         entries, errors, _options_map = _load_beancount_string(text)
+        posting_comments = (
+            _posting_comment_by_line(text) if config.get(POSTING_COMMENT_CONFIG_KEY) else {}
+        )
 
         if errors:
             messages = "; ".join(str(getattr(e, "message", e)) for e in errors)
@@ -221,7 +263,14 @@ class BeancountImporter(BaseImporter):
                 posting_payloads: list[PostingNormalizePayload] = []
                 for posting in entry.postings:
                     try:
-                        posting_payloads.append(_posting_payload(posting, account_names))
+                        posting_meta = getattr(posting, "meta", None) or {}
+                        line_number = posting_meta.get("lineno")
+                        narration = (
+                            posting_comments.get(line_number)
+                            if isinstance(line_number, int)
+                            else None
+                        )
+                        posting_payloads.append(_posting_payload(posting, account_names, narration))
                     except ValueError as exc:
                         txn_errors = result.entities.setdefault(
                             "transaction", EntityCounts()

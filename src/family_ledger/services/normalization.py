@@ -110,6 +110,7 @@ def normalize_transaction_payload(
                     PostingPayload(
                         account=posting.account,
                         units=MoneyValue(amount=-amount, symbol=symbol),
+                        narration=posting.narration,
                         cost=None,
                         price=None,
                         entity_metadata=posting.entity_metadata,
@@ -120,6 +121,7 @@ def normalize_transaction_payload(
                 PostingPayload(
                     account=posting.account,
                     units=MoneyValue(amount=posting.units.amount, symbol=inferred_symbols[0]),
+                    narration=posting.narration,
                     cost=None,
                     price=None,
                     entity_metadata=posting.entity_metadata,
@@ -137,6 +139,7 @@ def normalize_transaction_payload(
                 PostingPayload(
                     account=posting.account,
                     units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
+                    narration=posting.narration,
                     cost=None,
                     price=MoneyValue(
                         amount=(-implied_weight / posting.units.amount),
@@ -157,6 +160,7 @@ def normalize_transaction_payload(
                 PostingPayload(
                     account=posting.account,
                     units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
+                    narration=posting.narration,
                     cost=posting.cost,
                     price=explicit_price,
                     entity_metadata=posting.entity_metadata,

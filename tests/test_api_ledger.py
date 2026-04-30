@@ -199,6 +199,7 @@ def test_create_and_get_transaction() -> None:
                     {
                         "account": uncategorized["name"],
                         "units": {"amount": "100.00", "symbol": "CHF"},
+                        "narration": "Produce",
                     },
                 ],
             }
@@ -214,6 +215,7 @@ def test_create_and_get_transaction() -> None:
 
     assert get_response.status_code == 200
     assert get_response.json()["postings"][0]["account"] == checking["name"]
+    assert get_response.json()["postings"][1]["narration"] == "Produce"
 
 
 def test_list_transactions_supports_filters_and_pagination() -> None:
@@ -563,6 +565,7 @@ def test_patch_transaction_splits_posting() -> None:
                     {
                         "account": food["name"],
                         "units": {"amount": "84.25", "symbol": "CHF"},
+                        "narration": "Groceries",
                     },
                 ],
             }
@@ -582,6 +585,7 @@ def test_patch_transaction_splits_posting() -> None:
                     {
                         "account": food["name"],
                         "units": {"amount": "50.00", "symbol": "CHF"},
+                        "narration": "Groceries",
                     },
                     {
                         "account": household["name"],
@@ -604,6 +608,59 @@ def test_patch_transaction_splits_posting() -> None:
         Decimal("50.00"),
         Decimal("34.25"),
     ]
+    assert [posting.get("narration") for posting in body["postings"]] == [None, "Groceries", None]
+
+
+def test_patch_transaction_clears_posting_narration() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "narration": "Groceries",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                        "narration": "Produce",
+                    },
+                ],
+            }
+        },
+    )
+
+    patched = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "narration": "Groceries",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["postings"][1]["narration"] is None
 
 
 def test_patch_transaction_matches_normalize_output() -> None:

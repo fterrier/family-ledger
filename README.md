@@ -6,11 +6,12 @@ DB-backed, API-first family accounting platform with Beancount-compatible export
 
 ## Status
 
-Phase 1 scaffold:
-- FastAPI app with `GET /healthz`
-- PostgreSQL via Docker Compose
-- startup fails fast if config is invalid or the database is unavailable
-- Alembic initialized for future schema migrations
+Current implementation includes:
+- authenticated FastAPI routes for ledger reads, writes, normalization, diagnostics, and imports, plus open `GET /healthz`
+- PostgreSQL persistence with Alembic migrations and Docker Compose deployment
+- derived ledger diagnostics through `POST /ledger:doctor`
+- importer registry and synchronous import execution
+- Google Sheets client workflow for transaction categorization and editing via the API
 
 ## Docker Deployment
 

@@ -282,7 +282,13 @@
       syncInputClass(toInput);
       var from = fromInput.value;
       var to = toInput.value;
-      if (!from || !to) return;
+      if (!from || !to) {
+        fromYear = toYear = null;
+        syncYearButtons();
+        clearDateServerFilter();
+        refreshSummaries();
+        return;
+      }
       if (from > to) {
         setStatus('"From" must not be after "To".', true);
         return;
@@ -309,7 +315,7 @@
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
         .withFailureHandler(showError)
-        .clearTransactionQuickFilter();
+        .clearTransactionDateFilter();
     }
 
     // --- Account controller ---

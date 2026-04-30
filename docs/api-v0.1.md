@@ -13,7 +13,7 @@ This document describes the external HTTP contract, not the internal persistence
 - Deviations from `aip.dev` should be explicit and justified by ledger semantics.
 - The API exposes canonical ledger data separately from derived ledger diagnostics.
 - The API does not enforce field-level locking in v1.
-- There is no auth in v1.
+- `GET /healthz` is open for reachability checks; other routes require bearer-token authentication in the current v1 implementation.
 - Money-like value objects use ledger symbols such as `CHF`, `USD`, and `GOOG`, not commodity resource names.
 - Persistence and normalization are separate concerns: persistence endpoints require explicit postings, while normalization may be offered through a separate non-persisting endpoint.
 

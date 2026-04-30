@@ -37,6 +37,18 @@ MISSING_POSTING_FIXTURE = """
   Expenses:Food
 """
 
+POSTING_COMMENT_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 open Expenses:Tax
+2020-01-01 commodity CHF
+
+2026-04-01 * "Broker" "Dividend"
+  Assets:Bank:Checking:Family  -84.25 CHF
+  Expenses:Food                 80.00 CHF ; Groceries
+  Expenses:Tax                   4.25 CHF ;
+"""
+
 COMMODITY_DISCOVERY_FIXTURE = """
 2020-01-01 open Assets:Broker:AAPL AAPL
 2020-01-01 open Assets:Cash:USD USD
@@ -91,6 +103,12 @@ def _run(session: Session, text: str) -> ImportResult:
     from family_ledger_importers.beancount import BeancountImporter
 
     return BeancountImporter().execute(session, text.encode("utf-8"), {})
+
+
+def _run_with_config(session: Session, text: str, config: dict[str, object]) -> ImportResult:
+    from family_ledger_importers.beancount import BeancountImporter
+
+    return BeancountImporter().execute(session, text.encode("utf-8"), config)
 
 
 def test_beancount_importer_populates_database(session: Session) -> None:
@@ -165,3 +183,37 @@ def test_beancount_importer_unrecognized_entries_do_not_appear_in_entity_errors(
 
     assert "transaction" not in result.entities
     assert result.warnings != []
+
+
+def test_beancount_importer_schema_exposes_posting_comment_config() -> None:
+    from family_ledger_importers.beancount import BeancountImporter
+
+    schema = BeancountImporter().get_schema()
+
+    assert schema["properties"]["import_posting_comments_as_narration"]["default"] is False
+    assert (
+        "include directives are not supported"
+        in schema["properties"]["import_posting_comments_as_narration"]["description"]
+    )
+
+
+def test_beancount_importer_ignores_posting_comments_by_default(session: Session) -> None:
+    _run(session, POSTING_COMMENT_FIXTURE)
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert [posting.narration for posting in transaction.postings] == [None, None, None]
+
+
+def test_beancount_importer_imports_posting_comments_when_enabled(session: Session) -> None:
+    _run_with_config(
+        session,
+        POSTING_COMMENT_FIXTURE,
+        {"import_posting_comments_as_narration": True},
+    )
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert [posting.narration for posting in transaction.postings] == [None, "Groceries", None]

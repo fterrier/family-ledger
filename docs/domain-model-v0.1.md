@@ -22,13 +22,14 @@ The canonical v1 entities are:
 - commodity
 - transaction
 - posting
-- issue
 - price
 - balance assertion
 - attachment
 - importer
 
-There is no separate canonical `import_job`, `import_item`, `inventory`, or `lot` table in v1.
+There is no separate canonical `issue`, `import_job`, `import_item`, `inventory`, or `lot` table in v1.
+
+Ledger diagnostics are derived from canonical ledger data and exposed through `POST /ledger:doctor`; they are not persisted as canonical records.
 
 ## Accounts
 
@@ -336,5 +337,5 @@ These are intentionally deferred:
 - import-job and import-item staging layers
 - persisted inventory or lot caches
 - attachment ownership links beyond optional account reference
-- auth and permissions
+- advanced auth, permissions, and multi-user authorization policy
 - filtered export

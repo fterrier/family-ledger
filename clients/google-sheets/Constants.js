@@ -7,23 +7,6 @@ const FAMILY_LEDGER_SHEET_NAMES = {
 
 const FAMILY_LEDGER_PAGE_SIZE = 1000;
 
-const FAMILY_LEDGER_TRANSACTION_HEADERS = [
-  'transaction_name',
-  'transaction_date',
-  'payee',
-  'narration',
-  'source_account_name',
-  'destination_account_name',
-  'symbol',
-  'amount',
-  'split_off_amount',
-  'status',
-  'last_error',
-  'issues',
-];
-
-const FAMILY_LEDGER_ACCOUNTS_HEADERS = ['account_name', 'name', 'issues'];
-
 const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issues_text'];
 
 const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
@@ -32,32 +15,6 @@ const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
   Expenses: '[X]',
   Income: '[I]',
   Equity: '[Q]',
-};
-
-const FAMILY_LEDGER_TRANSACTION_COLUMN_LAYOUT = {
-  transaction_date: { width: 95, role: 'readonly', note: 'Read-only transaction date.' },
-  payee: { width: 280, role: 'editable', note: 'Editable payee. Applies to the whole transaction.' },
-  narration: { width: 200, role: 'editable', note: 'Editable narration. Applies to the whole transaction.' },
-  source_account_name: { width: 230, role: 'readonly', note: 'Read-only source account.' },
-  destination_account_name: {
-    width: 280,
-    role: 'editable',
-    note: 'Editable destination allocation account.',
-  },
-  symbol: { width: 55, role: 'readonly', note: 'Read-only commodity symbol.' },
-  amount: {
-    width: 90,
-    role: 'editable',
-    note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
-  },
-  split_off_amount: {
-    width: 95,
-    role: 'action',
-    note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
-  },
-  status: { width: 90, role: 'system', note: 'dirty / saving / saved / error' },
-  issues: { width: 420, role: 'system', note: 'Derived ledger doctor issues merged by transaction.' },
-  last_error: { width: 260, role: 'system', note: 'Most recent validation or save error.' },
 };
 
 const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
@@ -75,4 +32,145 @@ const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
   },
 };
 
-const FAMILY_LEDGER_TRANSACTION_ISSUE_ROW_COLOR = '#fee2e2';
+const FAMILY_LEDGER_ISSUE_ROW_COLOR = '#fee2e2';
+
+function buildSheetConfig_(key, name, columnLayout, options) {
+  const headers = Object.keys(columnLayout);
+  const columns = headers.reduce(function(result, header, index) {
+    result[header] = Object.freeze({ index: index, column: index + 1 });
+    return result;
+  }, {});
+
+  return Object.freeze({
+    key: key,
+    name: name,
+    headers: Object.freeze(headers),
+    columns: Object.freeze(columns),
+    columnLayout: Object.freeze(columnLayout),
+    hiddenHeaders: Object.freeze((options && options.hiddenHeaders) || []),
+    protectedHeaders: Object.freeze((options && options.protectedHeaders) || []),
+    issueHeader: (options && options.issueHeader) || 'issues',
+    issueColor: (options && options.issueColor) || FAMILY_LEDGER_ISSUE_ROW_COLOR,
+    styling: Object.freeze((options && options.styling) || {}),
+  });
+}
+
+const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
+  transactions: buildSheetConfig_('transactions', FAMILY_LEDGER_SHEET_NAMES.transactions, {
+    transaction_name: {
+      width: 180,
+      role: 'system',
+      note: 'Technical transaction resource name used by the client.',
+      alignment: 'left',
+    },
+    transaction_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only transaction date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+    },
+    payee: {
+      width: 280,
+      role: 'editable',
+      note: 'Editable payee. Applies to the whole transaction.',
+      alignment: 'left',
+      wrapStrategy: 'CLIP',
+    },
+    narration: {
+      width: 200,
+      role: 'editable',
+      note: 'Editable narration. Normal text = transaction narration; italic = posting-specific narration.',
+      alignment: 'left',
+    },
+    narration_source: {
+      width: 95,
+      role: 'system',
+      note: 'Technical narration ownership marker used by the client.',
+      alignment: 'left',
+    },
+    source_account_name: {
+      width: 230,
+      role: 'readonly',
+      note: 'Read-only source account.',
+      alignment: 'left',
+      wrap: false,
+    },
+    destination_account_name: {
+      width: 280,
+      role: 'editable',
+      note: 'Editable destination allocation account.',
+      alignment: 'left',
+      wrap: false,
+    },
+    symbol: {
+      width: 55,
+      role: 'readonly',
+      note: 'Read-only commodity symbol.',
+      alignment: 'center',
+    },
+    amount: {
+      width: 90,
+      role: 'editable',
+      note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
+      alignment: 'right',
+    },
+    split_off_amount: {
+      width: 95,
+      role: 'action',
+      note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
+      alignment: 'right',
+    },
+    status: {
+      width: 90,
+      role: 'system',
+      note: 'dirty / saving / saved / error',
+      alignment: 'center',
+    },
+    last_error: {
+      width: 260,
+      role: 'system',
+      note: 'Most recent validation or save error.',
+      alignment: 'left',
+      wrap: true,
+    },
+    issues: {
+      width: 420,
+      role: 'system',
+      note: 'Derived ledger doctor issues merged by transaction.',
+      alignment: 'left',
+      wrap: true,
+    },
+  }, {
+    hiddenHeaders: ['transaction_name', 'narration_source', 'last_error'],
+    protectedHeaders: ['transaction_name', 'transaction_date', 'source_account_name', 'symbol'],
+    styling: {
+      narrationHeader: 'narration',
+      narrationSourceHeader: 'narration_source',
+    },
+  }),
+  accounts: buildSheetConfig_('accounts', FAMILY_LEDGER_SHEET_NAMES.accounts, {
+    account_name: {
+      width: 320,
+      role: 'editable',
+      note: 'Visible account label used in the Transactions sheet.',
+      alignment: 'left',
+      wrap: false,
+    },
+    name: {
+      width: 180,
+      role: 'system',
+      note: 'Technical resource name used by the client.',
+      alignment: 'left',
+    },
+    issues: {
+      width: 420,
+      role: 'system',
+      note: 'Derived ledger doctor issues linked by account resource name.',
+      alignment: 'left',
+      wrap: true,
+    },
+  }, {
+    hiddenHeaders: ['name'],
+  }),
+});

@@ -48,6 +48,7 @@ The `Transactions` sheet is allocation-based.
 
 Columns:
 - `transaction_name`
+- `narration_source` (hidden, `txn` or `post`)
 - `transaction_date`
 - `payee`
 - `narration`
@@ -57,15 +58,15 @@ Columns:
 - `amount`
 - `split_off_amount`
 - `status`
-- `issues`
 - `last_error`
+- `issues`
 
 For readability, visible account names are rendered as shortened labels with root markers, for example:
 - `[A] Bank - Checking - Family`
 - `[L] CreditCard - Visa`
 - `[X] Food - Groceries`
 
-The client keeps the hidden technical transaction key and resolves edited destination values back to canonical account resources through the synced accounts lookup.
+The client keeps a hidden narration ownership field alongside the transaction key and resolves edited destination values back to canonical account resources through the synced accounts lookup.
 
 Read-only columns:
 - `transaction_name`
@@ -73,7 +74,7 @@ Read-only columns:
 - `source_account_name`
 - `symbol`
 
-`transaction_name` remains the technical grouping key but is hidden from normal users in the sheet UI.
+`transaction_name`, `narration_source`, and `last_error` are hidden from normal users in the sheet UI.
 `issues` is visible to users.
 `last_error` is kept hidden as a technical troubleshooting field next to `status`.
 
@@ -88,6 +89,7 @@ The transaction sheet also uses visual role cues:
 - read-only columns are shaded neutrally
 - editable columns keep a clean editable background
 - `split_off_amount` is styled as an action column
+- `narration` uses normal text for transaction narration and italics for posting-specific narration
 
 For imported transactions, `amount` is an allocation amount, not an editable transaction total.
 
@@ -110,6 +112,7 @@ When the user enters a value in `split_off_amount`:
 - the new row gets the split amount
 - the original row amount is reduced by the split amount
 - the new row starts with the same `destination_account_name` as the original row
+- the new row does not inherit posting-specific narration from the original row
 
 If the user enters `x` or `-` in `split_off_amount`:
 - the selected split row is deleted
@@ -148,9 +151,9 @@ For source-only transactions:
 **Account filter:**
 - A cascading set of dropdowns navigates the account hierarchy (type → sub-account → ...).
 - The applied formula is an OR across both the `source_account_name` and `destination_account_name` columns, so a row is included if either account matches.
-- At the type level, `LEFT(E2,4)="[X] "` style matching is used.
+- At the type level, `LEFT(H2,4)="[X] "` style matching is used.
 - At sub-levels, both exact-match and prefix-match clauses are OR-ed to include the account itself and all its children.
-- The `No account set` option filters for rows with a blank destination account using `=F2=""`.
+- The `No account set` option filters for rows with a blank destination account using `=I2=""`.
 
 **Persistence:**
 - The active filter is stored in Google Sheets document properties (`QUICK_FILTER_FROM`, `QUICK_FILTER_TO`, `QUICK_FILTER_ACCOUNT_PREFIX`).
@@ -167,7 +170,15 @@ Edits that trigger save:
 - `amount`
 - `split_off_amount`
 
-`payee` and `narration` are transaction-level fields, so editing them on one row propagates across all rows for the same `transaction_name` before save.
+`payee` remains a transaction-level field, so editing it on one row propagates across all rows for the same `transaction_name` before save.
+
+`narration` is mixed-level in the sheet model:
+- visible cell text shows either the transaction narration or a posting narration, depending on `narration_source`
+- on non-split transactions, editing `narration` updates the transaction narration by default
+- on split transactions, editing one row's `narration` updates only that row's posting narration
+- clearing a split row's posting narration falls back to the transaction narration
+- a split group must keep at least one `txn` row so the sheet can reconstruct the shared transaction narration
+- source posting narration is not preserved by the current Sheets client
 
 Saving always reconstructs the whole transaction for `PATCH /transactions/{transaction}`.
 

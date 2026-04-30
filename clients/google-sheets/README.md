@@ -46,12 +46,27 @@ Recommended remote access setup:
 
 ## Files
 
-- `Code.js`: Apps Script source
-- `ImportDialog.html`: HTML modal for the Import data dialog
+Runtime Apps Script files:
+- `Constants.js`: shared sheet names, registry, and layout metadata
+- `Api.js`: API and pagination helpers
+- `Settings.js`: settings prompts, auth properties, and connection checks
+- `SheetLayout.js`: shared sheet layout, formatting, protection, and reset helpers
+- `AccountsSheet.js`: account sheet sync and validation helpers
+- `TransactionsSheet.js`: transaction sheet sync, row mapping, and row helpers
+- `DoctorIssues.js`: `ledger:doctor` fetch and issue-sheet syncing
+- `Filters.js`: Quick Filter backend logic
+- `ImporterDialog.js`: import dialog server-side actions
+- `TransactionSave.js`: transaction save lifecycle and refresh flow
+- `TransactionEdits.js`: in-sheet edit, split, delete, and rollback flow
+- `App.js`: menu wiring entrypoint
+- `FilterSidebar.html`: Quick Filter sidebar UI
+- `ImportDialog.html`: Import data dialog UI
 - `appsscript.json`: Apps Script manifest
-- `package.json`: local tooling (lint, tests, clasp)
+
+Local tooling files:
+- `package.json`: lint, tests, and `clasp`
 - `eslint.config.js`: lint configuration
-- `.clasp.json`: clasp project config — not committed, contains the script ID
+- `.clasp.json`: clasp project config, not committed, contains the script ID
 
 ## Deploying with clasp
 
@@ -89,11 +104,11 @@ Recommended remote access setup:
 npm run push
 ```
 
-This uploads `Code.js`, `ImportDialog.html`, and `appsscript.json` to the Apps Script project. Reload the spreadsheet after pushing to pick up menu changes.
+This uploads all runtime `.js` and `.html` files plus `appsscript.json` to the Apps Script project. Reload the spreadsheet after pushing to pick up menu changes.
 
 ### What is excluded
 
-`.claspignore` prevents `node_modules/`, `tests/`, `docs/`, and config files from being uploaded. Only the three runtime files are pushed.
+`.claspignore` prevents `node_modules/`, `tests/`, `docs/`, and local tooling/config files from being uploaded. The runtime Apps Script files and manifest are pushed.
 
 ## Manual Installation (alternative)
 
@@ -101,12 +116,24 @@ If clasp is not available:
 
 1. Create a Google Sheet.
 2. Open `Extensions -> Apps Script`.
-3. Replace the default script contents with `Code.js` from this directory.
-4. In the Apps Script editor, enable `Show "appsscript.json" manifest file in editor` in `Project Settings`.
-5. Replace the manifest contents with `appsscript.json` from this directory.
-6. Create an HTML file named `ImportDialog` and paste in `ImportDialog.html`.
-7. Save the Apps Script project.
-8. Return to the spreadsheet and reload the page.
+3. Create one Apps Script file for each runtime `.js` file in this directory:
+   - `Constants`
+   - `Api`
+   - `Settings`
+   - `AccountsSheet`
+   - `TransactionsSheet`
+   - `DoctorIssues`
+   - `Filters`
+   - `ImporterDialog`
+   - `TransactionSave`
+   - `TransactionEdits`
+   - `App`
+4. Paste the matching file contents from this directory into each Apps Script file.
+5. In the Apps Script editor, enable `Show "appsscript.json" manifest file in editor` in `Project Settings`.
+6. Replace the manifest contents with `appsscript.json` from this directory.
+7. Create HTML files named `FilterSidebar` and `ImportDialog`, then paste in `FilterSidebar.html` and `ImportDialog.html`.
+8. Save the Apps Script project.
+9. Return to the spreadsheet and reload the page.
 
 If the permission prompt does not appear automatically:
 
@@ -173,12 +200,24 @@ Normal flow:
 3. For imported transactions, treat `amount` as an allocation amount inside a fixed total.
 4. Watch `status` and `issues` during normal use.
 
+Narration display:
+- normal text means the row is showing the transaction narration
+- italic text means the row has a posting-specific narration
+- if a posting has no narration, the row falls back to the transaction narration
+
+Narration editing:
+- on a non-split transaction, editing `narration` updates the transaction narration by default
+- on a split transaction, editing one row's `narration` updates that row's posting narration
+- clearing a split row's posting-specific narration falls back to the transaction narration again
+- a split transaction must keep at least one row on the shared transaction narration
+
 For splits:
 1. Either change the row `amount`, or enter a value in `split_off_amount`.
 2. The script inserts a sibling row automatically.
 3. The invariant is: the two resulting pieces must sum to the original amount. Neither piece may be zero.
 4. The new row starts with the same destination account as the original row.
-5. Change the new row's `destination_account_name` if needed.
+5. If the original row had posting-specific narration, the new row does not inherit it.
+6. Change the new row's `destination_account_name` if needed.
 
 Split amounts can be of any sign. A positive split amount on a negative-amount row (e.g. an income row) is allowed, and vice versa, as long as neither resulting piece is zero.
 
@@ -245,7 +284,13 @@ transactions, prices, and balance assertions from a `.beancount` file.
 
 The Beancount importer requires an **empty database**. It is a one-time bootstrap tool
 for migrating an existing Beancount ledger into family-ledger. Running it on a populated
-database returns an error. No configuration is required.
+database returns an error.
+
+Optional Beancount importer setting:
+- `import_posting_comments_as_narration`: treat trailing posting comments such as
+  `Assets:Broker:Cash -6.32 USD ; Withholding tax` as posting narrations
+- this is off by default
+- it only works for the uploaded file itself; Beancount `include` is not supported
 
 ### Persistent configuration
 
@@ -321,6 +366,7 @@ This client does not currently support:
 - FX/cost/price-heavy transactions
 - manual creation of accounts, commodities, prices, or balance assertions from the sheet
 - spreadsheet-as-source-of-truth workflows
+- preserving source-posting narration during Sheets edits
 
 ## More Documentation
 

@@ -49,26 +49,18 @@
 
   .config-field { margin-bottom: 10px; }
 
+  .config-description {
+    margin-top: 4px;
+    color: #5f6368;
+    font-size: 12px;
+  }
+
   .config-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     margin-bottom: 8px;
   }
-
   .config-header label { margin-bottom: 0; }
-
-  .edit-config-btn {
-    font-size: 12px;
-    color: #1a73e8;
-    background: none;
-    border: none;
-    cursor: pointer;
-    padding: 2px 4px;
-    text-decoration: underline;
-  }
-
-  .edit-config-btn:hover { color: #1557b0; }
 
   .file-row {
     display: flex;
@@ -229,8 +221,6 @@
   <div class="section" id="configSection">
     <div class="config-header">
       <label>Configuration</label>
-      <button class="edit-config-btn" id="editConfigBtn" style="display:none"
-              onclick="onEditConfig()">Edit config ✎</button>
     </div>
     <div id="configFields"></div>
   </div>
@@ -343,12 +333,7 @@
     container.innerHTML = '';
 
     var schema = imp.schema || {};
-    var config = imp.config || {};
-    var props = schema.properties || {};
-    var keys = Object.keys(props);
-
-    var editBtn = document.getElementById('editConfigBtn');
-    editBtn.style.display = keys.length > 0 ? 'inline' : 'none';
+    var keys = getSchemaKeys(schema);
 
     if (keys.length === 0) {
       var note = document.createElement('p');
@@ -358,8 +343,8 @@
       return;
     }
 
-    var needsAccounts = keys.some(function(k) {
-      return (props[k]['x-resource-type'] === 'account');
+    var needsAccounts = keys.some(function(key) {
+      return getSchemaProperty(schema, key)['x-resource-type'] === 'account';
     });
 
     if (needsAccounts && accountsCache === null) {
@@ -381,66 +366,146 @@
     }
 
     keys.forEach(function(key) {
-      var prop = props[key];
-      var value = config[key];
-      var hasValue = value !== undefined && value !== null && value !== '';
-
       var div = document.createElement('div');
       div.className = 'config-field';
 
       var lbl = document.createElement('label');
-      lbl.textContent = prop.title || key;
+      lbl.textContent = getFieldLabel(currentImporter, key);
       div.appendChild(lbl);
 
-      if (prop['x-resource-type'] === 'account') {
-        var sel = document.createElement('select');
-        sel.name = key;
-        if (hasValue) sel.setAttribute('readonly', true);
-        var accounts = accountsCache || [];
-        var blank = document.createElement('option');
-        blank.value = '';
-        blank.textContent = '— select account —';
-        sel.appendChild(blank);
-        accounts.forEach(function(acc) {
-          var opt = document.createElement('option');
-          opt.value = acc.name;
-          opt.textContent = acc.display_name || acc.name;
-          if (acc.name === value) opt.selected = true;
-          sel.appendChild(opt);
-        });
-        if (hasValue) sel.disabled = true;
-        div.appendChild(sel);
-      } else {
-        var input = document.createElement('input');
-        input.type = 'text';
-        input.name = key;
-        input.value = hasValue ? value : '';
-        if (hasValue) input.readOnly = true;
-        div.appendChild(input);
+      div.appendChild(buildConfigFieldElement(currentImporter, key));
+
+      var description = getFieldDescription(currentImporter, key);
+      if (description) {
+        var help = document.createElement('p');
+        help.className = 'config-description';
+        help.textContent = description;
+        div.appendChild(help);
       }
 
       container.appendChild(div);
     });
   }
 
-  function onEditConfig() {
-    // Future: open a separate PATCH /importers/{name} dialog.
-    // For now, inform the user this is not yet implemented.
-    alert('Editing persistent importer configuration is not yet available in this version.');
-  }
-
   function getConfigOverride() {
-    var schema = (currentImporter && currentImporter.schema) || {};
-    var props = schema.properties || {};
-    var config = (currentImporter && currentImporter.config) || {};
     var override = {};
-    Object.keys(props).forEach(function(key) {
-      var hasValue = config[key] !== undefined && config[key] !== null && config[key] !== '';
-      if (hasValue) return; // skip read-only fields
-      var el = document.querySelector('[name="' + key + '"]');
-      if (el && el.value !== '') override[key] = el.value;
+    getSchemaKeys((currentImporter && currentImporter.schema) || {}).forEach(function(key) {
+      var value = getFieldOverrideValue(currentImporter, key);
+      if (value !== undefined) {
+        override[key] = value;
+      }
     });
     return Object.keys(override).length > 0 ? override : null;
+  }
+
+  function getSchemaKeys(schema) {
+    return Object.keys((schema && schema.properties) || {});
+  }
+
+  function getSchemaProperty(schema, key) {
+    return ((schema && schema.properties) || {})[key] || {};
+  }
+
+  function getFieldLabel(importer, key) {
+    var prop = getSchemaProperty(importer.schema || {}, key);
+    return prop.title || key;
+  }
+
+  function getFieldDescription(importer, key) {
+    var prop = getSchemaProperty(importer.schema || {}, key);
+    return prop.description || '';
+  }
+
+  function getConfiguredValue(importer, key) {
+    var config = (importer && importer.config) || {};
+    if (Object.prototype.hasOwnProperty.call(config, key)) {
+      return config[key];
+    }
+    var prop = getSchemaProperty((importer && importer.schema) || {}, key);
+    if (Object.prototype.hasOwnProperty.call(prop, 'default')) {
+      return prop.default;
+    }
+    return undefined;
+  }
+
+  function buildConfigFieldElement(importer, key) {
+    var prop = getSchemaProperty(importer.schema || {}, key);
+    var value = getConfiguredValue(importer, key);
+    var element;
+
+    if (prop['x-resource-type'] === 'account') {
+      element = document.createElement('select');
+      var blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '— select account —';
+      element.appendChild(blank);
+      (accountsCache || []).forEach(function(acc) {
+        var opt = document.createElement('option');
+        opt.value = acc.name;
+        opt.textContent = acc.display_name || acc.name;
+        element.appendChild(opt);
+      });
+      element.value = value || '';
+    } else if (Array.isArray(prop.enum)) {
+      element = document.createElement('select');
+      if (prop.type !== 'boolean') {
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = '— select —';
+        element.appendChild(placeholder);
+      }
+      prop.enum.forEach(function(optionValue) {
+        var option = document.createElement('option');
+        option.value = String(optionValue);
+        option.textContent = String(optionValue);
+        element.appendChild(option);
+      });
+      element.value = value !== undefined && value !== null ? String(value) : '';
+    } else if (prop.type === 'boolean') {
+      element = document.createElement('input');
+      element.type = 'checkbox';
+      element.checked = value === true;
+    } else {
+      element = document.createElement('input');
+      element.type = prop.type === 'number' || prop.type === 'integer' ? 'number' : 'text';
+      if (prop.type === 'integer') {
+        element.step = '1';
+      } else if (prop.type === 'number') {
+        element.step = 'any';
+      }
+      element.value = value !== undefined && value !== null ? String(value) : '';
+    }
+
+    element.name = key;
+    return element;
+  }
+
+  function getFieldOverrideValue(importer, key) {
+    var prop = getSchemaProperty(importer.schema || {}, key);
+    var baseline = getConfiguredValue(importer, key);
+    var el = document.querySelector('[name="' + key + '"]');
+    if (!el) {
+      return undefined;
+    }
+
+    var value;
+    if (prop.type === 'boolean') {
+      value = !!el.checked;
+    } else if (prop.type === 'integer') {
+      if (el.value === '') return undefined;
+      value = parseInt(el.value, 10);
+    } else if (prop.type === 'number') {
+      if (el.value === '') return undefined;
+      value = Number(el.value);
+    } else {
+      if (el.value === '') return undefined;
+      value = el.value;
+    }
+
+    if (value === baseline) {
+      return undefined;
+    }
+    return value;
   }
 
   // ---------------------------------------------------------------------------

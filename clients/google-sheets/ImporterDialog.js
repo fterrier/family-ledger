@@ -16,24 +16,23 @@ function getAccountsForDialog() {
 function runImportFromDialog(importerName, base64Content, mimeType, fileName, configOverride) {
   const bytes = Utilities.base64Decode(base64Content);
   const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', fileName);
-  const url = buildApiUrl_(importerName + ':import');
-  const resp = UrlFetchApp.fetch(url, {
-    method: 'post',
-    muteHttpExceptions: true,
-    headers: { Authorization: 'Bearer ' + getRequiredFamilyLedgerApiToken_() },
-    payload: {
-      file: blob,
-      config_override: configOverride ? JSON.stringify(configOverride) : '',
+  const result = apiFetchMultipartJson_('post', importerName + ':import', {
+    file: blob,
+    config_override: configOverride ? JSON.stringify(configOverride) : '',
+  }, {
+    metadata: {
+      fileName: fileName,
+      mimeType: mimeType || 'application/octet-stream',
+      configOverride: configOverride || null,
     },
   });
-  const statusCode = resp.getResponseCode();
-  const body = resp.getContentText();
-  if (statusCode >= 400) {
-    const err = buildApiError_(statusCode, body);
+
+  if (!result || !result.result) {
+    const err = new Error('Import response missing result payload.');
     SpreadsheetApp.getActiveSpreadsheet().toast(err.message, 'Import failed', 10);
     throw err;
   }
-  const result = JSON.parse(body);
+
   SpreadsheetApp.getActiveSpreadsheet()
     .toast(buildImportToastSummary_(result.result), 'Import complete', 15);
   return result;

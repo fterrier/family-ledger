@@ -45,12 +45,31 @@ def _validate_against_schema(config: dict[str, Any], schema: dict[str, Any]) -> 
         return False
 
 
+def _validate_importer_config(config: dict[str, Any], schema: dict[str, Any]) -> None:
+    if _validate_against_schema(config, schema):
+        return
+    raise ValidationError(
+        code="invalid_config",
+        message="Config does not match the importer schema",
+    )
+
+
 def _get_importer_row(session: Session, importer: str) -> Importer:
     resolved = resource_name("importers", importer)
     row = session.scalar(select(Importer).where(Importer.name == resolved))
     if row is None:
         raise NotFoundError(code="importer_not_found", message="Importer not found")
     return row
+
+
+def _resolve_importer_config(
+    stored_config: dict[str, Any],
+    config_override: dict[str, Any] | None,
+    schema: dict[str, Any],
+) -> dict[str, Any]:
+    resolved_config = {**stored_config, **(config_override or {})}
+    _validate_importer_config(resolved_config, schema)
+    return resolved_config
 
 
 def list_importers(session: Session) -> ListImportersResponse:
@@ -66,12 +85,7 @@ def update_importer_config(
     row = _get_importer_row(session, importer)
     importer_cls = get_importer(row.plugin_name)
     if importer_cls is not None:
-        schema = importer_cls().get_schema()
-        if schema and not _validate_against_schema(config, schema):
-            raise ValidationError(
-                code="invalid_config",
-                message="Config does not match the importer schema",
-            )
+        _validate_importer_config(config, importer_cls().get_schema())
     row.config = config
     session.commit()
     session.refresh(row)
@@ -93,17 +107,6 @@ def execute_import(
         )
 
     override = config_override or {}
-    merged: dict[str, Any] = {**row.config, **override}
     schema = importer_cls().get_schema()
-
-    if not _validate_against_schema(merged, schema):
-        row.config = {}
-        session.commit()
-        merged = {**override}
-        if not _validate_against_schema(merged, schema):
-            raise ValidationError(
-                code="invalid_config",
-                message="Merged configuration does not match the importer schema",
-            )
-
+    merged = _resolve_importer_config(row.config, override, schema)
     return importer_cls().execute(session, file_data, merged)

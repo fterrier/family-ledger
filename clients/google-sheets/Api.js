@@ -31,74 +31,118 @@ function pathWithUpdatedPageToken_(path, pageToken) {
 
 function apiFetchJson_(method, path, payload, options) {
   options = options || {};
-  const url = buildApiUrl_(path);
-  const startedAt = Date.now();
   const requestOptions = {
     method: method,
     contentType: 'application/json',
-    muteHttpExceptions: true,
   };
 
   if (payload !== undefined) {
     requestOptions.payload = JSON.stringify(payload);
   }
 
-  if (!options.skipAuth) {
-    requestOptions.headers = {
-      Authorization: 'Bearer ' + getRequiredFamilyLedgerApiToken_(),
-    };
-  }
-
-  debugLog_('apiFetchJson_:request', {
-    method: method,
-    path: path,
-    url: url,
-    skipAuth: !!options.skipAuth,
-    payload: payload,
+  const response = apiFetch_(method, path, requestOptions, {
+    requestEvent: 'apiFetchJson_:request',
+    responseEvent: 'apiFetchJson_:response',
+    errorEvent: 'apiFetchJson_:error',
+    retryEvent: 'apiFetchJson_:bandwidth_retry',
+    metadata: {
+      skipAuth: !!options.skipAuth,
+      payload: payload,
+    },
+    skipAuth: options.skipAuth,
   });
-
-  const maxRetries = 3;
-  let response;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    if (attempt > 0) {
-      const delay = Math.pow(2, attempt - 1) * 5000; // 5 s, 10 s, 20 s
-      debugLog_('apiFetchJson_:bandwidth_retry', { attempt: attempt, delayMs: delay, url: url });
-      Utilities.sleep(delay);
-    }
-    try {
-      response = UrlFetchApp.fetch(url, requestOptions);
-      break;
-    } catch (error) {
-      if (isBandwidthQuotaError_(error) && attempt < maxRetries) {
-        continue;
-      }
-      debugLog_('apiFetchJson_:error', {
-        method: method,
-        path: path,
-        url: url,
-        durationMs: Date.now() - startedAt,
-        message: error && error.message ? error.message : String(error),
-      });
-      throw error;
-    }
-  }
-
   const statusCode = response.getResponseCode();
   const body = response.getContentText();
-
-  debugLog_('apiFetchJson_:response', {
-    method: method,
-    path: path,
-    url: url,
-    status: statusCode,
-    durationMs: Date.now() - startedAt,
-  });
 
   if (statusCode >= 400) {
     throw buildApiError_(statusCode, body);
   }
 
   return body ? JSON.parse(body) : {};
+}
+
+function apiFetchMultipartJson_(method, path, payload, options) {
+  options = options || {};
+  const response = apiFetch_(method, path, {
+    method: method,
+    payload: payload,
+  }, {
+    requestEvent: 'apiFetchMultipartJson_:request',
+    responseEvent: 'apiFetchMultipartJson_:response',
+    errorEvent: 'apiFetchMultipartJson_:error',
+    retryEvent: 'apiFetchMultipartJson_:bandwidth_retry',
+    metadata: options.metadata || {},
+    skipAuth: options.skipAuth,
+  });
+  const statusCode = response.getResponseCode();
+  const body = response.getContentText();
+
+  if (statusCode >= 400) {
+    throw buildApiError_(statusCode, body);
+  }
+
+  return body ? JSON.parse(body) : {};
+}
+
+function apiFetch_(method, path, requestOptions, options) {
+  options = options || {};
+  const url = buildApiUrl_(path);
+  const startedAt = Date.now();
+  const fetchOptions = Object.assign({ muteHttpExceptions: true }, requestOptions || {});
+
+  if (!options.skipAuth) {
+    fetchOptions.headers = Object.assign({}, fetchOptions.headers || {}, {
+      Authorization: 'Bearer ' + getRequiredFamilyLedgerApiToken_(),
+    });
+  }
+
+  logApiRequestStart_(options.requestEvent || 'apiFetch_:request', method, path, url, options.metadata);
+
+  const maxRetries = 3;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      const delay = Math.pow(2, attempt - 1) * 5000;
+      debugLog_(options.retryEvent || 'apiFetch_:bandwidth_retry', { attempt: attempt, delayMs: delay, url: url });
+      Utilities.sleep(delay);
+    }
+    try {
+      const response = UrlFetchApp.fetch(url, fetchOptions);
+      logApiRequestSuccess_(options.responseEvent || 'apiFetch_:response', method, path, url, response.getResponseCode(), Date.now() - startedAt, options.metadata);
+      return response;
+    } catch (error) {
+      if (isBandwidthQuotaError_(error) && attempt < maxRetries) {
+        continue;
+      }
+      logApiRequestError_(options.errorEvent || 'apiFetch_:error', method, path, url, Date.now() - startedAt, error, options.metadata);
+      throw error;
+    }
+  }
+
+  throw new Error('API request failed without a response.');
+}
+
+function logApiRequestStart_(eventName, method, path, url, metadata) {
+  debugLog_(eventName, Object.assign({ method: method, path: path, url: url }, metadata || {}));
+}
+
+function logApiRequestSuccess_(eventName, method, path, url, status, durationMs, metadata) {
+  debugLog_(eventName, Object.assign({
+    method: method,
+    path: path,
+    url: url,
+    status: status,
+    durationMs: durationMs,
+  }, metadata || {}));
+}
+
+function logApiRequestError_(eventName, method, path, url, durationMs, error, metadata) {
+  debugLog_(eventName, Object.assign({
+    method: method,
+    path: path,
+    url: url,
+    durationMs: durationMs,
+    message: error && error.message ? error.message : String(error),
+  }, metadata || {}));
 }
 
 function isBandwidthQuotaError_(error) {

@@ -34,6 +34,14 @@ class _SchemaImporter(BaseImporter):
         return ImportResult()
 
 
+class _CapturingSchemaImporter(_SchemaImporter):
+    last_config: dict[str, Any] | None = None
+
+    def execute(self, session: Session, file_data: bytes, config: dict) -> ImportResult:  # type: ignore[override]
+        _CapturingSchemaImporter.last_config = dict(config)
+        return ImportResult()
+
+
 def make_client(
     monkeypatch: pytest.MonkeyPatch,
     importers: dict,
@@ -167,6 +175,27 @@ def test_run_import_accepts_config_override(monkeypatch: pytest.MonkeyPatch) -> 
     assert response.status_code == 200
 
 
+def test_run_import_merges_override_over_stored_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    _CapturingSchemaImporter.last_config = None
+    client = make_client(monkeypatch, {"schema_fake": _CapturingSchemaImporter})
+    importer_name = client.get("/importers").json()["importers"][0]["name"]
+
+    update_response = client.patch(
+        f"/{importer_name}",
+        json={"importer": {"config": {"api_key": "stored"}}},
+    )
+    assert update_response.status_code == 200
+
+    response = client.post(
+        f"/{importer_name}:import",
+        files={"file": ("data.txt", b"hello", "text/plain")},
+        data={"config_override": '{"api_key": "override"}'},
+    )
+
+    assert response.status_code == 200
+    assert _CapturingSchemaImporter.last_config == {"api_key": "override"}
+
+
 def test_run_import_rejects_invalid_json_config_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -210,33 +239,26 @@ def test_run_import_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch) -> 
     assert response.status_code == 404
 
 
-def test_run_import_self_heals_stale_config(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Stored config that no longer matches the schema is cleared; import runs with override only.
+def test_run_import_rejects_invalid_merged_config_without_wiping_stored_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = make_client(monkeypatch, {"schema_fake": _SchemaImporter})
     importer_name = client.get("/importers").json()["importers"][0]["name"]
 
-    # Store a valid config first
-    client.patch(f"/{importer_name}", json={"importer": {"config": {"api_key": "old"}}})
-
-    # Inject a importer with a new required field to simulate schema drift.
-    class _StrictImporter(_SchemaImporter):
-        def get_schema(self) -> dict[str, Any]:
-            return {
-                "type": "object",
-                "properties": {"new_field": {"type": "string"}},
-                "required": ["new_field"],
-                "additionalProperties": False,
-            }
-
-    monkeypatch.setattr(
-        "family_ledger.importers.registry._importers", {"schema_fake": _StrictImporter}
+    update_response = client.patch(
+        f"/{importer_name}",
+        json={"importer": {"config": {"api_key": "stored"}}},
     )
+    assert update_response.status_code == 200
 
-    # Override satisfies the new schema — should succeed after self-healing
     response = client.post(
         f"/{importer_name}:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
-        data={"config_override": '{"new_field": "ok"}'},
+        data={"config_override": '{"unknown_field": "bad"}'},
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "invalid_config"
+
+    importer = client.get("/importers").json()["importers"][0]
+    assert importer["config"] == {"api_key": "stored"}

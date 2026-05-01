@@ -26,6 +26,26 @@ test('apiFetchJson_ includes bearer auth by default and supports skipAuth', () =
   assert.equal(fetchCalls[1].options.headers, undefined);
 });
 
+test('apiFetchMultipartJson_ includes bearer auth and keeps multipart payload intact', () => {
+  const { sandbox, properties, fetchCalls } = loadCode();
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret-token');
+
+  sandbox.apiFetchMultipartJson_('post', '/importers/imp_1:import', {
+    file: { name: 'sample.beancount' },
+    config_override: '{"dry_run":true}',
+  }, {
+    metadata: { fileName: 'sample.beancount' },
+  });
+
+  assert.equal(fetchCalls[0].url, 'https://ledger.example/importers/imp_1:import');
+  assert.equal(fetchCalls[0].options.headers.Authorization, 'Bearer secret-token');
+  assert.deepEqual(fetchCalls[0].options.payload, {
+    file: { name: 'sample.beancount' },
+    config_override: '{"dry_run":true}',
+  });
+});
+
 test('apiFetchJson_ logs request and response without logging auth headers', () => {
   const logs = [];
   const { sandbox, properties } = loadCode({
@@ -77,6 +97,38 @@ test('apiFetchJson_ logs fetch errors when debug logging is enabled', () => {
   assert.match(logs[1], /socket hang up/);
 });
 
+test('apiFetchMultipartJson_ logs request and response without logging auth headers', () => {
+  const logs = [];
+  const { sandbox, properties } = loadCode({
+    console: {
+      log(message) {
+        logs.push(message);
+      },
+    },
+  });
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret-token');
+  properties.set('FAMILY_LEDGER_DEBUG_LOGS', 'true');
+
+  sandbox.apiFetchMultipartJson_('post', '/importers/imp_1:import', {
+    file: { name: 'sample.beancount' },
+    config_override: '{"import_posting_comments_as_narration":true}',
+  }, {
+    metadata: {
+      fileName: 'sample.beancount',
+      mimeType: 'text/plain',
+      configOverride: { import_posting_comments_as_narration: true },
+    },
+  });
+
+  assert.equal(logs.length, 2);
+  assert.match(logs[0], /apiFetchMultipartJson_:request/);
+  assert.match(logs[1], /apiFetchMultipartJson_:response/);
+  assert.match(logs[0], /sample.beancount/);
+  assert.doesNotMatch(logs[0], /Authorization/);
+  assert.doesNotMatch(logs[0], /secret-token/);
+});
+
 test('isBandwidthQuotaError_ recognizes bandwidth quota exceptions', () => {
   const { sandbox } = loadCode();
 
@@ -103,6 +155,29 @@ test('apiFetchJson_ retries on bandwidth quota errors and succeeds', () => {
   properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
 
   const result = sandbox.apiFetchJson_('get', '/test');
+  assert.equal(attempts, 3);
+  assert.equal(sleepCalls.length, 2);
+  assert.deepEqual(result, {});
+});
+
+test('apiFetchMultipartJson_ retries on bandwidth quota errors and succeeds', () => {
+  let attempts = 0;
+  const sleepCalls = [];
+  const { sandbox, properties } = loadCode({
+    fetchImpl() {
+      attempts++;
+      if (attempts < 3) {
+        throw new Error('Bandwidth quota exceeded: https://ledger.example/import');
+      }
+      return { getResponseCode() { return 200; }, getContentText() { return '{}'; } };
+    },
+    Utilities: { sleep(ms) { sleepCalls.push(ms); } },
+  });
+
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
+
+  const result = sandbox.apiFetchMultipartJson_('post', '/importers/imp_1:import', { file: { name: 'sample' } });
   assert.equal(attempts, 3);
   assert.equal(sleepCalls.length, 2);
   assert.deepEqual(result, {});

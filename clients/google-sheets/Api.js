@@ -32,6 +32,7 @@ function pathWithUpdatedPageToken_(path, pageToken) {
 function apiFetchJson_(method, path, payload, options) {
   options = options || {};
   const url = buildApiUrl_(path);
+  const startedAt = Date.now();
   const requestOptions = {
     method: method,
     contentType: 'application/json',
@@ -48,6 +49,14 @@ function apiFetchJson_(method, path, payload, options) {
     };
   }
 
+  debugLog_('apiFetchJson_:request', {
+    method: method,
+    path: path,
+    url: url,
+    skipAuth: !!options.skipAuth,
+    payload: payload,
+  });
+
   const maxRetries = 3;
   let response;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -63,12 +72,27 @@ function apiFetchJson_(method, path, payload, options) {
       if (isBandwidthQuotaError_(error) && attempt < maxRetries) {
         continue;
       }
+      debugLog_('apiFetchJson_:error', {
+        method: method,
+        path: path,
+        url: url,
+        durationMs: Date.now() - startedAt,
+        message: error && error.message ? error.message : String(error),
+      });
       throw error;
     }
   }
 
   const statusCode = response.getResponseCode();
   const body = response.getContentText();
+
+  debugLog_('apiFetchJson_:response', {
+    method: method,
+    path: path,
+    url: url,
+    status: statusCode,
+    durationMs: Date.now() - startedAt,
+  });
 
   if (statusCode >= 400) {
     throw buildApiError_(statusCode, body);

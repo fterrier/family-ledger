@@ -170,6 +170,9 @@ function performDeleteSplitRow_(sheet, rowNumber) {
   mergeTarget.split_off_amount = '';
   mergeTarget.status = 'dirty';
   mergeTarget.last_error = '';
+  if (rowNumbers.length === 2) {
+    mergeTarget.narration_source = 'txn';
+  }
 
   if (mergeTargetRowNumber < rowNumber) {
     writeTransactionSheetRow_(sheet, mergeTargetRowNumber, mergeTarget);
@@ -312,13 +315,13 @@ function clearTransactionErrors_(sheet, transactionName) {
 }
 
 function inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row) {
-  if (String(row.narration_source || 'txn').trim() !== 'post') {
-    return String(row.narration || '');
-  }
   const sibling = groupRows.find(function(groupRow) {
     return groupRow.__rowNumber !== rowNumber && String(groupRow.narration_source || 'txn').trim() !== 'post';
   });
-  return String((sibling && sibling.narration) || '');
+  if (sibling) {
+    return String(sibling.narration || '');
+  }
+  return String(row.narration || '');
 }
 
 function inferTransactionNarrationForSplitRow_(sheet, rowNumber, row) {

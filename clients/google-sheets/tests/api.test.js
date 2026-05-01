@@ -26,6 +26,57 @@ test('apiFetchJson_ includes bearer auth by default and supports skipAuth', () =
   assert.equal(fetchCalls[1].options.headers, undefined);
 });
 
+test('apiFetchJson_ logs request and response without logging auth headers', () => {
+  const logs = [];
+  const { sandbox, properties } = loadCode({
+    console: {
+      log(message) {
+        logs.push(message);
+      },
+    },
+  });
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret-token');
+  properties.set('FAMILY_LEDGER_DEBUG_LOGS', 'true');
+
+  sandbox.apiFetchJson_('patch', '/transactions/txn_1', {
+    transaction: {
+      narration: 'Groceries',
+      postings: [{ narration: 'Produce' }],
+    },
+  });
+
+  assert.equal(logs.length, 2);
+  assert.match(logs[0], /apiFetchJson_:request/);
+  assert.match(logs[1], /apiFetchJson_:response/);
+  assert.match(logs[0], /"payload"/);
+  assert.doesNotMatch(logs[0], /Authorization/);
+  assert.doesNotMatch(logs[0], /secret-token/);
+});
+
+test('apiFetchJson_ logs fetch errors when debug logging is enabled', () => {
+  const logs = [];
+  const { sandbox, properties } = loadCode({
+    console: {
+      log(message) {
+        logs.push(message);
+      },
+    },
+    fetchImpl() {
+      throw new Error('socket hang up');
+    },
+  });
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret-token');
+  properties.set('FAMILY_LEDGER_DEBUG_LOGS', 'true');
+
+  assert.throws(() => sandbox.apiFetchJson_('get', '/accounts'), /socket hang up/);
+
+  assert.match(logs[0], /apiFetchJson_:request/);
+  assert.match(logs[1], /apiFetchJson_:error/);
+  assert.match(logs[1], /socket hang up/);
+});
+
 test('isBandwidthQuotaError_ recognizes bandwidth quota exceptions', () => {
   const { sandbox } = loadCode();
 

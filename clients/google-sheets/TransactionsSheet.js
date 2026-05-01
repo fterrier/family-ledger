@@ -221,6 +221,7 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   );
   const payee = readOptionalNormalizedValue_(group.rows, 'payee', 'payee', issues);
   const narration = inferTransactionNarrationFromGroupRows_(group.rows, issues);
+  const isSplitTransaction = group.rows.length > 1;
   const sourceAccount = resolveAccountResourceName_(accountNameMap, sourceAccountName);
   const destinationRows = [];
   const blankDestinationRowNumbers = [];
@@ -243,7 +244,7 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
       destinationRows.push({
         account: resolveAccountResourceName_(accountNameMap, destinationAccountName),
         amount: amount,
-        narration: normalizePostingNarrationFromSheetRow_(row),
+        narration: normalizePostingNarrationFromSheetRow_(row, narration, isSplitTransaction),
       });
     }
     amounts.push(amount);
@@ -708,12 +709,17 @@ function inferTransactionNarrationFromGroupRows_(rows, issues) {
     issues.push('At least one split row must keep the transaction narration.');
     return null;
   }
-  return readOptionalNormalizedValue_(transactionRows, 'narration', 'transaction narration', issues);
+  return normalizeOptionalSheetText_(transactionRows[0].narration);
 }
 
-function normalizePostingNarrationFromSheetRow_(row) {
-  if (String(row.narration_source || 'txn').trim() !== 'post') {
+function normalizePostingNarrationFromSheetRow_(row, transactionNarration, isSplitTransaction) {
+  if (!isSplitTransaction) {
     return null;
   }
-  return normalizeOptionalSheetText_(row.narration);
+  const visibleNarration = normalizeOptionalSheetText_(row.narration);
+  const sharedNarration = normalizeOptionalSheetText_(transactionNarration);
+  if (visibleNarration === sharedNarration) {
+    return null;
+  }
+  return visibleNarration;
 }

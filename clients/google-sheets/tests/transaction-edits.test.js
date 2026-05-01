@@ -374,6 +374,88 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   assert.deepEqual(saves, ['transactions/txn_1']);
 });
 
+test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'txn',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+    [3, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'txn',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Household',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Household',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.saveTransactionByName_ = function() {};
+
+  sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
+
+  assert.equal(rowStore.get(3).narration_source, 'post');
+  assert.equal(rowStore.get(3).narration, 'Household');
+});
+
+test('applyTransactionEdit_ keeps split row as txn when narration value is unchanged', () => {
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'txn',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+    [3, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'txn',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Household',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.saveTransactionByName_ = function() {};
+
+  sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Groceries', 'Groceries', {});
+
+  assert.equal(rowStore.get(3).narration_source, 'txn');
+  assert.equal(rowStore.get(3).narration, 'Groceries');
+});
+
 test('applyTransactionEdit_ clears split posting narration back to transaction fallback', () => {
   const rowStore = new Map([
     [2, {
@@ -540,6 +622,47 @@ test('performDeleteSplitRow_ keeps surviving row narration ownership when removi
   assert.equal(rowStore.get(2).amount, 84.25);
   assert.equal(rowStore.get(2).narration_source, 'txn');
   assert.equal(rowStore.get(2).narration, 'Groceries');
+});
+
+test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitting to one row', () => {
+  const rowStore = new Map([
+    [2, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'txn',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+    [3, {
+      transaction_name: 'transactions/txn_1',
+      narration_source: 'post',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Household',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Household',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  fakeSheet.getActiveRange = function() { return { getRow() { return 2; }, getColumn() { return 10; } }; };
+
+  sandbox.performDeleteSplitRow_(fakeSheet, 2);
+
+  assert.equal(rowStore.get(2).narration_source, 'txn');
+  assert.equal(rowStore.get(2).narration, 'Household');
 });
 
 test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {

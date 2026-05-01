@@ -329,6 +329,36 @@ test('buildTransactionPatchPayloadFromGroup_ keeps transaction narration separat
   ]);
 });
 
+test('buildTransactionPatchPayloadFromGroup_ treats differing split row narration as posting narration even if source is txn', () => {
+  const { sandbox } = loadCode();
+  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
+    transactionName: 'transactions/txn_1',
+    contiguous: true,
+    rows: [
+      {
+        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+        narration: 'Shared', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food',
+        amount: 50, symbol: 'CHF', __rowNumber: 2,
+      },
+      {
+        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+        narration: 'Household', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household',
+        amount: 34.25, symbol: 'CHF', __rowNumber: 3,
+      },
+    ],
+  }, {
+    'Assets:Bank:Checking': 'accounts/source',
+    'Expenses:Food': 'accounts/food',
+    'Expenses:Household': 'accounts/household',
+  });
+
+  assert.equal(payload.narration, 'Shared');
+  assert.deepEqual(JSON.parse(JSON.stringify(payload.postings.slice(1))), [
+    { account: 'accounts/food', narration: null, units: { amount: '50', symbol: 'CHF' } },
+    { account: 'accounts/household', narration: 'Household', units: { amount: '34.25', symbol: 'CHF' } },
+  ]);
+});
+
 test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when destination is blank', () => {
   const { sandbox } = loadCode();
   const payload = sandbox.buildTransactionPatchPayloadFromGroup_({

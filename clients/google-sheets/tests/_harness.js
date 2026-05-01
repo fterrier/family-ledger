@@ -40,7 +40,7 @@ function loadCode(overrides = {}) {
     RegExp,
     Error,
     encodeURIComponent,
-    console,
+    console: overrides.console || console,
     SpreadsheetApp: {
       ProtectionType: { RANGE: 'RANGE' },
       BooleanCriteria: { CUSTOM_FORMULA: 'CUSTOM_FORMULA' },

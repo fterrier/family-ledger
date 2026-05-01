@@ -7,6 +7,7 @@ const CLIENT_DIR = path.join(__dirname, '..');
 const SOURCE_FILES = [
   'Constants.js',
   'SheetLayout.js',
+  'LedgerSync.js',
   'Api.js',
   'Settings.js',
   'TransactionsSheet.js',
@@ -296,6 +297,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         setWrapStrategy() { return this; },
         setNumberFormat() { return this; },
         setDataValidation() { return this; },
+        clearDataValidations() { return this; },
         setNote() { return this; },
         setBackground() { return this; },
         setFontWeight() { return this; },

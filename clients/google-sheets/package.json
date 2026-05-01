@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Google Sheets client tooling for family-ledger",
   "scripts": {
-    "check": "eslint AccountsSheet.js Api.js App.js Constants.js DoctorIssues.js Filters.js ImporterDialog.js Settings.js SheetLayout.js TransactionEdits.js TransactionSave.js TransactionsSheet.js",
+    "check": "eslint AccountsSheet.js Api.js App.js Constants.js DoctorIssues.js Filters.js ImporterDialog.js LedgerSync.js Settings.js SheetLayout.js TransactionEdits.js TransactionSave.js TransactionsSheet.js",
     "test": "node --test tests/*.test.js",
     "clasp:login": "clasp login",
     "push": "clasp push --force"

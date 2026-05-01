@@ -1,17 +1,6 @@
 function resetSheetLayouts() {
   runUserAction_('Reset Sheet Layouts', function() {
-    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-
-    const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    if (txSheet) {
-      applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
-      ensureTransactionSheetFilter_(txSheet);
-    }
-
-    const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
-    if (accSheet) {
-      applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
-    }
+    refreshManagedLedgerSheetLayouts_();
 
     SpreadsheetApp.getUi().alert(
       'Reset Sheet Layouts',
@@ -19,6 +8,22 @@ function resetSheetLayouts() {
       SpreadsheetApp.getUi().ButtonSet.OK
     );
   });
+}
+
+function refreshManagedLedgerSheetLayouts_() {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+
+  const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (txSheet) {
+    applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
+    refreshTransactionAccountValidation_(txSheet);
+    ensureTransactionSheetFilter_(txSheet);
+  }
+
+  const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
+  if (accSheet) {
+    applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
+  }
 }
 
 function getSheetConfigByName_(sheetName) {

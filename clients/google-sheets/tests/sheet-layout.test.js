@@ -189,3 +189,71 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
   assert.equal(rules.includes(staleRule), false);
   assert.equal(rules.includes(keptRule), true);
 });
+
+test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps', () => {
+  const calls = [];
+  const sheets = {
+    Transactions: { name: 'Transactions' },
+    Accounts: { name: 'Accounts' },
+  };
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getSheetByName(name) {
+            return sheets[name] || null;
+          },
+        };
+      },
+    },
+  });
+  sandbox.applyManagedSheetLayout_ = function(sheet) {
+    calls.push({ type: 'layout', sheet: sheet.name });
+  };
+  sandbox.refreshTransactionAccountValidation_ = function(sheet) {
+    calls.push({ type: 'validation', sheet: sheet.name });
+  };
+  sandbox.ensureTransactionSheetFilter_ = function(sheet) {
+    calls.push({ type: 'filter', sheet: sheet.name });
+  };
+
+  sandbox.refreshManagedLedgerSheetLayouts_();
+
+  assert.deepEqual(calls, [
+    { type: 'layout', sheet: 'Transactions' },
+    { type: 'validation', sheet: 'Transactions' },
+    { type: 'filter', sheet: 'Transactions' },
+    { type: 'layout', sheet: 'Accounts' },
+  ]);
+});
+
+test('resetSheetLayouts delegates to shared managed layout refresh', () => {
+  const alerts = [];
+  const calls = [];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getUi() {
+        return {
+          ButtonSet: { OK: 'OK' },
+          alert(title, message) {
+            alerts.push({ title, message });
+          },
+        };
+      },
+    },
+  });
+  sandbox.runUserAction_ = function(_label, work) {
+    work();
+  };
+  sandbox.refreshManagedLedgerSheetLayouts_ = function() {
+    calls.push('refreshManagedLedgerSheetLayouts');
+  };
+
+  sandbox.resetSheetLayouts();
+
+  assert.deepEqual(calls, ['refreshManagedLedgerSheetLayouts']);
+  assert.deepEqual(alerts, [{
+    title: 'Reset Sheet Layouts',
+    message: 'Layouts have been reset to their default configurations.',
+  }]);
+});

@@ -1,32 +1,3 @@
-function syncFamilyLedgerAccounts() {
-  runUserAction_('Sync Accounts', function() {
-    ensureEditTriggerInstalled_();
-    const accounts = fetchFamilyLedgerPagedResource_(
-      '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'accounts'
-    );
-    const displayEntries = buildAccountDisplayEntries_(accounts).sort(function(a, b) {
-      return a.display_name.localeCompare(b.display_name);
-    });
-
-    const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
-    const rows = displayEntries.map(function(entry) {
-      return [entry.display_name, entry.name, ''];
-    });
-
-    writeConfigSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts, rows);
-    sheet.setFrozenRows(1);
-    ensureAccountIssueFormulas_(sheet, rows.length);
-    applyManagedSheetLayout_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
-    refreshDoctorIssueSheets_();
-    SpreadsheetApp.getUi().alert(
-      'Account Sync Complete',
-      'Synced ' + accounts.length + ' accounts.',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-  });
-}
-
 function buildAccountDisplayEntries_(accounts) {
   return accounts.map(function(account) {
     return {
@@ -50,20 +21,38 @@ function formatAccountDisplayName_(accountName) {
 }
 
 function loadAccountNameMap_() {
-  const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
-  const lastRow = accountsSheet.getLastRow();
   const mapping = {};
-  if (lastRow <= 1) {
-    throw new Error('Accounts sheet is empty. Run Sync Accounts first.');
-  }
-
-  const rows = accountsSheet.getRange(2, 1, lastRow - 1, 2).getValues();
-  rows.forEach(function(row) {
-    if (row[0] && row[1]) {
-      mapping[String(row[0])] = String(row[1]);
+  readAccountSheetEntries_().forEach(function(entry) {
+    if (entry.displayName && entry.resourceName) {
+      mapping[entry.displayName] = entry.resourceName;
     }
   });
   return mapping;
+}
+
+function loadAccountDisplayLookup_() {
+  const lookup = {};
+  readAccountSheetEntries_().forEach(function(entry) {
+    if (entry.displayName && entry.resourceName) {
+      lookup[entry.resourceName] = entry.displayName;
+    }
+  });
+  return lookup;
+}
+
+function readAccountSheetEntries_() {
+  const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
+  const lastRow = accountsSheet.getLastRow();
+  if (lastRow <= 1) {
+    throw new Error('Accounts sheet is empty. Run Sync Ledger first.');
+  }
+
+  return accountsSheet.getRange(2, 1, lastRow - 1, 2).getValues().map(function(row) {
+    return {
+      displayName: row[0] ? String(row[0]) : '',
+      resourceName: row[1] ? String(row[1]) : '',
+    };
+  });
 }
 
 function resolveAccountResourceName_(accountNameMap, accountName) {
@@ -72,19 +61,6 @@ function resolveAccountResourceName_(accountNameMap, accountName) {
     throw new Error('Unknown account_name: ' + accountName);
   }
   return resourceName;
-}
-
-function loadAccountsFromApi_() {
-  const accounts = fetchFamilyLedgerPagedResource_(
-    '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-    'accounts'
-  );
-  const displayEntries = buildAccountDisplayEntries_(accounts);
-  const lookup = {};
-  displayEntries.forEach(function(account) {
-    lookup[account.name] = account.display_name;
-  });
-  return lookup;
 }
 
 function getTransactionAccountNames() {
@@ -117,10 +93,13 @@ function ensureAccountIssueFormulas_(sheet, rowCount) {
 }
 
 function applyAccountValidation_(sheet, rowCount) {
-  // TODO: Improve account UX beyond dropdown validation, especially for large account lists.
   if (rowCount === 0) {
     return;
   }
+
+  clearTransactionAccountValidationColumns_(sheet, 2, rowCount);
+
+  // TODO: Improve account UX beyond dropdown validation, especially for large account lists.
 
   const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
   const lastRow = accountsSheet.getLastRow();
@@ -142,6 +121,8 @@ function applyAccountValidationToRowNumbers_(sheet, rowNumbers) {
     return;
   }
 
+  clearTransactionAccountValidationRows_(sheet, rowNumbers);
+
   const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
   const lastRow = accountsSheet.getLastRow();
   if (lastRow <= 1) {
@@ -156,5 +137,31 @@ function applyAccountValidationToRowNumbers_(sheet, rowNumbers) {
   const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
   rowNumbers.forEach(function(rowNumber) {
     sheet.getRange(rowNumber, destinationColumn).setDataValidation(rule);
+  });
+}
+
+function refreshTransactionAccountValidation_(sheet) {
+  applyAccountValidation_(sheet, Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0));
+}
+
+function clearTransactionAccountValidationColumns_(sheet, startRow, rowCount) {
+  if (rowCount <= 0) {
+    return;
+  }
+  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
+  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
+  sheet.getRange(startRow, sourceColumn, rowCount, 1).clearDataValidations();
+  sheet.getRange(startRow, destinationColumn, rowCount, 1).clearDataValidations();
+}
+
+function clearTransactionAccountValidationRows_(sheet, rowNumbers) {
+  if (rowNumbers.length === 0) {
+    return;
+  }
+  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
+  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
+  rowNumbers.forEach(function(rowNumber) {
+    sheet.getRange(rowNumber, sourceColumn).clearDataValidations();
+    sheet.getRange(rowNumber, destinationColumn).clearDataValidations();
   });
 }

@@ -1,61 +1,3 @@
-function syncFamilyLedgerTransactions() {
-  runUserAction_('Sync Transactions', function() {
-    ensureEditTriggerInstalled_();
-    const accountNameLookup = loadAccountsFromApi_();
-    const transactions = fetchFamilyLedgerPagedResource_(
-      '/transactions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'transactions'
-    );
-    const rows = [];
-    const skippedExamples = [];
-    let skippedCount = 0;
-
-    transactions.forEach(function(transaction) {
-      const renderedRows = flattenTransactionForSheet_(transaction, accountNameLookup);
-      if (renderedRows === null) {
-        skippedCount += 1;
-        if (skippedExamples.length < 10) {
-          skippedExamples.push(describeTransactionForSyncSkip_(transaction));
-        }
-        return;
-      }
-      renderedRows.forEach(function(row) {
-        rows.push(row);
-      });
-    });
-
-    mergeFetchedDoctorIssuesIntoRows_(rows);
-
-    const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    setTransactionSheetRows_(sheet, rows);
-    refreshDoctorIssueSheets_();
-    ensureTransactionSheetFilter_(sheet);
-
-    SpreadsheetApp.getUi().alert(
-      'Transaction Sync Complete',
-      buildTransactionSyncSummaryMessage_(transactions.length, rows.length, skippedCount, skippedExamples),
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-  });
-}
-
-function ensureEditTriggerInstalled_() {
-  const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
-  const existing = ScriptApp.getProjectTriggers().some(function(trigger) {
-    return (
-      trigger.getHandlerFunction() === 'handleTransactionEdit' &&
-      trigger.getTriggerSourceId &&
-      trigger.getTriggerSourceId() === spreadsheetId
-    );
-  });
-  if (!existing) {
-    ScriptApp.newTrigger('handleTransactionEdit')
-      .forSpreadsheet(spreadsheetId)
-      .onEdit()
-      .create();
-  }
-}
-
 function flattenTransactionForSheet_(transaction, accountNameLookup) {
   const shape = classifySupportedTransaction_(transaction, accountNameLookup);
   if (shape === null) {
@@ -180,27 +122,6 @@ function classifySupportedTransaction_(transaction, accountNameLookup) {
     if (i !== sourceIndex) destinationIndexes.push(i);
   }
   return { sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, symbol: symbol };
-}
-
-function describeTransactionForSyncSkip_(transaction) {
-  const date = transaction.transaction_date || '(missing date)';
-  const payee = transaction.payee || '';
-  const narration = transaction.narration || '';
-  const postingCount = Array.isArray(transaction.postings) ? transaction.postings.length : 0;
-  return date + ' | ' + payee + ' | ' + narration + ' | postings=' + postingCount;
-}
-
-function buildTransactionSyncSummaryMessage_(totalCount, syncedRowCount, skippedCount, skippedExamples) {
-  let message =
-    'Fetched ' + totalCount + ' transactions from the server.\n' +
-    'Synced ' + syncedRowCount + ' allocation rows into the sheet.\n' +
-    'Skipped ' + skippedCount + ' transactions that are not currently editable in this client.';
-
-  if (skippedExamples && skippedExamples.length > 0) {
-    message += '\n\nExamples of skipped transactions:\n- ' + skippedExamples.join('\n- ');
-  }
-
-  return message;
 }
 
 function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
@@ -515,8 +436,6 @@ function setTransactionSheetRows_(sheet, rows) {
   writeConfigSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, materializedRows);
   sheet.setFrozenRows(1);
   ensureTransactionIssueFormulas_(sheet, materializedRows.length);
-  applyAccountValidation_(sheet, materializedRows.length);
-  applyManagedSheetLayout_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
 }
 
 function requireTransactionSheet_() {

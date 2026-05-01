@@ -39,7 +39,7 @@ function saveTransactionByName_(sheet, transactionName, options) {
       transactionName: transactionName,
       saveGeneration: saveGeneration,
     });
-    const accountNameLookup = loadAccountsFromApi_();
+    const accountNameLookup = loadAccountDisplayLookup_();
     const replacementRows = flattenTransactionForSheet_(refreshed, accountNameLookup);
     if (replacementRows === null) {
       throw new Error('The updated transaction is no longer editable in this Sheets client.');

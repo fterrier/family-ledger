@@ -423,26 +423,6 @@ test('buildTransactionPatchPayloadFromGroup_ accepts negative destination amount
   });
 });
 
-test('buildTransactionSyncSummaryMessage_ reports synced rows and skipped transactions', () => {
-  const { sandbox } = loadCode();
-  const message = sandbox.buildTransactionSyncSummaryMessage_(9002, 8200, 802, ['2019-02-15 |  | Transfer Helvetia | postings=3']);
-  assert.match(message, /Fetched 9002 transactions/);
-  assert.match(message, /Synced 8200 allocation rows/);
-  assert.match(message, /Skipped 802 transactions/);
-  assert.match(message, /Transfer Helvetia/);
-});
-
-test('describeTransactionForSyncSkip_ includes posting count and core fields', () => {
-  const { sandbox } = loadCode();
-  const description = sandbox.describeTransactionForSyncSkip_({
-    transaction_date: '2019-02-15',
-    payee: null,
-    narration: 'Transfer Helvetia',
-    postings: [{}, {}, {}],
-  });
-  assert.equal(description, '2019-02-15 |  | Transfer Helvetia | postings=3');
-});
-
 test('isContiguousRowNumbers_ identifies split and contiguous groups', () => {
   const { sandbox } = loadCode();
   assert.equal(sandbox.isContiguousRowNumbers_([2, 3, 4]), true);

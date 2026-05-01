@@ -97,7 +97,7 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
     }
     throw new Error('unexpected api call');
   };
-  sandbox.loadAccountsFromApi_ = function() {
+  sandbox.loadAccountDisplayLookup_ = function() {
     return {
       'accounts/source': 'Assets:Bank:Checking',
       'accounts/food': 'Expenses:Food',

@@ -70,36 +70,23 @@ function getRequiredFamilyLedgerApiToken_() {
 }
 
 function showApiSettings() {
-  runUserAction_('API Settings', function() {
-    const ui = SpreadsheetApp.getUi();
+  const html = HtmlService.createHtmlOutputFromFile('ApiSettingsDialog')
+    .setWidth(420)
+    .setHeight(220);
+  SpreadsheetApp.getUi().showModalDialog(html, 'API Settings');
+}
 
-    const currentUrl = getFamilyLedgerBaseUrl_();
-    const urlResponse = ui.prompt(
-      'API Settings (1/2) — Base URL',
-      currentUrl || 'http://localhost:8000',
-      ui.ButtonSet.OK_CANCEL
-    );
-    if (urlResponse.getSelectedButton() !== ui.Button.OK) {
-      return;
-    }
-    const baseUrl = normalizeBaseUrl_(urlResponse.getResponseText());
+function getApiSettingsForDialog_() {
+  return {
+    baseUrl: getFamilyLedgerBaseUrl_() || '',
+    apiToken: getFamilyLedgerApiToken_() || '',
+  };
+}
 
-    const currentToken = getFamilyLedgerApiToken_();
-    const tokenResponse = ui.prompt(
-      'API Settings (2/2) — Token',
-      currentToken || 'Paste the bearer token configured on the server.',
-      ui.ButtonSet.OK_CANCEL
-    );
-    if (tokenResponse.getSelectedButton() !== ui.Button.OK) {
-      return;
-    }
-    const token = normalizeApiToken_(tokenResponse.getResponseText());
-
-    PropertiesService.getScriptProperties().setProperties({
-      FAMILY_LEDGER_BASE_URL: baseUrl,
-      FAMILY_LEDGER_API_TOKEN: token,
-    });
-    ui.alert('API Settings', 'Saved.\nBase URL: ' + baseUrl + '\nToken: ' + maskToken_(token), ui.ButtonSet.OK);
+function saveApiSettingsFromDialog_(baseUrl, apiToken) {
+  PropertiesService.getScriptProperties().setProperties({
+    FAMILY_LEDGER_BASE_URL: normalizeBaseUrl_(baseUrl),
+    FAMILY_LEDGER_API_TOKEN: normalizeApiToken_(apiToken),
   });
 }
 

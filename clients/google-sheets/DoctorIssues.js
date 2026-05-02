@@ -1,29 +1,33 @@
-function formatTransactionIssuesForSheet_(issues) {
+function formatDoctorIssuesForSheet_(issues) {
   if (!Array.isArray(issues) || issues.length === 0) {
     return '';
   }
-  return issues.map(formatTransactionIssueForSheet_).join('\n');
+  return issues.map(formatDoctorIssueForSheet_).filter(Boolean).join('\n');
 }
 
-function formatTransactionIssueForSheet_(issue) {
+function formatDoctorIssueForSheet_(issue) {
   if (!issue || !issue.code) {
     return '';
   }
-  const details = issue.details || {};
-  if (issue.code === 'transaction_unbalanced') {
-    const parts = [];
-    if (details.symbol) {
-      parts.push(String(details.symbol));
-    }
-    if (details.residual_amount) {
-      parts.push('residual ' + String(details.residual_amount));
-    }
-    if (details.tolerance_amount) {
-      parts.push('tolerance ' + String(details.tolerance_amount));
-    }
-    return 'transaction_unbalanced' + (parts.length > 0 ? ' (' + parts.join(', ') + ')' : '');
+  const message = issue.message ? String(issue.message) : '';
+  const details = formatDoctorIssueDetailsForSheet_(issue.details || {});
+  let formatted = String(issue.code);
+  if (message) {
+    formatted += ': ' + message;
   }
-  return issue.code + (issue.message ? ': ' + issue.message : '');
+  if (details) {
+    formatted += ' (' + details + ')';
+  }
+  return formatted;
+}
+
+function formatDoctorIssueDetailsForSheet_(details) {
+  const keys = Object.keys(details).filter(function(key) {
+    return details[key] !== undefined && details[key] !== null && String(details[key]) !== '';
+  }).sort();
+  return keys.map(function(key) {
+    return key + ' ' + String(details[key]);
+  }).join(', ');
 }
 
 function fetchLedgerDoctorIssuesByTarget_() {
@@ -47,35 +51,49 @@ function fetchLedgerDoctorIssuesByTarget_() {
   return byTarget;
 }
 
-function partitionDoctorIssuesByTargetType_(issuesByTarget) {
-  const transactionIssues = {};
-  const accountIssues = {};
+function partitionDoctorIssuesBySheet_(issuesByTarget) {
+  const grouped = {};
+  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
+    grouped[entry.doctorSheetName] = {};
+  });
+  const unknownTargets = [];
+
   Object.keys(issuesByTarget).forEach(function(target) {
-    if (target.indexOf('transactions/') === 0) {
-      transactionIssues[target] = issuesByTarget[target];
+    const registryEntry = getDoctorTargetConfigForTarget_(target);
+    if (!registryEntry) {
+      unknownTargets.push(target);
       return;
     }
-    if (target.indexOf('accounts/') === 0) {
-      accountIssues[target] = issuesByTarget[target];
-    }
+    grouped[registryEntry.doctorSheetName][target] = issuesByTarget[target];
   });
+
   return {
-    transactionIssues: transactionIssues,
-    accountIssues: accountIssues,
+    grouped: grouped,
+    unknownTargets: unknownTargets,
   };
+}
+
+function getDoctorTargetConfigForTarget_(target) {
+  for (let index = 0; index < FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.length; index += 1) {
+    const entry = FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY[index];
+    if (target.indexOf(entry.targetPrefix) === 0) {
+      return entry;
+    }
+  }
+  return null;
 }
 
 function doctorIssuesToSheetRows_(issuesByTarget) {
   return Object.keys(issuesByTarget)
     .sort()
     .map(function(target) {
-      return [target, formatTransactionIssuesForSheet_(issuesByTarget[target] || [])];
+      return [target, formatDoctorIssuesForSheet_(issuesByTarget[target] || [])];
     });
 }
 
 function mergeDoctorIssuesIntoRows_(rows, issuesByTarget) {
   rows.forEach(function(row) {
-    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.resource_name] || []);
+    row.issues = formatDoctorIssuesForSheet_(issuesByTarget[row.resource_name] || []);
   });
 }
 
@@ -85,16 +103,16 @@ function mergeFetchedDoctorIssuesIntoRows_(rows) {
   return issuesByTarget;
 }
 
-function refreshTransactionIssuesFromDoctor_(sheet) {
+function refreshVisibleLedgerIssuesFromDoctor_() {
   try {
     const issuesByTarget = refreshDoctorIssueSheets_();
-    applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
+    refreshManagedVisibleSheetIssues_(issuesByTarget);
   } catch (error) {
-    debugLog_('refreshTransactionIssuesFromDoctor:error', {
+    debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
       message: error && error.message ? error.message : String(error),
     });
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      'Saved transaction, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
+      'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
       'Family Ledger',
       5
     );
@@ -113,36 +131,56 @@ function refreshDoctorIssueSheets_() {
 }
 
 function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
-  const partitioned = partitionDoctorIssuesByTargetType_(issuesByTarget);
-  writeDoctorIssueSheet_(
-    resolveSheet(FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues),
-    doctorIssuesToSheetRows_(partitioned.transactionIssues)
-  );
-  writeDoctorIssueSheet_(
-    resolveSheet(FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues),
-    doctorIssuesToSheetRows_(partitioned.accountIssues)
-  );
+  const partitioned = partitionDoctorIssuesBySheet_(issuesByTarget);
+  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
+    writeDoctorIssueSheet_(
+      resolveSheet(entry.doctorSheetName),
+      doctorIssuesToSheetRows_(partitioned.grouped[entry.doctorSheetName] || {})
+    );
+  });
   debugLog_('refreshDoctorIssueSheets:written', {
-    transactionIssueTargets: Object.keys(partitioned.transactionIssues).length,
-    accountIssueTargets: Object.keys(partitioned.accountIssues).length,
+    doctorSheets: FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.map(function(entry) {
+      return {
+        sheetName: entry.doctorSheetName,
+        targetCount: Object.keys(partitioned.grouped[entry.doctorSheetName] || {}).length,
+      };
+    }),
+    unknownTargets: partitioned.unknownTargets,
   });
 }
 
-function applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
-  const existing = readVisibleTransactionRows_(sheet);
+function refreshManagedVisibleSheetIssues_(issuesByTarget) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
+    const sheet = spreadsheet.getSheetByName(entry.visibleSheetName);
+    if (!sheet) {
+      return;
+    }
+    applyDoctorIssuesToVisibleSheet_(sheet, issuesByTarget);
+  });
+}
+
+function applyDoctorIssuesToVisibleSheet_(sheet, issuesByTarget) {
+  const sheetConfig = getSheetConfigByName_(sheet.getName());
+  const existing = readVisibleRowsForIssueRefresh_(sheet, sheetConfig);
   mergeDoctorIssuesIntoRows_(existing.rows, issuesByTarget);
-  debugLog_('applyFetchedDoctorIssuesToExistingSheet', {
+  debugLog_('applyDoctorIssuesToVisibleSheet', {
+    sheetName: sheet.getName(),
     visibleRowCount: existing.rowNumbers.length,
     issueTargetCount: Object.keys(issuesByTarget).length,
   });
-  applyDoctorIssuesToSheetRowNumbers_(sheet, existing.rowNumbers, existing.rows);
+  applyDoctorIssuesToRowNumbers_(sheet, sheetConfig, existing.rowNumbers, existing.rows);
 }
 
-function applyDoctorIssuesToSheetRowNumbers_(sheet, rowNumbers, rows) {
+function readVisibleRowsForIssueRefresh_(sheet, sheetConfig) {
+  return readVisibleSheetRows_(sheet, sheetConfig);
+}
+
+function applyDoctorIssuesToRowNumbers_(sheet, sheetConfig, rowNumbers, rows) {
   if (!rowNumbers || rowNumbers.length === 0) {
     return;
   }
-  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
+  const issuesColumn = getColumnIndex_(sheetConfig, 'issues');
   rowNumbers.forEach(function(rowNumber, index) {
     sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
   });

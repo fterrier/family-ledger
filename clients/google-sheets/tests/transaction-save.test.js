@@ -112,5 +112,5 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
   assert.equal(rowStore.get(2).status, 'saved');
   assert.equal(rowStore.get(2).last_error, '');
   assert.equal(toasts.length, 1);
-  assert.match(toasts[0].message, /Saved transaction, but failed to refresh ledger doctor issues/);
+  assert.match(toasts[0].message, /Saved changes, but failed to refresh ledger doctor issues/);
 });

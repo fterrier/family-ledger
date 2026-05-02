@@ -10,6 +10,7 @@ const SOURCE_FILES = [
   'LedgerSync.js',
   'Api.js',
   'Settings.js',
+  'ManagedSheetData.js',
   'TransactionsSheet.js',
   'AccountsSheet.js',
   'DoctorIssues.js',

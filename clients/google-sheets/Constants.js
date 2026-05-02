@@ -9,6 +9,19 @@ const FAMILY_LEDGER_PAGE_SIZE = 1000;
 
 const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issues_text'];
 
+const FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY = Object.freeze([
+  Object.freeze({
+    targetPrefix: 'transactions/',
+    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues,
+    visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.transactions,
+  }),
+  Object.freeze({
+    targetPrefix: 'accounts/',
+    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues,
+    visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.accounts,
+  }),
+]);
+
 const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
   Assets: '[A]',
   Liabilities: '[L]',

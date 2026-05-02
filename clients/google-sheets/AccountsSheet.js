@@ -76,20 +76,13 @@ function getTransactionAccountNames() {
   return names;
 }
 
-function buildAccountIssuesFormula_(rowNumber) {
-  return '=IFERROR(VLOOKUP($A' + rowNumber + ',DoctorAccountIssues!$A:$B,2,FALSE),"")';
-}
-
 function ensureAccountIssueFormulas_(sheet, rowCount) {
-  const issuesColumn = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.accounts, 'issues');
-  if (rowCount <= 0) {
-    return;
-  }
-  const formulas = [];
-  for (let rowNumber = 2; rowNumber < rowCount + 2; rowNumber += 1) {
-    formulas.push([buildAccountIssuesFormula_(rowNumber)]);
-  }
-  sheet.getRange(2, issuesColumn, rowCount, 1).setFormulas(formulas);
+  ensureManagedSheetIssueFormulas_(
+    sheet,
+    FAMILY_LEDGER_SHEET_REGISTRY.accounts,
+    FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues,
+    rowCount
+  );
 }
 
 function applyAccountValidation_(sheet, rowCount) {

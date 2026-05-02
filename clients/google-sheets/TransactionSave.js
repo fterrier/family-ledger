@@ -92,7 +92,7 @@ function saveTransactionByName_(sheet, transactionName, options) {
     transactionName: transactionName,
     saveGeneration: saveGeneration,
   });
-  refreshTransactionIssuesFromDoctor_(sheet);
+  refreshVisibleLedgerIssuesFromDoctor_();
   debugLog_('saveTransactionByName:doctorRefreshFinished', {
     transactionName: transactionName,
     saveGeneration: saveGeneration,

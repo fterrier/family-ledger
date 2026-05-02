@@ -226,7 +226,7 @@ function isSourceOnlyTransactionRow_(sheet, rowNumber) {
   if (!probeRange || typeof probeRange.getValues !== 'function') {
     return false;
   }
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   const transactionName = row && row.resource_name ? String(row.resource_name).trim() : '';
   if (!transactionName) {
     return false;
@@ -267,24 +267,6 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   return distinct.length === 0 ? null : distinct[0];
 }
 
-function readVisibleTransactionRows_(sheet) {
-  const lastRow = sheet.getLastRow();
-  const rowNumbers = [];
-  const rows = [];
-  if (lastRow <= 1) {
-    return { rowNumbers: rowNumbers, rows: rows };
-  }
-  for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
-    const row = readTransactionSheetRow_(sheet, rowNumber);
-    if (!row || !row.resource_name) {
-      continue;
-    }
-    rowNumbers.push(rowNumber);
-    rows.push(row);
-  }
-  return { rowNumbers: rowNumbers, rows: rows };
-}
-
 function getTransactionNameForRow_(sheet, rowNumber) {
   if (rowNumber <= 1) {
     return '';
@@ -322,23 +304,8 @@ function findTransactionRowNumbers_(sheet, transactionName) {
   return findTransactionRowNumbersFromColumnValues_(readTransactionNameColumnValues_(sheet), transactionName);
 }
 
-function readTransactionSheetRow_(sheet, rowNumber) {
-  const values = sheet.getRange(
-    rowNumber,
-    1,
-    1,
-    FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length
-  ).getValues()[0];
-  const row = rowToObject_(FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers, values);
-  row.__rowNumber = rowNumber;
-  return row;
-}
-
 function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
-  const column = getTransactionHeaderColumnIndex_(header);
-  rowNumbers.forEach(function(rowNumber) {
-    sheet.getRange(rowNumber, column).setValue(value);
-  });
+  setSheetFieldValuesForRowNumbers_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumbers, header, value);
 }
 
 function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacementRows) {
@@ -414,21 +381,15 @@ function normalizeSheetCellValue_(value) {
 }
 
 function readTransactionSheetRowsByNumbers_(sheet, rowNumbers) {
-  return rowNumbers.map(function(rowNumber) {
-    return readTransactionSheetRow_(sheet, rowNumber);
-  });
+  return readSheetRowsByNumbers_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumbers);
 }
 
 function writeTransactionSheetRow_(sheet, rowNumber, row) {
-  sheet
-    .getRange(rowNumber, 1, 1, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
-    .setValues([materializeTransactionSheetRow_(row)]);
+  writeSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber, row);
 }
 
 function materializeTransactionSheetRow_(row) {
-  return FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.map(function(header) {
-    return row[header] ?? '';
-  });
+  return materializeSheetRow_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, row);
 }
 
 function setTransactionSheetRows_(sheet, rows) {
@@ -562,20 +523,13 @@ function cloneTransactionSheetRow_(row) {
 }
 
 
-function buildTransactionIssuesFormula_(rowNumber) {
-  return '=IFERROR(VLOOKUP($A' + rowNumber + ',DoctorTransactionIssues!$A:$B,2,FALSE),"")';
-}
-
 function ensureTransactionIssueFormulas_(sheet, rowCount) {
-  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
-  if (rowCount <= 0) {
-    return;
-  }
-  const formulas = [];
-  for (let rowNumber = 2; rowNumber < rowCount + 2; rowNumber += 1) {
-    formulas.push([buildTransactionIssuesFormula_(rowNumber)]);
-  }
-  sheet.getRange(2, issuesColumn, rowCount, 1).setFormulas(formulas);
+  ensureManagedSheetIssueFormulas_(
+    sheet,
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions,
+    FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues,
+    rowCount
+  );
 }
 
 

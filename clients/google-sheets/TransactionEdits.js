@@ -72,7 +72,7 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
@@ -106,7 +106,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
 }
 
 function performSplitFromEditedAmount_(sheet, rowNumber, oldAmount, newAmount) {
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
@@ -146,7 +146,7 @@ function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
 }
 
 function performDeleteSplitRow_(sheet, rowNumber) {
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
@@ -165,7 +165,7 @@ function performDeleteSplitRow_(sheet, rowNumber) {
 
   const currentIndex = rowNumbers.indexOf(rowNumber);
   const mergeTargetRowNumber = currentIndex > 0 ? rowNumbers[currentIndex - 1] : rowNumbers[currentIndex + 1];
-  const mergeTarget = readTransactionSheetRow_(sheet, mergeTargetRowNumber);
+  const mergeTarget = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, mergeTargetRowNumber);
   mergeTarget.amount = mergeTarget.amount + row.amount;
   mergeTarget.split_off_amount = '';
   mergeTarget.status = 'dirty';
@@ -274,14 +274,14 @@ function applyNarrationEdit_(sheet, transactionName, rowNumber, value) {
 }
 
 function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value) {
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   row.narration_source = 'txn';
   row.narration = value;
   writeTransactionSheetRow_(sheet, rowNumber, row);
 }
 
 function applySplitRowPostingNarrationEdit_(sheet, rowNumber, value) {
-  const row = readTransactionSheetRow_(sheet, rowNumber);
+  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
   const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
   const transactionNarration = inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
   const normalizedValue = String(value || '');

@@ -1,6 +1,6 @@
 """drop fingerprint from transactions
 
-Revision ID: 0004_drop_fingerprint_from_transactions
+Revision ID: 0004_drop_fingerprint
 Revises: 0003_add_posting_narration
 Create Date: 2026-05-02 00:00:00
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "0004_drop_fingerprint_from_transactions"
+revision = "0004_drop_fingerprint"
 down_revision = "0003_add_posting_narration"
 branch_labels = None
 depends_on = None

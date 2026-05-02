@@ -30,10 +30,22 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     api_token: str
-    database_url: str = (
-        "postgresql+psycopg://family_ledger:family_ledger@postgres:5432/family_ledger"
-    )
+    database_url: str | None = None
+    db_host: str = "postgres"
+    db_port: int = 5432
+    db_name: str = "family_ledger"
+    db_user: str = "family_ledger"
+    db_password: str | None = None
     ledger_config_path: Path = Path("config/ledger.yaml")
+
+    def get_database_url(self) -> str:
+        if self.database_url is not None:
+            return self.database_url
+        if self.db_password is not None:
+            from urllib.parse import quote_plus
+
+            return f"postgresql+psycopg://{self.db_user}:{quote_plus(self.db_password)}@{self.db_host}:{self.db_port}/{self.db_name}"
+        return f"postgresql+psycopg://{self.db_user}:@{self.db_host}:{self.db_port}/{self.db_name}"
 
 
 def _load_yaml_config(path: Path) -> dict[str, Any]:

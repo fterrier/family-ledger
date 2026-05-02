@@ -12,7 +12,7 @@ from family_ledger.config import get_settings
 
 def build_engine() -> Engine:
     settings = get_settings()
-    return create_engine(settings.database_url, pool_pre_ping=True)
+    return create_engine(settings.get_database_url(), pool_pre_ping=True)
 
 
 engine = build_engine()

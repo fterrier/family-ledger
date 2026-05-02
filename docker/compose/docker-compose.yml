@@ -5,9 +5,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-family_ledger}
-      POSTGRES_USER: ${POSTGRES_USER:-family_ledger}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-family_ledger}
+      POSTGRES_DB: family_ledger
+      POSTGRES_USER: family_ledger
+      POSTGRES_HOST_AUTH_METHOD: trust
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-family_ledger} -d ${POSTGRES_DB:-family_ledger}"]
       interval: 5s
@@ -26,7 +26,7 @@ services:
       - ./config/ledger.yaml:/app/config/ledger.yaml:ro
     environment:
       FAMILY_LEDGER_API_TOKEN: ${FAMILY_LEDGER_API_TOKEN}
-      FAMILY_LEDGER_DATABASE_URL: ${FAMILY_LEDGER_DATABASE_URL:-postgresql+psycopg://family_ledger:${POSTGRES_PASSWORD:-family_ledger}@postgres:5432/family_ledger}
+      FAMILY_LEDGER_DB_HOST: postgres
       FAMILY_LEDGER_LEDGER_CONFIG_PATH: ${FAMILY_LEDGER_LEDGER_CONFIG_PATH:-/app/config/ledger.yaml}
 
 volumes:

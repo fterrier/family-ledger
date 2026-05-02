@@ -21,8 +21,7 @@ Current implementation includes:
 cp docker/compose/.env.example docker/compose/.env
 ```
 
-2. Edit `docker/compose/.env` and set a real `POSTGRES_PASSWORD`.
-   Also set a real `FAMILY_LEDGER_API_TOKEN`.
+2. Edit `docker/compose/.env` and set a real `FAMILY_LEDGER_API_TOKEN`.
 
    `docker/compose/.env.example` is the checked-in template.
    `docker/compose/.env` is your local deployment file and should not be committed.
@@ -33,13 +32,9 @@ cp docker/compose/.env.example docker/compose/.env
 docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env up -d
 ```
 
-4. Run migrations:
+Migrations run automatically on startup.
 
-```bash
-docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api alembic upgrade head
-```
-
-5. Check the app health endpoint:
+4. Check the app health endpoint:
 
 ```bash
 curl http://localhost:8000/healthz
@@ -66,15 +61,16 @@ Recommended setup:
   - `docker/compose/.env.example` (rename it to `.env`)
   - `docker/compose/config/ledger.yaml`
 - edit `.env` and `config/ledger.yaml` in that folder
-- run the same compose and migration commands shown above from that folder
+- run the same compose command shown above from that folder
 
 ## Updating
 
 ```bash
 docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env pull
 docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env up -d
-docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env exec api alembic upgrade head
 ```
+
+Migrations run automatically on startup.
 
 ## Google Sheets Access
 
@@ -127,12 +123,9 @@ For application development, prefer the local Docker workflow rather than settin
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `POSTGRES_DB` | `family_ledger` | PostgreSQL database name |
-| `POSTGRES_USER` | `family_ledger` | PostgreSQL username |
-| `POSTGRES_PASSWORD` | - | **Required**. Set in `.env` |
 | `FAMILY_LEDGER_API_TOKEN` | - | **Required**. Bearer token for all ledger API routes |
 | `FAMILY_LEDGER_IMAGE` | `ghcr.io/fterrier/family-ledger:latest` | Container image to run |
-| `FAMILY_LEDGER_DATABASE_URL` | `postgresql+psycopg://...` | Database connection URL |
+| `FAMILY_LEDGER_DB_HOST` | `postgres` | PostgreSQL hostname (docker service name) |
 | `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to the mounted ledger config inside the container |
 
 `docker/compose/.env.example` is the checked-in example. Copy it to `docker/compose/.env`
@@ -154,13 +147,13 @@ pre-commit install
 
 ## Migrations
 
-Run Alembic from the app environment:
+Migrations run automatically via the container entrypoint (`alembic upgrade head`) on every startup. No manual step is needed for standard deployments.
+
+For local development, run Alembic directly:
 
 ```bash
-alembic upgrade head
+uv run alembic upgrade head
 ```
-
-The project includes an initial Alembic schema migration for the core ledger tables.
 
 ## Demo Data
 

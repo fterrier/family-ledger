@@ -152,7 +152,7 @@ Migrations run automatically via the container entrypoint (`alembic upgrade head
 For local development, run Alembic directly:
 
 ```bash
-uv run alembic upgrade head
+alembic upgrade head
 ```
 
 ## Demo Data

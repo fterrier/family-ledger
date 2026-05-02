@@ -70,6 +70,18 @@ TOLERANCE_FIXTURE = """
   Assets:Broker:Cash:USD -100.0000005 USD
 """
 
+METADATA_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 commodity CHF
+
+2026-04-01 * "Migros" "Groceries"
+  ref: "Z1234"
+  account: "CH12345"
+  Assets:Bank:Checking:Family  -84.25 CHF
+  Expenses:Food                 84.25 CHF
+"""
+
 PARSE_ERROR_FIXTURE = """
 2020-01-01 open Assets:Bank
 not valid beancount syntax !!!
@@ -217,3 +229,31 @@ def test_beancount_importer_imports_posting_comments_when_enabled(session: Sessi
 
     assert transaction is not None
     assert [posting.narration for posting in transaction.postings] == [None, "Groceries", None]
+
+
+def test_beancount_importer_stores_beancount_metadata(session: Session) -> None:
+    _run(session, METADATA_FIXTURE)
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert transaction.entity_metadata == {"beancount": {"ref": "Z1234", "account": "CH12345"}}
+
+
+def test_beancount_importer_uses_ref_as_source_native_id(session: Session) -> None:
+    _run(session, METADATA_FIXTURE)
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert transaction.source_native_id == "Z1234"
+
+
+def test_beancount_importer_no_metadata_leaves_entity_metadata_empty(session: Session) -> None:
+    _run(session, FIXTURE)
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert transaction.entity_metadata == {}
+    assert transaction.source_native_id is None

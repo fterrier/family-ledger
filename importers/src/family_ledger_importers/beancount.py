@@ -17,6 +17,7 @@ from family_ledger.api.schemas import (
     AccountCreate,
     BalanceAssertionCreate,
     CommodityCreate,
+    ImportMetadata,
     MoneyValue,
     NormalizeMoneyValue,
     NormalizePriceValue,
@@ -35,6 +36,7 @@ SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balanc
 MAX_SKIPPED_EXAMPLES_PER_REASON = 10
 POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
 POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
+_BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
 
 
 def _database_is_empty(session: Session) -> bool:
@@ -112,6 +114,10 @@ def _posting_cost_value(posting: Posting) -> MoneyValue | None:
     if number is None or currency is None:
         return None
     return MoneyValue(amount=Decimal(str(number)), symbol=currency)
+
+
+def _extract_beancount_meta(entry_meta: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in entry_meta.items() if k not in _BEANCOUNT_INTERNAL_META_KEYS}
 
 
 def _posting_comment_by_line(text: str) -> dict[int, str]:
@@ -281,11 +287,21 @@ class BeancountImporter(BaseImporter):
                                 f"{entry.date} {entry.payee or ''} {entry.narration or ''}: {exc}"
                             )
                         raise
+                beancount_meta = _extract_beancount_meta(getattr(entry, "meta", None) or {})
+                entity_metadata: dict[str, Any] = (
+                    {"beancount": beancount_meta} if beancount_meta else {}
+                )
+                ref = beancount_meta.get("ref")
+                import_metadata = (
+                    ImportMetadata(source_native_id=str(ref)) if ref is not None else None
+                )
                 payload = TransactionNormalizeData(
                     transaction_date=entry.date,
                     payee=entry.payee,
                     narration=entry.narration,
                     postings=posting_payloads,
+                    entity_metadata=entity_metadata,
+                    import_metadata=import_metadata,
                 )
             except ValueError:
                 continue

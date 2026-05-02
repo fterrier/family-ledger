@@ -73,7 +73,7 @@ test('mergeDoctorIssuesIntoRows_ merges doctor issues onto every transaction row
 
   assert.equal(
     rows[0].issues,
-    'transaction_unbalanced: Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'
+    'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'
   );
 });
 
@@ -91,7 +91,35 @@ test('formatDoctorIssuesForSheet_ includes generic issue details for all codes',
         units_symbol: 'AAPL',
       },
     }]),
-    'lot_match_missing: Not enough lots to reduce. (available_amount 10, requested_amount 15, units_symbol AAPL)'
+    'Not enough lots to reduce. (available_amount 10, requested_amount 15, units_symbol AAPL)'
+  );
+});
+
+test('doctorIssuesToSheetRows_ stores issue codes separately from visible text', () => {
+  const { sandbox } = loadCode();
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(sandbox.doctorIssuesToSheetRows_({
+      'transactions/txn_1': [
+        {
+          target: 'transactions/txn_1',
+          code: 'transaction_unbalanced',
+          message: 'Transaction is not balanced within tolerance.',
+          details: { symbol: 'CHF' },
+        },
+        {
+          target: 'transactions/txn_1',
+          code: 'lot_match_missing',
+          message: 'Not enough lots to reduce.',
+          details: {},
+        },
+      ],
+    }))),
+    [[
+      'transactions/txn_1',
+      'transaction_unbalanced\nlot_match_missing',
+      'Transaction is not balanced within tolerance. (symbol CHF)\nNot enough lots to reduce.',
+    ]]
   );
 });
 
@@ -208,10 +236,10 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
   assert.equal(transactionRowStore.get(2).last_error, '');
   assert.equal(
     transactionRowStore.get(2).issues,
-    'transaction_unbalanced: Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'
+    'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'
   );
   assert.equal(
     accountRowStore.get(2).issues,
-    'account_warning: Account needs attention. (severity warning)'
+    'Account needs attention. (severity warning)'
   );
 });

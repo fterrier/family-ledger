@@ -7,7 +7,7 @@ const FAMILY_LEDGER_SHEET_NAMES = {
 
 const FAMILY_LEDGER_PAGE_SIZE = 1000;
 
-const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issues_text'];
+const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issue_codes', 'issues_text'];
 
 const FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY = Object.freeze([
   Object.freeze({
@@ -137,11 +137,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: true,
     },
     issues: {
-      width: 420,
+      width: 600,
       role: 'system',
       note: 'Derived ledger doctor issues merged by transaction.',
       alignment: 'left',
-      wrap: true,
+      wrap: false,
+      wrapStrategy: 'OVERFLOW',
     },
   }, {
     hiddenHeaders: ['resource_name', 'narration_source', 'last_error'],
@@ -162,11 +163,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
     },
     issues: {
-      width: 420,
+      width: 600,
       role: 'system',
       note: 'Derived ledger doctor issues linked by account resource name.',
       alignment: 'left',
-      wrap: true,
+      wrap: false,
+      wrapStrategy: 'OVERFLOW',
     },
   }, {
     hiddenHeaders: ['resource_name'],

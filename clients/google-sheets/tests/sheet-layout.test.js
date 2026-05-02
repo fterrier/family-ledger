@@ -158,7 +158,7 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
 
 test('applySheetDirectFormatting_ applies grouped formatting from config metadata', () => {
   const operations = [];
-  const { sandbox } = loadCode({ SpreadsheetApp: { WrapStrategy: { CLIP: 'CLIP' } } });
+  const { sandbox } = loadCode({ SpreadsheetApp: { WrapStrategy: { CLIP: 'CLIP', OVERFLOW: 'OVERFLOW' } } });
   const fakeSheet = {
     getMaxRows() { return 5; },
     getRange() { return { setHorizontalAlignment() { return this; }, setWrap() { return this; }, setWrapStrategy() { return this; }, setNumberFormat() { return this; } }; },
@@ -176,9 +176,11 @@ test('applySheetDirectFormatting_ applies grouped formatting from config metadat
 
   const leftAlign = operations.find((op) => op.type === 'rangeListAlign' && op.notations.includes('G1:G5'));
   const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('M1:M5'));
+  const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('M1:M5'));
   const dateFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('B2:B5'));
   assert.equal(leftAlign.value, 'left');
-  assert.equal(issuesWrap.value, true);
+  assert.equal(issuesWrap.value, false);
+  assert.equal(issuesWrapStrategy.value, 'OVERFLOW');
   assert.equal(dateFormat.value, 'yyyy-mm-dd');
 });
 

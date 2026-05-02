@@ -11,14 +11,20 @@ function formatDoctorIssueForSheet_(issue) {
   }
   const message = issue.message ? String(issue.message) : '';
   const details = formatDoctorIssueDetailsForSheet_(issue.details || {});
-  let formatted = String(issue.code);
-  if (message) {
-    formatted += ': ' + message;
-  }
+  let formatted = message || String(issue.code);
   if (details) {
     formatted += ' (' + details + ')';
   }
   return formatted;
+}
+
+function formatDoctorIssueCodesForSheet_(issues) {
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return '';
+  }
+  return issues.map(function(issue) {
+    return issue && issue.code ? String(issue.code) : '';
+  }).filter(Boolean).join('\n');
 }
 
 function formatDoctorIssueDetailsForSheet_(details) {
@@ -87,7 +93,12 @@ function doctorIssuesToSheetRows_(issuesByTarget) {
   return Object.keys(issuesByTarget)
     .sort()
     .map(function(target) {
-      return [target, formatDoctorIssuesForSheet_(issuesByTarget[target] || [])];
+      const issues = issuesByTarget[target] || [];
+      return [
+        target,
+        formatDoctorIssueCodesForSheet_(issues),
+        formatDoctorIssuesForSheet_(issues),
+      ];
     });
 }
 

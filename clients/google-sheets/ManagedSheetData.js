@@ -54,7 +54,7 @@ function setSheetFieldValuesForRowNumbers_(sheet, sheetConfig, rowNumbers, heade
 }
 
 function buildIssueLookupFormula_(doctorSheetName, rowNumber) {
-  return '=IFERROR(VLOOKUP($A' + rowNumber + ',' + doctorSheetName + '!$A:$B,2,FALSE),"")';
+  return '=IFERROR(VLOOKUP($A' + rowNumber + ',' + doctorSheetName + '!$A:$C,3,FALSE),"")';
 }
 
 function ensureManagedSheetIssueFormulas_(sheet, sheetConfig, doctorSheetName, rowCount) {

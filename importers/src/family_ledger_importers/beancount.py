@@ -12,7 +12,6 @@ from beancount.core.amount import Amount
 from beancount.core.data import Balance, Close, Open, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
@@ -28,9 +27,6 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
-from family_ledger.models import Account, BalanceAssertion, Commodity
-from family_ledger.models import Price as PriceModel
-from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import ConflictError
 
@@ -39,11 +35,6 @@ MAX_SKIPPED_EXAMPLES_PER_REASON = 10
 POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
 POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 _BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
-
-
-def _database_is_empty(session: Session) -> bool:
-    core_models = [Account, Commodity, TransactionModel, PriceModel, BalanceAssertion]
-    return all(session.scalar(select(model.id).limit(1)) is None for model in core_models)
 
 
 def _load_beancount_string(text: str):  # type: ignore[no-untyped-def]
@@ -219,12 +210,6 @@ class BeancountImporter(BaseImporter):
         file_data: bytes,
         config: dict[str, Any],
     ) -> ImportResult:
-        if not _database_is_empty(session):
-            raise ConflictError(
-                code="database_not_empty",
-                message="Beancount import requires an empty database",
-            )
-
         text = file_data.decode("utf-8")
         entries, errors, _options_map = _load_beancount_string(text)
         posting_comments = (

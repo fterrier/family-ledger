@@ -151,15 +151,6 @@ def test_beancount_importer_populates_database(session: Session) -> None:
     assert session.scalar(select(func.count()).select_from(BalanceAssertion)) == 1
 
 
-def test_beancount_importer_refuses_non_empty_database(session: Session) -> None:
-    session.add(Commodity(name="commodities/cmd_one", symbol="CHF"))
-    session.commit()
-
-    with pytest.raises(ConflictError) as exc_info:
-        _run(session, FIXTURE)
-    assert exc_info.value.code == "database_not_empty"
-
-
 def test_beancount_importer_raises_on_parse_errors(session: Session) -> None:
     with pytest.raises(ConflictError) as exc_info:
         _run(session, PARSE_ERROR_FIXTURE)

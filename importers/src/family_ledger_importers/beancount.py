@@ -12,6 +12,7 @@ from beancount.core.amount import Amount
 from beancount.core.data import Balance, Close, Open, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
@@ -27,6 +28,7 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
+from family_ledger.models import Account
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import ConflictError
 
@@ -236,9 +238,17 @@ class BeancountImporter(BaseImporter):
         # Accounts
         account_names: dict[str, str] = {}
         for account_name, payload in _build_account_creates(entries).items():
-            resource = ledger_service.create_account(session, payload)
-            account_names[account_name] = resource.name
-            result.entities.setdefault("account", EntityCounts()).created += 1
+            try:
+                resource = ledger_service.create_account(session, payload)
+                account_names[account_name] = resource.name
+                result.entities.setdefault("account", EntityCounts()).created += 1
+            except ConflictError:
+                existing = session.scalar(
+                    select(Account).where(Account.account_name == payload.account_name)
+                )
+                if existing is not None:
+                    account_names[account_name] = existing.name
+                result.entities.setdefault("account", EntityCounts()).duplicate += 1
 
         # Commodities
         for symbol in _discover_commodity_symbols(entries):

@@ -202,6 +202,35 @@
     padding: 2px 0;
   }
   .warnings-list li::before { content: '• '; }
+
+  /* Key-value list (for object-type config fields) */
+  .kv-list { display: flex; flex-direction: column; gap: 6px; }
+  .kv-row { display: flex; gap: 6px; align-items: center; }
+  .kv-row input[type="text"] { width: 140px; flex-shrink: 0; }
+  .kv-row select { flex: 1; min-width: 0; }
+  .kv-remove {
+    padding: 3px 8px;
+    background: none;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #80868b;
+    font-size: 13px;
+    flex-shrink: 0;
+  }
+  .kv-remove:hover { background: #fce8e6; border-color: #f28b82; color: #c5221f; }
+  .kv-add {
+    margin-top: 2px;
+    padding: 5px 10px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px dashed #1a73e8;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    width: 100%;
+  }
+  .kv-add:hover { background: #e8f0fe; }
 </style>
 </head>
 <body>
@@ -238,6 +267,7 @@
 
   <div class="actions">
     <button class="btn-primary" id="importBtn" disabled onclick="onImport()">Import</button>
+    <span id="importStatus" style="color:#5f6368;font-size:12px;display:none"></span>
   </div>
 </div>
 
@@ -344,7 +374,10 @@
     }
 
     var needsAccounts = keys.some(function(key) {
-      return getSchemaProperty(schema, key)['x-resource-type'] === 'account';
+      var prop = getSchemaProperty(schema, key);
+      if (prop['x-resource-type'] === 'account') return true;
+      var valProp = prop.additionalProperties || {};
+      return prop.type === 'object' && valProp['x-resource-type'] === 'account';
     });
 
     if (needsAccounts && accountsCache === null) {
@@ -433,6 +466,10 @@
     var value = getConfiguredValue(importer, key);
     var element;
 
+    if (prop.type === 'object' && prop.additionalProperties) {
+      return buildKvListElement(key, prop, value);
+    }
+
     if (prop['x-resource-type'] === 'account') {
       element = document.createElement('select');
       var blank = document.createElement('option');
@@ -480,8 +517,98 @@
     return element;
   }
 
+  function buildKvListElement(key, prop, value) {
+    var container = document.createElement('div');
+    container.className = 'kv-list';
+    container.setAttribute('data-field', key);
+
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'kv-add';
+    addBtn.textContent = '+ Add mapping';
+    addBtn.addEventListener('click', function() {
+      container.insertBefore(buildKvRow(prop, '', ''), addBtn);
+    });
+    container.appendChild(addBtn);
+
+    var entries = (value && typeof value === 'object') ? Object.keys(value).map(function(k) { return [k, value[k]]; }) : [];
+    if (entries.length === 0) {
+      container.insertBefore(buildKvRow(prop, '', ''), addBtn);
+    } else {
+      entries.forEach(function(entry) {
+        container.insertBefore(buildKvRow(prop, entry[0], entry[1]), addBtn);
+      });
+    }
+
+    return container;
+  }
+
+  function buildKvRow(prop, initKey, initValue) {
+    var row = document.createElement('div');
+    row.className = 'kv-row';
+
+    var keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.className = 'kv-key';
+    keyInput.placeholder = 'IBAN';
+    keyInput.value = initKey || '';
+    row.appendChild(keyInput);
+
+    var valProp = prop.additionalProperties || {};
+    var valueEl;
+    if (valProp['x-resource-type'] === 'account') {
+      valueEl = document.createElement('select');
+      valueEl.className = 'kv-value';
+      var blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = '— select account —';
+      valueEl.appendChild(blank);
+      (accountsCache || []).forEach(function(acc) {
+        var opt = document.createElement('option');
+        opt.value = acc.name;
+        opt.textContent = acc.display_name || acc.name;
+        valueEl.appendChild(opt);
+      });
+      valueEl.value = initValue || '';
+    } else {
+      valueEl = document.createElement('input');
+      valueEl.type = 'text';
+      valueEl.className = 'kv-value';
+      valueEl.placeholder = 'Value';
+      valueEl.value = initValue || '';
+    }
+    row.appendChild(valueEl);
+
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'kv-remove';
+    removeBtn.textContent = '✕';
+    removeBtn.addEventListener('click', function() {
+      row.parentNode.removeChild(row);
+    });
+    row.appendChild(removeBtn);
+
+    return row;
+  }
+
   function getFieldOverrideValue(importer, key) {
     var prop = getSchemaProperty(importer.schema || {}, key);
+
+    if (prop.type === 'object' && prop.additionalProperties) {
+      var container = document.querySelector('[data-field="' + key + '"]');
+      if (!container) return undefined;
+      var result = {};
+      var rows = container.querySelectorAll('.kv-row');
+      for (var i = 0; i < rows.length; i++) {
+        var keyEl = rows[i].querySelector('.kv-key');
+        var valEl = rows[i].querySelector('.kv-value');
+        var k = keyEl ? keyEl.value.trim() : '';
+        var v = valEl ? valEl.value : '';
+        if (k && v) result[k] = v;
+      }
+      return result;
+    }
+
     var baseline = getConfiguredValue(importer, key);
     var el = document.querySelector('[name="' + key + '"]');
     if (!el) {
@@ -541,25 +668,40 @@
     var importBtn = document.getElementById('importBtn');
     var fileInput = document.getElementById('fileInput');
     var importerSelect = document.getElementById('importerSelect');
+    var statusEl = document.getElementById('importStatus');
 
     importBtn.disabled = true;
-    importBtn.textContent = 'Importing…';
+    importBtn.textContent = 'Import';
     fileInput.disabled = true;
     importerSelect.disabled = true;
+    statusEl.textContent = 'Importing file…';
+    statusEl.style.display = '';
     hideError();
 
     var configOverride = getConfigOverride();
 
     google.script.run
       .withSuccessHandler(function(response) {
-        showResult(response.result);
+        var importResult = response.result;
+        statusEl.textContent = 'Refreshing sheets…';
+
+        google.script.run
+          .withSuccessHandler(function() {
+            statusEl.style.display = 'none';
+            showResult(importResult);
+          })
+          .withFailureHandler(function() {
+            statusEl.style.display = 'none';
+            showResult(importResult);
+          })
+          .syncFamilyLedger();
       })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
         importBtn.disabled = false;
-        importBtn.textContent = 'Import';
         fileInput.disabled = false;
         importerSelect.disabled = false;
+        statusEl.style.display = 'none';
       })
       .runImportFromDialog(
         currentImporter.name,

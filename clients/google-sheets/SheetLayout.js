@@ -73,39 +73,6 @@ function getOrCreateSheet_(sheetName) {
   return sheet;
 }
 
-function rebuildSheetByName_(sheetName) {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  const existingSheet = spreadsheet.getSheetByName(sheetName);
-  let targetIndex = null;
-
-  if (existingSheet && spreadsheet.getSheets) {
-    const sheets = spreadsheet.getSheets();
-    const zeroBasedIndex = sheets.indexOf(existingSheet);
-    if (zeroBasedIndex !== -1) {
-      targetIndex = zeroBasedIndex + 1;
-    }
-  }
-
-  if (existingSheet && spreadsheet.deleteSheet) {
-    spreadsheet.deleteSheet(existingSheet);
-  }
-
-  let sheet;
-  if (targetIndex !== null) {
-    try {
-      sheet = spreadsheet.insertSheet(sheetName, targetIndex);
-    } catch (_error) {
-      sheet = spreadsheet.insertSheet(sheetName);
-      if (sheet && sheet.setIndex) {
-        sheet.setIndex(targetIndex);
-      }
-    }
-  } else {
-    sheet = spreadsheet.insertSheet(sheetName);
-  }
-
-  return sheet;
-}
 
 function hideSheetIfVisible_(sheet) {
   if (!sheet.isSheetHidden || !sheet.isSheetHidden()) {

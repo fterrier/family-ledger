@@ -10,10 +10,12 @@ requires-python = ">=3.12"
 dependencies = [
   "beancount>=3.2.0",
   "family-ledger",
+  "mt-940>=4.30,<5.0",
 ]
 
 [project.entry-points."family_ledger.importers"]
 beancount = "family_ledger_importers.beancount:BeancountImporter"
+mt940 = "family_ledger_importers.mt940:Mt940Importer"
 
 [tool.setuptools.package-dir]
 "" = "src"

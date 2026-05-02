@@ -27,41 +27,6 @@ test('writeSheet_ expands older narrower sheets before writing headers', () => {
   ]);
 });
 
-test('rebuildSheetByName_ recreates a sheet at its previous index', () => {
-  const calls = [];
-  const targetSheet = { name: 'Transactions' };
-  const otherSheet = { name: 'Accounts' };
-  const recreatedSheet = { name: 'Transactions', setIndex(index) { calls.push({ type: 'setIndex', index }); } };
-  const { sandbox } = loadCode({
-    SpreadsheetApp: {
-      getActiveSpreadsheet() {
-        return {
-          getSheetByName(name) {
-            return name === 'Transactions' ? targetSheet : otherSheet;
-          },
-          getSheets() {
-            return [otherSheet, targetSheet];
-          },
-          deleteSheet(sheet) {
-            calls.push({ type: 'deleteSheet', sheet: sheet.name });
-          },
-          insertSheet(name, index) {
-            calls.push({ type: 'insertSheet', name, index });
-            return recreatedSheet;
-          },
-        };
-      },
-    },
-  });
-
-  const sheet = sandbox.rebuildSheetByName_('Transactions');
-
-  assert.equal(sheet, recreatedSheet);
-  assert.deepEqual(calls, [
-    { type: 'deleteSheet', sheet: 'Transactions' },
-    { type: 'insertSheet', name: 'Transactions', index: 2 },
-  ]);
-});
 
 test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies configured hidden columns', () => {
   const { sandbox } = loadCode({ SpreadsheetApp: { WrapStrategy: { CLIP: 'CLIP' } } });

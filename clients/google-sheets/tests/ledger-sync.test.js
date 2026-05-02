@@ -5,7 +5,7 @@ const { loadCode } = require('./_harness');
 
 test('syncFamilyLedger fetches accounts and transactions once and refreshes both sheets together', () => {
   const calls = [];
-  const alerts = [];
+  const toasts = [];
   const sheets = {
     Accounts: { name: 'Accounts', setFrozenRows() {} },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; } },
@@ -14,28 +14,18 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   };
   const { sandbox } = loadCode({
     SpreadsheetApp: {
-      getUi() {
-        return {
-          ButtonSet: { OK: 'OK' },
-          alert(title, message) {
-            alerts.push({ title, message });
-          },
-        };
-      },
       getActiveSpreadsheet() {
         return {
           getId() { return 'spreadsheet-id'; },
           getSheetByName(name) { return sheets[name] || null; },
-          insertSheet(name) { return sheets[name]; },
+          insertSheet(name) { calls.push({ type: 'insertSheet', name }); return sheets[name]; },
+          deleteSheet() { calls.push({ type: 'deleteSheet' }); },
+          toast(message, title) { toasts.push({ title, message }); },
         };
       },
     },
   });
 
-  sandbox.rebuildSheetByName_ = function(name) {
-    calls.push({ type: 'rebuildSheet', name });
-    return sheets[name];
-  };
   sandbox.ensureEditTriggerInstalled_ = function() {
     calls.push('ensureEditTriggerInstalled');
   };
@@ -93,21 +83,16 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
   ]);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'rebuildSheet'))), [
-    { type: 'rebuildSheet', name: 'Accounts' },
-    { type: 'rebuildSheet', name: 'Transactions' },
-    { type: 'rebuildSheet', name: 'DoctorTransactionIssues' },
-    { type: 'rebuildSheet', name: 'DoctorAccountIssues' },
-  ]);
+  assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');
   assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeFetchedDoctorIssueSheets'))), [
     { type: 'writeFetchedDoctorIssueSheets', issueTargetCount: 0 },
   ]);
   assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 1);
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0].title, 'Ledger Sync Complete');
-  assert.match(alerts[0].message, /Synced 1 accounts/);
-  assert.match(alerts[0].message, /Fetched 1 transactions and synced 1 allocation rows/);
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].title, 'Ledger Sync Complete');
+  assert.match(toasts[0].message, /Synced 1 accounts/);
+  assert.match(toasts[0].message, /Fetched 1 transactions and synced 1 allocation rows/);
 });
 
 test('buildTransactionSyncData_ collects skipped examples and merges doctor issues', () => {

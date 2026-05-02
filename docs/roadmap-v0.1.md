@@ -116,8 +116,9 @@ Phase 1 should deliver:
 ## Current Focus
 - add remarks on postings, and reconcile with narration from transaction (what takes precedence?)
 - build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
-- evaluate where Beancount importers can be reused instead of duplicating parser logic
+- import IDs (ref+metadata) from beancount
 - export the canonical ledger back to Beancount, including Synology-friendly backup workflows and fava integration
+- evaluate where Beancount importers can be reused instead of duplicating parser logic
 - add support for cash transactions in the Google Sheets workflow
 - continue improving Sheets UX and styling
 - add basic pivot tables and reports for quick spreadsheet-side summaries

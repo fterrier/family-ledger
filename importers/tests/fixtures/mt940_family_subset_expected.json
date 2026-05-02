@@ -1,0 +1,52 @@
+[
+  {
+    "transaction_date": "2025-07-03",
+    "payee": "Testcard Services SA Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag - eBill",
+    "narration": "",
+    "bank_posting": {
+      "account": "accounts/acc_00000000000000000000000000000001",
+      "amount": "-185.30",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-07-07",
+    "payee": "SAMPLE CITY, SPORTS DEPT - Belastung TWINT",
+    "narration": "",
+    "bank_posting": {
+      "account": "accounts/acc_00000000000000000000000000000001",
+      "amount": "-24.50",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-07-11",
+    "payee": "Sample Motors AG Industriestr 42 8000 Musterstadt",
+    "narration": "Rechnungsnummer 1000001 Gemaess Ihrem Mobile Banking Auftrag - Mobile Banking",
+    "bank_posting": {
+      "account": "accounts/acc_00000000000000000000000000000001",
+      "amount": "-350.00",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-07-25",
+    "payee": "Salary July 2025",
+    "narration": "",
+    "bank_posting": {
+      "account": "accounts/acc_00000000000000000000000000000001",
+      "amount": "8500.00",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-12-31",
+    "payee": "Guthabenzins: Guthabenzins",
+    "narration": "",
+    "bank_posting": {
+      "account": "accounts/acc_00000000000000000000000000000001",
+      "amount": "2.50",
+      "symbol": "CHF"
+    }
+  }
+]

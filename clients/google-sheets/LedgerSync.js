@@ -12,20 +12,20 @@ function syncFamilyLedger() {
     );
     const transactionSyncData = buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
 
-    const accountsSheet = rebuildSheetByName_(FAMILY_LEDGER_SHEET_NAMES.accounts);
+    const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
     writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
     accountsSheet.setFrozenRows(1);
     ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
 
-    const transactionsSheet = rebuildSheetByName_(FAMILY_LEDGER_SHEET_NAMES.transactions);
+    const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
-    writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), rebuildSheetByName_);
+    writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), getOrCreateSheet_);
     refreshManagedLedgerSheetLayouts_();
 
-    SpreadsheetApp.getUi().alert(
-      'Ledger Sync Complete',
+    SpreadsheetApp.getActiveSpreadsheet().toast(
       buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData),
-      SpreadsheetApp.getUi().ButtonSet.OK
+      'Ledger Sync Complete',
+      10
     );
   });
 }

@@ -64,63 +64,45 @@ function getFamilyLedgerApiToken_() {
 function getRequiredFamilyLedgerApiToken_() {
   const token = getFamilyLedgerApiToken_();
   if (!token) {
-    throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run Set API Token first.');
+    throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run API Settings first.');
   }
   return token;
 }
 
-function setFamilyLedgerBaseUrl() {
-  runUserAction_('Set API Base URL', function() {
+function showApiSettings() {
+  runUserAction_('API Settings', function() {
     const ui = SpreadsheetApp.getUi();
-    const currentValue = getFamilyLedgerBaseUrl_();
-    const response = ui.prompt(
-      'Family Ledger API Base URL',
-      currentValue || 'http://localhost:8000',
+
+    const currentUrl = getFamilyLedgerBaseUrl_();
+    const urlResponse = ui.prompt(
+      'API Settings (1/2) — Base URL',
+      currentUrl || 'http://localhost:8000',
       ui.ButtonSet.OK_CANCEL
     );
-
-    if (response.getSelectedButton() !== ui.Button.OK) {
+    if (urlResponse.getSelectedButton() !== ui.Button.OK) {
       return;
     }
+    const baseUrl = normalizeBaseUrl_(urlResponse.getResponseText());
 
-    const baseUrl = normalizeBaseUrl_(response.getResponseText());
-    PropertiesService.getScriptProperties().setProperty('FAMILY_LEDGER_BASE_URL', baseUrl);
-    ui.alert('Saved API base URL: ' + baseUrl);
-  });
-}
-
-function setFamilyLedgerApiToken() {
-  runUserAction_('Set API Token', function() {
-    const ui = SpreadsheetApp.getUi();
-    const response = ui.prompt(
-      'Family Ledger API Token',
-      'Paste the bearer token configured on the server.',
+    const currentToken = getFamilyLedgerApiToken_();
+    const tokenResponse = ui.prompt(
+      'API Settings (2/2) — Token',
+      currentToken || 'Paste the bearer token configured on the server.',
       ui.ButtonSet.OK_CANCEL
     );
-
-    if (response.getSelectedButton() !== ui.Button.OK) {
+    if (tokenResponse.getSelectedButton() !== ui.Button.OK) {
       return;
     }
+    const token = normalizeApiToken_(tokenResponse.getResponseText());
 
-    const token = normalizeApiToken_(response.getResponseText());
-    PropertiesService.getScriptProperties().setProperty('FAMILY_LEDGER_API_TOKEN', token);
-    ui.alert('Saved API token.');
+    PropertiesService.getScriptProperties().setProperties({
+      FAMILY_LEDGER_BASE_URL: baseUrl,
+      FAMILY_LEDGER_API_TOKEN: token,
+    });
+    ui.alert('API Settings', 'Saved.\nBase URL: ' + baseUrl + '\nToken: ' + maskToken_(token), ui.ButtonSet.OK);
   });
 }
 
-function showFamilyLedgerSettings() {
-  runUserAction_('Show Current Settings', function() {
-    const ui = SpreadsheetApp.getUi();
-    const baseUrl = getFamilyLedgerBaseUrl_();
-    const apiToken = getFamilyLedgerApiToken_();
-    ui.alert(
-      'Family Ledger Settings',
-      'Base URL: ' + (baseUrl || '(not set)') + '\n' +
-        'API token: ' + (apiToken ? maskToken_(apiToken) : '(not set)'),
-      ui.ButtonSet.OK
-    );
-  });
-}
 
 function testFamilyLedgerConnection() {
   runUserAction_('Test Connection', function() {
@@ -128,10 +110,10 @@ function testFamilyLedgerConnection() {
     const baseUrl = getFamilyLedgerBaseUrl_();
     const apiToken = getFamilyLedgerApiToken_();
     if (!baseUrl) {
-      throw new Error('Missing FAMILY_LEDGER_BASE_URL. Run Set API Base URL first.');
+      throw new Error('Missing FAMILY_LEDGER_BASE_URL. Run API Settings first.');
     }
     if (!apiToken) {
-      throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run Set API Token first.');
+      throw new Error('Missing FAMILY_LEDGER_API_TOKEN. Run API Settings first.');
     }
 
     let healthMessage = 'not checked';

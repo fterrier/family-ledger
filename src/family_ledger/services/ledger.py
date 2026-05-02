@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
 from typing import cast
@@ -85,41 +83,6 @@ def paginate_query(query: Select, *, offset: int, page_size: int):
     return query.offset(offset).limit(page_size + 1)
 
 
-def transaction_fingerprint_content(payload: TransactionData) -> dict[str, object]:
-    """Return the canonical content used for transaction dedupe fingerprints.
-
-    The fingerprint intentionally tracks current transaction content rather than
-    stable source identity. It is recomputed on transaction writes and excludes
-    source-native IDs and free-form metadata.
-    """
-
-    return {
-        "transaction_date": payload.transaction_date.isoformat(),
-        "payee": payload.payee,
-        "narration": payload.narration,
-        "postings": [
-            {
-                "account": posting.account,
-                "units": {"amount": str(posting.units.amount), "symbol": posting.units.symbol},
-                "narration": posting.narration,
-                "cost": None
-                if posting.cost is None
-                else {"amount": str(posting.cost.amount), "symbol": posting.cost.symbol},
-                "price": None
-                if posting.price is None
-                else {"amount": str(posting.price.amount), "symbol": posting.price.symbol},
-            }
-            for posting in payload.postings
-        ],
-    }
-
-
-def hash_transaction_payload(payload: TransactionData) -> str:
-    content = transaction_fingerprint_content(payload)
-    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
-    return f"sha256:{digest.hexdigest()}"
-
-
 def serialize_account(account: Account) -> AccountResource:
     return AccountResource.model_validate(account)
 
@@ -146,11 +109,8 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
     ]
 
     import_metadata = None
-    if transaction.source_native_id is not None or transaction.fingerprint is not None:
-        import_metadata = ImportMetadata(
-            source_native_id=transaction.source_native_id,
-            fingerprint=transaction.fingerprint,
-        )
+    if transaction.source_native_id is not None:
+        import_metadata = ImportMetadata(source_native_id=transaction.source_native_id)
 
     return TransactionResource(
         name=transaction.name,
@@ -212,7 +172,6 @@ def persist_transaction(
     transaction.source_native_id = (
         payload.import_metadata.source_native_id if payload.import_metadata else None
     )
-    transaction.fingerprint = hash_transaction_payload(payload)
     transaction.postings.clear()
     if transaction.id is not None:
         # Flush orphaned postings before reusing posting_order values on replacement updates.
@@ -387,7 +346,6 @@ def list_transactions_page(
     from_date: date | None,
     to_date: date | None,
     account: str | None,
-    fingerprint: str | None,
 ) -> ListTransactionsResponse:
     normalized_page_size = normalize_page_size(page_size)
     offset = decode_page_token(page_token)
@@ -398,8 +356,6 @@ def list_transactions_page(
         query = query.where(Transaction.transaction_date >= from_date)
     if to_date is not None:
         query = query.where(Transaction.transaction_date <= to_date)
-    if fingerprint is not None:
-        query = query.where(Transaction.fingerprint == fingerprint)
     if account is not None:
         account_name = resource_name("accounts", account)
         query = (

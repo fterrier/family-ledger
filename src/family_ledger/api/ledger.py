@@ -131,11 +131,10 @@ def list_transactions(
     page_token: str | None = None,
     # TODO: Revisit non-pagination query parameters together with the query design.
     # We may want a more Beancount-like filtering model than the current ad hoc
-    # `from_date` / `to_date` / `account` / `fingerprint` parameters.
+    # `from_date` / `to_date` / `account` parameters.
     from_date: date | None = None,
     to_date: date | None = None,
     account: str | None = None,
-    fingerprint: str | None = None,
 ) -> ListTransactionsResponse:
     return _call_service(
         ledger_service.list_transactions_page,
@@ -145,7 +144,6 @@ def list_transactions(
         from_date=from_date,
         to_date=to_date,
         account=account,
-        fingerprint=fingerprint,
     )
 
 

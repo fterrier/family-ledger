@@ -37,7 +37,6 @@ class PostingPayload(BaseModel):
 
 class ImportMetadata(BaseModel):
     source_native_id: str | None = None
-    fingerprint: str | None = None
 
 
 class AccountData(BaseModel):

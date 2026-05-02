@@ -209,7 +209,7 @@ def test_create_and_get_transaction() -> None:
     assert create_response.status_code == 201
     body = create_response.json()
     assert body["name"].startswith("transactions/txn_")
-    assert body["import_metadata"]["fingerprint"].startswith("sha256:")
+    assert body["import_metadata"] is None
 
     get_response = client.get(f"/{body['name']}")
 
@@ -541,7 +541,6 @@ def test_patch_transaction_recategorizes_posting() -> None:
     body = patched.json()
     assert body["name"] == created_body["name"]
     assert body["postings"][1]["account"] == food["name"]
-    assert body["import_metadata"]["fingerprint"] != created_body["import_metadata"]["fingerprint"]
 
 
 def test_patch_transaction_splits_posting() -> None:

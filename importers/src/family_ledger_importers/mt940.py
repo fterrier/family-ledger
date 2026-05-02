@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+from collections import Counter
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -94,15 +97,43 @@ def _dedupe_description_lines(lines: list[str]) -> list[str]:
     return deduped
 
 
-def _normalize_description(lines: list[str]) -> tuple[str | None, str | None]:
+def _normalize_description(lines: list[str]) -> str | None:
     deduped = _dedupe_description_lines(lines)
     if not deduped:
-        return None, None
-    payee = deduped[0]
-    narration = " ".join(deduped[1:]).strip() or None
-    if narration and _normalize_for_dedupe(payee) == _normalize_for_dedupe(narration):
-        narration = None
-    return payee, narration
+        return None
+    return " ".join(deduped).strip() or None
+
+
+def _format_zkb_payee(lines: list[str]) -> str | None:
+    deduped = _dedupe_description_lines(lines)
+    if not deduped:
+        return None
+    first_line = deduped[0]
+    descriptor = first_line.strip()
+    body_parts = []
+    if "," in first_line:
+        descriptor, first_body = first_line.split(",", 1)
+        descriptor = descriptor.strip()
+        if first_body.strip():
+            body_parts.append(first_body.strip())
+    elif len(deduped) > 1:
+        body_parts.extend(deduped[1:])
+    else:
+        return " ".join(deduped).strip() or None
+    if "," not in first_line:
+        body_parts = deduped[1:]
+    else:
+        body_parts.extend(deduped[1:])
+    body = " ".join(part for part in body_parts if part).strip()
+    if not descriptor or not body:
+        return " ".join(deduped).strip() or None
+    return body + " - " + descriptor
+
+
+def _format_payee(lines: list[str], payee_format: str) -> str | None:
+    if payee_format == "zkb":
+        return _format_zkb_payee(lines)
+    return _normalize_description(lines)
 
 
 def _coerce_date(value: object) -> date:
@@ -256,10 +287,25 @@ def _ensure_commodity(session: Session, symbol: str) -> bool:
     return True
 
 
+def _compute_entry_source_native_id(entry: ParsedStatementEntry, occurrence: int) -> str:
+    content = {
+        "date": entry.effective_transaction_date.isoformat(),
+        "account_iban": entry.account_iban,
+        "amount": str(entry.amount),
+        "currency": entry.currency,
+        "occurrence": occurrence,
+    }
+    digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
+    return f"mt940:fp:{digest.hexdigest()}"
+
+
 def _build_transaction_payload(
-    entry: ParsedStatementEntry, account_resource_name: str
+    entry: ParsedStatementEntry,
+    account_resource_name: str,
+    payee_format: str,
+    source_native_id: str,
 ) -> TransactionNormalizeData:
-    payee, narration = _normalize_description(entry.description_lines)
+    payee = _format_payee(entry.description_lines, payee_format)
     metadata: dict[str, Any] = {
         "statement_reference": entry.statement_reference,
         "account_iban": entry.account_iban,
@@ -275,11 +321,9 @@ def _build_transaction_payload(
     return TransactionNormalizeData(
         transaction_date=entry.effective_transaction_date,
         payee=payee,
-        narration=narration,
+        narration=None,
         entity_metadata={"mt940": metadata},
-        import_metadata=(
-            ImportMetadata(source_native_id=entry.ref) if entry.ref is not None else None
-        ),
+        import_metadata=ImportMetadata(source_native_id=source_native_id),
         postings=[
             PostingNormalizePayload(
                 account=account_resource_name,
@@ -304,7 +348,16 @@ class Mt940Importer(BaseImporter):
                         "x-resource-type": "account",
                     },
                     "description": "Map MT940 :25: IBAN values to internal account resource names.",
-                }
+                },
+                "payee_format": {
+                    "type": "string",
+                    "enum": ["generic", "zkb"],
+                    "default": "generic",
+                    "description": (
+                        "Optional payee formatting style. 'zkb' applies structural "
+                        "comma-based reordering for ZKB-style descriptions."
+                    ),
+                },
             },
             "required": ["account_mappings"],
             "additionalProperties": False,
@@ -317,6 +370,7 @@ class Mt940Importer(BaseImporter):
             raise ValidationError(code="invalid_mt940", message="No MT940 statements found")
 
         account_mappings = _validate_account_mappings(session, config, entries)
+        payee_format = str(config.get("payee_format") or "generic")
         result = ImportResult()
 
         for symbol in sorted({entry.currency for entry in entries if entry.currency}):
@@ -325,8 +379,22 @@ class Mt940Importer(BaseImporter):
             else:
                 result.entities.setdefault("commodity", EntityCounts()).duplicate += 1
 
+        occurrence_counter: Counter[tuple[object, ...]] = Counter()
         for entry in entries:
-            payload = _build_transaction_payload(entry, account_mappings[entry.account_iban])
+            if entry.ref is not None:
+                source_native_id = f"mt940:{entry.ref}"
+            else:
+                key = (
+                    entry.effective_transaction_date,
+                    entry.account_iban,
+                    entry.amount,
+                    entry.currency,
+                )
+                source_native_id = _compute_entry_source_native_id(entry, occurrence_counter[key])
+                occurrence_counter[key] += 1
+            payload = _build_transaction_payload(
+                entry, account_mappings[entry.account_iban], payee_format, source_native_id
+            )
             try:
                 ledger_service.create_transaction(session, payload)
                 result.entities.setdefault("transaction", EntityCounts()).created += 1

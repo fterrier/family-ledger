@@ -4,6 +4,7 @@ import json
 from collections.abc import Generator
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pytest
 from family_ledger_importers import mt940 as mt940_importer
@@ -83,6 +84,54 @@ ACME SCHWEIZ GMBH
 ?ZI:?4:CHF0,?9:1
 :62F:C250725CHF25500,00
 :64:C250725CHF25500,00
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:F00000006F6F0006
+:25:CH5612300000000100111
+:28C:106/1
+:60F:C250830CHF25500,00
+:61:2508300901D22,2NMSCNONREF//L115B1119GR46F3P
+Einkauf Bank Debit Card Nr. xx
+:86:?ZKB:2218 Einkauf Bank Debit Card Nr. xxxx 4462,
+SAMPLE PHARMACY GMBH 0000
+:62F:C250830CHF25477,80
+:64:C250830CHF25477,80
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:F00000007G7G0007
+:25:CH5612300000000100111
+:28C:107/1
+:60F:C250902CHF25477,80
+:61:2509010902D104,5NMSCNONREF//L11591119GTT3NSZ
+Einkauf Bank Debit Card Nr. xx
+:86:?ZKB:2218 Einkauf Bank Debit Card Nr. xxxx 4462, Sample Store 1234
+Sample City
+:62F:C250902CHF25373,30
+:64:C250902CHF25373,30
+-}
+"""
+
+DUPLICATE_ENTRIES_FIXTURE = """{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:F00000010H0001
+:25:CH5612300000000100111
+:28C:110/1
+:60F:C250901CHF1000,00
+:61:2509010901D50,00NMSCNONREF
+Same description
+:86:Purchase
+:62F:C250901CHF950,00
+:64:C250901CHF950,00
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:F00000011H0002
+:25:CH5612300000000100111
+:28C:111/1
+:60F:C250901CHF950,00
+:61:2509010901D50,00NMSCNONREF
+Same description
+:86:Purchase
+:62F:C250901CHF900,00
+:64:C250901CHF900,00
 -}
 """
 
@@ -164,6 +213,7 @@ def test_mt940_importer_schema_requires_account_mappings() -> None:
     schema = mt940_importer.Mt940Importer().get_schema()
 
     assert schema["required"] == ["account_mappings"]
+    assert schema["properties"]["payee_format"]["default"] == "generic"
     assert (
         schema["properties"]["account_mappings"]["additionalProperties"]["x-resource-type"]
         == "account"
@@ -173,7 +223,7 @@ def test_mt940_importer_schema_requires_account_mappings() -> None:
 def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
     entries = mt940_importer._parse_mt940_text(MT940_FIXTURE)
 
-    assert len(entries) == 5
+    assert len(entries) == 7
     assert entries[0].statement_number == "101/1"
     assert entries[1].transaction_code == "TRF"
     assert entries[1].ref == "T201000000001"
@@ -184,13 +234,14 @@ def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
     assert entries[2].ref == "002000000002"
     assert entries[0].transaction_code == "INT"
     assert entries[0].ref is None
+    assert entries[5].ref == "L115B1119GR46F3P"
+    assert entries[6].ref == "L11591119GTT3NSZ"
 
 
 def test_normalize_description_collapses_duplicates() -> None:
-    payee, narration = mt940_importer._normalize_description(["Guthabenzins", "Guthabenzins"])
+    payee = mt940_importer._normalize_description(["Guthabenzins", "Guthabenzins"])
 
     assert payee == "Guthabenzins"
-    assert narration is None
 
 
 def test_mt940_importer_requires_complete_account_mapping(session: Session) -> None:
@@ -234,11 +285,11 @@ def test_mt940_importer_creates_source_only_transactions_with_metadata(session: 
 
     normalized = _normalized_transactions(session)
 
-    assert normalized[0]["payee"] == "Testcard Services SA"
-    assert normalized[0]["narration"] == (
-        "Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag"
+    assert normalized[0]["payee"] == (
+        "Testcard Services SA Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag"
     )
-    assert normalized[0]["source_native_id"] == "T201000000001"
+    assert normalized[0]["narration"] is None
+    assert normalized[0]["source_native_id"] == "mt940:T201000000001"
     assert normalized[0]["entity_metadata"] == {
         "mt940": {
             "statement_reference": "F00000002B2B0002",
@@ -258,16 +309,133 @@ def test_mt940_importer_creates_source_only_transactions_with_metadata(session: 
     }
 
     assert normalized[1]["transaction_date"] == "2025-07-07"
-    assert normalized[1]["source_native_id"] == "002000000002"
-    assert normalized[2]["payee"] == "Sample Motors AG"
-    assert normalized[2]["narration"] == (
-        "Industriestr 42 8000 Musterstadt "
+    assert normalized[1]["narration"] is None
+    assert normalized[1]["source_native_id"] == "mt940:002000000002"
+    assert normalized[2]["payee"] == (
+        "Sample Motors AG Industriestr 42 8000 Musterstadt "
         "Rechnungsnummer 1000001 Gemaess Ihrem Mobile Banking Auftrag"
     )
-    assert normalized[3]["payee"] == "ACME SCHWEIZ GMBH"
-    assert normalized[3]["source_native_id"] == "T201000000004"
-    assert normalized[4]["payee"] == "Guthabenzins"
-    assert normalized[4]["source_native_id"] is None
+    assert normalized[2]["narration"] is None
+    assert normalized[3]["payee"] == (
+        "ACME SCHWEIZ GMBH 1,MUSTERPLATZ MUSTERSTADT,MUSTERSTADT,8000 CH 00100001 SALARY 202507"
+    )
+    assert normalized[3]["narration"] is None
+    assert normalized[3]["source_native_id"] == "mt940:T201000000004"
+    assert normalized[4]["payee"] == (
+        "Einkauf Bank Debit Card Nr. xxxx 4462 SAMPLE PHARMACY GMBH 0000"
+    )
+    assert normalized[4]["narration"] is None
+    assert normalized[5]["payee"] == (
+        "Einkauf Bank Debit Card Nr. xxxx 4462, Sample Store 1234 Sample City"
+    )
+    assert normalized[5]["narration"] is None
+    assert normalized[6]["payee"] == "Guthabenzins"
+    assert normalized[6]["narration"] is None
+    assert normalized[6]["source_native_id"] is not None
+    assert str(normalized[6]["source_native_id"]).startswith("mt940:fp:")
+
+
+def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+
+    _run(
+        session,
+        {
+            "account_mappings": {
+                "CH5612300000000100111": account_resource,
+                "CH4512300000000200222": account_resource,
+            },
+            "payee_format": "zkb",
+        },
+    )
+
+    normalized = _normalized_transactions(session)
+
+    assert normalized[4]["payee"] == (
+        "SAMPLE PHARMACY GMBH 0000 - Einkauf Bank Debit Card Nr. xxxx 4462"
+    )
+    assert normalized[5]["payee"] == (
+        "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462"
+    )
+
+
+def _run_fixture(session: Session, fixture: str, config: dict[str, Any]) -> None:
+    mt940_importer.Mt940Importer().execute(session, fixture.encode("utf-8"), config)
+
+
+def test_mt940_importer_duplicate_entries_get_different_source_native_ids(
+    session: Session,
+) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    config = {"account_mappings": {"CH5612300000000100111": account_resource}}
+
+    _run_fixture(session, DUPLICATE_ENTRIES_FIXTURE, config)
+
+    transactions = session.scalars(select(Transaction).order_by(Transaction.id)).all()
+    assert len(transactions) == 2
+    assert transactions[0].source_native_id != transactions[1].source_native_id
+    assert transactions[0].source_native_id is not None
+    assert str(transactions[0].source_native_id).startswith("mt940:fp:")
+    assert str(transactions[1].source_native_id).startswith("mt940:fp:")
+
+
+def test_mt940_importer_fallback_source_native_id_is_deterministic(
+    session: Session,
+) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    config = {"account_mappings": {"CH5612300000000100111": account_resource}}
+
+    _run_fixture(session, DUPLICATE_ENTRIES_FIXTURE, config)
+    first_ids = sorted(
+        t.source_native_id
+        for t in session.scalars(select(Transaction)).all()
+        if t.source_native_id is not None
+    )
+
+    engine2 = create_engine("sqlite+pysqlite:///:memory:")
+    from family_ledger.models import Base as _Base
+
+    _Base.metadata.create_all(engine2)
+    with Session(engine2) as session2:
+        account2 = Account(
+            name="accounts/family",
+            account_name="Assets:Liquid:ZKB:Checking:Family",
+            effective_start_date=date(2020, 1, 1),
+            effective_end_date=None,
+            entity_metadata={},
+        )
+        session2.add(account2)
+        session2.commit()
+        _run_fixture(
+            session2,
+            DUPLICATE_ENTRIES_FIXTURE,
+            {"account_mappings": {"CH5612300000000100111": account2.name}},
+        )
+        second_ids = sorted(
+            t.source_native_id
+            for t in session2.scalars(select(Transaction)).all()
+            if t.source_native_id is not None
+        )
+
+    assert first_ids == second_ids
+
+
+def test_mt940_importer_deduplicates_on_reimport(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    config = {
+        "account_mappings": {
+            "CH5612300000000100111": account_resource,
+            "CH4512300000000200222": account_resource,
+        }
+    }
+
+    result1 = mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config)
+    result2 = mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config)
+
+    created = result1.entities["transaction"].created
+    assert created > 0
+    assert result2.entities["transaction"].created == 0
+    assert result2.entities["transaction"].duplicate == created
 
 
 @pytest.mark.xfail(

@@ -77,8 +77,7 @@ Notes:
   "narration": "Groceries",
   "entity_metadata": {},
   "import_metadata": {
-    "source_native_id": null,
-    "fingerprint": "sha256:deadbeef"
+    "source_native_id": "mt940:Z1234"
   },
   "postings": []
 }
@@ -87,9 +86,8 @@ Notes:
 Notes:
 - Transaction rows remain canonical source-of-truth data.
 - Ledger diagnostics are exposed separately through `POST /ledger:doctor`.
-- `import_metadata` is optional.
-- `fingerprint` is stored on transactions and updated on transaction writes.
-- `fingerprint` is a duplicate hint, not a globally unique transaction identity.
+- `import_metadata` is optional; when present it carries `source_native_id` set by the importer.
+- `source_native_id` is the deduplication key for imports; it is namespaced by importer (e.g. `"mt940:Z1234"`, `"beancount:fp:sha256:..."`).
 
 ### Doctor Issue
 
@@ -291,7 +289,6 @@ Minimum query parameters:
 - `from_date` optional
 - `to_date` optional
 - `account` optional
-- `fingerprint` optional
 - `page_size` optional
 - `page_token` optional
 
@@ -314,8 +311,7 @@ Example request body:
     "payee": "Migros",
     "narration": "Groceries",
     "import_metadata": {
-      "source_native_id": "abc123",
-      "fingerprint": "sha256:deadbeef"
+      "source_native_id": "mt940:abc123"
     },
     "postings": [
       {
@@ -417,8 +413,7 @@ Example request body:
     "payee": "Migros",
     "narration": "Updated groceries",
     "import_metadata": {
-      "source_native_id": "abc123",
-      "fingerprint": "sha256:updated"
+      "source_native_id": "mt940:abc123"
     },
     "postings": []
   },
@@ -431,7 +426,6 @@ Behavior:
 - `update_mask` is present for AIP consistency, but v1 implementations may ignore it and apply replacement-style updates
 - the path transaction resource name is authoritative; the request body does not need a transaction `name`
 - the mutable transaction payload is replaced as a whole, including the full postings array
-- implementations should recompute and persist `import_metadata.fingerprint` on transaction writes
 
 Validation:
 - same as `POST /transactions`
@@ -666,7 +660,7 @@ Behavior:
 - merges the persistent importer `config` with `config_override` (override wins on key conflicts)
 - validates the merged config against the parser's JSON schema; returns 400 if invalid
 - executes the import; each entity type is created-or-skipped individually (idempotent)
-- uses `source_native_id` for deduplication when available; falls back to `fingerprint`
+- uses `source_native_id` for deduplication; importers always set a namespaced stable ID
 - creates new entities when no match exists; skips without error when a match exists
 
 Response:

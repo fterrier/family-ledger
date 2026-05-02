@@ -62,8 +62,7 @@ class Transaction(Base):
     payee: Mapped[str | None] = mapped_column(Text, nullable=True)
     narration: Mapped[str | None] = mapped_column(Text, nullable=True)
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
-    source_native_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    fingerprint: Mapped[str] = mapped_column(Text, index=True)
+    source_native_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
 
     postings: Mapped[list[Posting]] = relationship(
         back_populates="transaction",

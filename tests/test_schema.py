@@ -80,18 +80,38 @@ def test_commodity_symbol_must_be_unique(session: Session) -> None:
         session.commit()
 
 
-def test_transaction_fingerprint_may_repeat(session: Session) -> None:
+def test_transaction_source_native_id_must_be_unique_when_set(session: Session) -> None:
     session.add_all(
         [
             Transaction(
                 name="transactions/txn-1",
                 transaction_date=date(2026, 4, 19),
-                fingerprint="sha256:same",
+                source_native_id="mt940:Z1234",
             ),
             Transaction(
                 name="transactions/txn-2",
                 transaction_date=date(2026, 4, 19),
-                fingerprint="sha256:same",
+                source_native_id="mt940:Z1234",
+            ),
+        ]
+    )
+
+    with pytest.raises(IntegrityError):
+        session.commit()
+
+
+def test_transaction_source_native_id_null_may_repeat(session: Session) -> None:
+    session.add_all(
+        [
+            Transaction(
+                name="transactions/txn-1",
+                transaction_date=date(2026, 4, 19),
+                source_native_id=None,
+            ),
+            Transaction(
+                name="transactions/txn-2",
+                transaction_date=date(2026, 4, 19),
+                source_native_id=None,
             ),
         ]
     )
@@ -108,7 +128,6 @@ def test_postings_are_deleted_with_transaction(session: Session) -> None:
     transaction = Transaction(
         name="transactions/txn-1",
         transaction_date=date(2026, 4, 19),
-        fingerprint="sha256:txn-1",
         postings=[
             Posting(
                 account=account,

@@ -80,7 +80,6 @@ Recommended fields:
 - `narration` nullable
 - optional `entity_metadata`
 - `source_native_id` nullable
-- `fingerprint`
 
 Notes:
 - `name` is the stable API resource name built from an opaque key, for example `transactions/txn_01jv3m0r7x8c`.
@@ -88,9 +87,7 @@ Notes:
 - Transactions may be balanced or unbalanced.
 - Validation fields are not stored on transaction rows themselves.
 - Transactions may be categorized or uncategorized; that is also a derived property.
-- Fingerprints are persisted and recomputed on transaction writes.
-- The API may group the two dedupe fields under a nested `import_metadata` object, but the DB model keeps them flattened for queryability and uniqueness constraints.
-- `fingerprint` is a duplicate hint and lookup aid, not a globally unique transaction identity.
+- The API may expose `source_native_id` under a nested `import_metadata` object, but the DB model keeps it flattened for queryability and uniqueness constraints.
 
 ## Postings
 
@@ -222,17 +219,15 @@ Transactions carry only minimal dedupe metadata in v1.
 
 Required fields:
 - `source_native_id` nullable
-- `fingerprint`
 
 Rules:
-- Use native ID for idempotency when available.
-- Fall back to fingerprint when native ID is unavailable.
-- Store both when both are available; matching priority is native ID first, fingerprint second.
+- Each importer assigns a namespaced `source_native_id` of the form `"{importer}:{stable_id}"` (e.g. `"mt940:Z1234"`, `"beancount:fp:sha256:..."`).
+- When the importer has a bank-assigned or file-level reference, it uses it directly.
+- When no native reference exists, the importer computes a deterministic hash of key transaction fields plus an occurrence index (how many identical-looking transactions have already appeared in the same import batch).
+- The occurrence-index approach ensures the ID is stable across re-imports of the same file while producing distinct IDs for genuinely duplicate transactions within one batch.
 - Re-import must be idempotent with respect to existing transactions.
 - Imports never overwrite an existing matching transaction in v1; they create-or-skip only.
-- The stored fingerprint is recomputed on each transaction write from canonical transaction content: transaction date, payee, narration, and ordered postings including account, units, optional cost, and optional price.
-- Fingerprint computation excludes `source_native_id` and free-form metadata.
-- Fingerprints are not globally unique because repeated identical transactions may legitimately exist.
+- Known limitation: if two overlapping statements each contain a distinct transaction with identical fields and no bank-assigned reference, the second import will skip the transaction as a duplicate.
 
 ## Derived Concepts
 
@@ -326,7 +321,6 @@ The v1 schema should enforce at least these uniqueness constraints:
 - unique `commodities.name`
 - unique `commodities.symbol`
 - unique `transactions.source_native_id` when non-null
-- non-unique indexed `transactions.fingerprint`
 
 ## Deferred Beyond v1
 

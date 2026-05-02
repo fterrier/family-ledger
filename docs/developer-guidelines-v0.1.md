@@ -93,7 +93,7 @@ Use unit tests by default.
 Unit tests should cover:
 - transaction balancing logic
 - posting and account invariants
-- import fingerprinting and dedupe helpers
+- import deduplication helpers (namespaced source_native_id, occurrence-index fallback)
 - balance assertion rules
 - export formatting helpers
 
@@ -104,7 +104,7 @@ Only add integration tests for critical user journeys that unit tests cannot cov
 
 ### Critical Integration Journeys
 - import with native ID deduplication
-- import with fingerprint fallback deduplication
+- import with occurrence-index fallback deduplication (when no native ref)
 - create a balanced transaction
 - create or update an unbalanced but storable transaction and surface it through derived diagnostics
 - security buy/sell with lot tracking and realized gain/loss
@@ -135,14 +135,14 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 ## Import Guidance
 - Keep imports synchronous unless they become too slow for the request path.
 - Use native source IDs when available.
-- Fall back to fingerprints when native IDs are unavailable.
+- When no native reference is available, compute a deterministic occurrence-indexed hash as the fallback `source_native_id`.
 - Keep import handling close to the transaction/posting model; do not add staged import abstractions without a concrete need.
 - Keep imports create-or-skip in v1; do not add overwrite behavior without an explicit design change.
 
 ## Developer Rules
 - Preserve the transaction/posting model.
 - Keep investment events as normal postings inside transactions.
-- Keep transaction dedupe metadata minimal: source native ID and fingerprint.
+- Keep transaction dedupe metadata minimal: a single namespaced `source_native_id` set by each importer.
 - Consider adherence to relevant `aip.dev` guidance by default when modifying API resources, methods, or payload shapes.
 - Strictly follow AIP-122 for Resource Names: external API IDs should be strings formatted as `collection/id` (e.g., `transactions/12345`, `importers/1`), even if the internal database primary key is just the integer ID.
 - Consider relevant `aip.dev` guidance for response codes as well; invalid references and request-state problems should not default to `404` just because a named dependency is missing from the request body.

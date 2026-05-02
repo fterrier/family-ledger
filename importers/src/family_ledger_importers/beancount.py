@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import Counter
 from collections.abc import Sequence
@@ -262,6 +264,7 @@ class BeancountImporter(BaseImporter):
                 result.entities.setdefault("commodity", EntityCounts()).duplicate += 1
 
         # Transactions
+        occurrence_counter: Counter[tuple[object, ...]] = Counter()
         for entry in entries:
             if not isinstance(entry, Transaction):
                 continue
@@ -291,17 +294,33 @@ class BeancountImporter(BaseImporter):
                 entity_metadata: dict[str, Any] = (
                     {"beancount": beancount_meta} if beancount_meta else {}
                 )
+                raw_native_id = beancount_meta.get("source_native_id")
                 ref = beancount_meta.get("ref")
-                import_metadata = (
-                    ImportMetadata(source_native_id=str(ref)) if ref is not None else None
-                )
+                if raw_native_id is not None:
+                    source_native_id = str(raw_native_id)
+                elif ref is not None:
+                    source_native_id = f"beancount:{ref}"
+                else:
+                    key: tuple[object, ...] = (entry.date, entry.payee, entry.narration)
+                    occurrence = occurrence_counter[key]
+                    fp_content = {
+                        "date": entry.date.isoformat(),
+                        "payee": entry.payee,
+                        "narration": entry.narration,
+                        "occurrence": occurrence,
+                    }
+                    digest = hashlib.sha256(
+                        json.dumps(fp_content, sort_keys=True, separators=(",", ":")).encode()
+                    )
+                    source_native_id = f"beancount:fp:{digest.hexdigest()}"
+                    occurrence_counter[key] += 1
                 payload = TransactionNormalizeData(
                     transaction_date=entry.date,
                     payee=entry.payee,
                     narration=entry.narration,
                     postings=posting_payloads,
                     entity_metadata=entity_metadata,
-                    import_metadata=import_metadata,
+                    import_metadata=ImportMetadata(source_native_id=source_native_id),
                 )
             except ValueError:
                 continue

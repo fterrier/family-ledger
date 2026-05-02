@@ -83,7 +83,7 @@ The following interpretations are part of the compatibility target for v1:
 - The API does not enforce field-level locking or restricted edit surfaces in v1.
 - Client applications may expose narrower editing workflows, but that is a client choice, not a server-side compatibility guarantee.
 - v1 does not require audit history or change logging.
-- Imports use native IDs or fingerprints for idempotency rather than a separate staged import-item model.
+- Imports use a namespaced `source_native_id` for idempotency rather than a separate staged import-item model.
 
 ## Full-Ledger Export Contract
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import date
 from decimal import Decimal
-from typing import Any, cast
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -79,69 +78,6 @@ def seed_basic_transaction_dependencies(session: Session) -> None:
     session.commit()
 
 
-def test_hash_transaction_payload_is_deterministic() -> None:
-    payload = make_transaction_payload()
-    fingerprint_one = ledger_service.hash_transaction_payload(payload)
-    fingerprint_two = ledger_service.hash_transaction_payload(payload)
-    assert fingerprint_one == fingerprint_two
-    assert fingerprint_one.startswith("sha256:")
-
-
-def test_transaction_fingerprint_content_excludes_import_metadata() -> None:
-    payload = make_transaction_payload()
-    content = ledger_service.transaction_fingerprint_content(payload)
-    assert "import_metadata" not in content
-    assert content["transaction_date"] == "2026-04-19"
-
-
-def test_transaction_fingerprint_content_includes_posting_narration() -> None:
-    payload = make_transaction_payload().model_copy(
-        update={
-            "postings": [
-                PostingPayload(
-                    account="accounts/checking-family",
-                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
-                ),
-                PostingPayload(
-                    account="accounts/expenses-uncategorized",
-                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
-                    narration="Card fee",
-                ),
-            ]
-        }
-    )
-
-    content = ledger_service.transaction_fingerprint_content(payload)
-
-    postings = cast(list[dict[str, Any]], content["postings"])
-
-    assert postings[1]["narration"] == "Card fee"
-
-
-def test_hash_transaction_payload_changes_when_content_changes() -> None:
-    payload = make_transaction_payload()
-    updated_payload = payload.model_copy(update={"narration": "Household"})
-    assert ledger_service.hash_transaction_payload(
-        payload
-    ) != ledger_service.hash_transaction_payload(updated_payload)
-
-
-def test_hash_transaction_payload_changes_when_posting_narration_changes() -> None:
-    payload = make_transaction_payload()
-    updated_payload = payload.model_copy(
-        update={
-            "postings": [
-                payload.postings[0],
-                payload.postings[1].model_copy(update={"narration": "Groceries: produce"}),
-            ]
-        }
-    )
-
-    assert ledger_service.hash_transaction_payload(
-        payload
-    ) != ledger_service.hash_transaction_payload(updated_payload)
-
-
 def test_create_transaction_persists_explicit_unbalanced_payload_without_inline_issues(
     session: Session,
 ) -> None:
@@ -167,7 +103,7 @@ def test_create_transaction_persists_explicit_unbalanced_payload_without_inline_
     assert not hasattr(created, "issues")
 
 
-def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
+def test_persist_transaction_sets_generated_name_source_native_id_and_posting_order(
     session: Session,
 ) -> None:
     session.add_all(
@@ -206,7 +142,6 @@ def test_persist_transaction_sets_generated_name_fingerprint_and_posting_order(
 
     assert transaction.name.startswith("transactions/txn_")
     assert transaction.source_native_id == "source-1"
-    assert transaction.fingerprint == ledger_service.hash_transaction_payload(payload)
     assert [posting.posting_order for posting in transaction.postings] == [1, 2]
     assert transaction.postings[0].units_amount == Decimal("-100.00")
     assert transaction.postings[1].units_symbol == "CHF"
@@ -285,50 +220,6 @@ def test_update_transaction_preserves_identity_and_rewrites_postings(session: Se
         "accounts/acc_two",
     ]
     assert updated.narration == "Food split"
-
-
-def test_update_transaction_recomputes_fingerprint(session: Session) -> None:
-    session.add_all(
-        [
-            Account(
-                name="accounts/acc_one",
-                account_name="Assets:Bank:Checking:Family",
-                effective_start_date=date(2020, 1, 1),
-            ),
-            Account(
-                name="accounts/acc_two",
-                account_name="Expenses:Uncategorized",
-                effective_start_date=date(2020, 1, 1),
-            ),
-            Commodity(name="commodities/cmd_chf", symbol="CHF"),
-        ]
-    )
-    session.commit()
-
-    payload = make_transaction_payload().model_copy(
-        update={
-            "postings": [
-                PostingPayload(
-                    account="accounts/acc_one",
-                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
-                ),
-                PostingPayload(
-                    account="accounts/acc_two",
-                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
-                ),
-            ]
-        }
-    )
-    created = ledger_service.create_transaction(session, payload)
-    updated = ledger_service.update_transaction(
-        session,
-        created.name,
-        payload.model_copy(update={"narration": "Household"}),
-    )
-
-    assert updated.import_metadata is not None
-    assert created.import_metadata is not None
-    assert updated.import_metadata.fingerprint != created.import_metadata.fingerprint
 
 
 def test_update_transaction_round_trips_posting_narration(session: Session) -> None:

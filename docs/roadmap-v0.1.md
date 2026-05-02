@@ -34,7 +34,7 @@ Phase 1 should deliver:
 - lot/cost support for current investment use cases
 - transaction balance verification with derived ledger diagnostics for storable imbalance
 - balance assertions with project-level tolerance rules
-- deduplication by native ID or fingerprint
+- deduplication by namespaced source_native_id
 - deterministic full-ledger Beancount export
 - read-only Fava workflow from exported Beancount
 - Google Sheets integration for category edits via API
@@ -75,8 +75,7 @@ Phase 1 should deliver:
 - implement project-level precision/tolerance config
 
 ### Phase 3: Imports (done)
-- implement native ID dedupe
-- implement fingerprint dedupe
+- implement namespaced source_native_id dedupe (native ref + occurrence-index fallback)
 - implement direct-to-transaction import behavior
 - keep import behavior create-or-skip with no overwrite path in v1
 

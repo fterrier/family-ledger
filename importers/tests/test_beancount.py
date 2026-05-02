@@ -82,6 +82,17 @@ METADATA_FIXTURE = """
   Expenses:Food                 84.25 CHF
 """
 
+NATIVE_ID_METADATA_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 commodity CHF
+
+2026-04-01 * "Migros" "Groceries"
+  source_native_id: "external:some-opaque-id"
+  Assets:Bank:Checking:Family  -84.25 CHF
+  Expenses:Food                 84.25 CHF
+"""
+
 PARSE_ERROR_FIXTURE = """
 2020-01-01 open Assets:Bank
 not valid beancount syntax !!!
@@ -246,14 +257,74 @@ def test_beancount_importer_uses_ref_as_source_native_id(session: Session) -> No
     transaction = session.scalar(select(Transaction))
 
     assert transaction is not None
-    assert transaction.source_native_id == "Z1234"
+    assert transaction.source_native_id == "beancount:Z1234"
 
 
-def test_beancount_importer_no_metadata_leaves_entity_metadata_empty(session: Session) -> None:
+def test_beancount_importer_uses_source_native_id_metadata_directly(session: Session) -> None:
+    _run(session, NATIVE_ID_METADATA_FIXTURE)
+
+    transaction = session.scalar(select(Transaction))
+
+    assert transaction is not None
+    assert transaction.source_native_id == "external:some-opaque-id"
+
+
+def test_beancount_importer_fallback_source_native_id_is_set_when_no_ref(
+    session: Session,
+) -> None:
     _run(session, FIXTURE)
 
     transaction = session.scalar(select(Transaction))
 
     assert transaction is not None
     assert transaction.entity_metadata == {}
-    assert transaction.source_native_id is None
+    assert transaction.source_native_id is not None
+    assert transaction.source_native_id.startswith("beancount:fp:")
+
+
+def test_beancount_importer_fallback_source_native_id_is_deterministic(
+    session: Session,
+) -> None:
+    from sqlalchemy import create_engine as _create_engine
+
+    from family_ledger.models import Base as _Base
+
+    engine2 = _create_engine("sqlite+pysqlite:///:memory:")
+    _Base.metadata.create_all(engine2)
+    with Session(engine2) as session2:
+        _run(session2, FIXTURE)
+        txn2 = session2.scalar(select(Transaction))
+        assert txn2 is not None
+        second_run_id = txn2.source_native_id
+
+    _run(session, FIXTURE)
+    txn1 = session.scalar(select(Transaction))
+    assert txn1 is not None
+    assert txn1.source_native_id == second_run_id
+
+
+DUPLICATE_TRANSACTIONS_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 commodity CHF
+
+2026-04-01 * "Migros" "Groceries"
+  Assets:Bank:Checking:Family  -50.00 CHF
+  Expenses:Food                 50.00 CHF
+
+2026-04-01 * "Migros" "Groceries"
+  Assets:Bank:Checking:Family  -50.00 CHF
+  Expenses:Food                 50.00 CHF
+"""
+
+
+def test_beancount_importer_duplicate_transactions_get_different_source_native_ids(
+    session: Session,
+) -> None:
+    result = _run(session, DUPLICATE_TRANSACTIONS_FIXTURE)
+
+    assert result.entities["transaction"].created == 2
+    transactions = session.scalars(select(Transaction)).all()
+    ids = [t.source_native_id for t in transactions]
+    assert ids[0] != ids[1]
+    assert all(id is not None and id.startswith("beancount:fp:") for id in ids)

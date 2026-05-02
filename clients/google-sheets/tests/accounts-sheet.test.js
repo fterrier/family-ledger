@@ -21,12 +21,12 @@ test('buildAccountDisplayEntries_ produces display labels for account resources'
 
   assert.deepEqual(JSON.parse(JSON.stringify(entries)), [
     {
-      name: 'accounts/checking',
+      resource_name: 'accounts/checking',
       account_name: 'Assets:Bank:Checking',
       display_name: '[A] Bank - Checking',
     },
     {
-      name: 'accounts/food',
+      resource_name: 'accounts/food',
       account_name: 'Expenses:Food',
       display_name: '[X] Food',
     },

@@ -27,6 +27,42 @@ test('writeSheet_ expands older narrower sheets before writing headers', () => {
   ]);
 });
 
+test('rebuildSheetByName_ recreates a sheet at its previous index', () => {
+  const calls = [];
+  const targetSheet = { name: 'Transactions' };
+  const otherSheet = { name: 'Accounts' };
+  const recreatedSheet = { name: 'Transactions', setIndex(index) { calls.push({ type: 'setIndex', index }); } };
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getSheetByName(name) {
+            return name === 'Transactions' ? targetSheet : otherSheet;
+          },
+          getSheets() {
+            return [otherSheet, targetSheet];
+          },
+          deleteSheet(sheet) {
+            calls.push({ type: 'deleteSheet', sheet: sheet.name });
+          },
+          insertSheet(name, index) {
+            calls.push({ type: 'insertSheet', name, index });
+            return recreatedSheet;
+          },
+        };
+      },
+    },
+  });
+
+  const sheet = sandbox.rebuildSheetByName_('Transactions');
+
+  assert.equal(sheet, recreatedSheet);
+  assert.deepEqual(calls, [
+    { type: 'deleteSheet', sheet: 'Transactions' },
+    { type: 'insertSheet', name: 'Transactions', index: 2 },
+  ]);
+});
+
 test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies configured hidden columns', () => {
   const { sandbox } = loadCode({ SpreadsheetApp: { WrapStrategy: { CLIP: 'CLIP' } } });
   const cases = [
@@ -40,7 +76,7 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
       sheetName: 'Accounts',
       initialColumns: 2,
       expectedInsert: { column: 2, howMany: 1 },
-      expectedHide: [2],
+      expectedHide: [1],
     },
   ];
 
@@ -146,18 +182,43 @@ test('applySheetDirectFormatting_ applies grouped formatting from config metadat
   assert.equal(dateFormat.value, 'yyyy-mm-dd');
 });
 
-test('ensureSheetConditionalFormatting_ adds narration italics rules from hidden scope', () => {
+test('ensureSheetConditionalFormatting_ keeps only issue-state background rules for transactions', () => {
   const operations = [];
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, new Map([[2, { transaction_name: 'transactions/txn_1' }]]), operations);
+  const fakeSheet = makeRowStoreSheet_(sandbox, new Map([[2, { resource_name: 'transactions/txn_1' }]]), operations);
 
   sandbox.ensureSheetConditionalFormatting_(fakeSheet);
 
   const rules = operations.find((op) => op.type === 'setConditionalFormatRules').rules;
-  const italicRules = rules.filter((rule) => rule.italic !== null);
-  assert.deepEqual(JSON.parse(JSON.stringify(italicRules.map((rule) => ({ formula: rule.formula, italic: rule.italic })))), [
-    { formula: '=$E2="post"', italic: true },
-    { formula: '=$E2="txn"', italic: false },
+  const backgroundRules = rules.filter((rule) => rule.background);
+  assert.deepEqual(JSON.parse(JSON.stringify(backgroundRules.map((rule) => ({ formula: rule.formula, background: rule.background })))), [
+    { formula: '=$M2<>""', background: '#fee2e2' },
+  ]);
+});
+
+test('ensureSheetConditionalFormatting_ keeps only issue-state background rules for non-transaction sheets', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const accountsSheet = {
+    getName() { return 'Accounts'; },
+    getMaxColumns() { return 3; },
+    getLastRow() { return 3; },
+    getMaxRows() { return 3; },
+    getRange() { return { setNote() { return this; }, setBackground() { return this; }, setFontWeight() { return this; }, setHorizontalAlignment() { return this; }, setWrap() { return this; }, setWrapStrategy() { return this; }, setNumberFormat() { return this; }, protect() { return { setDescription() {}, setWarningOnly() {} }; } }; },
+    getRangeList() { return { setBackground() { return this; }, setFontWeight() { return this; }, setHorizontalAlignment() { return this; }, setWrap() { return this; }, setWrapStrategy() { return this; }, setNumberFormat() { return this; } }; },
+    getConditionalFormatRules() { return []; },
+    setConditionalFormatRules(rules) { operations.push({ type: 'setConditionalFormatRules', rules }); },
+    getProtections() { return []; },
+    showColumns() {},
+    hideColumns() {},
+  };
+
+  sandbox.ensureSheetConditionalFormatting_(accountsSheet, sandbox.getSheetConfigByName_('Accounts'));
+
+  const rules = operations.find((op) => op.type === 'setConditionalFormatRules').rules;
+  const backgroundRules = rules.filter((rule) => rule.background);
+  assert.deepEqual(JSON.parse(JSON.stringify(backgroundRules.map((rule) => ({ formula: rule.formula, background: rule.background })))), [
+    { formula: '=$C2<>""', background: '#fee2e2' },
   ]);
 });
 
@@ -166,12 +227,12 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
   const { sandbox } = loadCode();
   const staleRule = {
     getBooleanCondition() {
-      return {
-        getCriteriaType() { return sandbox.SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA; },
-        getCriteriaValues() { return ['=COLUMN()=4']; },
-      };
-    },
-  };
+        return {
+          getCriteriaType() { return sandbox.SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA; },
+          getCriteriaValues() { return ['=$M2<>""']; },
+        };
+      },
+    };
   const keptRule = {
     getBooleanCondition() {
       return {
@@ -180,7 +241,7 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
       };
     },
   };
-  const fakeSheet = makeRowStoreSheet_(sandbox, new Map([[2, { transaction_name: 'transactions/txn_1' }]]), operations);
+  const fakeSheet = makeRowStoreSheet_(sandbox, new Map([[2, { resource_name: 'transactions/txn_1' }]]), operations);
   fakeSheet.getConditionalFormatRules = function() { return [staleRule, keptRule]; };
 
   sandbox.ensureSheetConditionalFormatting_(fakeSheet);

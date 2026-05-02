@@ -9,6 +9,8 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   const sheets = {
     Accounts: { name: 'Accounts', setFrozenRows() {} },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; } },
+    DoctorTransactionIssues: { name: 'DoctorTransactionIssues' },
+    DoctorAccountIssues: { name: 'DoctorAccountIssues' },
   };
   const { sandbox } = loadCode({
     SpreadsheetApp: {
@@ -30,6 +32,10 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
     },
   });
 
+  sandbox.rebuildSheetByName_ = function(name) {
+    calls.push({ type: 'rebuildSheet', name });
+    return sheets[name];
+  };
   sandbox.ensureEditTriggerInstalled_ = function() {
     calls.push('ensureEditTriggerInstalled');
   };
@@ -43,7 +49,7 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   sandbox.buildAccountSyncData_ = function(accounts) {
     calls.push({ type: 'buildAccountSyncData', count: accounts.length });
     return {
-      accountRows: [['[A] Bank - Checking', 'accounts/checking', '']],
+      accountRows: [['accounts/checking', '[A] Bank - Checking', '']],
       accountDisplayLookup: { 'accounts/checking': '[A] Bank - Checking' },
       accountCount: 1,
     };
@@ -51,22 +57,28 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   sandbox.buildTransactionSyncData_ = function(transactions, lookup) {
     calls.push({ type: 'buildTransactionSyncData', count: transactions.length, lookup });
     return {
-      rows: [{ transaction_name: 'transactions/txn_1' }],
+      rows: [{ resource_name: 'transactions/txn_1' }],
       skippedCount: 0,
       skippedExamples: [],
     };
   };
-  sandbox.writeConfigSheet_ = function(sheet, _config, rows) {
-    calls.push({ type: 'writeAccounts', sheet: sheet.name, rowCount: rows.length });
+  sandbox.writeFetchedDoctorIssueSheets_ = function(issuesByTarget, resolveSheet) {
+    calls.push({ type: 'writeFetchedDoctorIssueSheets', issueTargetCount: Object.keys(issuesByTarget).length });
+    resolveSheet('DoctorTransactionIssues');
+    resolveSheet('DoctorAccountIssues');
+  };
+  sandbox.fetchLedgerDoctorIssuesByTarget_ = function() {
+    calls.push('fetchLedgerDoctorIssuesByTarget');
+    return {};
+  };
+  sandbox.writeSheet_ = function(sheet, _headers, rows) {
+    calls.push({ type: 'writeSheet', sheet: sheet.name, rowCount: rows.length });
   };
   sandbox.ensureAccountIssueFormulas_ = function(sheet, rowCount) {
     calls.push({ type: 'accountIssues', sheet: sheet.name, rowCount });
   };
   sandbox.setTransactionSheetRows_ = function(sheet, rows) {
     calls.push({ type: 'writeTransactions', sheet: sheet.name, rowCount: rows.length });
-  };
-  sandbox.refreshDoctorIssueSheets_ = function() {
-    calls.push('refreshDoctorIssueSheets');
   };
   sandbox.refreshManagedLedgerSheetLayouts_ = function() {
     calls.push('refreshManagedLedgerSheetLayouts');
@@ -78,7 +90,19 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
     { type: 'fetch', path: '/transactions?page_size=1000', resourceKey: 'transactions' },
   ]);
-  assert.equal(calls.filter((call) => call === 'refreshDoctorIssueSheets').length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
+    { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
+  ]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'rebuildSheet'))), [
+    { type: 'rebuildSheet', name: 'Accounts' },
+    { type: 'rebuildSheet', name: 'Transactions' },
+    { type: 'rebuildSheet', name: 'DoctorTransactionIssues' },
+    { type: 'rebuildSheet', name: 'DoctorAccountIssues' },
+  ]);
+  assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeFetchedDoctorIssueSheets'))), [
+    { type: 'writeFetchedDoctorIssueSheets', issueTargetCount: 0 },
+  ]);
   assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 1);
   assert.equal(alerts.length, 1);
   assert.equal(alerts[0].title, 'Ledger Sync Complete');
@@ -92,7 +116,7 @@ test('buildTransactionSyncData_ collects skipped examples and merges doctor issu
     if (transaction.name === 'transactions/skip') {
       return null;
     }
-    return [{ transaction_name: transaction.name, issues: '' }];
+    return [{ resource_name: transaction.name, issues: '' }];
   };
   sandbox.mergeFetchedDoctorIssuesIntoRows_ = function(rows) {
     rows.forEach(function(row) {

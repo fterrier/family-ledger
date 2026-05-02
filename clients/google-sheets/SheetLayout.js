@@ -73,6 +73,40 @@ function getOrCreateSheet_(sheetName) {
   return sheet;
 }
 
+function rebuildSheetByName_(sheetName) {
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const existingSheet = spreadsheet.getSheetByName(sheetName);
+  let targetIndex = null;
+
+  if (existingSheet && spreadsheet.getSheets) {
+    const sheets = spreadsheet.getSheets();
+    const zeroBasedIndex = sheets.indexOf(existingSheet);
+    if (zeroBasedIndex !== -1) {
+      targetIndex = zeroBasedIndex + 1;
+    }
+  }
+
+  if (existingSheet && spreadsheet.deleteSheet) {
+    spreadsheet.deleteSheet(existingSheet);
+  }
+
+  let sheet;
+  if (targetIndex !== null) {
+    try {
+      sheet = spreadsheet.insertSheet(sheetName, targetIndex);
+    } catch (_error) {
+      sheet = spreadsheet.insertSheet(sheetName);
+      if (sheet && sheet.setIndex) {
+        sheet.setIndex(targetIndex);
+      }
+    }
+  } else {
+    sheet = spreadsheet.insertSheet(sheetName);
+  }
+
+  return sheet;
+}
+
 function hideSheetIfVisible_(sheet) {
   if (!sheet.isSheetHidden || !sheet.isSheetHidden()) {
     sheet.hideSheet();
@@ -86,10 +120,6 @@ function writeSheet_(sheet, headers, rows) {
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
   }
-}
-
-function writeConfigSheet_(sheet, sheetConfig, rows) {
-  writeSheet_(sheet, sheetConfig.headers, rows);
 }
 
 function ensureSheetCapacity_(sheet, requiredColumns, requiredRows) {
@@ -134,7 +164,7 @@ function applySheetHeaderLayout_(sheet, sheetConfig) {
   Object.keys(roleNotations).forEach(function(role) {
     applyRangeListOperation_(sheet, roleNotations[role], function(rangeList) {
       rangeList
-        .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.header[role])
+        .setBackground(FAMILY_LEDGER_HEADER_ROLE_COLORS[role])
         .setFontWeight('bold');
     });
   });
@@ -248,8 +278,6 @@ function applySheetProtections_(sheet, sheetConfig) {
 function ensureSheetConditionalFormatting_(sheet, sheetConfig) {
   sheetConfig = requireSheetConfig_(sheetConfig || sheet);
   ensureSheetCapacityForConfig_(sheet, sheetConfig);
-  const issueColumnLetter = getColumnLetter_(sheetConfig, sheetConfig.issueHeader);
-  const issueFormula = '=$' + issueColumnLetter + '2<>""';
   const totalRows = sheet.getMaxRows();
   const fullRange = sheet.getRange(2, 1, Math.max(totalRows - 1, 1), sheetConfig.headers.length);
   const existingRules = sheet.getConditionalFormatRules();
@@ -262,81 +290,23 @@ function ensureSheetConditionalFormatting_(sheet, sheetConfig) {
     return !isManagedConditionalFormula_(String(values[0]), sheetConfig);
   });
 
-  preservedRules.push(
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied(issueFormula)
-      .setBackground(sheetConfig.issueColor)
-      .setRanges([fullRange])
-      .build()
-  );
-
-  appendSheetRoleConditionalFormatting_(sheet, sheetConfig, preservedRules, totalRows);
-  appendTransactionNarrationConditionalFormatting_(sheet, sheetConfig, preservedRules, totalRows);
+  appendIssueConditionalFormatting_(sheet, sheetConfig, preservedRules, fullRange);
   sheet.setConditionalFormatRules(preservedRules);
 }
 
-function appendSheetRoleConditionalFormatting_(sheet, sheetConfig, rules, totalRows) {
-  const roleColumns = {};
-  sheetConfig.headers.forEach(function(header, index) {
-    const layout = sheetConfig.columnLayout[header];
-    if (!roleColumns[layout.role]) {
-      roleColumns[layout.role] = [];
-    }
-    roleColumns[layout.role].push(index + 1);
-  });
-
-  Object.keys(roleColumns).forEach(function(role) {
-    const cols = roleColumns[role];
-    const formula = cols.length === 1
-      ? '=COLUMN()=' + cols[0]
-      : '=OR(' + cols.map(function(column) { return 'COLUMN()=' + column; }).join(',') + ')';
-    const ranges = cols.map(function(column) {
-      return sheet.getRange(2, column, Math.max(totalRows - 1, 1), 1);
-    });
-    rules.push(
-      SpreadsheetApp.newConditionalFormatRule()
-        .whenFormulaSatisfied(formula)
-        .setBackground(FAMILY_LEDGER_COLUMN_ROLE_COLORS.body[role])
-        .setRanges(ranges)
-        .build()
-    );
-  });
-}
-
-function appendTransactionNarrationConditionalFormatting_(sheet, sheetConfig, rules, totalRows) {
-  if (sheetConfig.key !== 'transactions') {
-    return;
-  }
-
-  const narrationColumn = getColumnIndex_(sheetConfig, sheetConfig.styling.narrationHeader);
-  const narrationSourceColumnLetter = getColumnLetter_(sheetConfig, sheetConfig.styling.narrationSourceHeader);
-  const narrationRange = sheet.getRange(2, narrationColumn, Math.max(totalRows - 1, 1), 1);
-
+function appendIssueConditionalFormatting_(sheet, sheetConfig, rules, fullRange) {
+  const issueColumnLetter = getColumnLetter_(sheetConfig, sheetConfig.issueHeader);
   rules.push(
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$' + narrationSourceColumnLetter + '2="post"')
-      .setItalic(true)
-      .setRanges([narrationRange])
-      .build()
-  );
-  rules.push(
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=$' + narrationSourceColumnLetter + '2="txn"')
-      .setItalic(false)
-      .setRanges([narrationRange])
+      .whenFormulaSatisfied('=$' + issueColumnLetter + '2<>""')
+      .setBackground(sheetConfig.issueColor)
+      .setRanges([fullRange])
       .build()
   );
 }
 
 function isManagedConditionalFormula_(formula, sheetConfig) {
-  if (/^=\$[A-Z]+2<>""$/.test(formula)) {
-    return true;
-  }
-  if (sheetConfig.key === 'transactions' && /^=\$[A-Z]+2="(?:post|txn)"$/.test(formula)) {
-    return true;
-  }
-  return /^=COLUMN\(\)=\d+$/.test(formula)
-    || /^=OR\(COLUMN\(\)=\d+(?:,COLUMN\(\)=\d+)+\)$/.test(formula);
+  return formula === '=$' + getColumnLetter_(sheetConfig, sheetConfig.issueHeader) + '2<>""';
 }
 
 function columnNumberToLetter_(columnNumber) {

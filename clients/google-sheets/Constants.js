@@ -17,22 +17,12 @@ const FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS = {
   Equity: '[Q]',
 };
 
-const FAMILY_LEDGER_COLUMN_ROLE_COLORS = {
-  header: {
-    readonly: '#d1d5db',
-    editable: '#dbeafe',
-    action: '#fde68a',
-    system: '#e5e7eb',
-  },
-  body: {
-    readonly: '#f3f4f6',
-    editable: '#ffffff',
-    action: '#fffbeb',
-    system: '#f9fafb',
-  },
+const FAMILY_LEDGER_HEADER_ROLE_COLORS = {
+  readonly: '#d1d5db',
+  editable: '#dbeafe',
+  action: '#fde68a',
+  system: '#e5e7eb',
 };
-
-const FAMILY_LEDGER_ISSUE_ROW_COLOR = '#fee2e2';
 
 function buildSheetConfig_(key, name, columnLayout, options) {
   const headers = Object.keys(columnLayout);
@@ -50,14 +40,13 @@ function buildSheetConfig_(key, name, columnLayout, options) {
     hiddenHeaders: Object.freeze((options && options.hiddenHeaders) || []),
     protectedHeaders: Object.freeze((options && options.protectedHeaders) || []),
     issueHeader: (options && options.issueHeader) || 'issues',
-    issueColor: (options && options.issueColor) || FAMILY_LEDGER_ISSUE_ROW_COLOR,
-    styling: Object.freeze((options && options.styling) || {}),
+    issueColor: (options && options.issueColor) || '#fee2e2',
   });
 }
 
 const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
   transactions: buildSheetConfig_('transactions', FAMILY_LEDGER_SHEET_NAMES.transactions, {
-    transaction_name: {
+    resource_name: {
       width: 180,
       role: 'system',
       note: 'Technical transaction resource name used by the client.',
@@ -142,26 +131,22 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: true,
     },
   }, {
-    hiddenHeaders: ['transaction_name', 'narration_source', 'last_error'],
-    protectedHeaders: ['transaction_name', 'transaction_date', 'source_account_name', 'symbol'],
-    styling: {
-      narrationHeader: 'narration',
-      narrationSourceHeader: 'narration_source',
-    },
+    hiddenHeaders: ['resource_name', 'narration_source', 'last_error'],
+    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   accounts: buildSheetConfig_('accounts', FAMILY_LEDGER_SHEET_NAMES.accounts, {
+    resource_name: {
+      width: 180,
+      role: 'system',
+      note: 'Technical resource name used by the client.',
+      alignment: 'left',
+    },
     account_name: {
       width: 320,
       role: 'editable',
       note: 'Visible account label used in the Transactions sheet.',
       alignment: 'left',
       wrap: false,
-    },
-    name: {
-      width: 180,
-      role: 'system',
-      note: 'Technical resource name used by the client.',
-      alignment: 'left',
     },
     issues: {
       width: 420,
@@ -171,6 +156,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: true,
     },
   }, {
-    hiddenHeaders: ['name'],
+    hiddenHeaders: ['resource_name'],
+    protectedHeaders: ['resource_name'],
   }),
 });

@@ -12,14 +12,14 @@ function syncFamilyLedger() {
     );
     const transactionSyncData = buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
 
-    const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
-    writeConfigSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts, accountSyncData.accountRows);
+    const accountsSheet = rebuildSheetByName_(FAMILY_LEDGER_SHEET_NAMES.accounts);
+    writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
     accountsSheet.setFrozenRows(1);
     ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
 
-    const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
+    const transactionsSheet = rebuildSheetByName_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
-    refreshDoctorIssueSheets_();
+    writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), rebuildSheetByName_);
     refreshManagedLedgerSheetLayouts_();
 
     SpreadsheetApp.getUi().alert(
@@ -68,11 +68,11 @@ function buildAccountSyncData_(accounts) {
     return a.display_name.localeCompare(b.display_name);
   });
   const rows = displayEntries.map(function(entry) {
-    return [entry.display_name, entry.name, ''];
+    return [entry.resource_name, entry.display_name, ''];
   });
   const accountDisplayLookup = {};
   displayEntries.forEach(function(entry) {
-    accountDisplayLookup[entry.name] = entry.display_name;
+    accountDisplayLookup[entry.resource_name] = entry.display_name;
   });
   return {
     accountRows: rows,

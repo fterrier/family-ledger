@@ -7,7 +7,7 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
   const operations = [];
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
@@ -46,7 +46,7 @@ test('performSplitForRow_ splits a negative-amount row using a positive split am
   const operations = [];
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       transaction_date: '2026-04-19',
       payee: 'Employer',
       narration: 'Salary',
@@ -85,7 +85,7 @@ test('performSplitForRow_ writes 0 amount to sheet without coercing to blank', (
   const operations = [];
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
@@ -195,8 +195,8 @@ test('focusCell_ activates the requested sheet cell', () => {
 test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
 
   const { sandbox } = loadCode();
@@ -213,7 +213,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
 
 test('performDeleteSplitRow_ resets the last destination row to source-only state', () => {
   const rowStore = new Map([
-    [2, { transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
 
   const { sandbox } = loadCode();
@@ -244,7 +244,7 @@ test('handleAmountEdit_ delegates direct increases to performSplitFromEditedAmou
 test('handleAmountEdit_ rejects edits for source-only transactions', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { transaction_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
@@ -333,7 +333,7 @@ test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_o
 test('applyTransactionEdit_ edits split row narration as posting narration only', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -347,7 +347,7 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -377,7 +377,7 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
 test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -391,7 +391,7 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -418,7 +418,7 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
 test('applyTransactionEdit_ keeps split row as txn when narration value is unchanged', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -432,7 +432,7 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -459,7 +459,7 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
 test('applyTransactionEdit_ clears split posting narration back to transaction fallback', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'post',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -473,7 +473,7 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -500,7 +500,7 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
 test('applyTransactionEdit_ rejects converting the last transaction narration row into posting narration', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -514,7 +514,7 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'post',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -542,7 +542,7 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
 test('performSplitForRow_ does not inherit explicit posting narration onto the new row', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'post',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -556,7 +556,7 @@ test('performSplitForRow_ does not inherit explicit posting narration onto the n
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -585,7 +585,7 @@ test('performSplitForRow_ does not inherit explicit posting narration onto the n
 test('performDeleteSplitRow_ keeps surviving row narration ownership when removing posting narration row', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -599,7 +599,7 @@ test('performDeleteSplitRow_ keeps surviving row narration ownership when removi
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'post',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -627,7 +627,7 @@ test('performDeleteSplitRow_ keeps surviving row narration ownership when removi
 test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitting to one row', () => {
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'txn',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -641,7 +641,7 @@ test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitti
       last_error: '',
     }],
     [3, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       narration_source: 'post',
       transaction_date: '2026-04-19',
       payee: 'Migros',
@@ -667,7 +667,7 @@ test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitti
 
 test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {
   const rowStore = new Map([
-    [2, { transaction_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);

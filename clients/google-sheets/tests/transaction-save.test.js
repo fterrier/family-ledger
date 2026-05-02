@@ -20,7 +20,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   const operations = [];
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
@@ -60,7 +60,7 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
   const toasts = [];
   const rowStore = new Map([
     [2, {
-      transaction_name: 'transactions/txn_1',
+      resource_name: 'transactions/txn_1',
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',

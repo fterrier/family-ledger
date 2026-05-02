@@ -1,8 +1,8 @@
 function buildAccountDisplayEntries_(accounts) {
   return accounts.map(function(account) {
     return {
-      name: account.name,
       account_name: account.account_name,
+      resource_name: account.name,
       display_name: formatAccountDisplayName_(account.account_name),
     };
   });
@@ -49,8 +49,8 @@ function readAccountSheetEntries_() {
 
   return accountsSheet.getRange(2, 1, lastRow - 1, 2).getValues().map(function(row) {
     return {
-      displayName: row[0] ? String(row[0]) : '',
-      resourceName: row[1] ? String(row[1]) : '',
+      resourceName: row[0] ? String(row[0]) : '',
+      displayName: row[1] ? String(row[1]) : '',
     };
   });
 }
@@ -67,7 +67,7 @@ function getTransactionAccountNames() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues();
+  const values = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues();
   const names = [];
   values.forEach(function(row) {
     if (row[0]) names.push(String(row[0]));
@@ -77,7 +77,7 @@ function getTransactionAccountNames() {
 }
 
 function buildAccountIssuesFormula_(rowNumber) {
-  return '=IFERROR(VLOOKUP($B' + rowNumber + ',DoctorAccountIssues!$A:$B,2,FALSE),"")';
+  return '=IFERROR(VLOOKUP($A' + rowNumber + ',DoctorAccountIssues!$A:$B,2,FALSE),"")';
 }
 
 function ensureAccountIssueFormulas_(sheet, rowCount) {
@@ -108,7 +108,7 @@ function applyAccountValidation_(sheet, rowCount) {
   }
 
   const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(accountsSheet.getRange(2, 1, lastRow - 1, 1), true)
+    .requireValueInRange(accountsSheet.getRange(2, 2, lastRow - 1, 1), true)
     .setAllowInvalid(false)
     .build();
 
@@ -130,7 +130,7 @@ function applyAccountValidationToRowNumbers_(sheet, rowNumbers) {
   }
 
   const rule = SpreadsheetApp.newDataValidation()
-    .requireValueInRange(accountsSheet.getRange(2, 1, lastRow - 1, 1), true)
+    .requireValueInRange(accountsSheet.getRange(2, 2, lastRow - 1, 1), true)
     .setAllowInvalid(false)
     .build();
 

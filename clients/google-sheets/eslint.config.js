@@ -27,8 +27,7 @@ module.exports = [
         FAMILY_LEDGER_PAGE_SIZE: 'readonly',
         FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS: 'readonly',
         FAMILY_LEDGER_ACCOUNT_ROOT_MARKERS: 'readonly',
-        FAMILY_LEDGER_COLUMN_ROLE_COLORS: 'readonly',
-        FAMILY_LEDGER_ISSUE_ROW_COLOR: 'readonly',
+        FAMILY_LEDGER_HEADER_ROLE_COLORS: 'readonly',
       },
     },
     rules: {

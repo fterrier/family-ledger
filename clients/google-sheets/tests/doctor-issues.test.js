@@ -26,7 +26,7 @@ test('mergeDoctorIssuesIntoRows_ merges doctor issues onto every transaction row
 test('applyFetchedDoctorIssuesToExistingSheet_ clears stale issues and reapplies row highlighting', () => {
   const operations = [];
   const rowStore = new Map([[2, {
-    transaction_name: 'transactions/txn_1',
+    resource_name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',
@@ -50,7 +50,7 @@ test('applyFetchedDoctorIssuesToExistingSheet_ clears stale issues and reapplies
 test('refreshTransactionIssuesFromDoctor_ updates issues asynchronously without touching status', () => {
   const operations = [];
   const rowStore = new Map([[2, {
-    transaction_name: 'transactions/txn_1',
+    resource_name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',

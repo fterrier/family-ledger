@@ -73,7 +73,7 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
   const row = readTransactionSheetRow_(sheet, rowNumber);
-  if (!row || !row.transaction_name) {
+  if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
   if (isSourceOnlyTransactionRow_(sheet, rowNumber)) {
@@ -107,7 +107,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
 
 function performSplitFromEditedAmount_(sheet, rowNumber, oldAmount, newAmount) {
   const row = readTransactionSheetRow_(sheet, rowNumber);
-  if (!row || !row.transaction_name) {
+  if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
   if (newAmount === oldAmount) {
@@ -147,11 +147,11 @@ function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
 
 function performDeleteSplitRow_(sheet, rowNumber) {
   const row = readTransactionSheetRow_(sheet, rowNumber);
-  if (!row || !row.transaction_name) {
+  if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
 
-  const rowNumbers = findTransactionRowNumbers_(sheet, row.transaction_name);
+  const rowNumbers = findTransactionRowNumbers_(sheet, row.resource_name);
   if (rowNumbers.length <= 1) {
     row.destination_account_name = '';
     row.split_off_amount = '';
@@ -282,7 +282,7 @@ function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value) {
 
 function applySplitRowPostingNarrationEdit_(sheet, rowNumber, value) {
   const row = readTransactionSheetRow_(sheet, rowNumber);
-  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.transaction_name));
+  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
   const transactionNarration = inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
   const normalizedValue = String(value || '');
 
@@ -325,7 +325,7 @@ function inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row) {
 }
 
 function inferTransactionNarrationForSplitRow_(sheet, rowNumber, row) {
-  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.transaction_name));
+  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
   return inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
 }
 

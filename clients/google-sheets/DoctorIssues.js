@@ -75,7 +75,7 @@ function doctorIssuesToSheetRows_(issuesByTarget) {
 
 function mergeDoctorIssuesIntoRows_(rows, issuesByTarget) {
   rows.forEach(function(row) {
-    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.transaction_name] || []);
+    row.issues = formatTransactionIssuesForSheet_(issuesByTarget[row.resource_name] || []);
   });
 }
 
@@ -85,12 +85,12 @@ function mergeFetchedDoctorIssuesIntoRows_(rows) {
   return issuesByTarget;
 }
 
-function refreshTransactionIssuesFromDoctor_(sheet, transactionName) {
+function refreshTransactionIssuesFromDoctor_(sheet) {
   try {
-    refreshDoctorIssueSheets_(transactionName);
+    const issuesByTarget = refreshDoctorIssueSheets_();
+    applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget);
   } catch (error) {
     debugLog_('refreshTransactionIssuesFromDoctor:error', {
-      transactionName: transactionName || '',
       message: error && error.message ? error.message : String(error),
     });
     SpreadsheetApp.getActiveSpreadsheet().toast(
@@ -101,44 +101,39 @@ function refreshTransactionIssuesFromDoctor_(sheet, transactionName) {
   }
 }
 
-function refreshDoctorIssueSheets_(transactionName) {
+function refreshDoctorIssueSheets_() {
   const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
-  const partitioned = partitionDoctorIssuesByTargetType_(issuesByTarget);
-  debugLog_('refreshTransactionIssuesFromDoctorSync:fetched', {
-    transactionName: transactionName || '',
+  debugLog_('refreshDoctorIssueSheets:fetched', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
       return total + issues.length;
     }, 0),
-    targetFound: transactionName ? Object.prototype.hasOwnProperty.call(issuesByTarget, transactionName) : false,
   });
+  writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_);
+  return issuesByTarget;
+}
+
+function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
+  const partitioned = partitionDoctorIssuesByTargetType_(issuesByTarget);
   writeDoctorIssueSheet_(
-    getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues),
+    resolveSheet(FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues),
     doctorIssuesToSheetRows_(partitioned.transactionIssues)
   );
   writeDoctorIssueSheet_(
-    getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues),
+    resolveSheet(FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues),
     doctorIssuesToSheetRows_(partitioned.accountIssues)
   );
   debugLog_('refreshDoctorIssueSheets:written', {
     transactionIssueTargets: Object.keys(partitioned.transactionIssues).length,
     accountIssueTargets: Object.keys(partitioned.accountIssues).length,
-    transactionName: transactionName || '',
   });
 }
 
-function applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget, transactionName) {
+function applyFetchedDoctorIssuesToExistingSheet_(sheet, issuesByTarget) {
   const existing = readVisibleTransactionRows_(sheet);
   mergeDoctorIssuesIntoRows_(existing.rows, issuesByTarget);
-  const targetRow = transactionName
-    ? existing.rows.find(function(row) {
-      return row.transaction_name === transactionName;
-    })
-    : null;
   debugLog_('applyFetchedDoctorIssuesToExistingSheet', {
-    transactionName: transactionName || '',
     visibleRowCount: existing.rowNumbers.length,
-    rowFound: !!targetRow,
-    mergedIssues: targetRow ? String(targetRow.issues || '') : '',
+    issueTargetCount: Object.keys(issuesByTarget).length,
   });
   applyDoctorIssuesToSheetRowNumbers_(sheet, existing.rowNumbers, existing.rows);
 }

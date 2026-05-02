@@ -8,7 +8,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
 
   if (shape.sourceIndex === null) {
     return [{
-      transaction_name: transaction.name,
+      resource_name: transaction.name,
       narration_source: 'txn',
       transaction_date: transaction.transaction_date,
       payee: transaction.payee || '',
@@ -32,7 +32,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   if (shape.destinationIndexes.length === 0) {
     const postingNarration = sourcePostingNarration;
     return [{
-      transaction_name: transaction.name,
+      resource_name: transaction.name,
       narration_source: postingNarration ? 'post' : 'txn',
       transaction_date: transaction.transaction_date,
       payee: transaction.payee || '',
@@ -52,7 +52,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
     const posting = transaction.postings[destinationIndex];
     const postingNarration = String(posting.narration || '');
     return {
-      transaction_name: transaction.name,
+      resource_name: transaction.name,
       narration_source: postingNarration ? 'post' : 'txn',
       transaction_date: transaction.transaction_date,
       payee: transaction.payee || '',
@@ -227,7 +227,7 @@ function isSourceOnlyTransactionRow_(sheet, rowNumber) {
     return false;
   }
   const row = readTransactionSheetRow_(sheet, rowNumber);
-  const transactionName = row && row.transaction_name ? String(row.transaction_name).trim() : '';
+  const transactionName = row && row.resource_name ? String(row.resource_name).trim() : '';
   if (!transactionName) {
     return false;
   }
@@ -276,7 +276,7 @@ function readVisibleTransactionRows_(sheet) {
   }
   for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
     const row = readTransactionSheetRow_(sheet, rowNumber);
-    if (!row || !row.transaction_name) {
+    if (!row || !row.resource_name) {
       continue;
     }
     rowNumbers.push(rowNumber);
@@ -289,7 +289,7 @@ function getTransactionNameForRow_(sheet, rowNumber) {
   if (rowNumber <= 1) {
     return '';
   }
-  return String(sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('transaction_name')).getValue() || '').trim();
+  return String(sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('resource_name')).getValue() || '').trim();
 }
 
 function readTransactionNameColumnValues_(sheet) {
@@ -298,7 +298,7 @@ function readTransactionNameColumnValues_(sheet) {
     return [];
   }
   return sheet
-    .getRange(2, getTransactionHeaderColumnIndex_('transaction_name'), lastRow - 1, 1)
+    .getRange(2, getTransactionHeaderColumnIndex_('resource_name'), lastRow - 1, 1)
     .getValues()
     .map(function(row) {
       return String(row[0] || '').trim();
@@ -364,7 +364,7 @@ function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
     const existingRow = existingRows[index];
     const replacementRow = replacementRows[index];
     if (
-      normalizeSheetCellValue_(existingRow.transaction_name) !== normalizeSheetCellValue_(replacementRow.transaction_name) ||
+      normalizeSheetCellValue_(existingRow.resource_name) !== normalizeSheetCellValue_(replacementRow.resource_name) ||
       normalizeSheetCellValue_(existingRow.source_account_name) !== normalizeSheetCellValue_(replacementRow.source_account_name) ||
       normalizeSheetCellValue_(existingRow.symbol) !== normalizeSheetCellValue_(replacementRow.symbol)
     ) {
@@ -393,7 +393,7 @@ function areTransactionRowsEquivalentForRefresh_(existingRows, replacementRows) 
 
 function comparableTransactionSheetRow_(row) {
   return {
-    transaction_name: normalizeSheetCellValue_(row.transaction_name),
+    resource_name: normalizeSheetCellValue_(row.resource_name),
     narration_source: normalizeSheetCellValue_(row.narration_source),
     transaction_date: normalizeSheetCellValue_(row.transaction_date),
     payee: normalizeSheetCellValue_(row.payee),
@@ -433,7 +433,7 @@ function materializeTransactionSheetRow_(row) {
 
 function setTransactionSheetRows_(sheet, rows) {
   const materializedRows = rows.map(materializeTransactionSheetRow_);
-  writeConfigSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, materializedRows);
+  writeSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers, materializedRows);
   sheet.setFrozenRows(1);
   ensureTransactionIssueFormulas_(sheet, materializedRows.length);
 }

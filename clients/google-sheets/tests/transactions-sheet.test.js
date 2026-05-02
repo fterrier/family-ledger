@@ -253,12 +253,12 @@ test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in
     contiguous: true,
     rows: [
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
+        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
         payee: 'Migros', narration: 'Groceries split', source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Household', amount: 34.25, symbol: 'CHF', __rowNumber: 4,
       },
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
+        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
         payee: 'Migros', narration: 'Groceries split', source_account_name: 'Assets:Bank:Checking',
         destination_account_name: 'Expenses:Food', amount: 50, symbol: 'CHF', __rowNumber: 5,
       },
@@ -287,7 +287,7 @@ test('buildTransactionPatchPayloadFromGroup_ normalizes Sheets date objects to y
     transactionName: 'transactions/txn_1',
     contiguous: true,
     rows: [{
-      transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
       payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking',
       destination_account_name: 'Expenses:Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
     }],
@@ -306,12 +306,12 @@ test('buildTransactionPatchPayloadFromGroup_ keeps transaction narration separat
     contiguous: true,
     rows: [
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'post', transaction_date: '2026-04-19', payee: 'Migros',
+        resource_name: 'transactions/txn_1', narration_source: 'post', transaction_date: '2026-04-19', payee: 'Migros',
         narration: 'A', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food',
         amount: 50, symbol: 'CHF', __rowNumber: 2,
       },
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
         narration: 'Shared', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household',
         amount: 34.25, symbol: 'CHF', __rowNumber: 3,
       },
@@ -336,12 +336,12 @@ test('buildTransactionPatchPayloadFromGroup_ treats differing split row narratio
     contiguous: true,
     rows: [
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
         narration: 'Shared', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food',
         amount: 50, symbol: 'CHF', __rowNumber: 2,
       },
       {
-        transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
         narration: 'Household', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household',
         amount: 34.25, symbol: 'CHF', __rowNumber: 3,
       },
@@ -365,7 +365,7 @@ test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when 
     transactionName: 'transactions/txn_1',
     contiguous: true,
     rows: [{
-      transaction_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
       narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '',
       amount: 1.5, symbol: 'CHF', __rowNumber: 2,
     }],
@@ -388,8 +388,8 @@ test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank d
     transactionName: 'transactions/txn_1',
     contiguous: true,
     rows: [
-      { transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
-      { transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
+      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
+      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
     ],
   }, {
     'Assets:Bank:Checking': 'accounts/source',
@@ -403,7 +403,7 @@ test('buildTransactionPatchPayloadFromGroup_ accepts negative destination amount
     transactionName: 'transactions/txn_income',
     contiguous: true,
     rows: [{
-      transaction_name: 'transactions/txn_income', narration_source: 'txn', transaction_date: '2026-01-31', payee: '',
+      resource_name: 'transactions/txn_income', narration_source: 'txn', transaction_date: '2026-01-31', payee: '',
       narration: 'Monthly salary', source_account_name: '[A] Bank', destination_account_name: '[I] Salary',
       amount: -5000, symbol: 'CHF', __rowNumber: 2,
     }],
@@ -448,19 +448,19 @@ test('buildContiguousRowSpans_ groups scattered row numbers into deletion spans'
 test('canUpdateTransactionRowsInPlace_ accepts same-shape replacement rows', () => {
   const { sandbox } = loadCode();
   assert.equal(sandbox.canUpdateTransactionRowsInPlace_([
-    { transaction_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
+    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
   ], [
-    { transaction_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
+    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
   ]), true);
 });
 
 test('canUpdateTransactionRowsInPlace_ rejects row count changes', () => {
   const { sandbox } = loadCode();
   assert.equal(sandbox.canUpdateTransactionRowsInPlace_([
-    { transaction_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
+    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
   ], [
-    { transaction_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-    { transaction_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
+    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
+    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
   ]), false);
 });
 
@@ -468,13 +468,13 @@ test('areTransactionRowsEquivalentForRefresh_ ignores transient helper fields', 
   const { sandbox } = loadCode();
   assert.equal(sandbox.areTransactionRowsEquivalentForRefresh_([
     {
-      transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
+      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
       split_off_amount: '10', symbol: 'CHF', status: 'saving', last_error: 'temporary',
     },
   ], [
     {
-      transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
+      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
       split_off_amount: '', symbol: 'CHF', status: 'saved', last_error: '',
     },
@@ -485,12 +485,12 @@ test('areTransactionRowsEquivalentForRefresh_ detects business-field differences
   const { sandbox } = loadCode();
   assert.equal(sandbox.areTransactionRowsEquivalentForRefresh_([
     {
-      transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
+      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25, symbol: 'CHF',
     },
   ], [
     {
-      transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
+      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
       source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 84.25, symbol: 'CHF',
     },
   ]), false);
@@ -506,11 +506,11 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
   };
 
   sandbox.updateTransactionRowsInPlace_(fakeSheet, [2], [{
-    transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old', narration: 'Keep',
+    resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old', narration: 'Keep',
     source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
     split_off_amount: '', symbol: 'CHF', status: 'saving', last_error: '',
   }], [{
-    transaction_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'New', narration: 'Keep',
+    resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'New', narration: 'Keep',
     source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
     split_off_amount: '', symbol: 'CHF', status: 'saved', last_error: '',
   }]);

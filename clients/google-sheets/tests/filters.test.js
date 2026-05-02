@@ -6,7 +6,7 @@ const { loadCode, makeRowStoreSheet_ } = require('./_harness');
 test('ensureTransactionSheetFilter_ creates a filter covering all transaction columns', () => {
   const operations = [];
   const rowStore = new Map([[2, {
-    transaction_name: 'transactions/txn_1', transaction_date: new Date('2026-04-19T00:00:00.000Z'),
+    resource_name: 'transactions/txn_1', transaction_date: new Date('2026-04-19T00:00:00.000Z'),
     payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking',
     destination_account_name: 'Expenses:Food', amount: 84.25, split_off_amount: '',
     symbol: 'CHF', status: '', issues: '', last_error: '',
@@ -41,7 +41,7 @@ test('ensureTransactionSheetFilter_ restores existing filter criteria on the new
       return {
         getValues() {
           return [[
-            'transaction_name',
+            'resource_name',
             'transaction_date',
             'payee',
             'narration',
@@ -95,7 +95,7 @@ test('ensureTransactionSheetFilter_ tolerates a legacy narrower filter range', (
       return {
         getValues() {
           return [[
-            'transaction_name',
+            'resource_name',
             'transaction_date',
             'payee',
             'narration',
@@ -143,7 +143,7 @@ test('ensureTransactionSheetFilter_ restores hidden technical column criteria by
       return {
         getValues() {
           return [[
-            'transaction_name',
+            'resource_name',
             'transaction_date',
             'payee',
             'narration',
@@ -190,7 +190,7 @@ test('ensureTransactionSheetFilter_ reapplies persisted quick filters after rebu
       return {
         getValues() {
           return [[
-            'transaction_name',
+            'resource_name',
             'transaction_date',
             'payee',
             'narration',

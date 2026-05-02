@@ -16,6 +16,7 @@ COPY alembic.ini ./
 COPY alembic ./alembic
 COPY config ./config
 COPY importers ./importers
+COPY docker/entrypoint.sh ./entrypoint.sh
 
 RUN pip install --no-cache-dir . && pip install --no-cache-dir ./importers
 
@@ -24,4 +25,4 @@ USER appuser
 
 EXPOSE 8000
 
-CMD ["uvicorn", "family_ledger.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["sh", "entrypoint.sh"]

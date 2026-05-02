@@ -1,16 +1,17 @@
 function onOpen() {
-  SpreadsheetApp.getUi()
-    .createMenu('Family Ledger')
-    .addItem('API Settings', 'showApiSettings')
-    .addItem('Test Connection', 'testFamilyLedgerConnection')
-    .addSeparator()
+  const ui = SpreadsheetApp.getUi();
+  const devMenu = ui.createMenu('Developer Settings')
     .addItem('Sync Ledger', 'syncLedgerAndResetLayout')
-    .addItem('Quick Filter', 'showQuickFilter')
-    .addSeparator()
     .addItem('Push Active Transaction', 'pushActiveTransaction')
+    .addItem('Reset Sheet Layouts', 'resetSheetLayouts')
+    .addSeparator()
+    .addItem('API Settings', 'showApiSettings')
+    .addItem('Test Connection', 'testFamilyLedgerConnection');
+  ui.createMenu('Family Ledger')
+    .addItem('Quick Filter', 'showQuickFilter')
     .addSeparator()
     .addItem('Import data', 'showImportDialog')
     .addSeparator()
-    .addItem('Reset Sheet Layouts', 'resetSheetLayouts')
+    .addSubMenu(devMenu)
     .addToUi();
 }

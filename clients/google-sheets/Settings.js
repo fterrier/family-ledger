@@ -76,14 +76,14 @@ function showApiSettings() {
   SpreadsheetApp.getUi().showModalDialog(html, 'API Settings');
 }
 
-function getApiSettingsForDialog_() {
+function getApiSettingsForDialog() {
   return {
     baseUrl: getFamilyLedgerBaseUrl_() || '',
     apiToken: getFamilyLedgerApiToken_() || '',
   };
 }
 
-function saveApiSettingsFromDialog_(baseUrl, apiToken) {
+function saveApiSettingsFromDialog(baseUrl, apiToken) {
   PropertiesService.getScriptProperties().setProperties({
     FAMILY_LEDGER_BASE_URL: normalizeBaseUrl_(baseUrl),
     FAMILY_LEDGER_API_TOKEN: normalizeApiToken_(apiToken),

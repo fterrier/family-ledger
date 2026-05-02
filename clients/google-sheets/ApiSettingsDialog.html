@@ -102,7 +102,7 @@
       if (settings.baseUrl) { document.getElementById('urlInput').value = settings.baseUrl; }
       if (settings.apiToken) { document.getElementById('tokenInput').value = settings.apiToken; }
     })
-    .getApiSettingsForDialog_();
+    .getApiSettingsForDialog();
 
   function onSave() {
     var url = document.getElementById('urlInput').value.trim();
@@ -120,7 +120,7 @@
         showError(err.message || String(err));
         document.getElementById('saveBtn').disabled = false;
       })
-      .saveApiSettingsFromDialog_(url, token);
+      .saveApiSettingsFromDialog(url, token);
   }
 
   function showError(msg) {

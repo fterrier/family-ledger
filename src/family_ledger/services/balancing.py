@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from decimal import Decimal
 
 from family_ledger.api.schemas import (
     DoctorIssue,
     MoneyValue,
-    NormalizeIssue,
     PostingNormalizePayload,
     PostingPayload,
     TransactionData,
@@ -13,6 +13,23 @@ from family_ledger.api.schemas import (
 from family_ledger.config import get_ledger_config
 from family_ledger.models import Posting, Transaction
 from family_ledger.services.errors import ValidationError
+
+
+def _compute_weight(
+    units_amount: Decimal,
+    units_symbol: str,
+    cost_amount: Decimal | None,
+    cost_symbol: str | None,
+    price_amount: Decimal | None,
+    price_symbol: str | None,
+) -> MoneyValue:
+    if cost_amount is not None:
+        assert cost_symbol is not None
+        return MoneyValue(amount=units_amount * cost_amount, symbol=cost_symbol)
+    if price_amount is not None:
+        assert price_symbol is not None
+        return MoneyValue(amount=units_amount * price_amount, symbol=price_symbol)
+    return MoneyValue(amount=units_amount, symbol=units_symbol)
 
 
 def posting_weight(posting: PostingPayload | PostingNormalizePayload) -> MoneyValue | None:
@@ -28,45 +45,40 @@ def posting_weight(posting: PostingPayload | PostingNormalizePayload) -> MoneyVa
             code="cost_price_symbol_mismatch",
             message="Postings with both cost and price must use the same symbol.",
         )
-    if posting.cost is not None:
-        return MoneyValue(
-            amount=posting.units.amount * posting.cost.amount,
-            symbol=posting.cost.symbol,
-        )
-    if posting.price is not None and posting.price.amount is not None:
-        return MoneyValue(
-            amount=posting.units.amount * posting.price.amount,
-            symbol=posting.price.symbol,
-        )
-    return MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol)
+    return _compute_weight(
+        units_amount=posting.units.amount,
+        units_symbol=posting.units.symbol,
+        cost_amount=posting.cost.amount if posting.cost is not None else None,
+        cost_symbol=posting.cost.symbol if posting.cost is not None else None,
+        price_amount=posting.price.amount if posting.price is not None else None,
+        price_symbol=posting.price.symbol if posting.price is not None else None,
+    )
 
 
 def persisted_posting_weight(posting: Posting) -> MoneyValue:
-    if posting.cost_per_unit is not None:
-        assert posting.cost_symbol is not None
-        return MoneyValue(
-            amount=posting.units_amount * posting.cost_per_unit,
-            symbol=posting.cost_symbol,
-        )
-    if posting.price_per_unit is not None:
-        assert posting.price_symbol is not None
-        return MoneyValue(
-            amount=posting.units_amount * posting.price_per_unit,
-            symbol=posting.price_symbol,
-        )
-    return MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol)
+    return _compute_weight(
+        units_amount=posting.units_amount,
+        units_symbol=posting.units_symbol,
+        cost_amount=posting.cost_per_unit,
+        cost_symbol=posting.cost_symbol,
+        price_amount=posting.price_per_unit,
+        price_symbol=posting.price_symbol,
+    )
+
+
+def _accumulate_totals(weights: Iterable[MoneyValue | None]) -> dict[str, Decimal]:
+    totals: dict[str, Decimal] = {}
+    for weight in weights:
+        if weight is None or weight.amount == 0:
+            continue
+        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
+    return totals
 
 
 def transaction_balance_totals_by_symbol(
     postings: list[PostingPayload] | list[PostingNormalizePayload],
 ) -> dict[str, Decimal]:
-    totals: dict[str, Decimal] = {}
-    for posting in postings:
-        weight = posting_weight(posting)
-        if weight is None or weight.amount == 0:
-            continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
-    return totals
+    return _accumulate_totals(posting_weight(p) for p in postings)
 
 
 def resolve_tolerance(symbol: str) -> Decimal:
@@ -79,16 +91,9 @@ def decimal_to_string(value: Decimal) -> str:
     return format(normalized, "f")
 
 
-def build_transaction_unbalanced_issues(
-    transaction: Transaction,
+def _build_unbalanced_issues(
+    totals: dict[str, Decimal], target: str | None = None
 ) -> list[DoctorIssue]:
-    totals: dict[str, Decimal] = {}
-    for posting in transaction.postings:
-        weight = persisted_posting_weight(posting)
-        if weight.amount == 0:
-            continue
-        totals[weight.symbol] = totals.get(weight.symbol, Decimal("0")) + weight.amount
-
     issues: list[DoctorIssue] = []
     for symbol, amount in sorted(totals.items()):
         tolerance = resolve_tolerance(symbol)
@@ -96,7 +101,7 @@ def build_transaction_unbalanced_issues(
             continue
         issues.append(
             DoctorIssue(
-                target=transaction.name,
+                target=target,
                 code="transaction_unbalanced",
                 severity="error",
                 message="Transaction is not balanced within tolerance.",
@@ -110,23 +115,12 @@ def build_transaction_unbalanced_issues(
     return issues
 
 
-def derive_normalize_issues(payload: TransactionData) -> list[NormalizeIssue]:
-    totals = transaction_balance_totals_by_symbol(payload.postings)
-    issues: list[NormalizeIssue] = []
-    for symbol, amount in sorted(totals.items()):
-        tolerance = resolve_tolerance(symbol)
-        if abs(amount) <= tolerance:
-            continue
-        issues.append(
-            NormalizeIssue(
-                code="transaction_unbalanced",
-                severity="error",
-                message="Transaction is not balanced within tolerance.",
-                details={
-                    "symbol": symbol,
-                    "residual_amount": decimal_to_string(amount),
-                    "tolerance_amount": decimal_to_string(tolerance),
-                },
-            )
-        )
-    return issues
+def build_transaction_unbalanced_issues(
+    transaction: Transaction,
+) -> list[DoctorIssue]:
+    totals = _accumulate_totals(persisted_posting_weight(p) for p in transaction.postings)
+    return _build_unbalanced_issues(totals, target=transaction.name)
+
+
+def derive_normalize_issues(payload: TransactionData) -> list[DoctorIssue]:
+    return _build_unbalanced_issues(transaction_balance_totals_by_symbol(payload.postings))

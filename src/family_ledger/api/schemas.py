@@ -114,13 +114,6 @@ class TransactionData(BaseModel):
     postings: list[PostingPayload]
 
 
-class NormalizeIssue(BaseModel):
-    code: str
-    severity: str
-    message: str
-    details: dict[str, str] = Field(default_factory=dict)
-
-
 class TransactionResource(TransactionData):
     name: str
 
@@ -153,7 +146,7 @@ class NormalizeTransactionRequest(BaseModel):
 
 class NormalizeTransactionResponse(BaseModel):
     transaction: TransactionCreate
-    issues: list[NormalizeIssue] = Field(default_factory=list)
+    issues: list[DoctorIssue] = Field(default_factory=list)
 
 
 class CreateAccountRequest(BaseModel):
@@ -189,7 +182,7 @@ class UpdateTransactionRequest(BaseModel):
 
 
 class DoctorIssue(BaseModel):
-    target: str
+    target: str | None = None
     code: str
     severity: str
     message: str

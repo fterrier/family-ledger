@@ -156,6 +156,7 @@ def doctor_ledger(request: DoctorLedgerRequest, session: DbSession) -> DoctorLed
 @router.post(
     "/transactions:normalize",
     response_model=NormalizeTransactionResponse,
+    response_model_exclude_none=True,
 )
 def normalize_transaction(
     request: NormalizeTransactionRequest,

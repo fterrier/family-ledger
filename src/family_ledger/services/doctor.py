@@ -100,7 +100,7 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
         issues=sorted(
             issues,
             key=lambda issue: (
-                transaction_order.get(issue.target, len(transaction_order)),
+                transaction_order.get(issue.target or "", len(transaction_order)),
                 issue.code,
             ),
         )

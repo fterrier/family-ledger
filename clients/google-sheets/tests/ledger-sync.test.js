@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 const { loadCode } = require('./_harness');
 
-test('syncFamilyLedger fetches accounts and transactions once and refreshes both sheets together', () => {
+test('syncLedger fetches accounts and transactions once without resetting layouts', () => {
   const calls = [];
   const toasts = [];
   const sheets = {
@@ -74,7 +74,7 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
     calls.push('refreshManagedLedgerSheetLayouts');
   };
 
-  sandbox.syncFamilyLedger();
+  sandbox.syncLedger();
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'fetch'))), [
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
@@ -88,11 +88,26 @@ test('syncFamilyLedger fetches accounts and transactions once and refreshes both
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeFetchedDoctorIssueSheets'))), [
     { type: 'writeFetchedDoctorIssueSheets', issueTargetCount: 0 },
   ]);
-  assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 1);
+  assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 0);
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].title, 'Ledger Sync Complete');
   assert.match(toasts[0].message, /Synced 1 accounts/);
   assert.match(toasts[0].message, /Fetched 1 transactions and synced 1 allocation rows/);
+});
+
+test('syncLedgerAndResetLayout runs sync then layout reset', () => {
+  const calls = [];
+  const { sandbox } = loadCode();
+  sandbox.syncLedger = function() {
+    calls.push('syncLedger');
+  };
+  sandbox.refreshManagedLedgerSheetLayouts_ = function() {
+    calls.push('refreshManagedLedgerSheetLayouts');
+  };
+
+  sandbox.syncLedgerAndResetLayout();
+
+  assert.deepEqual(calls, ['syncLedger', 'refreshManagedLedgerSheetLayouts']);
 });
 
 test('buildTransactionSyncData_ collects skipped examples and merges doctor issues', () => {

@@ -39,7 +39,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
       narration: effectiveSheetNarration_(transactionNarration, postingNarration),
       source_account_name: sourceAccountName,
       destination_account_name: '',
-      amount: Math.abs(parseFloat(sourcePosting.units.amount)),
+      amount: -parseFloat(sourcePosting.units.amount),
       split_off_amount: '',
       symbol: sourcePosting.units.symbol,
       status: '',

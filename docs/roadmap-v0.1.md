@@ -95,7 +95,7 @@ Phase 1 should deliver:
 - add basic pivot tables and reports for quick spreadsheet-side summaries
 
 ### Phase 7: Extended Beancount Compatibility
-- implement `pad` directive import
+- implement `pad` directive import (use some sort of /transaction:pad endpoint?)
 - implement `document` directive import
 - implement `balance` directive import
 
@@ -117,6 +117,7 @@ Phase 1 should deliver:
 - build the extensible import system for MT940, IBKR, payslips, and Visa Cumulus
 - import IDs (ref+metadata) from beancount
 - export the canonical ledger back to Beancount, including Synology-friendly backup workflows and fava integration
+- --> deploy to synology and test
 - evaluate where Beancount importers can be reused instead of duplicating parser logic
 - add support for cash transactions in the Google Sheets workflow
 - continue improving Sheets UX and styling

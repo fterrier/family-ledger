@@ -1,4 +1,4 @@
-function syncFamilyLedger() {
+function syncLedger() {
   runUserAction_('Sync Ledger', function() {
     ensureEditTriggerInstalled_();
     const accounts = fetchFamilyLedgerPagedResource_(
@@ -20,7 +20,6 @@ function syncFamilyLedger() {
     const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
     writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), getOrCreateSheet_);
-    refreshManagedLedgerSheetLayouts_();
 
     SpreadsheetApp.getActiveSpreadsheet().toast(
       buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData),
@@ -28,6 +27,11 @@ function syncFamilyLedger() {
       10
     );
   });
+}
+
+function syncLedgerAndResetLayout() {
+  syncLedger();
+  refreshManagedLedgerSheetLayouts_();
 }
 
 function ensureEditTriggerInstalled_() {

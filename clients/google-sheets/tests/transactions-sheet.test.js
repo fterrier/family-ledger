@@ -242,7 +242,26 @@ test('flattenTransactionForSheet_ shows abs amount for source-only with positive
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source_account_name, '[A] Savings');
   assert.equal(rows[0].destination_account_name, '');
-  assert.equal(rows[0].amount, 5524.65);
+  assert.equal(rows[0].amount, -5524.65);
+});
+
+test('flattenTransactionForSheet_ keeps positive sheet amount for source-only negative backend posting', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2025-03-18',
+    payee: '',
+    narration: 'Card charge',
+    postings: [{ account: 'accounts/checking', units: { amount: '-1', symbol: 'CHF' }, cost: null, price: null }],
+  }, {
+    'accounts/checking': '[A] Checking',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source_account_name, '[A] Checking');
+  assert.equal(rows[0].destination_account_name, '');
+  assert.equal(rows[0].amount, 1);
 });
 
 test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in sheet row order', () => {

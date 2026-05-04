@@ -164,7 +164,7 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
 - On read paths, avoid N+1 query patterns for related resources. Prefer bounded batched queries keyed by indexed columns, or indexed eager loading, over per-entity follow-up queries.
 - For paginated one-to-many reads, page the parent resources first and then load related rows for just that page in a bounded number of queries.
-- Do not add a plugin system unless multiple concrete plugins already exist. Exception: the importer entry point registry is an accepted plugin system for the import use case; see `docs/modular-import-system-v0.1.md`.
+- Do not add a plugin system unless multiple concrete plugins already exist. Exception: the importer entry point registry is an accepted plugin system for the import use case; see `docs/design/modular-import-system-v0.1.md`.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 
 ## Anti-Goals
@@ -178,8 +178,8 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 
 ## Notes for Agents
 - Read the requirements doc before changing code.
-- Read `docs/domain-model-v0.1.md` before changing schema or persistence behavior.
-- Read `docs/api-v0.1.md` before changing endpoint behavior or response shapes.
+- Read `docs/design/domain-model-v0.1.md` before changing schema or persistence behavior.
+- Read `docs/design/api-v0.1.md` before changing endpoint behavior or response shapes.
 - Read the relevant ADRs before revisiting a major architectural decision.
 - Keep changes scoped and aligned with the existing accounting model.
 - If a change affects validation, add tests first or alongside the change.

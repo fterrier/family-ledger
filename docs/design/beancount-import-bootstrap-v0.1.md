@@ -35,15 +35,15 @@ The initial importer is not intended to be:
 
 ## Operational Model
 
-The importer should operate under these rules:
+> **Note**: The "empty database only" constraint was the initial design target for this bootstrap importer. The implemented `BeancountImporter` is now fully idempotent — it can be re-run against a populated database without creating duplicates, using `source_native_id` deduplication per entity. The historical design target below is preserved for context.
+
+The original design operated under these rules:
 
 - empty database only
 - create-only
 - no overwrite behavior
 - no in-place merge behavior
 - fail at the end with a complete report if unsupported constructs are encountered
-
-If the database already contains ledger data, the importer should stop rather than trying to merge imported state with existing rows.
 
 ## Parser Strategy
 

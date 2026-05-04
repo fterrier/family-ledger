@@ -24,7 +24,12 @@ Implement a single shared function `compute_balance_assertion_diffs` (in `servic
 5. Compute `actual` by summing balances for the asserted account and all descendants.
 6. Return a `BalanceAssertionDiff` per assertion.
 
-Both `doctor_ledger` and `compute_pad` call this function. Doctor calls it unfiltered; pad calls it with `account_name_filter` to limit loaded data to the relevant account subtree.
+The function is **pure** — it takes pre-loaded ORM objects and performs no DB queries. Call sites load data before calling:
+
+- **`compute_pad`** filters to the relevant account subtree before calling.
+- **`doctor_ledger`** passes all transactions (already loaded for other checks) and all balance assertions.
+
+This design eliminates duplicate transaction loads when doctor reuses already-fetched data.
 
 Non-leaf accounts work naturally: the descendant summation is identical whether the account is a leaf or a parent with children.
 
@@ -34,7 +39,7 @@ Positive:
 - Doctor and pad share one implementation; balance assertion semantics (units-only, descendant inclusion, start-of-day cutoff) are defined in one place.
 - The single-pass approach scales better for ledgers with many assertions than the per-assertion aggregation approach.
 - Eager-loading transactions with their postings and accounts avoids N+1 query patterns.
-- The `account_name_filter` optimization limits loaded data when only one account subtree is needed (pad case).
+- The pure function design means doctor can reuse already-loaded transactions without a second DB fetch.
 
 Negative:
 - All matching transactions are loaded into memory for the pass. For very large ledgers, a future process-level cache keyed on a ledger sequence number would reduce redundant DB round-trips on repeated doctor calls (deferred until profiling shows it is needed).

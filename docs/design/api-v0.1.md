@@ -100,7 +100,7 @@ Notes:
   "details": {
     "symbol": "CHF",
     "residual_amount": "1.50",
-    "tolerance_amount": "0.005"
+    "tolerance_amount": "0.01"
   }
 }
 ```
@@ -640,7 +640,7 @@ Purpose:
 
 ## Import API
 
-Imports in v1 are managed through a modular importer system. Each `Importer` entity binds a specific parser (like Beancount) to a persistent user configuration. See `docs/modular-import-system-v0.1.md` for the full design.
+Imports in v1 are managed through a modular importer system. Each `Importer` entity binds a specific parser (like Beancount) to a persistent user configuration. See `docs/design/modular-import-system-v0.1.md` for the full design.
 
 ### `GET /importers`
 
@@ -706,19 +706,23 @@ Response:
 
 ```json
 {
-  "accounts": {"created": 0, "skipped": 0},
-  "commodities": {"created": 0, "skipped": 0},
-  "transactions": {"created": 0, "skipped": 0},
-  "prices": {"created": 0, "skipped": 0},
-  "balance_assertions": {"created": 0, "skipped": 0},
-  "errors": []
+  "entities": {
+    "account":           {"created": 3, "duplicate": 0, "errors": {"count": 0, "examples": []}},
+    "transaction":       {"created": 10, "duplicate": 1, "errors": {"count": 2, "examples": ["..."]}},
+    "commodity":         {"created": 1, "duplicate": 0, "errors": {"count": 0, "examples": []}},
+    "price":             {"created": 5, "duplicate": 0, "errors": {"count": 0, "examples": []}},
+    "balance_assertion": {"created": 2, "duplicate": 0, "errors": {"count": 0, "examples": []}}
+  },
+  "warnings": ["Unrecognized entry type: Custom (2 occurrences)"]
 }
 ```
 
 Notes:
-- transaction-centric importers (bank statements, payslips) only populate `transactions`; all other counts remain zero.
-- full-ledger importers (Beancount) populate all entity type counts.
-- `errors` contains a flat list of human-readable strings describing entries that could not be parsed or written.
+- `entities` is sparse: keys are only present if the importer touched that entity type.
+- transaction-centric importers (bank statements) only populate `entities["transaction"]`.
+- full-ledger importers (Beancount) populate all entity type keys.
+- `duplicate` counts entities that already existed (idempotent skip via `source_native_id`).
+- `warnings` contains non-fatal notes; `errors.examples` contains examples of failed individual entries.
 
 ## Export API
 

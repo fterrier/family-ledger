@@ -5,8 +5,7 @@
 Create a modular system to import transactions and related ledger data from external file
 formats. Importers are Python classes living in a separate installable package that can be
 split out later. The system exposes API endpoints to manage persistent importer configuration
-and trigger imports. The Beancount importer will be migrated to this system once it is made
-idempotent.
+and trigger imports.
 
 ## Design Decisions
 
@@ -333,12 +332,11 @@ Executes the import synchronously and returns `ImportResult`.
 ## BeancountImporter Scope
 
 `BeancountImporter` is implemented by migrating the logic from the former
-`scripts/import_beancount.py` (now removed) into a `BaseImporter` subclass. It retains
-the existing `database_is_empty()` guard: the import returns an error if the database
-already contains ledger data. It is **not** idempotent in v1.
-
-Making `BeancountImporter` idempotent (removing the `database_is_empty()` guard, adding
-skip-on-conflict for accounts and commodities) is a separate future task.
+`scripts/import_beancount.py` (now removed) into a `BaseImporter` subclass. It is fully
+idempotent: re-running the same import skips already-existing entities via the
+create-or-skip contract. A two-phase import handles `pad` directives: phase 1 imports
+accounts, commodities, transactions, and balance assertions; phase 2 calls `compute_pad`
+for each Beancount `Pad` directive and creates synthetic balancing transactions.
 
 ---
 
@@ -349,7 +347,8 @@ skip-on-conflict for accounts and commodities) is a separate future task.
 1. `tests/test_importers_registry.py`: entry point discovery and bootstrap behavior,
    including the zero-importers-installed case.
 2. `importers/tests/test_beancount.py`: import logic on a sample Beancount file;
-   verify correct entity counts and that re-running on a non-empty DB returns an error.
+   verify correct entity counts and that re-running on an already-populated DB returns
+   all-duplicate counts (idempotent).
 3. `tests/test_api_importer.py`: bootstrap, `GET /importers`, `PATCH /importers/{importer}`,
    file upload via `:import`, config override merging, schema validation rejection, and
    schema drift self-healing (stale persistent config is cleared and import proceeds).
@@ -359,10 +358,9 @@ skip-on-conflict for accounts and commodities) is a separate future task.
 1. Start the stack locally.
 2. Confirm `GET /importers` lists the Beancount importer with its schema.
 3. `PATCH` the importer with a valid config; verify it is persisted.
-4. Run a Beancount import on an empty DB via `POST /importers/{importer}:import`.
+4. Run a Beancount import via `POST /importers/{importer}:import`.
 5. Verify accounts, commodities, transactions, prices, and balance assertions are created.
-6. Attempt to re-run the same import on the now-populated DB.
-7. Verify the import fails with a clear error indicating the database is not empty.
+6. Re-run the same import; verify all entities are counted as `duplicate` and no errors occur.
 
 ---
 
@@ -375,7 +373,5 @@ skip-on-conflict for accounts and commodities) is a separate future task.
   `config` may fail validation at import time. The service self-heals by clearing the
   persistent config to `{}` and retrying with just the `config_override`. Operators must
   re-`PATCH` any desired persistent config after a schema-breaking update.
-- **Beancount not yet idempotent**: `BeancountImporter` retains the `database_is_empty()`
-  guard. It can only run on an empty database. Idempotency work is a separate future task.
 - **No 1:N importer profiles**: one importer maps to exactly one DB row in v1. Multiple
   profiles for the same importer require a future `POST /importers` endpoint.

@@ -168,7 +168,7 @@ Keep the investment model simple:
 - Transactions may be edited freely in v1
 - Assertions may be imported or authored; both are stored uniformly
 - Explicit adjustment transactions are supported
-- `pad`-style auto-adjustments are not required
+- on-demand `pad` computation is available via `GET /accounts/{account}:pad`; automatic pad application to the ledger is not required
 - Keep control rules minimal in v1; defer locking and audit history beyond v1
 
 ## Sheets Integration
@@ -194,7 +194,7 @@ For v1, keep it lightweight and do not build a large dedicated reconciliation en
 - Broad bank aggregation platform
 - Period locking
 - Full reconciliation workflow
-- Automatic `pad` generation
+- Automatic `pad` application (on-demand pad computation via API is implemented; automatic write-back is not)
 - Advanced AI assistant features
 
 ## Open Questions

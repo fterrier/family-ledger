@@ -19,6 +19,7 @@ from family_ledger.api.schemas import (
     DoctorLedgerRequest,
     DoctorLedgerResponse,
     ListAccountsResponse,
+    ListBalanceAssertionsResponse,
     ListCommoditiesResponse,
     ListTransactionsResponse,
     NormalizeTransactionRequest,
@@ -216,6 +217,20 @@ def create_price(request: CreatePriceRequest, session: DbSession) -> PriceResour
 @router.get("/prices/{price:path}", response_model=PriceResource)
 def get_price(price: str, session: DbSession) -> PriceResource:
     return _call_service(ledger_service.get_price_by_name, session, price)
+
+
+@router.get("/balance-assertions", response_model=ListBalanceAssertionsResponse)
+def list_balance_assertions(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+) -> ListBalanceAssertionsResponse:
+    return _call_service(
+        ledger_service.list_balance_assertions_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+    )
 
 
 @router.post(

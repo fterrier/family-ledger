@@ -17,6 +17,7 @@ from family_ledger.api.schemas import (
     CommodityResource,
     ImportMetadata,
     ListAccountsResponse,
+    ListBalanceAssertionsResponse,
     ListCommoditiesResponse,
     ListTransactionsResponse,
     MoneyValue,
@@ -405,6 +406,30 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
     if price_row is None:
         raise NotFoundError(code="price_not_found", message="Price not found")
     return serialize_price(price_row)
+
+
+def list_balance_assertions_page(
+    session: Session, *, page_size: int | None, page_token: str | None
+) -> ListBalanceAssertionsResponse:
+    normalized_page_size = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+    assertions = session.scalars(
+        paginate_query(
+            select(BalanceAssertion)
+            .options(selectinload(BalanceAssertion.account))
+            .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name),
+            offset=offset,
+            page_size=normalized_page_size,
+        )
+    ).all()
+    next_page_token = None
+    if len(assertions) > normalized_page_size:
+        assertions = assertions[:normalized_page_size]
+        next_page_token = encode_page_token(offset + normalized_page_size)
+    return ListBalanceAssertionsResponse(
+        balance_assertions=[serialize_balance_assertion(a) for a in assertions],
+        next_page_token=next_page_token,
+    )
 
 
 def create_balance_assertion(

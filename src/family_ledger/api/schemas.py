@@ -105,6 +105,11 @@ class BalanceAssertionCreate(BalanceAssertionData):
     pass
 
 
+class ListBalanceAssertionsResponse(BaseModel):
+    balance_assertions: list[BalanceAssertionResource]
+    next_page_token: str | None = None
+
+
 class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None

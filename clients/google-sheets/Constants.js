@@ -1,8 +1,10 @@
 const FAMILY_LEDGER_SHEET_NAMES = {
   accounts: 'Accounts',
   transactions: 'Transactions',
+  balances: 'Balances',
   doctorTransactionIssues: 'DoctorTransactionIssues',
   doctorAccountIssues: 'DoctorAccountIssues',
+  doctorBalanceAssertionIssues: 'DoctorBalanceAssertionIssues',
 };
 
 const FAMILY_LEDGER_PAGE_SIZE = 1000;
@@ -19,6 +21,11 @@ const FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY = Object.freeze([
     targetPrefix: 'accounts/',
     doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues,
     visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.accounts,
+  }),
+  Object.freeze({
+    targetPrefix: 'balanceAssertions/',
+    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorBalanceAssertionIssues,
+    visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.balances,
   }),
 ]);
 
@@ -147,6 +154,51 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
   }, {
     hiddenHeaders: ['resource_name', 'narration_source', 'last_error'],
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
+  }),
+  balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
+    resource_name: {
+      width: 220,
+      role: 'system',
+      note: 'Technical balance assertion resource name used by the client.',
+      alignment: 'left',
+    },
+    assertion_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only assertion date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+    },
+    account: {
+      width: 320,
+      role: 'readonly',
+      note: 'Read-only account.',
+      alignment: 'left',
+      wrap: false,
+    },
+    amount: {
+      width: 110,
+      role: 'readonly',
+      note: 'Read-only asserted amount.',
+      alignment: 'right',
+    },
+    symbol: {
+      width: 55,
+      role: 'readonly',
+      note: 'Read-only commodity symbol.',
+      alignment: 'center',
+    },
+    issues: {
+      width: 600,
+      role: 'system',
+      note: 'Derived ledger doctor issues linked by balance assertion resource name.',
+      alignment: 'left',
+      wrap: false,
+      wrapStrategy: 'OVERFLOW',
+    },
+  }, {
+    hiddenHeaders: ['resource_name'],
+    protectedHeaders: ['resource_name'],
   }),
   accounts: buildSheetConfig_('accounts', FAMILY_LEDGER_SHEET_NAMES.accounts, {
     resource_name: {

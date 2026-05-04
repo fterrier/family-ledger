@@ -10,7 +10,9 @@ Current implementation includes:
 - authenticated FastAPI routes for ledger reads, writes, normalization, diagnostics, and imports, plus open `GET /healthz`
 - PostgreSQL persistence with Alembic migrations and Docker Compose deployment
 - derived ledger diagnostics through `POST /ledger:doctor`
-- importer registry and synchronous import execution
+- on-demand pad computation via `GET /accounts/{account}:pad`
+- importer registry and synchronous import execution with idempotent Beancount importer
+- `export-beancount` CLI script for full-ledger Beancount export
 - Google Sheets client workflow for transaction categorization and editing via the API
 
 ## Docker Deployment
@@ -155,6 +157,32 @@ For local development, run Alembic directly:
 alembic upgrade head
 ```
 
+## Export
+
+Export the full ledger to a Beancount file:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env \
+  exec api export-beancount > ledger.beancount
+```
+
+Or write directly to a file inside the container:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env \
+  exec api export-beancount --output /tmp/ledger.beancount
+```
+
+The export includes all accounts, commodities, prices, transactions, and balance assertions
+in Beancount syntax. Beancount metadata stored on import round-trips back as directive
+metadata. Pad directives are represented as the synthetic transactions they generated.
+
+To validate the output with Beancount's own checker:
+
+```bash
+bean-check ledger.beancount
+```
+
 ## Demo Data
 
 You can bootstrap a small example ledger into an empty database for local testing.
@@ -179,14 +207,12 @@ There are only two checked-in config files now:
 
 ## Docs
 
-- `docs/compatibility-target-v0.1.md`
-- `docs/domain-model-v0.1.md`
-- `docs/api-v0.1.md`
-- `docs/beancount-import-bootstrap-v0.1.md`
-- `docs/adr/`
 - `docs/requirements-v0.1.md`
 - `docs/roadmap-v0.1.md`
+- `docs/compatibility-target-v0.1.md`
 - `docs/developer-guidelines-v0.1.md`
+- `docs/adr/`
+- `docs/design/` — implementation specs (API, domain model, import system, account balance, Beancount import bootstrap)
 
 ## Clients
 

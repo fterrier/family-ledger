@@ -24,6 +24,11 @@ function refreshManagedLedgerSheetLayouts_() {
   if (accSheet) {
     applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
   }
+
+  const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
+  if (balSheet) {
+    applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
+  }
 }
 
 function getSheetConfigByName_(sheetName) {

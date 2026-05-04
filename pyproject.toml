@@ -21,6 +21,9 @@ dependencies = [
   "python-multipart>=0.0.26",
 ]
 
+[project.scripts]
+export-beancount = "family_ledger.export.beancount:main"
+
 [project.optional-dependencies]
 dev = [
   "basedpyright>=1.39,<2.0",

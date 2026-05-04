@@ -1262,6 +1262,35 @@ def test_create_balance_assertion() -> None:
     assert Decimal(get_response.json()["amount"]["amount"]) == Decimal("1000.00")
 
 
+def test_list_balance_assertions_returns_all_assertions() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    savings = create_account(client, "Assets:Bank:Savings:Family")
+    create_commodity(client, "CHF")
+
+    _create_balance_assertion(client, checking["name"], "2026-04-30", "1000.00", "CHF")
+    _create_balance_assertion(client, savings["name"], "2026-04-30", "2000.00", "CHF")
+
+    response = client.get("/balance-assertions")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body["balance_assertions"]) == 2
+    assert body["next_page_token"] is None
+    accounts = {ba["account"] for ba in body["balance_assertions"]}
+    assert accounts == {checking["name"], savings["name"]}
+
+
+def test_list_balance_assertions_empty() -> None:
+    client = make_client()
+
+    response = client.get("/balance-assertions")
+
+    assert response.status_code == 200
+    assert response.json() == {"balance_assertions": [], "next_page_token": None}
+
+
 def test_create_price_rejects_unknown_symbol() -> None:
     client = make_client()
 

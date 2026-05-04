@@ -11,18 +11,28 @@ function syncLedger() {
       'transactions'
     );
     const transactionSyncData = buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
+    const balanceAssertions = fetchFamilyLedgerPagedResource_(
+      '/balance-assertions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+      'balance_assertions'
+    );
+    const balanceAssertionRows = buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountDisplayLookup);
 
     const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
     writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
     accountsSheet.setFrozenRows(1);
     ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
 
+    const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
+    writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers, balanceAssertionRows);
+    balancesSheet.setFrozenRows(1);
+    ensureBalancesIssueFormulas_(balancesSheet, balanceAssertionRows.length);
+
     const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
     writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), getOrCreateSheet_);
 
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData),
+      buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),
       'Ledger Sync Complete',
       10
     );
@@ -51,10 +61,11 @@ function ensureEditTriggerInstalled_() {
   }
 }
 
-function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData) {
+function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount) {
   const message = [
     'Synced ' + accountCount + ' accounts.',
     'Fetched ' + transactionCount + ' transactions and synced ' + transactionSyncData.rows.length + ' allocation rows.',
+    'Synced ' + balanceAssertionCount + ' balance assertions.',
   ];
 
   if (transactionSyncData.skippedCount > 0) {

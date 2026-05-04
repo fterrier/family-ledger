@@ -205,6 +205,18 @@ class CreateBalanceAssertionRequest(BaseModel):
     balance_assertion: BalanceAssertionCreate
 
 
+class PadEntry(BaseModel):
+    balance_assertion: str
+    assertion_date: date
+    units: MoneyValue
+
+
+class PadResponse(BaseModel):
+    account: str
+    pad_date: date
+    entries: list[PadEntry]
+
+
 class ImporterResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 

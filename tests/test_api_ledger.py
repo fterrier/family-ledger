@@ -1014,7 +1014,54 @@ def test_ledger_doctor_uses_bounded_queries() -> None:
 
     assert response.status_code == 200
     assert len(response.json()["issues"]) == 5
-    assert len(statements) <= 3
+    assert len(statements) <= 7
+
+
+def test_ledger_doctor_reports_balance_assertion_failure() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    income = create_account(client, "Income:Salary")
+    create_commodity(client, "CHF")
+    _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": income["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+    )
+    assertion = _create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
+
+    response = client.post("/ledger:doctor", json={})
+
+    assert response.status_code == 200
+    issues = response.json()["issues"]
+    ba_issues = [i for i in issues if i["code"] == "balance_assertion_failed"]
+    assert len(ba_issues) == 1
+    assert ba_issues[0]["target"] == assertion["name"]
+    assert ba_issues[0]["severity"] == "error"
+
+
+def test_ledger_doctor_no_balance_assertion_issue_when_satisfied() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    income = create_account(client, "Income:Salary")
+    create_commodity(client, "CHF")
+    _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "500.00", "symbol": "CHF"}},
+            {"account": income["name"], "units": {"amount": "-500.00", "symbol": "CHF"}},
+        ],
+    )
+    _create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
+
+    response = client.post("/ledger:doctor", json={})
+
+    assert response.status_code == 200
+    ba_issues = [i for i in response.json()["issues"] if i["code"] == "balance_assertion_failed"]
+    assert ba_issues == []
 
 
 def test_patch_transaction_rejects_unknown_commodity() -> None:
@@ -1251,3 +1298,108 @@ def test_create_balance_assertion_rejects_unknown_account() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "account_not_found"
+
+
+# ---------------------------------------------------------------------------
+# Pad endpoint — HTTP-level tests only; computation logic is in
+# tests/test_services_account_balance.py
+# ---------------------------------------------------------------------------
+
+
+def _create_transaction(client: TestClient, tx_date: str, postings: list[dict]) -> dict:
+    response = client.post(
+        "/transactions",
+        json={"transaction": {"transaction_date": tx_date, "postings": postings}},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _create_balance_assertion(
+    client: TestClient,
+    account_name: str,
+    assertion_date: str,
+    amount: str,
+    symbol: str,
+) -> dict:
+    response = client.post(
+        "/balance-assertions",
+        json={
+            "balance_assertion": {
+                "assertion_date": assertion_date,
+                "account": account_name,
+                "amount": {"amount": amount, "symbol": symbol},
+            }
+        },
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def _pad(client: TestClient, account_name: str, pad_date: str) -> dict:
+    response = client.get(f"/{account_name}:pad?date={pad_date}")
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_pad_returns_correct_json_shape() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    income = create_account(client, "Income:Salary")
+    create_commodity(client, "USD")
+    _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "500.00", "symbol": "USD"}},
+            {"account": income["name"], "units": {"amount": "-500.00", "symbol": "USD"}},
+        ],
+    )
+    assertion = _create_balance_assertion(client, checking["name"], "2026-01-02", "1000.00", "USD")
+
+    result = _pad(client, checking["name"], "2026-01-01")
+
+    assert result["account"] == checking["name"]
+    assert result["pad_date"] == "2026-01-01"
+    assert len(result["entries"]) == 1
+    entry = result["entries"][0]
+    assert entry["balance_assertion"] == assertion["name"]
+    assert entry["assertion_date"] == "2026-01-02"
+    assert Decimal(entry["units"]["amount"]) == Decimal("500.00")
+    assert entry["units"]["symbol"] == "USD"
+    assert "cost" not in entry
+
+
+def test_pad_rejects_unknown_account() -> None:
+    client = make_client()
+
+    response = client.get("/accounts/acc_missing:pad?date=2026-01-01")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "account_not_found"
+
+
+def test_pad_cost_tracked_account_returns_400() -> None:
+    client = make_client()
+    portfolio = create_account(client, "Assets:Portfolio")
+    cash = create_account(client, "Assets:Cash")
+    create_commodity(client, "GOOG")
+    create_commodity(client, "USD")
+    _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {
+                "account": portfolio["name"],
+                "units": {"amount": "5", "symbol": "GOOG"},
+                "cost": {"amount": "100.00", "symbol": "USD"},
+            },
+            {"account": cash["name"], "units": {"amount": "-500.00", "symbol": "USD"}},
+        ],
+    )
+    _create_balance_assertion(client, portfolio["name"], "2026-01-02", "7", "GOOG")
+
+    response = client.get(f"/{portfolio['name']}:pad?date=2026-01-01")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "pad_cost_tracked_account"

@@ -37,12 +37,12 @@ from family_ledger.models import (
     Price,
     Transaction,
 )
-from family_ledger.services.balancing import derive_normalize_issues
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import (
     normalize_and_validate_transaction_payload,
 )
+from family_ledger.services.transaction_balancing import derive_normalize_issues
 from family_ledger.services.validation import (
     resolve_account,
     resolve_accounts,

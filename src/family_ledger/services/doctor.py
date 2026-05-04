@@ -7,10 +7,19 @@ from typing import cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from family_ledger.api.schemas import DoctorIssue, DoctorLedgerRequest, DoctorLedgerResponse
-from family_ledger.models import Posting, Transaction
-from family_ledger.services.balancing import build_transaction_unbalanced_issues, decimal_to_string
+from family_ledger.api.schemas import (
+    DoctorIssue,
+    DoctorLedgerRequest,
+    DoctorLedgerResponse,
+)
+from family_ledger.models import BalanceAssertion, Posting, Transaction
+from family_ledger.services.account_balance import compute_balance_assertion_diffs
 from family_ledger.services.booking import BookingMethod, BookingReplay, LotKey, TransactionLotDelta
+from family_ledger.services.transaction_balancing import (
+    build_transaction_unbalanced_issues,
+    decimal_to_string,
+    resolve_tolerance,
+)
 
 
 def lot_key_for_posting(posting: Posting) -> LotKey | None:
@@ -73,7 +82,7 @@ def build_lot_match_missing_issues(
     ]
 
 
-def load_transactions_for_doctor(session: Session) -> list[Transaction]:
+def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
     return cast(
         list[Transaction],
         session.scalars(
@@ -84,10 +93,24 @@ def load_transactions_for_doctor(session: Session) -> list[Transaction]:
     )
 
 
+def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAssertion]:
+    return cast(
+        list[BalanceAssertion],
+        session.scalars(
+            select(BalanceAssertion)
+            .options(selectinload(BalanceAssertion.account))
+            .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
+        ).all(),
+    )
+
+
 def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
     del request
-    transactions = load_transactions_for_doctor(session)
+    transactions = _load_transactions_for_doctor(session)
     transaction_order = {transaction.name: index for index, transaction in enumerate(transactions)}
+    balance_assertion_diffs = compute_balance_assertion_diffs(
+        transactions, _load_balance_assertions_for_doctor(session)
+    )
     issues = [
         *[
             issue
@@ -95,6 +118,23 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
             for issue in build_transaction_unbalanced_issues(transaction)
         ],
         *build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
+        *[
+            DoctorIssue(
+                target=diff.balance_assertion,
+                code="balance_assertion_failed",
+                severity="error",
+                message="Balance assertion not satisfied.",
+                details={
+                    "symbol": diff.symbol,
+                    "asserted_amount": decimal_to_string(diff.expected),
+                    "actual_amount": decimal_to_string(diff.actual),
+                    "diff": decimal_to_string(diff.diff),
+                    "tolerance": decimal_to_string(resolve_tolerance(diff.symbol)),
+                },
+            )
+            for diff in balance_assertion_diffs
+            if abs(diff.diff) > resolve_tolerance(diff.symbol)
+        ],
     ]
     return DoctorLedgerResponse(
         issues=sorted(

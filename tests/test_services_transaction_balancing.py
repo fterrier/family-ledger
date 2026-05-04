@@ -5,7 +5,7 @@ from decimal import Decimal
 
 from family_ledger.api.schemas import MoneyValue, PostingPayload, TransactionCreate
 from family_ledger.models import Account, Posting, Transaction
-from family_ledger.services import balancing
+from family_ledger.services import transaction_balancing as balancing
 
 
 def test_resolve_tolerance_uses_symbol_override() -> None:

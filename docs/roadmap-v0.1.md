@@ -49,7 +49,7 @@ Phase 1 should deliver:
 - CQRS
 - microservices
 - spreadsheet as source of truth
-- automatic `pad` generation
+- automatic background `pad` generation (on-demand pad computation via API is supported)
 
 ## Delivery Phases
 
@@ -94,10 +94,10 @@ Phase 1 should deliver:
 - improve Sheets UX and styling for day-to-day editing
 - add basic pivot tables and reports for quick spreadsheet-side summaries
 
-### Phase 7: Extended Beancount Compatibility
-- implement `pad` directive import (use some sort of /transaction:pad endpoint?)
+### Phase 7: Extended Beancount Compatibility (partially done)
+- implement `pad` directive import (done: `GET /accounts/{account}:pad` + Beancount importer phase 2)
 - implement `document` directive import
-- implement `balance` directive import
+- implement `balance` directive import (done: `balance` directives imported as balance assertions; validation via `POST /ledger:doctor`)
 
 ### Phase 8: Export and Backup Workflows
 - export the canonical ledger back to Beancount
@@ -122,7 +122,7 @@ Phase 1 should deliver:
 - add support for cash transactions in the Google Sheets workflow
 - continue improving Sheets UX and styling
 - add basic pivot tables and reports for quick spreadsheet-side summaries
-- implement `pad`, `document`, and `balance` Beancount import support
+- implement `document` Beancount import support
 
 ## Notes
 - Fava is read-only in v1; changes made there do not sync back to the database.

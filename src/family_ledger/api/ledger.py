@@ -23,11 +23,13 @@ from family_ledger.api.schemas import (
     ListTransactionsResponse,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
+    PadResponse,
     PriceResource,
     TransactionResource,
     UpdateTransactionRequest,
 )
 from family_ledger.db import get_db_session, read_only_transaction
+from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import doctor as doctor_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import (
@@ -89,6 +91,12 @@ def list_accounts(
 )
 def create_account(request: CreateAccountRequest, session: DbSession) -> AccountResource:
     return _call_service(ledger_service.create_account, session, request.account)
+
+
+@router.get("/accounts/{account:path}:pad", response_model=PadResponse)
+def pad_account(account: str, date: date, session: DbSession) -> PadResponse:
+    with read_only_transaction(session):
+        return _call_service(account_balance_service.compute_pad, session, account, date)
 
 
 @router.get("/accounts/{account:path}", response_model=AccountResource)

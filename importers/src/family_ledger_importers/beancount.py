@@ -9,7 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from beancount.core.amount import Amount
-from beancount.core.data import Balance, Close, Open, Posting, Price, Transaction
+from beancount.core.data import Balance, Close, Open, Pad, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
 from sqlalchemy import select
@@ -29,10 +29,12 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
 from family_ledger.models import Account
+from family_ledger.models import Transaction as TransactionModel
+from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import ConflictError
 
-SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balance)
+SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balance, Pad)
 MAX_SKIPPED_EXAMPLES_PER_REASON = 10
 POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
 POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
@@ -364,5 +366,83 @@ class BeancountImporter(BaseImporter):
                 result.entities.setdefault("balance_assertion", EntityCounts()).created += 1
             except ConflictError:
                 result.entities.setdefault("balance_assertion", EntityCounts()).duplicate += 1
+
+        # Pad directives — phase 2: balance assertions must be in DB first.
+        # One synthetic transaction is created per currency per pad directive.
+        for entry in entries:
+            if not isinstance(entry, Pad):
+                continue
+            if entry.account not in account_names or entry.source_account not in account_names:
+                pad_errors = result.entities.setdefault("pad_transaction", EntityCounts()).errors
+                pad_errors.count += 1
+                if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                    pad_errors.examples.append(
+                        f"{entry.date} pad {entry.account}: account not found"
+                    )
+                continue
+
+            # Count already-imported pad transactions for this directive as duplicates
+            native_id_prefix = f"beancount:pad:{entry.account}:{entry.date.isoformat()}:"
+            existing_native_ids: set[str] = set(
+                sid
+                for sid in session.scalars(
+                    select(TransactionModel.source_native_id).where(
+                        TransactionModel.source_native_id.like(native_id_prefix + "%")
+                    )
+                ).all()
+                if sid is not None
+            )
+            existing_symbols = {sid.rsplit(":", 1)[-1] for sid in existing_native_ids}
+            for _ in existing_symbols:
+                result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
+            if existing_symbols:
+                continue
+
+            try:
+                pad_response = account_balance_service.compute_pad(
+                    session, account_names[entry.account], entry.date
+                )
+            except Exception as exc:
+                pad_errors = result.entities.setdefault("pad_transaction", EntityCounts()).errors
+                pad_errors.count += 1
+                if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                    pad_errors.examples.append(f"{entry.date} pad {entry.account}: {exc}")
+                continue
+
+            for pad_entry in pad_response.entries:
+                source_native_id = (
+                    f"beancount:pad:{entry.account}:{entry.date.isoformat()}"
+                    f":{pad_entry.units.symbol}"
+                )
+                pad_payload = TransactionNormalizeData(
+                    transaction_date=entry.date,
+                    narration="Padding entry",
+                    entity_metadata={
+                        "generated_by": "pad",
+                        "source_account": entry.source_account,
+                    },
+                    import_metadata=ImportMetadata(source_native_id=source_native_id),
+                    postings=[
+                        PostingNormalizePayload(
+                            account=account_names[entry.account],
+                            units=MoneyValue(
+                                amount=pad_entry.units.amount,
+                                symbol=pad_entry.units.symbol,
+                            ),
+                        ),
+                        PostingNormalizePayload(
+                            account=account_names[entry.source_account],
+                            units=MoneyValue(
+                                amount=-pad_entry.units.amount,
+                                symbol=pad_entry.units.symbol,
+                            ),
+                        ),
+                    ],
+                )
+                try:
+                    ledger_service.create_transaction(session, pad_payload)
+                    result.entities.setdefault("pad_transaction", EntityCounts()).created += 1
+                except ConflictError:
+                    result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
 
         return result

@@ -239,6 +239,42 @@ Validation:
 - changes that make existing transaction references invalid should fail unless the caller updates the affected transactions separately
 - changing `account_name` does not require rewriting stored postings because postings reference the stable account resource name
 
+### `GET /accounts/{account}:pad?date=YYYY-MM-DD`
+
+Purpose:
+- compute the posting amounts a padding transaction posted on `date` would need to satisfy the first upcoming balance assertion per currency for `account`
+
+Behavior:
+- returns one entry per currency where padding is needed (empty list if no padding is required)
+- only the first balance assertion per currency after `date` is considered
+- balance includes the account and all descendant subaccounts
+- transactions with `transaction_date < assertion_date` are counted; same-day transactions are not
+- entries within the configured tolerance per symbol are omitted
+- returns 400 with `code=pad_cost_tracked_account` if any asserted currency has cost-annotated postings (Beancount does not support padding cost-tracked accounts)
+
+Response:
+
+```json
+{
+  "account": "accounts/acc_01jv3m0r7x8c",
+  "pad_date": "2026-01-01",
+  "entries": [
+    {
+      "balance_assertion": "balanceAssertions/bal_01jv3m0r7x8c",
+      "assertion_date": "2026-02-01",
+      "units": {
+        "amount": "500.00",
+        "symbol": "CHF"
+      }
+    }
+  ]
+}
+```
+
+Notes:
+- a positive `units.amount` means the account is short; a negative amount means it is over.
+- the Beancount importer uses this endpoint during phase 2 of a Beancount file import to resolve `pad` directives.
+
 ## Commodities API
 
 ### `GET /commodities`
@@ -367,6 +403,7 @@ Behavior:
 - currently includes:
   - `transaction_unbalanced`
   - `lot_match_missing`
+  - `balance_assertion_failed`
 - `lot_match_missing` is produced by replaying exact held-at-cost lot buckets with FIFO
 - exact lot buckets are keyed by `account`, `units_symbol`, `cost_symbol`, and `cost_per_unit`
 - postings in the same transaction and same exact lot bucket are aggregated before booking checks
@@ -537,6 +574,8 @@ Purpose:
 - fetch one assertion
 
 ### `GET /balance-assertions/{assertion}/validation`
+
+> **Not yet implemented.** Whole-ledger balance assertion validation is available through `POST /ledger:doctor` (`balance_assertion_failed` issues). This per-assertion endpoint is deferred.
 
 Purpose:
 - fetch the derived validation result for one assertion

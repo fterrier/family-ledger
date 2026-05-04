@@ -10,8 +10,8 @@ from family_ledger.api.schemas import (
     TransactionCreate,
     TransactionNormalizeData,
 )
-from family_ledger.services.balancing import transaction_balance_totals_by_symbol
 from family_ledger.services.errors import ValidationError
+from family_ledger.services.transaction_balancing import transaction_balance_totals_by_symbol
 from family_ledger.services.validation import validate_transaction_payload
 
 

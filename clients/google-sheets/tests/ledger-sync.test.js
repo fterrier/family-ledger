@@ -8,9 +8,8 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   const toasts = [];
   const sheets = {
     Accounts: { name: 'Accounts', setFrozenRows() {} },
+    Balances: { name: 'Balances', setFrozenRows() {} },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; } },
-    DoctorTransactionIssues: { name: 'DoctorTransactionIssues' },
-    DoctorAccountIssues: { name: 'DoctorAccountIssues' },
   };
   const { sandbox } = loadCode({
     SpreadsheetApp: {
@@ -34,6 +33,9 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     if (resourceKey === 'accounts') {
       return [{ name: 'accounts/checking', account_name: 'Assets:Bank:Checking' }];
     }
+    if (resourceKey === 'balance_assertions') {
+      return [];
+    }
     return [{ name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [] }];
   };
   sandbox.buildAccountSyncData_ = function(accounts) {
@@ -52,10 +54,8 @@ test('syncLedger fetches accounts and transactions once without resetting layout
       skippedExamples: [],
     };
   };
-  sandbox.writeFetchedDoctorIssueSheets_ = function(issuesByTarget, resolveSheet) {
+  sandbox.writeFetchedDoctorIssueSheets_ = function(issuesByTarget) {
     calls.push({ type: 'writeFetchedDoctorIssueSheets', issueTargetCount: Object.keys(issuesByTarget).length });
-    resolveSheet('DoctorTransactionIssues');
-    resolveSheet('DoctorAccountIssues');
   };
   sandbox.fetchLedgerDoctorIssuesByTarget_ = function() {
     calls.push('fetchLedgerDoctorIssuesByTarget');
@@ -79,9 +79,11 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'fetch'))), [
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
     { type: 'fetch', path: '/transactions?page_size=1000', resourceKey: 'transactions' },
+    { type: 'fetch', path: '/balance-assertions?page_size=1000', resourceKey: 'balance_assertions' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
+    { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
   ]);
   assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');
   assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);

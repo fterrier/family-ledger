@@ -95,34 +95,6 @@ test('formatDoctorIssuesForSheet_ includes generic issue details for all codes',
   );
 });
 
-test('doctorIssuesToSheetRows_ stores issue codes separately from visible text', () => {
-  const { sandbox } = loadCode();
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(sandbox.doctorIssuesToSheetRows_({
-      'transactions/txn_1': [
-        {
-          target: 'transactions/txn_1',
-          code: 'transaction_unbalanced',
-          message: 'Transaction is not balanced within tolerance.',
-          details: { symbol: 'CHF' },
-        },
-        {
-          target: 'transactions/txn_1',
-          code: 'lot_match_missing',
-          message: 'Not enough lots to reduce.',
-          details: {},
-        },
-      ],
-    }))),
-    [[
-      'transactions/txn_1',
-      'transaction_unbalanced\nlot_match_missing',
-      'Transaction is not balanced within tolerance. (symbol CHF)\nNot enough lots to reduce.',
-    ]]
-  );
-});
-
 test('applyDoctorIssuesToVisibleSheet_ clears stale transaction issues', () => {
   const operations = [];
   const rowStore = new Map([[2, {
@@ -170,11 +142,7 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
     issues: 'stale',
   }]]);
 
-  const doctorTransactionSheet = makeSimpleHiddenSheet();
-  const doctorAccountSheet = makeSimpleHiddenSheet();
   const sheetsByName = {
-    DoctorTransactionIssues: doctorTransactionSheet,
-    DoctorAccountIssues: doctorAccountSheet,
     Transactions: null,
     Accounts: null,
   };
@@ -184,11 +152,6 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
         return {
           getSheetByName(name) {
             return sheetsByName[name] || null;
-          },
-          insertSheet(name) {
-            const sheet = makeSimpleHiddenSheet();
-            sheetsByName[name] = sheet;
-            return sheet;
           },
           toast() {},
         };
@@ -228,10 +191,10 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
     throw new Error('unexpected api call');
   };
 
+  sandbox.writeFetchedDoctorIssueSheets_ = function() {};
+
   sandbox.refreshVisibleLedgerIssuesFromDoctor_();
 
-  assert.equal(doctorTransactionSheet.getLastRow(), 2);
-  assert.equal(doctorAccountSheet.getLastRow(), 2);
   assert.equal(transactionRowStore.get(2).status, 'saved');
   assert.equal(transactionRowStore.get(2).last_error, '');
   assert.equal(

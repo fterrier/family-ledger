@@ -13,6 +13,7 @@ const SOURCE_FILES = [
   'ManagedSheetData.js',
   'TransactionsSheet.js',
   'AccountsSheet.js',
+  'BalancesSheet.js',
   'DoctorIssues.js',
   'Filters.js',
   'ImporterDialog.js',

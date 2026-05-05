@@ -15,3 +15,5 @@ node_modules/
 AGENTS_local.md
 uv.lock
 .clasp.json
+.clasp.local.json
+.clasp.syniukas.json

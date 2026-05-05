@@ -7,7 +7,7 @@
     "check": "eslint AccountsSheet.js Api.js App.js Constants.js DoctorIssues.js Filters.js ImporterDialog.js LedgerSync.js Settings.js SheetLayout.js TransactionEdits.js TransactionSave.js TransactionsSheet.js",
     "test": "node --test tests/*.test.js",
     "clasp:login": "clasp login",
-    "push": "clasp push --force"
+    "push": "for f in .clasp.local.json .clasp.syniukas.json; do if [ -f \"$f\" ]; then clasp push --force --project \"$f\"; fi; done"
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",

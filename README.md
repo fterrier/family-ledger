@@ -183,6 +183,37 @@ To validate the output with Beancount's own checker:
 bean-check ledger.beancount
 ```
 
+## Fava
+
+[Fava](https://beancount.github.io/fava/) is an optional web frontend for browsing the exported
+Beancount ledger. It is configured as a separate compose override so the base stack is unaffected.
+
+Start the stack with Fava:
+
+```bash
+docker compose \
+  -f docker/compose/docker-compose.yml \
+  -f docker/compose/docker-compose.fava.yml \
+  --env-file docker/compose/.env up -d
+```
+
+Export the ledger to the shared volume:
+
+```bash
+docker compose \
+  -f docker/compose/docker-compose.yml \
+  -f docker/compose/docker-compose.fava.yml \
+  --env-file docker/compose/.env \
+  exec api export-beancount --output /export/ledger.beancount
+```
+
+Fava is then available at `http://localhost:5000`.
+
+Re-run the export command whenever you want to refresh the view.
+
+> **Note**: Fava has no authentication. If you expose this stack publicly (e.g. via Tailscale
+> Funnel), put it behind a reverse proxy with auth or use Tailscale ACLs to restrict access.
+
 ## Demo Data
 
 You can bootstrap a small example ledger into an empty database for local testing.

@@ -53,18 +53,18 @@ function setSheetFieldValuesForRowNumbers_(sheet, sheetConfig, rowNumbers, heade
   });
 }
 
-function buildIssueLookupFormula_(doctorSheetName, rowNumber) {
-  return '=IFERROR(VLOOKUP($A' + rowNumber + ',' + doctorSheetName + '!$A:$C,3,FALSE),"")';
+function buildIssueLookupFormula_(rowNumber) {
+  return '=IFERROR(VLOOKUP($A' + rowNumber + ',Issues!$A:$D,4,FALSE),"")';
 }
 
-function ensureManagedSheetIssueFormulas_(sheet, sheetConfig, doctorSheetName, rowCount) {
+function ensureManagedSheetIssueFormulas_(sheet, sheetConfig, rowCount) {
   const issuesColumn = getColumnIndex_(sheetConfig, 'issues');
   if (rowCount <= 0) {
     return;
   }
   const formulas = [];
   for (let rowNumber = 2; rowNumber < rowCount + 2; rowNumber += 1) {
-    formulas.push([buildIssueLookupFormula_(doctorSheetName, rowNumber)]);
+    formulas.push([buildIssueLookupFormula_(rowNumber)]);
   }
   sheet.getRange(2, issuesColumn, rowCount, 1).setFormulas(formulas);
 }

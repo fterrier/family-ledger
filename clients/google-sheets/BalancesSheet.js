@@ -16,7 +16,6 @@ function ensureBalancesIssueFormulas_(sheet, rowCount) {
   ensureManagedSheetIssueFormulas_(
     sheet,
     FAMILY_LEDGER_SHEET_REGISTRY.balances,
-    FAMILY_LEDGER_SHEET_NAMES.doctorBalanceAssertionIssues,
     rowCount
   );
 }

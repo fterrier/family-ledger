@@ -80,7 +80,6 @@ function ensureAccountIssueFormulas_(sheet, rowCount) {
   ensureManagedSheetIssueFormulas_(
     sheet,
     FAMILY_LEDGER_SHEET_REGISTRY.accounts,
-    FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues,
     rowCount
   );
 }

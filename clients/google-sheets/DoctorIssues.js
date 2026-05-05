@@ -57,28 +57,6 @@ function fetchLedgerDoctorIssuesByTarget_() {
   return byTarget;
 }
 
-function partitionDoctorIssuesBySheet_(issuesByTarget) {
-  const grouped = {};
-  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
-    grouped[entry.doctorSheetName] = {};
-  });
-  const unknownTargets = [];
-
-  Object.keys(issuesByTarget).forEach(function(target) {
-    const registryEntry = getDoctorTargetConfigForTarget_(target);
-    if (!registryEntry) {
-      unknownTargets.push(target);
-      return;
-    }
-    grouped[registryEntry.doctorSheetName][target] = issuesByTarget[target];
-  });
-
-  return {
-    grouped: grouped,
-    unknownTargets: unknownTargets,
-  };
-}
-
 function getDoctorTargetConfigForTarget_(target) {
   for (let index = 0; index < FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.length; index += 1) {
     const entry = FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY[index];
@@ -89,17 +67,55 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
-function doctorIssuesToSheetRows_(issuesByTarget) {
-  return Object.keys(issuesByTarget)
-    .sort()
-    .map(function(target) {
-      const issues = issuesByTarget[target] || [];
-      return [
-        target,
-        formatDoctorIssueCodesForSheet_(issues),
-        formatDoctorIssuesForSheet_(issues),
-      ];
+function buildNavigateLabelLookup_(spreadsheet) {
+  const lookup = {};
+
+  const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
+  if (txSheet && txSheet.getLastRow() > 1) {
+    const seen = {};
+    txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
+      const resourceName = row[0];
+      if (resourceName && !seen[resourceName]) {
+        seen[resourceName] = true;
+        const parts = ['Transaction'];
+        if (row[1]) { parts.push(row[1]); }
+        if (row[2]) { parts.push(row[2]); }
+        lookup[resourceName] = parts.join(' ');
+      }
     });
+  }
+
+  const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
+  if (accSheet && accSheet.getLastRow() > 1) {
+    accSheet.getRange(2, 1, accSheet.getLastRow() - 1, 2).getDisplayValues().forEach(function(row) {
+      const resourceName = row[0];
+      if (resourceName) {
+        lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
+      }
+    });
+  }
+
+  const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
+  if (balSheet && balSheet.getLastRow() > 1) {
+    balSheet.getRange(2, 1, balSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
+      const resourceName = row[0];
+      if (resourceName) {
+        const parts = ['Balance'];
+        if (row[1]) { parts.push(row[1]); }
+        if (row[2]) { parts.push(row[2]); }
+        lookup[resourceName] = parts.join(' ');
+      }
+    });
+  }
+
+  return lookup;
+}
+
+function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, rowNumber) {
+  const escaped = String(labelText).replace(/"/g, '""');
+  const matchPart = 'MATCH(A' + rowNumber + ',' + visibleSheetName + '!$A:$A,0)';
+  const urlPart = '"#gid=' + visibleSheetGid + '&range=B"&' + matchPart;
+  return '=IFERROR(HYPERLINK(' + urlPart + ',"' + escaped + '"),"' + escaped + '")';
 }
 
 function mergeDoctorIssuesIntoRows_(rows, issuesByTarget) {
@@ -142,21 +158,51 @@ function refreshDoctorIssueSheets_() {
 }
 
 function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
-  const partitioned = partitionDoctorIssuesBySheet_(issuesByTarget);
-  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
-    writeDoctorIssueSheet_(
-      resolveSheet(entry.doctorSheetName),
-      doctorIssuesToSheetRows_(partitioned.grouped[entry.doctorSheetName] || {})
-    );
+  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
+  const labelLookup = buildNavigateLabelLookup_(spreadsheet);
+
+  const sortedTargets = Object.keys(issuesByTarget).sort();
+  const dataRows = sortedTargets.map(function(target) {
+    const issues = issuesByTarget[target] || [];
+    return [
+      target,
+      '',
+      formatDoctorIssueCodesForSheet_(issues),
+      formatDoctorIssuesForSheet_(issues),
+    ];
   });
-  debugLog_('refreshDoctorIssueSheets:written', {
-    doctorSheets: FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.map(function(entry) {
-      return {
-        sheetName: entry.doctorSheetName,
-        targetCount: Object.keys(partitioned.grouped[entry.doctorSheetName] || {}).length,
-      };
-    }),
-    unknownTargets: partitioned.unknownTargets,
+
+  writeSheet_(issueSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues.headers, dataRows);
+
+  if (sortedTargets.length > 0) {
+    const navigateColumn = FAMILY_LEDGER_SHEET_REGISTRY.issues.columns.navigate.column;
+    const formulas = sortedTargets.map(function(target, index) {
+      const rowNumber = index + 2;
+      const registryEntry = getDoctorTargetConfigForTarget_(target);
+      const labelText = labelLookup[target] || target;
+      if (!registryEntry) {
+        return [labelText];
+      }
+      const visibleSheet = spreadsheet.getSheetByName(registryEntry.visibleSheetName);
+      if (!visibleSheet) {
+        return [labelText];
+      }
+      return [buildNavigateFormula_(labelText, registryEntry.visibleSheetName, String(visibleSheet.getSheetId()), rowNumber)];
+    });
+    issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setFormulas(formulas);
+  }
+
+  ['DoctorTransactionIssues', 'DoctorAccountIssues', 'DoctorBalanceAssertionIssues'].forEach(function(oldName) {
+    var old = spreadsheet.getSheetByName(oldName);
+    if (old) { spreadsheet.deleteSheet(old); }
+  });
+
+  debugLog_('writeFetchedDoctorIssueSheets', {
+    issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
+      return total + issues.length;
+    }, 0),
+    targetCount: sortedTargets.length,
   });
 }
 
@@ -195,9 +241,4 @@ function applyDoctorIssuesToRowNumbers_(sheet, sheetConfig, rowNumbers, rows) {
   rowNumbers.forEach(function(rowNumber, index) {
     sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
   });
-}
-
-function writeDoctorIssueSheet_(sheet, rows) {
-  writeSheet_(sheet, FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS, rows);
-  hideSheetIfVisible_(sheet);
 }

@@ -527,7 +527,6 @@ function ensureTransactionIssueFormulas_(sheet, rowCount) {
   ensureManagedSheetIssueFormulas_(
     sheet,
     FAMILY_LEDGER_SHEET_REGISTRY.transactions,
-    FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues,
     rowCount
   );
 }

@@ -29,6 +29,11 @@ function refreshManagedLedgerSheetLayouts_() {
   if (balSheet) {
     applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
   }
+
+  const issuesSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.issues);
+  if (issuesSheet) {
+    applyManagedSheetLayout_(issuesSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues);
+  }
 }
 
 function getSheetConfigByName_(sheetName) {
@@ -115,7 +120,9 @@ function applyManagedSheetLayout_(sheet, sheetConfig) {
   ensureSheetCapacityForConfig_(sheet, sheetConfig);
   applySheetHeaderLayout_(sheet, sheetConfig);
   applySheetDirectFormatting_(sheet, sheetConfig);
-  ensureSheetConditionalFormatting_(sheet, sheetConfig);
+  if (sheetConfig.issueHeader) {
+    ensureSheetConditionalFormatting_(sheet, sheetConfig);
+  }
   applySheetHiddenColumns_(sheet, sheetConfig);
   applySheetProtections_(sheet, sheetConfig);
 }

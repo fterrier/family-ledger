@@ -2,29 +2,22 @@ const FAMILY_LEDGER_SHEET_NAMES = {
   accounts: 'Accounts',
   transactions: 'Transactions',
   balances: 'Balances',
-  doctorTransactionIssues: 'DoctorTransactionIssues',
-  doctorAccountIssues: 'DoctorAccountIssues',
-  doctorBalanceAssertionIssues: 'DoctorBalanceAssertionIssues',
+  issues: 'Issues',
 };
 
 const FAMILY_LEDGER_PAGE_SIZE = 1000;
 
-const FAMILY_LEDGER_DOCTOR_ISSUES_HEADERS = ['target', 'issue_codes', 'issues_text'];
-
 const FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY = Object.freeze([
   Object.freeze({
     targetPrefix: 'transactions/',
-    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorTransactionIssues,
     visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.transactions,
   }),
   Object.freeze({
     targetPrefix: 'accounts/',
-    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorAccountIssues,
     visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.accounts,
   }),
   Object.freeze({
     targetPrefix: 'balanceAssertions/',
-    doctorSheetName: FAMILY_LEDGER_SHEET_NAMES.doctorBalanceAssertionIssues,
     visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.balances,
   }),
 ]);
@@ -59,7 +52,7 @@ function buildSheetConfig_(key, name, columnLayout, options) {
     columnLayout: Object.freeze(columnLayout),
     hiddenHeaders: Object.freeze((options && options.hiddenHeaders) || []),
     protectedHeaders: Object.freeze((options && options.protectedHeaders) || []),
-    issueHeader: (options && options.issueHeader) || 'issues',
+    issueHeader: (options && 'issueHeader' in options) ? options.issueHeader : 'issues',
     issueColor: (options && options.issueColor) || '#fee2e2',
   });
 }
@@ -225,5 +218,38 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
   }, {
     hiddenHeaders: ['resource_name'],
     protectedHeaders: ['resource_name'],
+  }),
+  issues: buildSheetConfig_('issues', FAMILY_LEDGER_SHEET_NAMES.issues, {
+    target: {
+      width: 220,
+      role: 'system',
+      note: 'Technical resource name of the affected entity.',
+      alignment: 'left',
+    },
+    navigate: {
+      width: 300,
+      role: 'readonly',
+      note: 'Click to navigate to the affected row in the source sheet.',
+      alignment: 'left',
+      wrapStrategy: 'CLIP',
+    },
+    issue_codes: {
+      width: 200,
+      role: 'readonly',
+      note: 'Issue code identifiers.',
+      alignment: 'left',
+    },
+    issues_text: {
+      width: 500,
+      role: 'readonly',
+      note: 'Full issue descriptions.',
+      alignment: 'left',
+      wrap: false,
+      wrapStrategy: 'OVERFLOW',
+    },
+  }, {
+    issueHeader: null,
+    hiddenHeaders: ['target'],
+    protectedHeaders: ['target', 'navigate', 'issue_codes', 'issues_text'],
   }),
 });

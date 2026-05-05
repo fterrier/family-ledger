@@ -112,18 +112,13 @@ test('syncLedgerAndResetLayout runs sync then layout reset', () => {
   assert.deepEqual(calls, ['syncLedger', 'refreshManagedLedgerSheetLayouts']);
 });
 
-test('buildTransactionSyncData_ collects skipped examples and merges doctor issues', () => {
+test('buildTransactionSyncData_ collects skipped examples and leaves issues empty for VLOOKUP', () => {
   const { sandbox } = loadCode();
   sandbox.flattenTransactionForSheet_ = function(transaction) {
     if (transaction.name === 'transactions/skip') {
       return null;
     }
     return [{ resource_name: transaction.name, issues: '' }];
-  };
-  sandbox.mergeFetchedDoctorIssuesIntoRows_ = function(rows) {
-    rows.forEach(function(row) {
-      row.issues = 'doctor';
-    });
   };
 
   const result = sandbox.buildTransactionSyncData_([
@@ -132,7 +127,7 @@ test('buildTransactionSyncData_ collects skipped examples and merges doctor issu
   ], {});
 
   assert.equal(result.rows.length, 1);
-  assert.equal(result.rows[0].issues, 'doctor');
+  assert.equal(result.rows[0].issues, '');
   assert.equal(result.skippedCount, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(result.skippedExamples)), ['2019-02-15 |  | Transfer Helvetia | postings=3']);
 });

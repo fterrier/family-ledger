@@ -115,7 +115,6 @@ function buildTransactionSyncData_(transactions, accountNameLookup) {
     });
   });
 
-  mergeFetchedDoctorIssuesIntoRows_(rows);
   return {
     rows: rows,
     skippedExamples: skippedExamples,

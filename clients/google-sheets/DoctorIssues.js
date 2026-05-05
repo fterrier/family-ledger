@@ -132,8 +132,7 @@ function mergeFetchedDoctorIssuesIntoRows_(rows) {
 
 function refreshVisibleLedgerIssuesFromDoctor_() {
   try {
-    const issuesByTarget = refreshDoctorIssueSheets_();
-    refreshManagedVisibleSheetIssues_(issuesByTarget);
+    refreshDoctorIssueSheets_();
   } catch (error) {
     debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
       message: error && error.message ? error.message : String(error),
@@ -190,7 +189,7 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
       }
       return [buildNavigateFormula_(labelText, registryEntry.visibleSheetName, String(visibleSheet.getSheetId()), rowNumber)];
     });
-    issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setFormulas(formulas);
+    issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setValues(formulas);
   }
 
   ['DoctorTransactionIssues', 'DoctorAccountIssues', 'DoctorBalanceAssertionIssues'].forEach(function(oldName) {

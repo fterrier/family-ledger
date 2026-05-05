@@ -119,49 +119,80 @@ test('applyDoctorIssuesToVisibleSheet_ clears stale transaction issues', () => {
   assert.equal(rowStore.get(2).issues, '');
 });
 
-test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions and accounts', () => {
-  const transactionOperations = [];
-  const accountOperations = [];
-  const transactionRowStore = new Map([[2, {
-    resource_name: 'transactions/txn_1',
-    transaction_date: '2026-04-19',
-    payee: 'Migros',
-    narration: 'Groceries',
-    source_account_name: 'Assets:Bank:Checking',
-    destination_account_name: 'Expenses:Food',
-    amount: 84.25,
-    split_off_amount: '',
-    symbol: 'CHF',
-    status: 'saved',
-    issues: '',
-    last_error: '',
-  }]]);
-  const accountRowStore = new Map([[2, {
-    resource_name: 'accounts/food',
-    account_name: '[X] Food',
-    issues: 'stale',
-  }]]);
+test('buildIssueLookupFormula_ generates VLOOKUP referencing Issues sheet column 4', () => {
+  const { sandbox } = loadCode();
+  assert.equal(
+    sandbox.buildIssueLookupFormula_(5),
+    '=IFERROR(VLOOKUP($A5,Issues!$A:$D,4,FALSE),"")'
+  );
+});
 
-  const sheetsByName = {
-    Transactions: null,
-    Accounts: null,
+test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues sheet for VLOOKUP', () => {
+  const setValuesCalls = [];
+  const issueSheet = {
+    getLastRow() { return 1; },
+    getMaxColumns() { return 4; },
+    getMaxRows() { return 10; },
+    clearContents() {},
+    getRange(row, col, numRows = 1, numCols = 1) {
+      return {
+        setValues(values) {
+          setValuesCalls.push({ row, col, numRows, numCols, values });
+          return this;
+        },
+      };
+    },
+    getSheetId() { return 99; },
   };
+
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { getSheetByName() { return null; } };
+      },
+    },
+  });
+
+  sandbox.writeFetchedDoctorIssueSheets_(
+    {
+      'transactions/txn_1': [{
+        target: 'transactions/txn_1',
+        code: 'transaction_unbalanced',
+        message: 'Transaction is not balanced within tolerance.',
+        details: { symbol: 'CHF', residual_amount: '-4.25', tolerance_amount: '0.005' },
+      }],
+      'accounts/food': [{
+        target: 'accounts/food',
+        code: 'account_warning',
+        message: 'Account needs attention.',
+        details: { severity: 'warning' },
+      }],
+    },
+    function() { return issueSheet; }
+  );
+
+  // setValuesCalls[0] = header row; setValuesCalls[1] = data rows
+  const dataCall = setValuesCalls.find(function(c) { return c.row === 2 && c.col === 1; });
+  assert.ok(dataCall, 'data rows must be written to Issues sheet');
+  // rows are sorted alphabetically by target
+  assert.equal(dataCall.values[0][0], 'accounts/food');     // column A: target
+  assert.equal(dataCall.values[0][3], 'Account needs attention. (severity warning)');   // column D: issues_text
+  assert.equal(dataCall.values[1][0], 'transactions/txn_1'); // column A: target
+  assert.equal(dataCall.values[1][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
+});
+
+test('refreshVisibleLedgerIssuesFromDoctor_ writes Issues sheet without modifying visible rows inline', () => {
+  const writeCalls = [];
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
         return {
-          getSheetByName(name) {
-            return sheetsByName[name] || null;
-          },
+          getSheetByName() { return null; },
           toast() {},
         };
       },
     },
   });
-  const transactionSheet = makeRowStoreSheet_(sandbox, transactionRowStore, transactionOperations);
-  const accountSheet = makeAccountRowStoreSheet(sandbox, accountRowStore, accountOperations);
-  sheetsByName.Transactions = transactionSheet;
-  sheetsByName.Accounts = accountSheet;
 
   sandbox.apiFetchJson_ = function(method, resourcePath) {
     if (method === 'post' && resourcePath === '/ledger:doctor') {
@@ -172,12 +203,6 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
             code: 'transaction_unbalanced',
             message: 'Transaction is not balanced within tolerance.',
             details: { symbol: 'CHF', residual_amount: '-4.25', tolerance_amount: '0.005' },
-          },
-          {
-            target: 'accounts/food',
-            code: 'account_warning',
-            message: 'Account needs attention.',
-            details: { severity: 'warning' },
           },
           {
             target: 'commodities/chf',
@@ -191,18 +216,12 @@ test('refreshVisibleLedgerIssuesFromDoctor_ updates issues across transactions a
     throw new Error('unexpected api call');
   };
 
-  sandbox.writeFetchedDoctorIssueSheets_ = function() {};
+  sandbox.writeFetchedDoctorIssueSheets_ = function(issuesByTarget) {
+    writeCalls.push({ targetCount: Object.keys(issuesByTarget).length });
+  };
 
   sandbox.refreshVisibleLedgerIssuesFromDoctor_();
 
-  assert.equal(transactionRowStore.get(2).status, 'saved');
-  assert.equal(transactionRowStore.get(2).last_error, '');
-  assert.equal(
-    transactionRowStore.get(2).issues,
-    'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'
-  );
-  assert.equal(
-    accountRowStore.get(2).issues,
-    'Account needs attention. (severity warning)'
-  );
+  assert.equal(writeCalls.length, 1);
+  assert.equal(writeCalls[0].targetCount, 2);
 });

@@ -28,6 +28,7 @@ def _serialize_importer(
         importer_schema = {}
     return ImporterResource.model_validate(
         {
+            "name": "importers/" + plugin_name,
             "plugin_name": plugin_name,
             "display_name": display_name,
             "config": config,

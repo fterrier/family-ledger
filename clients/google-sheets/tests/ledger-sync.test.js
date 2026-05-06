@@ -54,8 +54,12 @@ test('syncLedger fetches accounts and transactions once without resetting layout
       skippedExamples: [],
     };
   };
-  sandbox.refreshDoctorIssueSheets_ = function() {
-    calls.push('refreshDoctorIssueSheets');
+  sandbox.fetchLedgerDoctorIssuesByTarget_ = function() {
+    calls.push('fetchLedgerDoctorIssuesByTarget');
+    return {};
+  };
+  sandbox.writeFetchedDoctorIssueSheets_ = function() {
+    calls.push('writeFetchedDoctorIssueSheets');
   };
   sandbox.writeSheet_ = function(sheet, _headers, rows) {
     calls.push({ type: 'writeSheet', sheet: sheet.name, rowCount: rows.length });
@@ -82,7 +86,8 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
   ]);
   assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');
-  assert.equal(calls.filter((call) => call === 'refreshDoctorIssueSheets').length, 1);
+  assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);
+  assert.equal(calls.filter((call) => call === 'writeFetchedDoctorIssueSheets').length, 1);
   assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 0);
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].title, 'Ledger Sync Complete');

@@ -54,12 +54,13 @@ def list_importers(session: DbSession) -> ListImportersResponse:
     return _call_service(importer_service.list_importers, session)
 
 
-@router.patch("/importers/{plugin_name}", response_model=ImporterResource)
+@router.patch("/importers/{importer:path}", response_model=ImporterResource)
 def update_importer(
-    plugin_name: str,
+    importer: str,
     request: UpdateImporterRequest,
     session: DbSession,
 ) -> ImporterResource:
+    plugin_name = importer.removeprefix("importers/")
     return _call_service(
         importer_service.update_importer_config,
         session,
@@ -68,13 +69,14 @@ def update_importer(
     )
 
 
-@router.post("/importers/{plugin_name}:import", response_model=ImportResponse)
+@router.post("/importers/{importer:path}:import", response_model=ImportResponse)
 def run_import(
-    plugin_name: str,
+    importer: str,
     session: DbSession,
     file: UploadFile,
     config_override: Annotated[str | None, Form()] = None,
 ) -> ImportResponse:
+    plugin_name = importer.removeprefix("importers/")
     override: dict | None = None
     if config_override is not None:
         try:

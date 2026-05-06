@@ -225,6 +225,7 @@ class PadResponse(BaseModel):
 class ImporterResource(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
+    name: str
     plugin_name: str
     display_name: str
     config: dict[str, Any] = Field(default_factory=dict)

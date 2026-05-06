@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from family_ledger.export.beancount import _format_transaction, _meta_lines
 from family_ledger.models import Account, Posting, Transaction
+from family_ledger.scripts.export_beancount import _format_transaction, _meta_lines
 
 # ---------------------------------------------------------------------------
 # Helpers

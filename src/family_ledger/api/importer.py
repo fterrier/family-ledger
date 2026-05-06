@@ -54,23 +54,23 @@ def list_importers(session: DbSession) -> ListImportersResponse:
     return _call_service(importer_service.list_importers, session)
 
 
-@router.patch("/importers/{importer:path}", response_model=ImporterResource)
+@router.patch("/importers/{plugin_name}", response_model=ImporterResource)
 def update_importer(
-    importer: str,
+    plugin_name: str,
     request: UpdateImporterRequest,
     session: DbSession,
 ) -> ImporterResource:
     return _call_service(
         importer_service.update_importer_config,
         session,
-        importer,
+        plugin_name,
         request.importer.config,
     )
 
 
-@router.post("/importers/{importer:path}:import", response_model=ImportResponse)
+@router.post("/importers/{plugin_name}:import", response_model=ImportResponse)
 def run_import(
-    importer: str,
+    plugin_name: str,
     session: DbSession,
     file: UploadFile,
     config_override: Annotated[str | None, Form()] = None,
@@ -98,5 +98,7 @@ def run_import(
         override = parsed
 
     file_data = file.file.read()
-    result = _call_service(importer_service.execute_import, session, importer, file_data, override)
+    result = _call_service(
+        importer_service.execute_import, session, plugin_name, file_data, override
+    )
     return ImportResponse(result=result)

@@ -4,13 +4,10 @@ from collections.abc import Generator
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
 from family_ledger.importers.base import BaseImporter, ImportResult
-from family_ledger.importers.registry import bootstrap_importers, get_importer, get_importers
-from family_ledger.models import Base
-from family_ledger.models.importer import Importer
+from family_ledger.importers.registry import get_importer, get_importers
 
 
 class _FakeImporter(BaseImporter):
@@ -26,14 +23,6 @@ def reset_importers_cache(monkeypatch: pytest.MonkeyPatch) -> Generator[None, No
     monkeypatch.setattr("family_ledger.importers.registry._importers", None)
     yield
     monkeypatch.setattr("family_ledger.importers.registry._importers", None)
-
-
-@pytest.fixture
-def mem_session() -> Generator[Session, None, None]:
-    engine = create_engine("sqlite+pysqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    with Session(engine) as session:
-        yield session
 
 
 def test_get_importers_with_no_entry_points_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,40 +68,3 @@ def test_get_importer_returns_none_for_unknown(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("family_ledger.importers.registry._importers", {})
 
     assert get_importer("unknown") is None
-
-
-def test_bootstrap_creates_importer_row(
-    monkeypatch: pytest.MonkeyPatch, mem_session: Session
-) -> None:
-    monkeypatch.setattr("family_ledger.importers.registry._importers", {"fake": _FakeImporter})
-
-    bootstrap_importers(mem_session)
-
-    rows = mem_session.scalars(select(Importer)).all()
-    assert len(rows) == 1
-    assert rows[0].plugin_name == "fake"
-    assert rows[0].config == {}
-    assert rows[0].name.startswith("importers/imp_")
-
-
-def test_bootstrap_does_not_duplicate_rows(
-    monkeypatch: pytest.MonkeyPatch, mem_session: Session
-) -> None:
-    monkeypatch.setattr("family_ledger.importers.registry._importers", {"fake": _FakeImporter})
-
-    bootstrap_importers(mem_session)
-    bootstrap_importers(mem_session)
-
-    rows = mem_session.scalars(select(Importer)).all()
-    assert len(rows) == 1
-
-
-def test_bootstrap_with_no_importers_creates_no_rows(
-    monkeypatch: pytest.MonkeyPatch, mem_session: Session
-) -> None:
-    monkeypatch.setattr("family_ledger.importers.registry._importers", {})
-
-    bootstrap_importers(mem_session)
-
-    rows = mem_session.scalars(select(Importer)).all()
-    assert rows == []

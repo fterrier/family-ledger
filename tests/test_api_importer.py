@@ -81,6 +81,16 @@ def test_list_importers_returns_empty_when_none_registered(
     assert response.json()["importers"] == []
 
 
+def test_list_importers_works_without_db_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Registry-driven list works even when no config rows exist in the DB."""
+    client = make_client(monkeypatch, {"fake": _FakeImporter})
+
+    response = client.get("/importers")
+
+    assert response.status_code == 200
+    assert response.json()["importers"][0]["config"] == {}
+
+
 def test_list_importers_requires_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("family_ledger.importers.registry._importers", {})
     main_module = importlib.import_module("family_ledger.main")
@@ -94,10 +104,9 @@ def test_list_importers_requires_auth(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_update_importer_config(monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(monkeypatch, {"fake": _FakeImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.patch(
-        f"/{importer_name}",
+        "/importers/fake",
         json={"importer": {"config": {"key": "value"}}},
     )
 
@@ -109,10 +118,9 @@ def test_update_importer_config_validates_against_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = make_client(monkeypatch, {"schema_fake": _SchemaImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.patch(
-        f"/{importer_name}",
+        "/importers/schema_fake",
         json={"importer": {"config": {"api_key": "secret"}}},
     )
 
@@ -124,10 +132,9 @@ def test_update_importer_config_rejects_invalid_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = make_client(monkeypatch, {"schema_fake": _SchemaImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.patch(
-        f"/{importer_name}",
+        "/importers/schema_fake",
         json={"importer": {"config": {"unknown_field": "bad"}}},
     )
 
@@ -148,10 +155,9 @@ def test_update_importer_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch
 
 def test_run_import_returns_result(monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(monkeypatch, {"fake": _FakeImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
     )
 
@@ -164,10 +170,9 @@ def test_run_import_returns_result(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_run_import_accepts_config_override(monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(monkeypatch, {"fake": _FakeImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
         data={"config_override": '{"extra": "val"}'},
     )
@@ -178,16 +183,15 @@ def test_run_import_accepts_config_override(monkeypatch: pytest.MonkeyPatch) -> 
 def test_run_import_merges_override_over_stored_config(monkeypatch: pytest.MonkeyPatch) -> None:
     _CapturingSchemaImporter.last_config = None
     client = make_client(monkeypatch, {"schema_fake": _CapturingSchemaImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     update_response = client.patch(
-        f"/{importer_name}",
+        "/importers/schema_fake",
         json={"importer": {"config": {"api_key": "stored"}}},
     )
     assert update_response.status_code == 200
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/schema_fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
         data={"config_override": '{"api_key": "override"}'},
     )
@@ -200,10 +204,9 @@ def test_run_import_rejects_invalid_json_config_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = make_client(monkeypatch, {"fake": _FakeImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
         data={"config_override": "not-json"},
     )
@@ -216,10 +219,9 @@ def test_run_import_rejects_non_object_config_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = make_client(monkeypatch, {"fake": _FakeImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
         data={"config_override": '"just-a-string"'},
     )
@@ -243,16 +245,15 @@ def test_run_import_rejects_invalid_merged_config_without_wiping_stored_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = make_client(monkeypatch, {"schema_fake": _SchemaImporter})
-    importer_name = client.get("/importers").json()["importers"][0]["name"]
 
     update_response = client.patch(
-        f"/{importer_name}",
+        "/importers/schema_fake",
         json={"importer": {"config": {"api_key": "stored"}}},
     )
     assert update_response.status_code == 200
 
     response = client.post(
-        f"/{importer_name}:import",
+        "/importers/schema_fake:import",
         files={"file": ("data.txt", b"hello", "text/plain")},
         data={"config_override": '{"unknown_field": "bad"}'},
     )

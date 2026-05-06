@@ -22,7 +22,8 @@ dependencies = [
 ]
 
 [project.scripts]
-export-beancount = "family_ledger.export.beancount:main"
+export-beancount = "family_ledger.scripts.export_beancount:main"
+wipe-database = "family_ledger.scripts.wipe_database:main"
 
 [project.optional-dependencies]
 dev = [

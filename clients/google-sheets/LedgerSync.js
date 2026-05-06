@@ -1,41 +1,69 @@
 function syncLedger() {
   runUserAction_('Sync Ledger', function() {
-    ensureEditTriggerInstalled_();
-    const accounts = fetchFamilyLedgerPagedResource_(
-      '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'accounts'
-    );
-    const accountSyncData = buildAccountSyncData_(accounts);
-    const transactions = fetchFamilyLedgerPagedResource_(
-      '/transactions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'transactions'
-    );
-    const transactionSyncData = buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
-    const balanceAssertions = fetchFamilyLedgerPagedResource_(
-      '/balance-assertions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'balance_assertions'
-    );
-    const balanceAssertionRows = buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountDisplayLookup);
+    const perf = createPerf_();
+    setActivePerf_(perf);
+    try {
+      ensureEditTriggerInstalled_();
 
-    const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
-    writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
-    accountsSheet.setFrozenRows(1);
-    ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
+      // API fetches auto-record into perf via apiFetch_
+      const accounts = fetchFamilyLedgerPagedResource_(
+        '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'accounts'
+      );
+      const accountSyncData = perf.wrap('data.build_accounts', function() {
+        return buildAccountSyncData_(accounts);
+      }, function(r) { return r.accountCount + ' accounts'; });
 
-    const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
-    writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers, balanceAssertionRows);
-    balancesSheet.setFrozenRows(1);
-    ensureBalancesIssueFormulas_(balancesSheet, balanceAssertionRows.length);
+      const transactions = fetchFamilyLedgerPagedResource_(
+        '/transactions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'transactions'
+      );
+      const transactionSyncData = perf.wrap('data.build_transactions', function() {
+        return buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
+      }, function(r) { return r.rows.length + ' rows'; });
 
-    const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
-    refreshDoctorIssueSheets_();
+      const balanceAssertions = fetchFamilyLedgerPagedResource_(
+        '/balance-assertions?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'balance_assertions'
+      );
+      const balanceAssertionRows = perf.wrap('data.build_balances', function() {
+        return buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountDisplayLookup);
+      }, function(r) { return r.length + ' rows'; });
 
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),
-      'Ledger Sync Complete',
-      10
-    );
+      const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
+      perf.wrap('sheet.write_accounts', function() {
+        writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
+        accountsSheet.setFrozenRows(1);
+        ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
+      }, accountSyncData.accountRows.length + ' rows');
+
+      const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
+      perf.wrap('sheet.write_balances', function() {
+        writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers, balanceAssertionRows);
+        balancesSheet.setFrozenRows(1);
+        ensureBalancesIssueFormulas_(balancesSheet, balanceAssertionRows.length);
+      }, balanceAssertionRows.length + ' rows');
+
+      const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
+      perf.wrap('sheet.write_transactions', function() {
+        setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
+      }, transactionSyncData.rows.length + ' rows');
+
+      // Doctor fetch auto-records via apiFetch_; wrap only the sheet write
+      const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
+      perf.wrap('sheet.write_doctor', function() {
+        writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_);
+      });
+
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),
+        'Ledger Sync Complete',
+        10
+      );
+    } finally {
+      clearActivePerf_();
+      perf.log('Sync Ledger');
+    }
   });
 }
 

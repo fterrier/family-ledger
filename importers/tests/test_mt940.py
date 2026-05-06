@@ -109,6 +109,18 @@ Sample City
 :62F:C250902CHF25373,30
 :64:C250902CHF25373,30
 -}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:F00000008H8H0008
+:25:CH5612300000000100111
+:28C:108/1
+:60F:C250905CHF25373,30
+:61:250905D44,4NTRF001700000001//001700000001
+Debit Wallet: SAMPLE MARKET CITY
+:86:?ZKB:2200
+Debit Wallet: SAMPLE MARKET CITY
+:62F:C250905CHF25328,90
+:64:C250905CHF25328,90
+-}
 """
 
 DUPLICATE_ENTRIES_FIXTURE = """{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
@@ -223,7 +235,7 @@ def test_mt940_importer_schema_requires_account_mappings() -> None:
 def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
     entries = mt940_importer._parse_mt940_text(MT940_FIXTURE)
 
-    assert len(entries) == 7
+    assert len(entries) == 8
     assert entries[0].statement_number == "101/1"
     assert entries[1].transaction_code == "TRF"
     assert entries[1].ref == "T201000000001"
@@ -236,6 +248,7 @@ def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
     assert entries[0].ref is None
     assert entries[5].ref == "L115B1119GR46F3P"
     assert entries[6].ref == "L11591119GTT3NSZ"
+    assert entries[7].ref == "001700000001"
 
 
 def test_normalize_description_collapses_duplicates() -> None:
@@ -329,10 +342,13 @@ def test_mt940_importer_creates_source_only_transactions_with_metadata(session: 
         "Einkauf Bank Debit Card Nr. xxxx 4462, Sample Store 1234 Sample City"
     )
     assert normalized[5]["narration"] is None
-    assert normalized[6]["payee"] == "Guthabenzins"
+    assert normalized[6]["payee"] == "Debit Wallet: SAMPLE MARKET CITY"
     assert normalized[6]["narration"] is None
-    assert normalized[6]["source_native_id"] is not None
-    assert str(normalized[6]["source_native_id"]).startswith("mt940:fp:")
+    assert normalized[6]["source_native_id"] == "mt940:001700000001"
+    assert normalized[7]["payee"] == "Guthabenzins"
+    assert normalized[7]["narration"] is None
+    assert normalized[7]["source_native_id"] is not None
+    assert str(normalized[7]["source_native_id"]).startswith("mt940:fp:")
 
 
 def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -> None:
@@ -357,6 +373,7 @@ def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -
     assert normalized[5]["payee"] == (
         "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462"
     )
+    assert normalized[6]["payee"] == "SAMPLE MARKET CITY - Debit Wallet"
 
 
 def _run_fixture(session: Session, fixture: str, config: dict[str, Any]) -> None:

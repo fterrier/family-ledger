@@ -1,7 +1,13 @@
 function resetSheetLayouts() {
   runUserAction_('Reset Sheet Layouts', function() {
-    refreshManagedLedgerSheetLayouts_();
-
+    const perf = createPerf_();
+    setActivePerf_(perf);
+    try {
+      refreshManagedLedgerSheetLayouts_();
+    } finally {
+      clearActivePerf_();
+      perf.log('Reset Layouts');
+    }
     SpreadsheetApp.getUi().alert(
       'Reset Sheet Layouts',
       'Layouts have been reset to their default configurations.',
@@ -11,28 +17,37 @@ function resetSheetLayouts() {
 }
 
 function refreshManagedLedgerSheetLayouts_() {
+  const perf = getActivePerf_();
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
 
   const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
   if (txSheet) {
+    if (perf) perf.start('sheet.layout_transactions');
     applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
     refreshTransactionAccountValidation_(txSheet);
     ensureTransactionSheetFilter_(txSheet);
+    if (perf) perf.end('sheet.layout_transactions');
   }
 
   const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
   if (accSheet) {
+    if (perf) perf.start('sheet.layout_accounts');
     applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
+    if (perf) perf.end('sheet.layout_accounts');
   }
 
   const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
   if (balSheet) {
+    if (perf) perf.start('sheet.layout_balances');
     applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
+    if (perf) perf.end('sheet.layout_balances');
   }
 
   const issuesSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.issues);
   if (issuesSheet) {
+    if (perf) perf.start('sheet.layout_issues');
     applyManagedSheetLayout_(issuesSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues);
+    if (perf) perf.end('sheet.layout_issues');
   }
 }
 

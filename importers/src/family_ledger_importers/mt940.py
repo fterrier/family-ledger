@@ -116,14 +116,17 @@ def _format_zkb_payee(lines: list[str]) -> str | None:
         descriptor = descriptor.strip()
         if first_body.strip():
             body_parts.append(first_body.strip())
+        body_parts.extend(deduped[1:])
+    elif ":" in first_line:
+        descriptor, first_body = first_line.split(":", 1)
+        descriptor = descriptor.strip()
+        if first_body.strip():
+            body_parts.append(first_body.strip())
+        body_parts.extend(deduped[1:])
     elif len(deduped) > 1:
         body_parts.extend(deduped[1:])
     else:
         return " ".join(deduped).strip() or None
-    if "," not in first_line:
-        body_parts = deduped[1:]
-    else:
-        body_parts.extend(deduped[1:])
     body = " ".join(part for part in body_parts if part).strip()
     if not descriptor or not body:
         return " ".join(deduped).strip() or None

@@ -6,6 +6,7 @@ const CLIENT_DIR = path.join(__dirname, '..');
 
 const SOURCE_FILES = [
   'Constants.js',
+  'Perf.js',
   'SheetLayout.js',
   'LedgerSync.js',
   'Api.js',

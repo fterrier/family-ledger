@@ -107,7 +107,10 @@ function apiFetch_(method, path, requestOptions, options) {
     }
     try {
       const response = UrlFetchApp.fetch(url, fetchOptions);
-      logApiRequestSuccess_(options.responseEvent || 'apiFetch_:response', method, path, url, response.getResponseCode(), Date.now() - startedAt, options.metadata);
+      const duration = Date.now() - startedAt;
+      logApiRequestSuccess_(options.responseEvent || 'apiFetch_:response', method, path, url, response.getResponseCode(), duration, options.metadata);
+      const activePerf = getActivePerf_();
+      if (activePerf) activePerf.record('api.' + method.toUpperCase() + ' ' + path.split('?')[0], duration, response.getResponseCode());
       return response;
     } catch (error) {
       if (isBandwidthQuotaError_(error) && attempt < maxRetries) {

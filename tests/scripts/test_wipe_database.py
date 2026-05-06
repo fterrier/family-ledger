@@ -4,12 +4,12 @@ from collections.abc import Generator
 from datetime import date
 
 import pytest
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from family_ledger.importers.base import BaseImporter, ImportResult
 from family_ledger.models import Account, Base
-from family_ledger.scripts.wipe_database import recreate_all_tables, wipe_database
+from family_ledger.scripts.wipe_database import wipe_database
 from family_ledger.services.importer import list_importers
 
 
@@ -41,7 +41,7 @@ def session(engine) -> Generator[Session, None, None]:
         yield s
 
 
-def test_wipe_database_drops_all_tables(engine, session: Session) -> None:
+def test_wipe_database_clears_all_rows(engine, session: Session) -> None:
     session.add(
         Account(
             name="accounts/acc_test",
@@ -53,14 +53,8 @@ def test_wipe_database_drops_all_tables(engine, session: Session) -> None:
 
     wipe_database(engine)
 
-    assert inspect(engine).get_table_names() == []
-
-
-def test_recreate_all_tables_restores_full_schema(engine) -> None:
-    wipe_database(engine)
-    recreate_all_tables(engine)
-
-    assert set(inspect(engine).get_table_names()) == set(Base.metadata.tables.keys())
+    with Session(engine) as s:
+        assert s.scalar(select(Account)) is None
 
 
 def test_list_importers_works_after_wipe(engine, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,7 +62,6 @@ def test_list_importers_works_after_wipe(engine, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("family_ledger.importers.registry._importers", {"fake": _FakeImporter})
 
     wipe_database(engine)
-    recreate_all_tables(engine)
 
     with Session(engine) as session:
         result = list_importers(session)

@@ -12,19 +12,12 @@ from family_ledger.models import Base
 def wipe_database(engine: Engine | None = None) -> None:
     _engine = engine or db.engine
     with _engine.begin() as conn:
-        Base.metadata.drop_all(conn)
-
-
-def recreate_all_tables(engine: Engine | None = None) -> None:
-    _engine = engine or db.engine
-    with _engine.begin() as conn:
-        Base.metadata.create_all(conn)
+        for table in reversed(Base.metadata.sorted_tables):
+            conn.execute(table.delete())
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Wipe all database tables and recreate them empty."
-    )
+    parser = argparse.ArgumentParser(description="Delete all rows from all database tables.")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     args = parser.parse_args()
 
@@ -35,12 +28,7 @@ def main() -> None:
             sys.exit(1)
 
     wipe_database()
-    print("All tables dropped.")
-
-    recreate_all_tables()
-    print("All tables recreated.")
-
-    print("Database wipe complete.")
+    print("Database wiped.")
 
 
 if __name__ == "__main__":

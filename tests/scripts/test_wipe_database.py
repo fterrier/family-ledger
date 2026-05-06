@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from family_ledger.importers.base import BaseImporter, ImportResult
 from family_ledger.models import Account, Base
-from family_ledger.scripts.wipe_database import recreate_importer_table, wipe_database
+from family_ledger.scripts.wipe_database import recreate_all_tables, wipe_database
 from family_ledger.services.importer import list_importers
 
 
@@ -56,11 +56,11 @@ def test_wipe_database_drops_all_tables(engine, session: Session) -> None:
     assert inspect(engine).get_table_names() == []
 
 
-def test_recreate_importer_table_creates_only_importers(engine) -> None:
+def test_recreate_all_tables_restores_full_schema(engine) -> None:
     wipe_database(engine)
-    recreate_importer_table(engine)
+    recreate_all_tables(engine)
 
-    assert inspect(engine).get_table_names() == ["importers"]
+    assert set(inspect(engine).get_table_names()) == set(Base.metadata.tables.keys())
 
 
 def test_list_importers_works_after_wipe(engine, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -68,7 +68,7 @@ def test_list_importers_works_after_wipe(engine, monkeypatch: pytest.MonkeyPatch
     monkeypatch.setattr("family_ledger.importers.registry._importers", {"fake": _FakeImporter})
 
     wipe_database(engine)
-    recreate_importer_table(engine)
+    recreate_all_tables(engine)
 
     with Session(engine) as session:
         result = list_importers(session)

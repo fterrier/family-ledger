@@ -118,18 +118,6 @@ function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, row
   return '=IFERROR(HYPERLINK(' + urlPart + ',"' + escaped + '"),"' + escaped + '")';
 }
 
-function mergeDoctorIssuesIntoRows_(rows, issuesByTarget) {
-  rows.forEach(function(row) {
-    row.issues = formatDoctorIssuesForSheet_(issuesByTarget[row.resource_name] || []);
-  });
-}
-
-function mergeFetchedDoctorIssuesIntoRows_(rows) {
-  const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
-  mergeDoctorIssuesIntoRows_(rows, issuesByTarget);
-  return issuesByTarget;
-}
-
 function refreshVisibleLedgerIssuesFromDoctor_() {
   try {
     refreshDoctorIssueSheets_();
@@ -192,52 +180,10 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
     issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setValues(formulas);
   }
 
-  ['DoctorTransactionIssues', 'DoctorAccountIssues', 'DoctorBalanceAssertionIssues'].forEach(function(oldName) {
-    var old = spreadsheet.getSheetByName(oldName);
-    if (old) { spreadsheet.deleteSheet(old); }
-  });
-
   debugLog_('writeFetchedDoctorIssueSheets', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
       return total + issues.length;
     }, 0),
     targetCount: sortedTargets.length,
-  });
-}
-
-function refreshManagedVisibleSheetIssues_(issuesByTarget) {
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-  FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY.forEach(function(entry) {
-    const sheet = spreadsheet.getSheetByName(entry.visibleSheetName);
-    if (!sheet) {
-      return;
-    }
-    applyDoctorIssuesToVisibleSheet_(sheet, issuesByTarget);
-  });
-}
-
-function applyDoctorIssuesToVisibleSheet_(sheet, issuesByTarget) {
-  const sheetConfig = getSheetConfigByName_(sheet.getName());
-  const existing = readVisibleRowsForIssueRefresh_(sheet, sheetConfig);
-  mergeDoctorIssuesIntoRows_(existing.rows, issuesByTarget);
-  debugLog_('applyDoctorIssuesToVisibleSheet', {
-    sheetName: sheet.getName(),
-    visibleRowCount: existing.rowNumbers.length,
-    issueTargetCount: Object.keys(issuesByTarget).length,
-  });
-  applyDoctorIssuesToRowNumbers_(sheet, sheetConfig, existing.rowNumbers, existing.rows);
-}
-
-function readVisibleRowsForIssueRefresh_(sheet, sheetConfig) {
-  return readVisibleSheetRows_(sheet, sheetConfig);
-}
-
-function applyDoctorIssuesToRowNumbers_(sheet, sheetConfig, rowNumbers, rows) {
-  if (!rowNumbers || rowNumbers.length === 0) {
-    return;
-  }
-  const issuesColumn = getColumnIndex_(sheetConfig, 'issues');
-  rowNumbers.forEach(function(rowNumber, index) {
-    sheet.getRange(rowNumber, issuesColumn).setValue(rows[index].issues || '');
   });
 }

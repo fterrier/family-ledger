@@ -54,12 +54,8 @@ test('syncLedger fetches accounts and transactions once without resetting layout
       skippedExamples: [],
     };
   };
-  sandbox.writeFetchedDoctorIssueSheets_ = function(issuesByTarget) {
-    calls.push({ type: 'writeFetchedDoctorIssueSheets', issueTargetCount: Object.keys(issuesByTarget).length });
-  };
-  sandbox.fetchLedgerDoctorIssuesByTarget_ = function() {
-    calls.push('fetchLedgerDoctorIssuesByTarget');
-    return {};
+  sandbox.refreshDoctorIssueSheets_ = function() {
+    calls.push('refreshDoctorIssueSheets');
   };
   sandbox.writeSheet_ = function(sheet, _headers, rows) {
     calls.push({ type: 'writeSheet', sheet: sheet.name, rowCount: rows.length });
@@ -86,30 +82,12 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
   ]);
   assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');
-  assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeFetchedDoctorIssueSheets'))), [
-    { type: 'writeFetchedDoctorIssueSheets', issueTargetCount: 0 },
-  ]);
+  assert.equal(calls.filter((call) => call === 'refreshDoctorIssueSheets').length, 1);
   assert.equal(calls.filter((call) => call === 'refreshManagedLedgerSheetLayouts').length, 0);
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].title, 'Ledger Sync Complete');
   assert.match(toasts[0].message, /Synced 1 accounts/);
   assert.match(toasts[0].message, /Fetched 1 transactions and synced 1 allocation rows/);
-});
-
-test('syncLedgerAndResetLayout runs sync then layout reset', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  sandbox.syncLedger = function() {
-    calls.push('syncLedger');
-  };
-  sandbox.refreshManagedLedgerSheetLayouts_ = function() {
-    calls.push('refreshManagedLedgerSheetLayouts');
-  };
-
-  sandbox.syncLedgerAndResetLayout();
-
-  assert.deepEqual(calls, ['syncLedger', 'refreshManagedLedgerSheetLayouts']);
 });
 
 test('buildTransactionSyncData_ collects skipped examples and leaves issues empty for VLOOKUP', () => {

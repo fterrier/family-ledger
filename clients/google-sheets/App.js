@@ -1,7 +1,7 @@
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
   const devMenu = ui.createMenu('Developer Settings')
-    .addItem('Sync Ledger', 'syncLedgerAndResetLayout')
+    .addItem('Sync Ledger', 'syncLedger')
     .addItem('Push Active Transaction', 'pushActiveTransaction')
     .addItem('Reset Sheet Layouts', 'resetSheetLayouts')
     .addSeparator()

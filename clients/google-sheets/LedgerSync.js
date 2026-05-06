@@ -29,7 +29,7 @@ function syncLedger() {
 
     const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
-    writeFetchedDoctorIssueSheets_(fetchLedgerDoctorIssuesByTarget_(), getOrCreateSheet_);
+    refreshDoctorIssueSheets_();
 
     SpreadsheetApp.getActiveSpreadsheet().toast(
       buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),
@@ -39,10 +39,6 @@ function syncLedger() {
   });
 }
 
-function syncLedgerAndResetLayout() {
-  syncLedger();
-  refreshManagedLedgerSheetLayouts_();
-}
 
 function ensureEditTriggerInstalled_() {
   const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();

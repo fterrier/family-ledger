@@ -104,32 +104,45 @@ def _normalize_description(lines: list[str]) -> str | None:
     return " ".join(deduped).strip() or None
 
 
+def _join_parts(parts: list[str]) -> str | None:
+    joined = " ".join(part.strip() for part in parts if part and part.strip()).strip()
+    return joined or None
+
+
 def _format_zkb_payee(lines: list[str]) -> str | None:
     deduped = _dedupe_description_lines(lines)
     if not deduped:
         return None
     first_line = deduped[0]
-    descriptor = first_line.strip()
+    if first_line.startswith("Einkauf "):
+        descriptor = first_line.strip()
+        body_parts = []
+        if "," in first_line:
+            descriptor, first_body = first_line.split(",", 1)
+            descriptor = descriptor.strip()
+            if first_body.strip():
+                body_parts.append(_clean_description_line(first_body))
+            body_parts.extend(deduped[1:])
+        elif len(deduped) > 1:
+            body_parts.extend(deduped[1:])
+        else:
+            return _normalize_description(lines)
+        body = _join_parts(body_parts)
+        if not descriptor or not body:
+            return _normalize_description(lines)
+        return body + " - " + descriptor
+    if ":" not in first_line:
+        return _normalize_description(lines)
+    descriptor, first_body = first_line.split(":", 1)
+    descriptor = descriptor.strip()
+    body_prefix = _clean_description_line(first_body)
     body_parts = []
-    if "," in first_line:
-        descriptor, first_body = first_line.split(",", 1)
-        descriptor = descriptor.strip()
-        if first_body.strip():
-            body_parts.append(first_body.strip())
-        body_parts.extend(deduped[1:])
-    elif ":" in first_line:
-        descriptor, first_body = first_line.split(":", 1)
-        descriptor = descriptor.strip()
-        if first_body.strip():
-            body_parts.append(first_body.strip())
-        body_parts.extend(deduped[1:])
-    elif len(deduped) > 1:
-        body_parts.extend(deduped[1:])
-    else:
-        return " ".join(deduped).strip() or None
-    body = " ".join(part for part in body_parts if part).strip()
+    if body_prefix:
+        body_parts.append(body_prefix)
+    body_parts.extend(deduped[1:])
+    body = _join_parts(body_parts)
     if not descriptor or not body:
-        return " ".join(deduped).strip() or None
+        return _normalize_description(lines)
     return body + " - " + descriptor
 
 
@@ -195,7 +208,15 @@ def _extract_currency(
 def _extract_description_lines(transaction_data: dict[str, object]) -> list[str]:
     details = transaction_data.get("transaction_details")
     if isinstance(details, str) and details.strip():
-        return details.splitlines()
+        lines = details.splitlines()
+        if not lines:
+            return []
+        first_line = CONTROL_TOKEN_PATTERN.sub("", lines[0], count=1).strip()
+        normalized_lines = []
+        if first_line:
+            normalized_lines.append(first_line)
+        normalized_lines.extend(lines[1:])
+        return normalized_lines
     extra_details = transaction_data.get("extra_details")
     if isinstance(extra_details, str) and extra_details.strip():
         return [extra_details]

@@ -367,6 +367,14 @@ def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -
 
     normalized = _normalized_transactions(session)
 
+    assert normalized[0]["payee"] == (
+        "Testcard Services SA Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag"
+    )
+    assert normalized[1]["payee"] == "SAMPLE CITY, SPORTS DEPT - Belastung TWINT"
+    assert normalized[2]["payee"] == (
+        "Sample Motors AG Industriestr 42 8000 Musterstadt "
+        "Rechnungsnummer 1000001 Gemaess Ihrem Mobile Banking Auftrag"
+    )
     assert normalized[4]["payee"] == (
         "SAMPLE PHARMACY GMBH 0000 - Einkauf Bank Debit Card Nr. xxxx 4462"
     )
@@ -374,6 +382,48 @@ def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -
         "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462"
     )
     assert normalized[6]["payee"] == "SAMPLE MARKET CITY - Debit Wallet"
+
+
+def test_format_payee_supports_instant_payment_ordering() -> None:
+    payee = mt940_importer._format_payee(  # pyright: ignore[reportAttributeAccessIssue]
+        [
+            "Instant-Zahlung: Sample Lender SA,",
+            "Sample Lender SA",
+            "Case postale 123",
+            "CH-8000 Sample City",
+            "Reference 987",
+            "Gemaess Ihrem Mobile Banking Auftrag",
+        ],
+        "zkb",
+    )
+
+    assert payee == (
+        "Sample Lender SA Case postale 123 CH-8000 Sample City "
+        "Reference 987 Gemaess Ihrem Mobile Banking Auftrag - Instant-Zahlung"
+    )
+
+
+def test_format_payee_supports_twint_ordering() -> None:
+    payee = mt940_importer._format_payee(  # pyright: ignore[reportAttributeAccessIssue]
+        [
+            "Belastung TWINT: STADT ZUERICH, SPORTAMT ZURICH",
+        ],
+        "zkb",
+    )
+
+    assert payee == "STADT ZUERICH, SPORTAMT ZURICH - Belastung TWINT"
+
+
+def test_format_payee_supports_einkauf_ordering() -> None:
+    payee = mt940_importer._format_payee(  # pyright: ignore[reportAttributeAccessIssue]
+        [
+            "Einkauf Bank Debit Card Nr. xxxx 4462, Sample Store 1234",
+            "Sample City",
+        ],
+        "zkb",
+    )
+
+    assert payee == "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462"
 
 
 def _run_fixture(session: Session, fixture: str, config: dict[str, Any]) -> None:

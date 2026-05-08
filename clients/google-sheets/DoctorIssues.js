@@ -69,7 +69,10 @@ function getDoctorTargetConfigForTarget_(target) {
 
 function normalizeLabelCellValue_(v) {
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return Utilities.formatDate(v, 'UTC', 'yyyy-MM-dd');
+    const y = v.getUTCFullYear();
+    const m = String(v.getUTCMonth() + 1).padStart(2, '0');
+    const d = String(v.getUTCDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
   }
   return String(v || '');
 }

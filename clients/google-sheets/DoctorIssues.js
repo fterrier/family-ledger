@@ -164,6 +164,7 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
 
   if (sortedTargets.length > 0) {
     const navigateColumn = FAMILY_LEDGER_SHEET_REGISTRY.issues.columns.navigate.column;
+    const sheetByName = {};
     const formulas = sortedTargets.map(function(target, index) {
       const rowNumber = index + 2;
       const registryEntry = getDoctorTargetConfigForTarget_(target);
@@ -171,11 +172,15 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
       if (!registryEntry) {
         return [labelText];
       }
-      const visibleSheet = spreadsheet.getSheetByName(registryEntry.visibleSheetName);
+      const name = registryEntry.visibleSheetName;
+      if (!(name in sheetByName)) {
+        sheetByName[name] = spreadsheet.getSheetByName(name);
+      }
+      const visibleSheet = sheetByName[name];
       if (!visibleSheet) {
         return [labelText];
       }
-      return [buildNavigateFormula_(labelText, registryEntry.visibleSheetName, String(visibleSheet.getSheetId()), rowNumber)];
+      return [buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber)];
     });
     issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setValues(formulas);
   }

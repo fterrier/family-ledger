@@ -143,6 +143,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       wrapStrategy: 'OVERFLOW',
+      formulaManaged: true,
     },
   }, {
     hiddenHeaders: ['resource_name', 'narration_source', 'last_error'],
@@ -188,6 +189,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       wrapStrategy: 'OVERFLOW',
+      formulaManaged: true,
     },
   }, {
     hiddenHeaders: ['resource_name'],
@@ -214,6 +216,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       wrapStrategy: 'OVERFLOW',
+      formulaManaged: true,
     },
   }, {
     hiddenHeaders: ['resource_name'],
@@ -232,6 +235,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to navigate to the affected row in the source sheet.',
       alignment: 'left',
       wrapStrategy: 'CLIP',
+      formulaManaged: true,
     },
     issue_codes: {
       width: 200,

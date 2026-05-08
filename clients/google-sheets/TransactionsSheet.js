@@ -313,7 +313,9 @@ function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacem
     const existingRow = existingRows[index] || {};
     const replacementRow = replacementRows[index] || {};
     const changedHeaders = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.filter(function(header) {
-      return normalizeSheetCellValue_(existingRow[header]) !== normalizeSheetCellValue_(replacementRow[header]);
+      const layout = FAMILY_LEDGER_SHEET_REGISTRY.transactions.columnLayout[header];
+      return !layout.formulaManaged &&
+        normalizeSheetCellValue_(existingRow[header]) !== normalizeSheetCellValue_(replacementRow[header]);
     });
 
     changedHeaders.forEach(function(header) {
@@ -369,7 +371,6 @@ function comparableTransactionSheetRow_(row) {
     destination_account_name: normalizeSheetCellValue_(row.destination_account_name),
     amount: normalizeSheetCellValue_(row.amount),
     symbol: normalizeSheetCellValue_(row.symbol),
-    issues: normalizeSheetCellValue_(row.issues),
   };
 }
 

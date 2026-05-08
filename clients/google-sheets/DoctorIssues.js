@@ -67,19 +67,28 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
+function normalizeLabelCellValue_(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'UTC', 'yyyy-MM-dd');
+  }
+  return String(v || '');
+}
+
 function buildNavigateLabelLookup_(spreadsheet) {
   const lookup = {};
 
   const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
   if (txSheet && txSheet.getLastRow() > 1) {
     const seen = {};
-    txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
-      const resourceName = row[0];
+    txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 3).getValues().forEach(function(row) {
+      const resourceName = String(row[0] || '');
       if (resourceName && !seen[resourceName]) {
         seen[resourceName] = true;
         const parts = ['Transaction'];
-        if (row[1]) { parts.push(row[1]); }
-        if (row[2]) { parts.push(row[2]); }
+        const date = normalizeLabelCellValue_(row[1]);
+        if (date) { parts.push(date); }
+        const payee = normalizeLabelCellValue_(row[2]);
+        if (payee) { parts.push(payee); }
         lookup[resourceName] = parts.join(' ');
       }
     });
@@ -87,22 +96,25 @@ function buildNavigateLabelLookup_(spreadsheet) {
 
   const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
   if (accSheet && accSheet.getLastRow() > 1) {
-    accSheet.getRange(2, 1, accSheet.getLastRow() - 1, 2).getDisplayValues().forEach(function(row) {
-      const resourceName = row[0];
+    accSheet.getRange(2, 1, accSheet.getLastRow() - 1, 2).getValues().forEach(function(row) {
+      const resourceName = String(row[0] || '');
       if (resourceName) {
-        lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
+        const name = normalizeLabelCellValue_(row[1]);
+        lookup[resourceName] = name ? 'Account ' + name : 'Account';
       }
     });
   }
 
   const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
   if (balSheet && balSheet.getLastRow() > 1) {
-    balSheet.getRange(2, 1, balSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
-      const resourceName = row[0];
+    balSheet.getRange(2, 1, balSheet.getLastRow() - 1, 3).getValues().forEach(function(row) {
+      const resourceName = String(row[0] || '');
       if (resourceName) {
         const parts = ['Balance'];
-        if (row[1]) { parts.push(row[1]); }
-        if (row[2]) { parts.push(row[2]); }
+        const v1 = normalizeLabelCellValue_(row[1]);
+        if (v1) { parts.push(v1); }
+        const v2 = normalizeLabelCellValue_(row[2]);
+        if (v2) { parts.push(v2); }
         lookup[resourceName] = parts.join(' ');
       }
     });

@@ -67,15 +67,17 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
-function buildNavigateLabelLookup_(spreadsheet) {
+function buildNavigateLabelLookup_(spreadsheet, neededTargets) {
   const lookup = {};
+  const targetSet = {};
+  neededTargets.forEach(function(t) { targetSet[t] = true; });
 
   const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
   if (txSheet && txSheet.getLastRow() > 1) {
     const seen = {};
     txSheet.getRange(2, 1, txSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
       const resourceName = row[0];
-      if (resourceName && !seen[resourceName]) {
+      if (resourceName && targetSet[resourceName] && !seen[resourceName]) {
         seen[resourceName] = true;
         const parts = ['Transaction'];
         if (row[1]) { parts.push(row[1]); }
@@ -89,7 +91,7 @@ function buildNavigateLabelLookup_(spreadsheet) {
   if (accSheet && accSheet.getLastRow() > 1) {
     accSheet.getRange(2, 1, accSheet.getLastRow() - 1, 2).getDisplayValues().forEach(function(row) {
       const resourceName = row[0];
-      if (resourceName) {
+      if (resourceName && targetSet[resourceName]) {
         lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
       }
     });
@@ -99,7 +101,7 @@ function buildNavigateLabelLookup_(spreadsheet) {
   if (balSheet && balSheet.getLastRow() > 1) {
     balSheet.getRange(2, 1, balSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
       const resourceName = row[0];
-      if (resourceName) {
+      if (resourceName && targetSet[resourceName]) {
         const parts = ['Balance'];
         if (row[1]) { parts.push(row[1]); }
         if (row[2]) { parts.push(row[2]); }
@@ -147,9 +149,8 @@ function refreshDoctorIssueSheets_() {
 function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
-  const labelLookup = buildNavigateLabelLookup_(spreadsheet);
-
   const sortedTargets = Object.keys(issuesByTarget).sort();
+  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets);
   const dataRows = sortedTargets.map(function(target) {
     const issues = issuesByTarget[target] || [];
     return [

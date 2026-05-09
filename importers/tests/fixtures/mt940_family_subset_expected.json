@@ -1,51 +1,81 @@
 [
   {
     "transaction_date": "2025-07-03",
-    "payee": "Testcard Services SA Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag - eBill",
-    "narration": "",
+    "payee": "Testcard Services SA Musterstrasse 1 CH-8001 Musterstadt Gemaess Ihrem eBanking Auftrag",
+    "narration": null,
     "bank_posting": {
-      "account": "accounts/acc_00000000000000000000000000000001",
-      "amount": "-185.30",
+      "account": "accounts/family",
+      "amount": "-185.3000000000",
       "symbol": "CHF"
     }
   },
   {
     "transaction_date": "2025-07-07",
     "payee": "SAMPLE CITY, SPORTS DEPT - Belastung TWINT",
-    "narration": "",
+    "narration": null,
     "bank_posting": {
-      "account": "accounts/acc_00000000000000000000000000000001",
-      "amount": "-24.50",
+      "account": "accounts/family",
+      "amount": "-24.5000000000",
       "symbol": "CHF"
     }
   },
   {
     "transaction_date": "2025-07-11",
-    "payee": "Sample Motors AG Industriestr 42 8000 Musterstadt",
-    "narration": "Rechnungsnummer 1000001 Gemaess Ihrem Mobile Banking Auftrag - Mobile Banking",
+    "payee": "Sample Motors AG Industriestr 42 8000 Musterstadt Rechnungsnummer 1000001 Gemaess Ihrem Mobile Banking Auftrag",
+    "narration": null,
     "bank_posting": {
-      "account": "accounts/acc_00000000000000000000000000000001",
-      "amount": "-350.00",
+      "account": "accounts/family",
+      "amount": "-350.0000000000",
       "symbol": "CHF"
     }
   },
   {
     "transaction_date": "2025-07-25",
-    "payee": "Salary July 2025",
-    "narration": "",
+    "payee": "ACME SCHWEIZ GMBH 1,MUSTERPLATZ MUSTERSTADT,MUSTERSTADT,8000 CH 00100001 SALARY 202507",
+    "narration": null,
     "bank_posting": {
-      "account": "accounts/acc_00000000000000000000000000000001",
-      "amount": "8500.00",
+      "account": "accounts/family",
+      "amount": "8500.0000000000",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-09-01",
+    "payee": "SAMPLE PHARMACY GMBH 0000 - Einkauf Bank Debit Card Nr. xxxx 4462",
+    "narration": null,
+    "bank_posting": {
+      "account": "accounts/family",
+      "amount": "-22.2000000000",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-09-02",
+    "payee": "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462",
+    "narration": null,
+    "bank_posting": {
+      "account": "accounts/family",
+      "amount": "-104.5000000000",
+      "symbol": "CHF"
+    }
+  },
+  {
+    "transaction_date": "2025-09-05",
+    "payee": "SAMPLE MARKET CITY - Debit Wallet",
+    "narration": null,
+    "bank_posting": {
+      "account": "accounts/family",
+      "amount": "-44.4000000000",
       "symbol": "CHF"
     }
   },
   {
     "transaction_date": "2025-12-31",
-    "payee": "Guthabenzins: Guthabenzins",
-    "narration": "",
+    "payee": "Guthabenzins",
+    "narration": null,
     "bank_posting": {
-      "account": "accounts/acc_00000000000000000000000000000001",
-      "amount": "2.50",
+      "account": "accounts/family",
+      "amount": "2.5000000000",
       "symbol": "CHF"
     }
   }

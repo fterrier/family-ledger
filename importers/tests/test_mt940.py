@@ -698,9 +698,6 @@ def test_mt940_importer_balance_assertion_frequency_monthly(session: Session) ->
     ]
 
 
-@pytest.mark.xfail(
-    strict=False, reason="Formatting parity with current Family imports under review"
-)
 def test_mt940_importer_diff_matches_current_family_subset_fixture(session: Session) -> None:
     account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
     _run(
@@ -709,7 +706,8 @@ def test_mt940_importer_diff_matches_current_family_subset_fixture(session: Sess
             "account_mappings": {
                 "CH5612300000000100111": account_resource,
                 "CH4512300000000200222": account_resource,
-            }
+            },
+            "payee_format": "zkb",
         },
     )
 

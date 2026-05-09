@@ -7,7 +7,7 @@ function getQuickFilterSidebarData() {
   const props = PropertiesService.getDocumentProperties();
   return {
     years: getTransactionFilterYears(),
-    accountNames: getTransactionAccountNames(),
+    accountNames: getQuickFilterAccountNames(),
     from: props.getProperty('QUICK_FILTER_FROM') || '',
     to: props.getProperty('QUICK_FILTER_TO') || '',
     accountPrefix: props.getProperty('QUICK_FILTER_ACCOUNT_PREFIX') || '',
@@ -30,6 +30,17 @@ function getTransactionFilterYears() {
   return Object.keys(seen).map(Number).sort(function(a, b) { return b - a; });
 }
 
+function getQuickFilterAccountNames() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet()
+    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
+  if (!sheet || sheet.getLastRow() <= 1) return [];
+  const nameCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.accounts, 'account_name');
+  const values = sheet.getRange(2, nameCol, sheet.getLastRow() - 1, 1).getValues();
+  return values.map(function(row) { return row[0]; })
+    .filter(Boolean)
+    .sort();
+}
+
 function ensureTransactionSheetFilter_(sheet) {
   const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
   ensureSheetCapacityForConfig_(sheet, sheetConfig);
@@ -42,7 +53,23 @@ function ensureTransactionSheetFilter_(sheet) {
   }
   const filter = sheet.getRange(1, 1, lastRow, sheetConfig.headers.length).createFilter();
   restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader);
-  reapplyPersistedTransactionQuickFilters_();
+  reapplyPersistedQuickFilters_();
+}
+
+function ensureBalancesSheetFilter_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+  const existing = sheet.getFilter();
+  if (existing) existing.remove();
+  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length).createFilter();
+}
+
+function ensureAccountsSheetFilter_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return;
+  const existing = sheet.getFilter();
+  if (existing) existing.remove();
+  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers.length).createFilter();
 }
 
 function snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, filter) {
@@ -92,115 +119,145 @@ function readSheetHeaderRowValues_(sheet, sheetConfig, columnCount) {
   return sheet.getRange(1, 1, 1, maxColumnCount).getValues()[0];
 }
 
-function reapplyPersistedTransactionQuickFilters_() {
+function reapplyPersistedQuickFilters_() {
   const props = PropertiesService.getDocumentProperties();
   const from = props.getProperty('QUICK_FILTER_FROM') || '';
   const to = props.getProperty('QUICK_FILTER_TO') || '';
   const accountPrefix = props.getProperty('QUICK_FILTER_ACCOUNT_PREFIX') || '';
 
   if (from && to) {
-    applyTransactionQuickFilter(from, to);
+    applyQuickDateFilter(from, to);
   }
   if (accountPrefix) {
-    applyTransactionAccountFilter(accountPrefix);
+    applyQuickAccountFilter(accountPrefix);
   }
 }
 
-function applyTransactionQuickFilter(from, to) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (!sheet) throw new Error('Transactions sheet not found.');
+function buildQuickFilterDateFormula_(sheetConfig, header, from, to) {
+  const col = getColumnLetter_(sheetConfig, header);
+  const fromKey = parseInt(from.slice(0, 4), 10) * 100 + parseInt(from.slice(5), 10);
+  const toKey   = parseInt(to.slice(0, 4),   10) * 100 + parseInt(to.slice(5),   10);
+  const expr = 'YEAR(' + col + '2)*100+MONTH(' + col + '2)';
+  return '=AND(' + expr + '>=' + fromKey + ',' + expr + '<=' + toKey + ')';
+}
+
+function buildQuickFilterAccountFormula_(sheetConfig, accountHeaders, prefix) {
+  if (prefix === '__blank__') {
+    if (accountHeaders.length < 2) return null;
+    return '=' + getColumnLetter_(sheetConfig, accountHeaders[1]) + '2=""';
+  }
+  const cols = accountHeaders.map(function(h) { return getColumnLetter_(sheetConfig, h); });
+  if (prefix.endsWith(']')) {
+    const n = prefix.length + 1;
+    const q = '"' + prefix + ' "';
+    return '=OR(' + cols.map(function(c) { return 'LEFT(' + c + '2,' + n + ')=' + q; }).join(',') + ')';
+  }
+  const n  = prefix.length + 3;
+  const eq = '"' + prefix + '"';
+  const pq = '"' + prefix + ' - "';
+  const parts = [];
+  cols.forEach(function(c) {
+    parts.push(c + '2=' + eq);
+    parts.push('LEFT(' + c + '2,' + n + ')=' + pq);
+  });
+  return '=OR(' + parts.join(',') + ')';
+}
+
+function applyQuickFilterCriteria_(sheet, sheetConfig, header, formula) {
+  if (!sheet || !formula) return;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
   let filter = sheet.getFilter();
   if (!filter) {
-    filter = sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length).createFilter();
+    filter = sheet.getRange(1, 1, lastRow, sheetConfig.headers.length).createFilter();
   }
-  const dateCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date');
-  const col = getColumnLetter_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date');
-  const fromParts = from.split('-');
-  const toParts = to.split('-');
-  const fromKey = parseInt(fromParts[0], 10) * 100 + parseInt(fromParts[1], 10);
-  const toKey = parseInt(toParts[0], 10) * 100 + parseInt(toParts[1], 10);
-  const expr = 'YEAR(' + col + '2)*100+MONTH(' + col + '2)';
-  const formula = '=AND(' + expr + '>=' + fromKey + ',' + expr + '<=' + toKey + ')';
   filter.setColumnFilterCriteria(
-    dateCol,
+    getColumnIndex_(sheetConfig, header),
     SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()
+  );
+}
+
+function removeQuickFilterCriteria_(sheet, sheetConfig, header) {
+  if (!sheet) return;
+  const filter = sheet.getFilter();
+  if (filter) filter.removeColumnFilterCriteria(getColumnIndex_(sheetConfig, header));
+}
+
+function applyQuickDateFilter(from, to) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions),
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date',
+    buildQuickFilterDateFormula_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date', from, to)
+  );
+  applyQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances),
+    FAMILY_LEDGER_SHEET_REGISTRY.balances, 'assertion_date',
+    buildQuickFilterDateFormula_(FAMILY_LEDGER_SHEET_REGISTRY.balances, 'assertion_date', from, to)
   );
   const props = PropertiesService.getDocumentProperties();
   props.setProperty('QUICK_FILTER_FROM', from);
   props.setProperty('QUICK_FILTER_TO', to);
 }
 
-function clearTransactionDateFilter() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (!sheet) throw new Error('Transactions sheet not found.');
-  const filter = sheet.getFilter();
-  if (filter) {
-    filter.removeColumnFilterCriteria(getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date'));
-  }
+function clearQuickDateFilter() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  removeQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions),
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date'
+  );
+  removeQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances),
+    FAMILY_LEDGER_SHEET_REGISTRY.balances, 'assertion_date'
+  );
   const props = PropertiesService.getDocumentProperties();
   props.deleteProperty('QUICK_FILTER_FROM');
   props.deleteProperty('QUICK_FILTER_TO');
 }
 
-function clearTransactionQuickFilter() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (!sheet) throw new Error('Transactions sheet not found.');
-  const filter = sheet.getFilter();
-  if (filter) {
-    filter.removeColumnFilterCriteria(getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date'));
-    filter.removeColumnFilterCriteria(getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name'));
-    filter.removeColumnFilterCriteria(getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'destination_account_name'));
-  }
-  const props = PropertiesService.getDocumentProperties();
-  props.deleteProperty('QUICK_FILTER_FROM');
-  props.deleteProperty('QUICK_FILTER_TO');
-  props.deleteProperty('QUICK_FILTER_ACCOUNT_PREFIX');
-}
-
-function applyTransactionAccountFilter(prefix) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (!sheet) throw new Error('Transactions sheet not found.');
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return;
-  let filter = sheet.getFilter();
-  if (!filter) {
-    filter = sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length).createFilter();
-  }
-  const srcCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name');
-  const dstCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'destination_account_name');
-  const s = getColumnLetter_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name');
-  const d = getColumnLetter_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'destination_account_name');
-  let formula;
-  if (prefix === '__blank__') {
-    formula = '=' + d + '2=""';
-  } else if (prefix.endsWith(']')) {
-    const n = prefix.length + 1;
-    const q = '"' + prefix + ' "';
-    formula = '=OR(LEFT(' + s + '2,' + n + ')=' + q + ',LEFT(' + d + '2,' + n + ')=' + q + ')';
-  } else {
-    const n = prefix.length + 3;
-    const eq = '"' + prefix + '"';
-    const pq = '"' + prefix + ' - "';
-    formula = '=OR(' + s + '2=' + eq + ',LEFT(' + s + '2,' + n + ')=' + pq + ',' + d + '2=' + eq + ',LEFT(' + d + '2,' + n + ')=' + pq + ')';
-  }
-  filter.setColumnFilterCriteria(
-    srcCol,
-    SpreadsheetApp.newFilterCriteria().whenFormulaSatisfied(formula).build()
+function applyQuickAccountFilter(prefix) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  applyQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions),
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name',
+    buildQuickFilterAccountFormula_(FAMILY_LEDGER_SHEET_REGISTRY.transactions,
+      ['source_account_name', 'destination_account_name'], prefix)
+  );
+  applyQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances),
+    FAMILY_LEDGER_SHEET_REGISTRY.balances, 'account',
+    buildQuickFilterAccountFormula_(FAMILY_LEDGER_SHEET_REGISTRY.balances, ['account'], prefix)
+  );
+  applyQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts),
+    FAMILY_LEDGER_SHEET_REGISTRY.accounts, 'account_name',
+    buildQuickFilterAccountFormula_(FAMILY_LEDGER_SHEET_REGISTRY.accounts, ['account_name'], prefix)
   );
   PropertiesService.getDocumentProperties().setProperty('QUICK_FILTER_ACCOUNT_PREFIX', prefix);
 }
 
-function clearTransactionAccountFilter() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (!sheet) throw new Error('Transactions sheet not found.');
-  const filter = sheet.getFilter();
-  if (filter) filter.removeColumnFilterCriteria(getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name'));
+function clearQuickAccountFilter() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  removeQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions),
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'source_account_name'
+  );
+  removeQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances),
+    FAMILY_LEDGER_SHEET_REGISTRY.balances, 'account'
+  );
+  removeQuickFilterCriteria_(
+    ss.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts),
+    FAMILY_LEDGER_SHEET_REGISTRY.accounts, 'account_name'
+  );
   PropertiesService.getDocumentProperties().deleteProperty('QUICK_FILTER_ACCOUNT_PREFIX');
+}
+
+function clearQuickFilter() {
+  clearQuickDateFilter();
+  clearQuickAccountFilter();
+  removeQuickFilterCriteria_(
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions),
+    FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'destination_account_name'
+  );
 }

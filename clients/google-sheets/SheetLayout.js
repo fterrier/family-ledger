@@ -33,6 +33,7 @@ function refreshManagedLedgerSheetLayouts_() {
   if (accSheet) {
     if (perf) perf.start('sheet.layout_accounts');
     applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
+    ensureAccountsSheetFilter_(accSheet);
     if (perf) perf.end('sheet.layout_accounts');
   }
 
@@ -40,6 +41,7 @@ function refreshManagedLedgerSheetLayouts_() {
   if (balSheet) {
     if (perf) perf.start('sheet.layout_balances');
     applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
+    ensureBalancesSheetFilter_(balSheet);
     if (perf) perf.end('sheet.layout_balances');
   }
 

@@ -63,18 +63,6 @@ function resolveAccountResourceName_(accountNameMap, accountName) {
   return resourceName;
 }
 
-function getTransactionAccountNames() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
-  if (!sheet || sheet.getLastRow() <= 1) return [];
-  const values = sheet.getRange(2, 2, sheet.getLastRow() - 1, 1).getValues();
-  const names = [];
-  values.forEach(function(row) {
-    if (row[0]) names.push(String(row[0]));
-  });
-  names.sort();
-  return names;
-}
 
 function ensureAccountIssueFormulas_(sheet, rowCount) {
   ensureManagedSheetIssueFormulas_(

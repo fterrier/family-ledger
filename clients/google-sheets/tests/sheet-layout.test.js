@@ -244,6 +244,9 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   sandbox.ensureTransactionSheetFilter_ = function(sheet) {
     calls.push({ type: 'filter', sheet: sheet.name });
   };
+  sandbox.ensureAccountsSheetFilter_ = function(sheet) {
+    calls.push({ type: 'filter', sheet: sheet.name });
+  };
 
   sandbox.refreshManagedLedgerSheetLayouts_();
 
@@ -252,6 +255,7 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
     { type: 'validation', sheet: 'Transactions' },
     { type: 'filter', sheet: 'Transactions' },
     { type: 'layout', sheet: 'Accounts' },
+    { type: 'filter', sheet: 'Accounts' },
   ]);
 });
 

@@ -217,7 +217,11 @@ test('ensureTransactionSheetFilter_ reapplies persisted quick filters after rebu
   };
 
   sandbox.SpreadsheetApp.getActiveSpreadsheet = function() {
-    return { getSheetByName() { return sheet; } };
+    return {
+      getSheetByName(name) {
+        return name === 'Transactions' ? sheet : null;
+      },
+    };
   };
 
   sandbox.ensureTransactionSheetFilter_(sheet);
@@ -263,7 +267,7 @@ test('applyTransactionQuickFilter sets range formula for full year', () => {
     },
   });
 
-  sandbox.applyTransactionQuickFilter('2026-01', '2026-12');
+  sandbox.applyQuickDateFilter('2026-01', '2026-12');
 
   assert.equal(filterCriteria[0].col, 2);
   assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)*100+MONTH(B2)>=202601,YEAR(B2)*100+MONTH(B2)<=202612)');
@@ -282,7 +286,7 @@ test('applyTransactionQuickFilter sets range formula for custom date range', () 
     },
   });
 
-  sandbox.applyTransactionQuickFilter('2025-03', '2026-06');
+  sandbox.applyQuickDateFilter('2025-03', '2026-06');
 
   assert.equal(filterCriteria[0].criteria.formula, '=AND(YEAR(B2)*100+MONTH(B2)>=202503,YEAR(B2)*100+MONTH(B2)<=202606)');
 });
@@ -300,7 +304,7 @@ test('clearTransactionQuickFilter removes filter criteria from date, source, and
     },
   });
 
-  sandbox.clearTransactionQuickFilter();
+  sandbox.clearQuickFilter();
 
   assert.deepEqual(removed, [2, 6, 7]);
 });
@@ -322,7 +326,7 @@ test('clearTransactionDateFilter removes only date criteria and preserves accoun
   documentProperties.set('QUICK_FILTER_TO', '2025-12');
   documentProperties.set('QUICK_FILTER_ACCOUNT_PREFIX', '[X]');
 
-  sandbox.clearTransactionDateFilter();
+  sandbox.clearQuickDateFilter();
 
   assert.deepEqual(removed, [2]);
   assert.equal(documentProperties.has('QUICK_FILTER_FROM'), false);
@@ -343,7 +347,7 @@ test('getTransactionAccountNames returns sorted display names from Accounts shee
     },
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.getTransactionAccountNames())), ['[A] Bank - Checking', '[X] Food - Groceries', '[X] Housing']);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.getQuickFilterAccountNames())), ['[A] Bank - Checking', '[X] Food - Groceries', '[X] Housing']);
 });
 
 test('applyTransactionAccountFilter sets OR formula covering both account columns for type-level prefix', () => {
@@ -359,7 +363,7 @@ test('applyTransactionAccountFilter sets OR formula covering both account column
     },
   });
 
-  sandbox.applyTransactionAccountFilter('[X]');
+  sandbox.applyQuickAccountFilter('[X]');
 
   assert.equal(filterCriteria[0].col, 6);
   assert.equal(filterCriteria[0].criteria.formula, '=OR(LEFT(F2,4)="[X] ",LEFT(G2,4)="[X] ")');
@@ -378,7 +382,7 @@ test('applyTransactionAccountFilter sets OR formula covering both account column
     },
   });
 
-  sandbox.applyTransactionAccountFilter('[X] Food');
+  sandbox.applyQuickAccountFilter('[X] Food');
 
   assert.equal(filterCriteria[0].col, 6);
   assert.equal(filterCriteria[0].criteria.formula, '=OR(F2="[X] Food",LEFT(F2,11)="[X] Food - ",G2="[X] Food",LEFT(G2,11)="[X] Food - ")');
@@ -397,7 +401,7 @@ test('applyTransactionAccountFilter sets blank destination formula', () => {
     },
   });
 
-  sandbox.applyTransactionAccountFilter('__blank__');
+  sandbox.applyQuickAccountFilter('__blank__');
 
   assert.equal(filterCriteria[0].col, 6);
   assert.equal(filterCriteria[0].criteria.formula, '=G2=""');
@@ -413,7 +417,7 @@ test('applyTransactionAccountFilter persists prefix in document properties', () 
     },
   });
 
-  sandbox.applyTransactionAccountFilter('[X]');
+  sandbox.applyQuickAccountFilter('[X]');
 
   assert.equal(documentProperties.get('QUICK_FILTER_ACCOUNT_PREFIX'), '[X]');
 });
@@ -431,7 +435,7 @@ test('clearTransactionAccountFilter removes source_account_name filter criteria'
     },
   });
 
-  sandbox.clearTransactionAccountFilter();
+  sandbox.clearQuickAccountFilter();
 
   assert.deepEqual(removed, [6]);
 });
@@ -446,7 +450,7 @@ test('applyTransactionQuickFilter persists from/to in document properties', () =
     },
   });
 
-  sandbox.applyTransactionQuickFilter('2025-03', '2025-12');
+  sandbox.applyQuickDateFilter('2025-03', '2025-12');
 
   assert.equal(documentProperties.get('QUICK_FILTER_FROM'), '2025-03');
   assert.equal(documentProperties.get('QUICK_FILTER_TO'), '2025-12');
@@ -466,11 +470,188 @@ test('clearTransactionQuickFilter clears all persisted filter state', () => {
   documentProperties.set('QUICK_FILTER_TO', '2025-12');
   documentProperties.set('QUICK_FILTER_ACCOUNT_PREFIX', '[X]');
 
-  sandbox.clearTransactionQuickFilter();
+  sandbox.clearQuickFilter();
 
   assert.equal(documentProperties.has('QUICK_FILTER_FROM'), false);
   assert.equal(documentProperties.has('QUICK_FILTER_TO'), false);
   assert.equal(documentProperties.has('QUICK_FILTER_ACCOUNT_PREFIX'), false);
+});
+
+test('applyQuickDateFilter also filters Balances assertion_date column', () => {
+  const txCriteria = [];
+  const balCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { txCriteria.push({ col, c }); } }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { balCriteria.push({ col, c }); } }; },
+      },
+    },
+  });
+
+  sandbox.applyQuickDateFilter('2026-01', '2026-12');
+
+  assert.equal(txCriteria.length, 1);
+  assert.equal(txCriteria[0].col, 2); // transaction_date
+  assert.equal(balCriteria.length, 1);
+  assert.equal(balCriteria[0].col, 2); // assertion_date
+  assert.ok(balCriteria[0].c.formula.includes('202601'));
+});
+
+test('clearQuickDateFilter removes date filter from Balances', () => {
+  const txRemoved = [];
+  const balRemoved = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { txRemoved.push(col); } }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { balRemoved.push(col); } }; },
+      },
+    },
+  });
+
+  sandbox.clearQuickDateFilter();
+
+  assert.deepEqual(txRemoved, [2]); // transaction_date
+  assert.deepEqual(balRemoved, [2]); // assertion_date
+});
+
+test('applyQuickAccountFilter also filters Balances account column', () => {
+  const balCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { balCriteria.push({ col, c }); } }; },
+      },
+      Accounts: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+      },
+    },
+  });
+
+  sandbox.applyQuickAccountFilter('[X]');
+
+  assert.equal(balCriteria.length, 1);
+  assert.equal(balCriteria[0].col, 3); // account
+  assert.ok(balCriteria[0].c.formula.includes('"[X] "'));
+});
+
+test('applyQuickAccountFilter also filters Accounts account_name column', () => {
+  const accCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+      },
+      Accounts: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { accCriteria.push({ col, c }); } }; },
+      },
+    },
+  });
+
+  sandbox.applyQuickAccountFilter('[X] Food');
+
+  assert.equal(accCriteria.length, 1);
+  assert.equal(accCriteria[0].col, 2); // account_name
+  assert.ok(accCriteria[0].c.formula.includes('"[X] Food"'));
+});
+
+test('applyQuickAccountFilter skips __blank__ for single-column sheets', () => {
+  const balCriteria = [];
+  const accCriteria = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria() {} }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { balCriteria.push({ col, c }); } }; },
+      },
+      Accounts: {
+        getLastRow() { return 5; },
+        getFilter() { return { setColumnFilterCriteria(col, c) { accCriteria.push({ col, c }); } }; },
+      },
+    },
+  });
+
+  sandbox.applyQuickAccountFilter('__blank__');
+
+  assert.equal(balCriteria.length, 0);
+  assert.equal(accCriteria.length, 0);
+});
+
+test('clearQuickAccountFilter removes filter from Balances and Accounts', () => {
+  const balRemoved = [];
+  const accRemoved = [];
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria() {} }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { balRemoved.push(col); } }; },
+      },
+      Accounts: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { accRemoved.push(col); } }; },
+      },
+    },
+  });
+
+  sandbox.clearQuickAccountFilter();
+
+  assert.deepEqual(balRemoved, [3]); // account
+  assert.deepEqual(accRemoved, [2]); // account_name
+});
+
+test('clearQuickFilter removes date and account criteria from all sheets', () => {
+  const removed = { Transactions: [], Balances: [], Accounts: [] };
+  const { sandbox } = loadCode({
+    sheetsByName: {
+      Transactions: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { removed.Transactions.push(col); } }; },
+      },
+      Balances: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { removed.Balances.push(col); } }; },
+      },
+      Accounts: {
+        getLastRow() { return 5; },
+        getFilter() { return { removeColumnFilterCriteria(col) { removed.Accounts.push(col); } }; },
+      },
+    },
+  });
+
+  sandbox.clearQuickFilter();
+
+  assert.deepEqual(removed.Transactions.sort((a, b) => a - b), [2, 6, 7]); // date, source, destination
+  assert.deepEqual(removed.Balances.sort((a, b) => a - b), [2, 3]); // assertion_date, account
+  assert.deepEqual(removed.Accounts, [2]); // account_name
 });
 
 test('getQuickFilterSidebarData returns combined years, account names, and persisted filter state', () => {

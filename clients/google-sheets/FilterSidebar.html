@@ -307,7 +307,7 @@
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
         .withFailureHandler(showError)
-        .applyTransactionQuickFilter(from, to);
+        .applyQuickDateFilter(from, to);
     }
 
     function clearDateServerFilter() {
@@ -315,7 +315,7 @@
       google.script.run
         .withSuccessHandler(function() { setStatus('', false); })
         .withFailureHandler(showError)
-        .clearTransactionDateFilter();
+        .clearQuickDateFilter();
     }
 
     // --- Account controller ---
@@ -368,11 +368,11 @@
       function applyAccountFilter() {
         if (!prefixes.length) {
           google.script.run.withSuccessHandler(done).withFailureHandler(showError)
-            .clearTransactionAccountFilter();
+            .clearQuickAccountFilter();
         } else {
           setStatus('Applying…', false);
           google.script.run.withSuccessHandler(done).withFailureHandler(showError)
-            .applyTransactionAccountFilter(buildPrefix(prefixes));
+            .applyQuickAccountFilter(buildPrefix(prefixes));
         }
       }
 
@@ -447,7 +447,7 @@
       refreshSummaries();
       setStatus('Clearing…', false);
       google.script.run.withSuccessHandler(done).withFailureHandler(showError)
-        .clearTransactionQuickFilter();
+        .clearQuickFilter();
     }
 
     function done() { setStatus('', false); }

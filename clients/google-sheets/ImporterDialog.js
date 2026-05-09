@@ -10,7 +10,13 @@ function getImportersForDialog() {
 }
 
 function getAccountsForDialog() {
-  return fetchFamilyLedgerPagedResource_('/accounts?page_size=500', 'accounts');
+  const accounts = fetchFamilyLedgerPagedResource_('/accounts?page_size=500', 'accounts');
+  return accounts.map(function(account) {
+    return {
+      name: account.name,
+      display_name: formatAccountDisplayName_(account.account_name),
+    };
+  });
 }
 
 function runImportFromDialog(importerName, base64Content, mimeType, fileName, configOverride) {

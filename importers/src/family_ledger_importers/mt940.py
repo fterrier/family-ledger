@@ -5,7 +5,7 @@ import json
 import re
 from collections import Counter
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
+    BalanceAssertionCreate,
     CommodityCreate,
     ImportMetadata,
     MoneyValue,
@@ -42,6 +43,16 @@ class ParsedStatementEntry:
     transaction_code: str | None
     ref: str | None
     description_lines: list[str]
+
+
+@dataclass(frozen=True)
+class ParsedStatementBalance:
+    statement_reference: str
+    account_iban: str
+    statement_number: str
+    closing_balance_date: date
+    closing_amount: Decimal
+    closing_currency: str
 
 
 def _split_mt940_messages(text: str) -> list[str]:
@@ -205,6 +216,19 @@ def _extract_currency(
     raise ValidationError(code="invalid_mt940", message="MT940 transaction currency is missing")
 
 
+def _extract_balance_amount(value: object) -> Decimal | None:
+    amount = getattr(value, "amount", None)
+    if amount is None:
+        return None
+    return getattr(amount, "amount", None)
+
+
+def _extract_balance_currency(value: object) -> str | None:
+    amount = getattr(value, "amount", None)
+    currency = getattr(amount, "currency", None)
+    return currency if isinstance(currency, str) and currency else None
+
+
 def _extract_description_lines(transaction_data: dict[str, object]) -> list[str]:
     details = transaction_data.get("transaction_details")
     if isinstance(details, str) and details.strip():
@@ -223,13 +247,33 @@ def _extract_description_lines(transaction_data: dict[str, object]) -> list[str]
     return []
 
 
-def _parse_mt940_text(text: str) -> list[ParsedStatementEntry]:
+def _parse_mt940_text(text: str) -> tuple[list[ParsedStatementEntry], list[ParsedStatementBalance]]:
     entries: list[ParsedStatementEntry] = []
+    balances: list[ParsedStatementBalance] = []
     for message in _split_mt940_messages(text):
         parsed = mt940.parse(message)
         statement_reference = str(parsed.data.get("transaction_reference") or "").strip()
         account_iban = str(parsed.data.get("account_identification") or "").strip()
         statement_number = _statement_number(parsed.data)
+        closing_balance = parsed.data.get("final_closing_balance")
+        closing_balance_date = getattr(closing_balance, "date", None)
+        closing_amount = _extract_balance_amount(closing_balance)
+        closing_currency = _extract_balance_currency(closing_balance)
+        if (
+            isinstance(closing_balance_date, date)
+            and isinstance(closing_amount, Decimal)
+            and isinstance(closing_currency, str)
+        ):
+            balances.append(
+                ParsedStatementBalance(
+                    statement_reference=statement_reference,
+                    account_iban=account_iban,
+                    statement_number=statement_number,
+                    closing_balance_date=closing_balance_date,
+                    closing_amount=closing_amount,
+                    closing_currency=closing_currency,
+                )
+            )
 
         for transaction in parsed:
             transaction_data = transaction.data
@@ -260,7 +304,7 @@ def _parse_mt940_text(text: str) -> list[ParsedStatementEntry]:
                     description_lines=_extract_description_lines(transaction_data),
                 )
             )
-    return entries
+    return entries, balances
 
 
 def _load_account_name_set(session: Session) -> set[str]:
@@ -323,6 +367,68 @@ def _compute_entry_source_native_id(entry: ParsedStatementEntry, occurrence: int
     return f"mt940:fp:{digest.hexdigest()}"
 
 
+def _build_balance_assertion_payload(
+    balance: ParsedStatementBalance, account_resource_name: str
+) -> BalanceAssertionCreate:
+    return BalanceAssertionCreate(
+        assertion_date=balance.closing_balance_date + timedelta(days=1),
+        account=account_resource_name,
+        amount=MoneyValue(amount=balance.closing_amount, symbol=balance.closing_currency),
+        entity_metadata={
+            "mt940": {
+                "statement_reference": balance.statement_reference,
+                "account_iban": balance.account_iban,
+                "statement_number": balance.statement_number,
+                "closing_balance_date": balance.closing_balance_date.isoformat(),
+            }
+        },
+    )
+
+
+def _select_statement_balances(
+    balances: list[ParsedStatementBalance], frequency: str
+) -> list[ParsedStatementBalance]:
+    if frequency == "none":
+        return []
+    if frequency == "daily":
+        return balances
+
+    selected: list[ParsedStatementBalance] = []
+    seen_buckets: set[tuple[object, ...]] = set()
+    sorted_balances = sorted(
+        balances,
+        key=lambda balance: (
+            balance.account_iban,
+            balance.closing_balance_date,
+            balance.statement_number,
+            balance.statement_reference,
+        ),
+    )
+    for balance in sorted_balances:
+        if frequency == "weekly":
+            bucket = (
+                balance.account_iban,
+                balance.closing_balance_date.isocalendar().year,
+                balance.closing_balance_date.isocalendar().week,
+            )
+        elif frequency == "monthly":
+            bucket = (
+                balance.account_iban,
+                balance.closing_balance_date.year,
+                balance.closing_balance_date.month,
+            )
+        else:
+            raise ValidationError(
+                code="invalid_config",
+                message=f"Unsupported balance_assertion_frequency: {frequency}",
+            )
+        if bucket in seen_buckets:
+            continue
+        seen_buckets.add(bucket)
+        selected.append(balance)
+    return selected
+
+
 def _build_transaction_payload(
     entry: ParsedStatementEntry,
     account_resource_name: str,
@@ -382,6 +488,16 @@ class Mt940Importer(BaseImporter):
                         "comma-based reordering for ZKB-style descriptions."
                     ),
                 },
+                "balance_assertion_frequency": {
+                    "type": "string",
+                    "enum": ["none", "daily", "weekly", "monthly"],
+                    "default": "none",
+                    "description": (
+                        "Import MT940 closing balances as balance assertions at the "
+                        "selected frequency. Weekly uses the first statement in each ISO week; "
+                        "monthly uses the first statement in each month."
+                    ),
+                },
             },
             "required": ["account_mappings"],
             "additionalProperties": False,
@@ -389,15 +505,19 @@ class Mt940Importer(BaseImporter):
 
     def execute(self, session: Session, file_data: bytes, config: dict[str, Any]) -> ImportResult:
         text = file_data.decode("utf-8")
-        entries = _parse_mt940_text(text)
+        entries, balances = _parse_mt940_text(text)
         if not entries:
             raise ValidationError(code="invalid_mt940", message="No MT940 statements found")
 
         account_mappings = _validate_account_mappings(session, config, entries)
         payee_format = str(config.get("payee_format") or "generic")
+        balance_assertion_frequency = str(config.get("balance_assertion_frequency") or "none")
         result = ImportResult()
 
-        for symbol in sorted({entry.currency for entry in entries if entry.currency}):
+        for symbol in sorted(
+            {entry.currency for entry in entries if entry.currency}
+            | {balance.closing_currency for balance in balances if balance.closing_currency}
+        ):
             if _ensure_commodity(session, symbol):
                 result.entities.setdefault("commodity", EntityCounts()).created += 1
             else:
@@ -424,5 +544,15 @@ class Mt940Importer(BaseImporter):
                 result.entities.setdefault("transaction", EntityCounts()).created += 1
             except ConflictError:
                 result.entities.setdefault("transaction", EntityCounts()).duplicate += 1
+
+        for balance in _select_statement_balances(balances, balance_assertion_frequency):
+            payload = _build_balance_assertion_payload(
+                balance, account_mappings[balance.account_iban]
+            )
+            try:
+                ledger_service.create_balance_assertion(session, payload)
+                result.entities.setdefault("balance_assertion", EntityCounts()).created += 1
+            except ConflictError:
+                result.entities.setdefault("balance_assertion", EntityCounts()).duplicate += 1
 
         return result

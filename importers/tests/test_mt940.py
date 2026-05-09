@@ -4,14 +4,14 @@ import json
 from collections.abc import Generator
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from family_ledger_importers import mt940 as mt940_importer
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, selectinload
 
-from family_ledger.models import Account, Base, Commodity, Posting, Transaction
+from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Posting, Transaction
 from family_ledger.services.errors import ValidationError
 
 MT940_FIXTURE = """{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
@@ -147,6 +147,56 @@ Same description
 -}
 """
 
+BALANCE_FREQUENCY_FIXTURE = """{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:B00000001A1A0001
+:25:CH5612300000000100111
+:28C:201/1
+:60F:C250701CHF1000,00
+:61:250701D10,NTRFNONREF//BF001
+Day one
+:86:?ZKB:2200
+Day one
+:62F:C250701CHF990,00
+:64:C250701CHF990,00
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:B00000002A2A0002
+:25:CH5612300000000100111
+:28C:202/1
+:60F:C250702CHF990,00
+:61:250702D20,NTRFNONREF//BF002
+Day two
+:86:?ZKB:2200
+Day two
+:62F:C250702CHF970,00
+:64:C250702CHF970,00
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:B00000003A3A0003
+:25:CH5612300000000100111
+:28C:203/1
+:60F:C250708CHF970,00
+:61:250708D30,NTRFNONREF//BF003
+Next week
+:86:?ZKB:2200
+Next week
+:62F:C250708CHF940,00
+:64:C250708CHF940,00
+-}
+{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
+:20:B00000004A4A0004
+:25:CH5612300000000100111
+:28C:204/1
+:60F:C250801CHF940,00
+:61:250801D40,NTRFNONREF//BF004
+Next month
+:86:?ZKB:2200
+Next month
+:62F:C250801CHF900,00
+:64:C250801CHF900,00
+-}
+"""
+
 
 @pytest.fixture
 def session() -> Generator[Session, None, None]:
@@ -207,6 +257,24 @@ def _normalized_transactions(session: Session) -> list[dict[str, object]]:
     return normalized
 
 
+def _normalized_balance_assertions(session: Session) -> list[dict[str, object]]:
+    assertions = session.scalars(
+        select(BalanceAssertion)
+        .options(selectinload(BalanceAssertion.account))
+        .order_by(BalanceAssertion.assertion_date, BalanceAssertion.id)
+    ).all()
+    return [
+        {
+            "assertion_date": assertion.assertion_date.isoformat(),
+            "account": assertion.account.name,
+            "amount": str(assertion.amount),
+            "symbol": assertion.symbol,
+            "entity_metadata": assertion.entity_metadata,
+        }
+        for assertion in assertions
+    ]
+
+
 def _diff_projection(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     projected: list[dict[str, object]] = []
     for row in rows:
@@ -226,6 +294,7 @@ def test_mt940_importer_schema_requires_account_mappings() -> None:
 
     assert schema["required"] == ["account_mappings"]
     assert schema["properties"]["payee_format"]["default"] == "generic"
+    assert schema["properties"]["balance_assertion_frequency"]["default"] == "none"
     assert (
         schema["properties"]["account_mappings"]["additionalProperties"]["x-resource-type"]
         == "account"
@@ -233,9 +302,13 @@ def test_mt940_importer_schema_requires_account_mappings() -> None:
 
 
 def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
-    entries = mt940_importer._parse_mt940_text(MT940_FIXTURE)
+    entries, balances = cast(
+        tuple[list[Any], list[Any]],
+        mt940_importer._parse_mt940_text(MT940_FIXTURE),
+    )
 
     assert len(entries) == 8
+    assert len(balances) == 8
     assert entries[0].statement_number == "101/1"
     assert entries[1].transaction_code == "TRF"
     assert entries[1].ref == "T201000000001"
@@ -249,6 +322,8 @@ def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
     assert entries[5].ref == "L115B1119GR46F3P"
     assert entries[6].ref == "L11591119GTT3NSZ"
     assert entries[7].ref == "001700000001"
+    assert balances[0].closing_balance_date.isoformat() == "2025-12-31"
+    assert str(balances[0].closing_amount) == "5002.50"
 
 
 def test_normalize_description_collapses_duplicates() -> None:
@@ -349,6 +424,55 @@ def test_mt940_importer_creates_source_only_transactions_with_metadata(session: 
     assert normalized[7]["narration"] is None
     assert normalized[7]["source_native_id"] is not None
     assert str(normalized[7]["source_native_id"]).startswith("mt940:fp:")
+
+    assertions = _normalized_balance_assertions(session)
+    assert assertions == []
+
+
+def test_mt940_importer_creates_daily_balance_assertions_with_metadata(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+
+    _run(
+        session,
+        {
+            "account_mappings": {
+                "CH5612300000000100111": account_resource,
+                "CH4512300000000200222": account_resource,
+            },
+            "balance_assertion_frequency": "daily",
+        },
+    )
+
+    assertions = _normalized_balance_assertions(session)
+    assert len(assertions) == 8
+    assert assertions[0] == {
+        "assertion_date": "2025-07-04",
+        "account": account_resource,
+        "amount": "19814.7000000000",
+        "symbol": "CHF",
+        "entity_metadata": {
+            "mt940": {
+                "statement_reference": "F00000002B2B0002",
+                "account_iban": "CH5612300000000100111",
+                "statement_number": "102/1",
+                "closing_balance_date": "2025-07-03",
+            }
+        },
+    }
+    assert assertions[-1] == {
+        "assertion_date": "2026-01-01",
+        "account": account_resource,
+        "amount": "5002.5000000000",
+        "symbol": "CHF",
+        "entity_metadata": {
+            "mt940": {
+                "statement_reference": "F00000001A1A0001",
+                "account_iban": "CH4512300000000200222",
+                "statement_number": "101/1",
+                "closing_balance_date": "2025-12-31",
+            }
+        },
+    }
 
 
 def test_mt940_importer_supports_zkb_structural_payee_format(session: Session) -> None:
@@ -493,7 +617,8 @@ def test_mt940_importer_deduplicates_on_reimport(session: Session) -> None:
         "account_mappings": {
             "CH5612300000000100111": account_resource,
             "CH4512300000000200222": account_resource,
-        }
+        },
+        "balance_assertion_frequency": "daily",
     }
 
     result1 = mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config)
@@ -503,6 +628,74 @@ def test_mt940_importer_deduplicates_on_reimport(session: Session) -> None:
     assert created > 0
     assert result2.entities["transaction"].created == 0
     assert result2.entities["transaction"].duplicate == created
+    assertion_created = result1.entities["balance_assertion"].created
+    assert assertion_created == 8
+    assert result2.entities["balance_assertion"].created == 0
+    assert result2.entities["balance_assertion"].duplicate == assertion_created
+
+
+def test_mt940_importer_creates_balance_assertion_series_for_statement_closings(
+    session: Session,
+) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    config: dict[str, object] = {
+        "account_mappings": {
+            "CH5612300000000100111": account_resource,
+            "CH4512300000000200222": account_resource,
+        },
+        "balance_assertion_frequency": "daily",
+    }
+
+    _run(session, config)
+
+    assertions = _normalized_balance_assertions(session)
+    assert [assertion["assertion_date"] for assertion in assertions] == [
+        "2025-07-04",
+        "2025-07-08",
+        "2025-07-12",
+        "2025-07-26",
+        "2025-08-31",
+        "2025-09-03",
+        "2025-09-06",
+        "2026-01-01",
+    ]
+
+
+def test_mt940_importer_balance_assertion_frequency_weekly(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    mt940_importer.Mt940Importer().execute(
+        session,
+        BALANCE_FREQUENCY_FIXTURE.encode("utf-8"),
+        {
+            "account_mappings": {"CH5612300000000100111": account_resource},
+            "balance_assertion_frequency": "weekly",
+        },
+    )
+
+    assertions = _normalized_balance_assertions(session)
+    assert [assertion["assertion_date"] for assertion in assertions] == [
+        "2025-07-02",
+        "2025-07-09",
+        "2025-08-02",
+    ]
+
+
+def test_mt940_importer_balance_assertion_frequency_monthly(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    mt940_importer.Mt940Importer().execute(
+        session,
+        BALANCE_FREQUENCY_FIXTURE.encode("utf-8"),
+        {
+            "account_mappings": {"CH5612300000000100111": account_resource},
+            "balance_assertion_frequency": "monthly",
+        },
+    )
+
+    assertions = _normalized_balance_assertions(session)
+    assert [assertion["assertion_date"] for assertion in assertions] == [
+        "2025-07-02",
+        "2025-08-02",
+    ]
 
 
 @pytest.mark.xfail(

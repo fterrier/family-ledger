@@ -167,40 +167,32 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
   const sortedTargets = Object.keys(issuesByTarget).sort();
   const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets);
-  const dataRows = sortedTargets.map(function(target) {
+  const sheetByName = {};
+  const dataRows = sortedTargets.map(function(target, index) {
     const issues = issuesByTarget[target] || [];
+    const rowNumber = index + 2;
+    const registryEntry = getDoctorTargetConfigForTarget_(target);
+    const labelText = labelLookup[target] || target;
+    let navigate = labelText;
+    if (registryEntry) {
+      const name = registryEntry.visibleSheetName;
+      if (!(name in sheetByName)) {
+        sheetByName[name] = spreadsheet.getSheetByName(name);
+      }
+      const visibleSheet = sheetByName[name];
+      if (visibleSheet) {
+        navigate = buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber);
+      }
+    }
     return [
       target,
-      '',
+      navigate,
       formatDoctorIssueCodesForSheet_(issues),
       formatDoctorIssuesForSheet_(issues),
     ];
   });
 
   writeSheet_(issueSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues.headers, dataRows);
-
-  if (sortedTargets.length > 0) {
-    const navigateColumn = FAMILY_LEDGER_SHEET_REGISTRY.issues.columns.navigate.column;
-    const sheetByName = {};
-    const formulas = sortedTargets.map(function(target, index) {
-      const rowNumber = index + 2;
-      const registryEntry = getDoctorTargetConfigForTarget_(target);
-      const labelText = labelLookup[target] || target;
-      if (!registryEntry) {
-        return [labelText];
-      }
-      const name = registryEntry.visibleSheetName;
-      if (!(name in sheetByName)) {
-        sheetByName[name] = spreadsheet.getSheetByName(name);
-      }
-      const visibleSheet = sheetByName[name];
-      if (!visibleSheet) {
-        return [labelText];
-      }
-      return [buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber)];
-    });
-    issueSheet.getRange(2, navigateColumn, sortedTargets.length, 1).setValues(formulas);
-  }
 
   debugLog_('writeFetchedDoctorIssueSheets', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {

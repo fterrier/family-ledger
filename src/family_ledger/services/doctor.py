@@ -107,7 +107,6 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
 def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
     del request
     transactions = _load_transactions_for_doctor(session)
-    transaction_order = {transaction.name: index for index, transaction in enumerate(transactions)}
     balance_assertion_diffs = compute_balance_assertion_diffs(
         transactions, _load_balance_assertions_for_doctor(session)
     )
@@ -136,12 +135,4 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
             if abs(diff.diff) > resolve_tolerance(diff.symbol)
         ],
     ]
-    return DoctorLedgerResponse(
-        issues=sorted(
-            issues,
-            key=lambda issue: (
-                transaction_order.get(issue.target or "", len(transaction_order)),
-                issue.code,
-            ),
-        )
-    )
+    return DoctorLedgerResponse(issues=issues)

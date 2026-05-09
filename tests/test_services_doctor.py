@@ -136,6 +136,49 @@ def test_doctor_reports_balance_assertion_failure(session: Session) -> None:
     assert ba_issues[0].target == ba.name
 
 
+def test_doctor_preserves_balance_assertion_date_order(session: Session) -> None:
+    seed_doctor_dependencies(session)
+    ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("750.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("-750.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    from family_ledger.api.schemas import BalanceAssertionCreate
+
+    first = ledger.create_balance_assertion(
+        session,
+        BalanceAssertionCreate(
+            assertion_date=date(2026, 4, 2),
+            account="accounts/acc_two",
+            amount=MoneyValue(amount=Decimal("1000.00"), symbol="CHF"),
+        ),
+    )
+    second = ledger.create_balance_assertion(
+        session,
+        BalanceAssertionCreate(
+            assertion_date=date(2026, 4, 3),
+            account="accounts/acc_two",
+            amount=MoneyValue(amount=Decimal("1000.00"), symbol="CHF"),
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    ba_issues = [i for i in diagnosed.issues if i.code == "balance_assertion_failed"]
+    assert [issue.target for issue in ba_issues] == [first.name, second.name]
+
+
 def test_doctor_no_issue_when_balance_assertion_satisfied(session: Session) -> None:
     seed_doctor_dependencies(session)
     ledger.create_transaction(

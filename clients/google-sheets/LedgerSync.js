@@ -49,11 +49,7 @@ function syncLedger() {
         setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
       }, transactionSyncData.rows.length + ' rows');
 
-      // Doctor fetch auto-records via apiFetch_; wrap only the sheet write
-      const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
-      perf.wrap('sheet.write_doctor', function() {
-        writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_);
-      });
+      perf.wrap('doctor', refreshDoctorIssueSheets_);
 
       SpreadsheetApp.getActiveSpreadsheet().toast(
         buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),

@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+    padding: 16px;
+  }
+  .field { margin-bottom: 14px; }
+  label { display: block; font-weight: bold; margin-bottom: 4px; }
+  input, select, textarea {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  .hint { margin-top: 4px; color: #5f6368; font-size: 12px; }
+  .search-dropdown-host {
+    position: relative;
+  }
+  .search-dropdown-host .search-dropdown-input {
+    width: 100%;
+    padding-right: 28px;
+  }
+  .search-dropdown-host .search-dropdown-trigger {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-top: 8px solid #5f6368;
+    pointer-events: none;
+  }
+  .search-dropdown-host .search-dropdown-select {
+    display: none;
+    margin-top: 6px;
+    min-height: 180px;
+  }
+  .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
+  .btn-primary {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-primary:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  #setupBox {
+    display: none;
+    padding: 10px 12px;
+    background: #fef7e0;
+    border: 1px solid #fdd663;
+    border-radius: 4px;
+    color: #5f4316;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="errorBox"></div>
+<div id="setupBox">No quick-add source accounts or symbols are configured. Open <strong>Family Ledger → Sheet Settings</strong> first.</div>
+
+<div class="field">
+  <label for="dateInput">Transaction date</label>
+  <input type="date" id="dateInput" />
+  <div class="hint">Required.</div>
+</div>
+
+<div class="field">
+  <label for="sourceAccountSelect">Source account</label>
+  <select id="sourceAccountSelect"></select>
+  <div class="hint">Required. Only the configured quick-add source account shortlist is shown.</div>
+</div>
+
+<div class="field">
+  <label for="destinationAccountSelect">Destination account</label>
+  <select id="destinationAccountSelect"></select>
+  <div class="hint">Optional. Leave blank to create a source-only transaction.</div>
+</div>
+
+<div class="field">
+  <label for="amountInput">Amount</label>
+  <input type="number" id="amountInput" step="0.01" />
+  <div class="hint">Required. Positive amounts are for expenses; negative amounts are for incoming money. Uses the same visible sign convention as the Transactions sheet.</div>
+</div>
+
+<div class="field">
+  <label for="symbolSelect">Symbol</label>
+  <select id="symbolSelect"></select>
+  <div class="hint">Required.</div>
+</div>
+
+<div class="field">
+  <label for="payeeInput">Payee</label>
+  <input type="text" id="payeeInput" />
+  <div class="hint">Optional.</div>
+</div>
+
+<div class="field">
+  <label for="narrationInput">Narration</label>
+  <textarea id="narrationInput"></textarea>
+  <div class="hint">Optional.</div>
+</div>
+
+<div class="actions">
+  <button class="btn-primary" id="insertBtn" onclick="onInsert()">Insert</button>
+  <button class="btn-secondary" onclick="resetForm()">Reset</button>
+</div>
+
+<script>
+  <?!= includeHtml_('SearchDropdown'); ?>
+
+  let currentData = null;
+  let destinationDropdown = null;
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      currentData = data;
+      if (!data.configured) {
+        document.getElementById('setupBox').style.display = 'block';
+        document.getElementById('insertBtn').disabled = true;
+        return;
+      }
+      populateAccounts('sourceAccountSelect', data.sourceAccountOptions, true);
+      populateDestinationAccountOptions(data.destinationAccountOptions || []);
+      populateSymbols(data.commodityOptions || []);
+      if (data.defaultSourceAccount) {
+        document.getElementById('sourceAccountSelect').value = data.defaultSourceAccount;
+      }
+      if (data.defaultSymbol) {
+        document.getElementById('symbolSelect').value = data.defaultSymbol;
+      }
+      document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
+      destinationDropdown = attachSearchDropdown_(
+        document.getElementById('destinationAccountSelect'),
+        function(query, options) {
+          return searchAccountEntries_(
+            buildAccountSearchEntries_(options.map(function(option) {
+              return {
+                resource_name: option.value,
+                display_name: option.label,
+              };
+            })),
+            query
+          ).map(function(entry) {
+            return {
+              value: entry.resource_name,
+              label: entry.display_name,
+            };
+          });
+        }
+      );
+    })
+    .withFailureHandler(function(err) {
+      showError(err.message || String(err));
+    })
+    .getQuickAddTransactionData();
+
+  function populateAccounts(id, options, includeBlank) {
+    var select = document.getElementById(id);
+    select.innerHTML = '';
+    if (includeBlank) {
+      var blank = document.createElement('option');
+      blank.value = '';
+      blank.textContent = 'Select account';
+      select.appendChild(blank);
+    } else {
+      var none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'None';
+      select.appendChild(none);
+    }
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.resource_name;
+      el.textContent = option.display_name;
+      select.appendChild(el);
+    });
+  }
+
+  function populateSymbols(options) {
+    var select = document.getElementById('symbolSelect');
+    select.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'Select symbol';
+    select.appendChild(blank);
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.symbol;
+      el.textContent = option.symbol;
+      select.appendChild(el);
+    });
+  }
+
+  function resetForm() {
+    if (!currentData) {
+      return;
+    }
+    document.getElementById('errorBox').style.display = 'none';
+    destinationDropdown.clear();
+    document.getElementById('amountInput').value = '';
+    document.getElementById('payeeInput').value = '';
+    document.getElementById('narrationInput').value = '';
+    if (currentData.defaultSourceAccount) {
+      document.getElementById('sourceAccountSelect').value = currentData.defaultSourceAccount;
+    }
+    if (currentData.defaultSymbol) {
+      document.getElementById('symbolSelect').value = currentData.defaultSymbol;
+    }
+  }
+
+  function onInsert() {
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('insertBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        document.getElementById('insertBtn').disabled = false;
+        resetForm();
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        document.getElementById('insertBtn').disabled = false;
+      })
+      .quickAddTransactionFromSidebar({
+        transaction_date: document.getElementById('dateInput').value,
+        source_account: document.getElementById('sourceAccountSelect').value,
+        destination_account: document.getElementById('destinationAccountSelect').value,
+        amount: document.getElementById('amountInput').value,
+        symbol: document.getElementById('symbolSelect').value,
+        payee: document.getElementById('payeeInput').value,
+        narration: document.getElementById('narrationInput').value,
+      });
+  }
+
+  function showError(message) {
+    var errorBox = document.getElementById('errorBox');
+    errorBox.textContent = message;
+    errorBox.style.display = 'block';
+  }
+
+  function populateDestinationAccountOptions(options) {
+    var select = document.getElementById('destinationAccountSelect');
+    select.innerHTML = '';
+    var none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'None';
+    select.appendChild(none);
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.resource_name;
+      el.textContent = option.display_name;
+      select.appendChild(el);
+    });
+  }
+</script>
+
+</body>
+</html>

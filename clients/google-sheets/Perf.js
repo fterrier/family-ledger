@@ -22,6 +22,7 @@ function createPerf_() {
       spans_.push({ label: label, ms: ms, meta: meta || null });
     },
     wrap: function(label, fn, meta) {
+      console.log('[perf] ' + label);
       this.start(label);
       const r = fn();
       this.end(label, typeof meta === 'function' ? meta(r) : (meta || null));

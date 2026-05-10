@@ -98,13 +98,9 @@ function saveTransactionByName_(sheet, transactionName, options) {
       return;
     }
 
-    // Doctor fetch auto-records via apiFetch_; wrap only the sheet write
     debugLog_('saveTransactionByName:doctorRefreshStarting', { transactionName: transactionName, saveGeneration: saveGeneration });
     try {
-      const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
-      perf.wrap('sheet.apply_doctor', function() {
-        writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_);
-      });
+      perf.wrap('doctor', refreshDoctorIssueSheets_);
     } catch (error) {
       debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
         message: error && error.message ? error.message : String(error),

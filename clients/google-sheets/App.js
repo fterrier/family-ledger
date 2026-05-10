@@ -9,7 +9,9 @@ function onOpen() {
     .addItem('Test Connection', 'testFamilyLedgerConnection');
   ui.createMenu('Family Ledger')
     .addItem('Quick Filter', 'showQuickFilter')
+    .addItem('Quick Add Transaction', 'showQuickAddTransaction')
     .addSeparator()
+    .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Import data', 'showImportDialog')
     .addSeparator()
     .addSubMenu(devMenu)

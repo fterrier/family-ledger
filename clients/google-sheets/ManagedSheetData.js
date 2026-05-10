@@ -10,24 +10,6 @@ function readSheetRow_(sheet, sheetConfig, rowNumber) {
   return row;
 }
 
-function readVisibleSheetRows_(sheet, sheetConfig) {
-  const lastRow = sheet.getLastRow();
-  const rowNumbers = [];
-  const rows = [];
-  if (lastRow <= 1) {
-    return { rowNumbers: rowNumbers, rows: rows };
-  }
-  for (let rowNumber = 2; rowNumber <= lastRow; rowNumber += 1) {
-    const row = readSheetRow_(sheet, sheetConfig, rowNumber);
-    if (!row || !row.resource_name) {
-      continue;
-    }
-    rowNumbers.push(rowNumber);
-    rows.push(row);
-  }
-  return { rowNumbers: rowNumbers, rows: rows };
-}
-
 function readSheetRowsByNumbers_(sheet, sheetConfig, rowNumbers) {
   return rowNumbers.map(function(rowNumber) {
     return readSheetRow_(sheet, sheetConfig, rowNumber);

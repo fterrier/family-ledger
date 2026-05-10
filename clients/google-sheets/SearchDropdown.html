@@ -1,0 +1,153 @@
+function attachSearchDropdown_(rootSelect, searchFn) {
+  const parent = rootSelect.parentNode;
+  const wrapper = parent.ownerDocument
+    ? parent.ownerDocument.createElement('div')
+    : { style: {}, className: '', appendChild() {} };
+  wrapper.className = 'search-dropdown-host';
+
+  const input = parent.ownerDocument.createElement('input');
+  input.type = 'text';
+  input.placeholder = 'Search account';
+  input.className = 'search-dropdown-input';
+
+  const arrow = parent.ownerDocument.createElement('div');
+  arrow.className = 'search-dropdown-trigger';
+
+  parent.insertBefore(wrapper, rootSelect);
+  wrapper.appendChild(input);
+  wrapper.appendChild(arrow);
+
+  rootSelect.classList.add('search-dropdown-select');
+  rootSelect.size = 8;
+  rootSelect.style.display = 'none';
+
+  const allOptions = Array.from(rootSelect.options).map(function(option) {
+    return {
+      value: option.value,
+      label: option.textContent,
+    };
+  });
+
+  let searchTimer = null;
+  let blurTimer = null;
+
+  function clearSearchTimer_() {
+    if (searchTimer !== null) {
+      clearTimeout(searchTimer);
+      searchTimer = null;
+    }
+  }
+
+  function clearBlurTimer_() {
+    if (blurTimer !== null) {
+      clearTimeout(blurTimer);
+      blurTimer = null;
+    }
+  }
+
+  function applyOptions_(options) {
+    const previousValue = rootSelect.value || '';
+    rootSelect.innerHTML = '';
+    options.forEach(function(option) {
+      const element = parent.ownerDocument.createElement('option');
+      element.value = option.value;
+      element.textContent = option.label;
+      rootSelect.appendChild(element);
+    });
+    if (options.some(function(option) { return option.value === previousValue; })) {
+      rootSelect.value = previousValue;
+    } else {
+      rootSelect.value = options.length > 0 ? options[0].value : '';
+    }
+  }
+
+  function showDropdown_() {
+    rootSelect.style.display = 'block';
+  }
+
+  function hideDropdown_() {
+    rootSelect.style.display = 'none';
+  }
+
+  function refreshOptions_(query) {
+    applyOptions_(searchFn(query, allOptions));
+    showDropdown_();
+  }
+
+  function openDropdown_() {
+    clearBlurTimer_();
+    clearSearchTimer_();
+    refreshOptions_('');
+  }
+
+  function selectCurrentOption_() {
+    const option = rootSelect.options[rootSelect.selectedIndex];
+    if (!option) {
+      input.value = '';
+      hideDropdown_();
+      return;
+    }
+    input.value = option.value ? option.textContent : '';
+    hideDropdown_();
+  }
+
+  input.addEventListener('input', function() {
+    clearBlurTimer_();
+    clearSearchTimer_();
+    const query = input.value || '';
+    if (!query.trim()) {
+      refreshOptions_('');
+      return;
+    }
+    searchTimer = setTimeout(function() {
+      searchTimer = null;
+      refreshOptions_(query);
+    }, 200);
+  });
+
+  input.addEventListener('focus', function() {
+    openDropdown_();
+  });
+
+  input.addEventListener('blur', function() {
+    clearBlurTimer_();
+    blurTimer = setTimeout(function() {
+      hideDropdown_();
+    }, 150);
+  });
+
+  wrapper.addEventListener('mousedown', function(event) {
+    if (event.target === rootSelect) {
+      return;
+    }
+    setTimeout(function() {
+      input.focus();
+      openDropdown_();
+    }, 0);
+  });
+
+  rootSelect.addEventListener('change', function() {
+    selectCurrentOption_();
+  });
+
+  rootSelect.addEventListener('blur', function() {
+    clearBlurTimer_();
+    blurTimer = setTimeout(function() {
+      hideDropdown_();
+    }, 150);
+  });
+
+  return {
+    clear: function() {
+      clearBlurTimer_();
+      clearSearchTimer_();
+      input.value = '';
+      rootSelect.value = '';
+      hideDropdown_();
+      const changeEvent = parent.ownerDocument.createEvent('Event');
+      changeEvent.initEvent('change', true, true);
+      rootSelect.dispatchEvent(changeEvent);
+    },
+    open: openDropdown_,
+  };
+}

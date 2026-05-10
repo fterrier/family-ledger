@@ -21,6 +21,8 @@ const SOURCE_FILES = [
   'TransactionSave.js',
   'TransactionEdits.js',
   'App.js',
+  'AccountSearch.html',
+  'SearchDropdown.html',
 ];
 
 function loadCode(overrides = {}) {
@@ -44,6 +46,8 @@ function loadCode(overrides = {}) {
     RegExp,
     Error,
     encodeURIComponent,
+    setTimeout: overrides.setTimeout || undefined,
+    clearTimeout: overrides.clearTimeout || undefined,
     console: overrides.console || console,
     SpreadsheetApp: {
       ProtectionType: { RANGE: 'RANGE' },

@@ -1,0 +1,171 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+const { loadCode } = require('./_harness');
+
+function makeFakeDom() {
+  const document = {
+    createElement(tagName) {
+      return makeElement(tagName, document);
+    },
+    createEvent() {
+      return {
+        initEvent(type) {
+          this.type = type;
+        },
+      };
+    },
+  };
+  function makeElement(tagName, ownerDocument) {
+    const element = {
+      tagName: tagName.toUpperCase(),
+      ownerDocument,
+      style: {},
+      className: '',
+      classList: {
+        add(name) {
+          element.className = [element.className, name].filter(Boolean).join(' ');
+        },
+      },
+      children: [],
+      value: '',
+      textContent: '',
+      selectedIndex: 0,
+      parentNode: null,
+      listeners: {},
+      appendChild(child) {
+        child.parentNode = element;
+        element.children.push(child);
+        return child;
+      },
+      insertBefore(child, reference) {
+        child.parentNode = element;
+        const index = element.children.indexOf(reference);
+        if (index === -1) {
+          element.children.push(child);
+        } else {
+          element.children.splice(index, 0, child);
+        }
+        return child;
+      },
+      addEventListener(type, handler) {
+        element.listeners[type] = handler;
+      },
+      dispatchEvent(event) {
+        if (event.type === 'change') {
+          element.selectedIndex = Math.max(0, element.options.findIndex(function(option) {
+            return option.value === element.value;
+          }));
+        }
+        if (element.listeners[event.type]) {
+          element.listeners[event.type](event);
+        }
+      },
+      focus() {
+        if (element.listeners.focus) {
+          element.listeners.focus({ target: element });
+        }
+      },
+    };
+    Object.defineProperty(element, 'options', {
+      get() {
+        return element.children.filter(function(child) {
+          return child.tagName === 'OPTION';
+        });
+      },
+    });
+    Object.defineProperty(element, 'innerHTML', {
+      get() {
+        return '';
+      },
+      set(_value) {
+        element.children = [];
+      },
+    });
+    return element;
+  }
+  return { document, makeElement };
+}
+
+test('attachSearchDropdown_ enhances a native select and shows all options on open', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - FoodWineHousehold - Coop', '[X] Family - Coffee'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/' + index;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  sandbox.attachSearchDropdown_(select, function(query, options) {
+    return options.filter(function(option) {
+      return sandbox.isOrderedCharacterMatch_(query, option.label);
+    });
+  });
+
+  const host = parent.children[0];
+  const input = host.children[0];
+
+  input.focus();
+
+  assert.equal(select.style.display, 'block');
+  assert.equal(select.options.length, 3);
+});
+
+test('attachSearchDropdown_ debounces filtering and updates native select options', async () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['[X] Family - FoodWineHousehold - Coop', '[X] Family - Coffee'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = 'accounts/' + index;
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  sandbox.attachSearchDropdown_(select, function(query, options) {
+    return options.filter(function(option) {
+      return sandbox.isOrderedCharacterMatch_(query, option.label);
+    });
+  });
+
+  const input = parent.children[0].children[0];
+  input.value = 'ffoc';
+  input.listeners.input({ target: input });
+  assert.equal(select.options.length, 2);
+  await new Promise(function(resolve) { setTimeout(resolve, 220); });
+  assert.equal(select.options.length, 1);
+  assert.equal(select.options[0].value, 'accounts/0');
+});
+
+test('attachSearchDropdown_ syncs selected option back into the native select value', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - Food'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/food';
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  const controller = sandbox.attachSearchDropdown_(select, function(_query, options) {
+    return options;
+  });
+
+  controller.open();
+  select.value = 'accounts/food';
+  select.selectedIndex = 1;
+  select.dispatchEvent({ type: 'change' });
+
+  assert.equal(select.value, 'accounts/food');
+  assert.equal(parent.children[0].children[0].value, '[X] Family - Food');
+  assert.equal(select.style.display, 'none');
+});

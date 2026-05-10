@@ -1,0 +1,39 @@
+function normalizeAccountSearchText_(value) {
+  return String(value || '').toLowerCase().trim();
+}
+
+function buildAccountSearchEntry_(option) {
+  return {
+    resource_name: option.resource_name,
+    display_name: option.display_name,
+    search_text: normalizeAccountSearchText_(option.display_name),
+  };
+}
+
+function buildAccountSearchEntries_(options) {
+  return options.map(buildAccountSearchEntry_);
+}
+
+function isOrderedCharacterMatch_(query, candidate) {
+  const normalizedQuery = normalizeAccountSearchText_(query);
+  const normalizedCandidate = normalizeAccountSearchText_(candidate);
+  if (!normalizedQuery) {
+    return true;
+  }
+  let queryIndex = 0;
+  for (const char of normalizedCandidate) {
+    if (char === normalizedQuery[queryIndex]) {
+      queryIndex += 1;
+      if (queryIndex === normalizedQuery.length) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function searchAccountEntries_(entries, query) {
+  return entries.filter(function(entry) {
+    return isOrderedCharacterMatch_(query, entry.search_text);
+  });
+}

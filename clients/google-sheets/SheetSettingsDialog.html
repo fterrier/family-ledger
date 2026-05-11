@@ -127,8 +127,8 @@
     );
   });
 
-  function populateSourceAccounts(options, selectedValues) {
-    var select = document.getElementById('sourceAccountsSelect');
+  function populateAccountMultiSelect(id, options, selectedValues) {
+    var select = document.getElementById(id);
     select.innerHTML = '';
     options.forEach(function(option) {
       var el = document.createElement('option');
@@ -137,6 +137,10 @@
       el.selected = selectedValues.indexOf(option.resource_name) !== -1;
       select.appendChild(el);
     });
+  }
+
+  function populateSourceAccounts(options, selectedValues) {
+    populateAccountMultiSelect('sourceAccountsSelect', options, selectedValues);
   }
 
   function populateDefaultSourceAccounts(options, selectedValues, defaultValue) {
@@ -191,15 +195,7 @@
   }
 
   function populateDestinationAccounts(options, selectedValues) {
-    var select = document.getElementById('destinationAccountsSelect');
-    select.innerHTML = '';
-    options.forEach(function(option) {
-      var el = document.createElement('option');
-      el.value = option.resource_name;
-      el.textContent = option.display_name;
-      el.selected = selectedValues.indexOf(option.resource_name) !== -1;
-      select.appendChild(el);
-    });
+    populateAccountMultiSelect('destinationAccountsSelect', options, selectedValues);
   }
 
   function getSelectedValues(id) {

@@ -5,6 +5,7 @@ const { loadCode } = require('./_harness');
 
 function makeFakeDom() {
   const document = {
+    listeners: {},
     createElement(tagName) {
       return makeElement(tagName, document);
     },
@@ -14,6 +15,9 @@ function makeFakeDom() {
           this.type = type;
         },
       };
+    },
+    addEventListener(type, handler) {
+      document.listeners[type] = handler;
     },
   };
   function makeElement(tagName, ownerDocument) {
@@ -192,4 +196,132 @@ test('attachSearchDropdown_ syncs selected option into value display and closes 
   assert.equal(select.value, 'accounts/food');
   assert.equal(valueText.textContent, '[X] Family - Food');
   assert.equal(panel.style.display, 'none');
+});
+
+test('attachSearchDropdown_ clear() resets value to blank, shows placeholder, and hides panel', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - Food'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/food';
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  const controller = sandbox.attachSearchDropdown_(select, function(_query, options) {
+    return options;
+  });
+
+  const wrapper = parent.children[0];
+  const valueDisplay = wrapper.children[0];
+  const valueText = valueDisplay.children[0];
+  const panel = wrapper.children[1];
+
+  controller.open();
+  select.value = 'accounts/food';
+  select.selectedIndex = 1;
+  select.dispatchEvent({ type: 'change' });
+  assert.equal(valueText.textContent, '[X] Family - Food');
+
+  controller.clear();
+
+  assert.equal(select.value, '');
+  assert.equal(panel.style.display, 'none');
+  assert.ok(valueText.className.includes('placeholder'), 'expected placeholder class after clear');
+});
+
+test('attachSearchDropdown_ closes panel when clicking outside the wrapper', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - Food'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/food';
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  const controller = sandbox.attachSearchDropdown_(select, function(_query, options) {
+    return options;
+  });
+
+  const wrapper = parent.children[0];
+  const panel = wrapper.children[1];
+
+  controller.open();
+  assert.equal(panel.style.display, 'block');
+
+  const outside = makeElement('div', document);
+  document.listeners.mousedown({ target: outside });
+
+  assert.equal(panel.style.display, 'none');
+});
+
+test('attachSearchDropdown_ valueText has placeholder class initially and loses it after a non-empty selection', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - Food'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/food';
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  sandbox.attachSearchDropdown_(select, function(_query, options) {
+    return options;
+  });
+
+  const wrapper = parent.children[0];
+  const valueDisplay = wrapper.children[0];
+  const valueText = valueDisplay.children[0];
+  const panel = wrapper.children[1];
+
+  assert.ok(valueText.className.includes('placeholder'), 'expected placeholder class on init');
+
+  valueDisplay.listeners.mousedown({ preventDefault() {} });
+  select.value = 'accounts/food';
+  select.selectedIndex = 1;
+  select.dispatchEvent({ type: 'change' });
+
+  assert.ok(!valueText.className.includes('placeholder'), 'expected no placeholder class after selection');
+  assert.equal(panel.style.display, 'none');
+});
+
+test('attachSearchDropdown_ closing the panel clears the search input', () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  ['None', '[X] Family - Food'].forEach(function(label, index) {
+    const option = makeElement('option', document);
+    option.value = index === 0 ? '' : 'accounts/food';
+    option.textContent = label;
+    select.appendChild(option);
+  });
+
+  const controller = sandbox.attachSearchDropdown_(select, function(_query, options) {
+    return options;
+  });
+
+  const wrapper = parent.children[0];
+  const panel = wrapper.children[1];
+  const input = panel.children[0];
+
+  controller.open();
+  input.value = 'foo';
+
+  select.value = 'accounts/food';
+  select.selectedIndex = 1;
+  select.dispatchEvent({ type: 'change' });
+
+  assert.equal(input.value, '');
 });

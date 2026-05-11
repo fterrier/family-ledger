@@ -118,7 +118,7 @@ test('attachSearchDropdown_ shows all options and panel on open', () => {
     });
   });
 
-  // Structure: parent > wrapper(host) > [valueDisplay, panel > [inputRow > [input], select]]
+  // Structure: parent > wrapper(host) > [valueDisplay, panel > [input, select]]
   const wrapper = parent.children[0];
   const valueDisplay = wrapper.children[0];
   const panel = wrapper.children[1];
@@ -150,7 +150,7 @@ test('attachSearchDropdown_ debounces filtering and updates native select option
   });
 
   const panel = parent.children[0].children[1];
-  const input = panel.children[0].children[0];
+  const input = panel.children[0];
 
   // Open the dropdown first
   parent.children[0].children[0].listeners.mousedown({ preventDefault() {} });
@@ -314,7 +314,7 @@ test('attachSearchDropdown_ closing the panel clears the search input', () => {
 
   const wrapper = parent.children[0];
   const panel = wrapper.children[1];
-  const input = panel.children[0].children[0];
+  const input = panel.children[0];
 
   controller.open();
   input.value = 'foo';
@@ -324,67 +324,4 @@ test('attachSearchDropdown_ closing the panel clears the search input', () => {
   select.dispatchEvent({ type: 'change' });
 
   assert.equal(input.value, '');
-});
-
-test('attachSearchDropdown_ with prefix filters options on open using prefix alone', () => {
-  const { document, makeElement } = makeFakeDom();
-  const { sandbox } = loadCode({ setTimeout, clearTimeout });
-  const parent = makeElement('div', document);
-  const select = makeElement('select', document);
-  parent.appendChild(select);
-  ['[X] Family - Food', '[A] Personal - Cash'].forEach(function(label, index) {
-    const option = makeElement('option', document);
-    option.value = 'accounts/' + index;
-    option.textContent = label;
-    select.appendChild(option);
-  });
-
-  sandbox.attachSearchDropdown_(select, function(query, options) {
-    return options.filter(function(option) {
-      return sandbox.isOrderedCharacterMatch_(query, option.label);
-    });
-  }, { prefix: 'family' });
-
-  const wrapper = parent.children[0];
-  const panel = wrapper.children[1];
-
-  wrapper.children[0].listeners.mousedown({ preventDefault() {} });
-
-  assert.equal(panel.style.display, 'block');
-  assert.equal(select.options.length, 1);
-  assert.equal(select.options[0].value, 'accounts/0');
-});
-
-test('attachSearchDropdown_ with prefix prepends prefix to typed query before filtering', async () => {
-  const { document, makeElement } = makeFakeDom();
-  const { sandbox } = loadCode({ setTimeout, clearTimeout });
-  const parent = makeElement('div', document);
-  const select = makeElement('select', document);
-  parent.appendChild(select);
-  ['[X] Family - Food', '[X] Family - Coffee', '[A] Personal - Cash'].forEach(function(label, index) {
-    const option = makeElement('option', document);
-    option.value = 'accounts/' + index;
-    option.textContent = label;
-    select.appendChild(option);
-  });
-
-  sandbox.attachSearchDropdown_(select, function(query, options) {
-    return options.filter(function(option) {
-      return sandbox.isOrderedCharacterMatch_(query, option.label);
-    });
-  }, { prefix: 'family' });
-
-  const panel = parent.children[0].children[1];
-  const input = panel.children[0].children[1]; // children[0] is the prefix span
-
-  parent.children[0].children[0].listeners.mousedown({ preventDefault() {} });
-  assert.equal(select.options.length, 2, 'prefix alone: 2 family accounts visible');
-
-  input.value = 'food';
-  input.listeners.input({ target: input });
-
-  await new Promise(function(resolve) { setTimeout(resolve, 220); });
-
-  assert.equal(select.options.length, 1, 'prefix+food: only Food account visible');
-  assert.equal(select.options[0].value, 'accounts/0');
 });

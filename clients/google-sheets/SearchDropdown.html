@@ -1,5 +1,4 @@
-function attachSearchDropdown_(rootSelect, searchFn, options) {
-  const prefix = String((options && options.prefix) || '');
+function attachSearchDropdown_(rootSelect, searchFn) {
   const parent = rootSelect.parentNode;
   const doc = parent.ownerDocument
     ? parent.ownerDocument
@@ -26,16 +25,6 @@ function attachSearchDropdown_(rootSelect, searchFn, options) {
   panel.className = 'search-dropdown-panel';
   panel.style.display = 'none';
 
-  const inputRow = doc.createElement('div');
-  inputRow.className = 'search-dropdown-input-row';
-
-  if (prefix) {
-    const prefixEl = doc.createElement('span');
-    prefixEl.className = 'search-dropdown-prefix';
-    prefixEl.textContent = prefix;
-    inputRow.appendChild(prefixEl);
-  }
-
   const input = doc.createElement('input');
   input.type = 'text';
   input.className = 'search-dropdown-input';
@@ -44,8 +33,7 @@ function attachSearchDropdown_(rootSelect, searchFn, options) {
   rootSelect.classList.add('search-dropdown-select');
   rootSelect.size = 8;
 
-  inputRow.appendChild(input);
-  panel.appendChild(inputRow);
+  panel.appendChild(input);
   panel.appendChild(rootSelect);
   wrapper.appendChild(panel);
 
@@ -73,7 +61,7 @@ function attachSearchDropdown_(rootSelect, searchFn, options) {
   }
 
   function refreshOptions_(query) {
-    applyOptions_(searchFn(prefix + query, allOptions));
+    applyOptions_(searchFn(query, allOptions));
   }
 
   function updateDisplay_() {

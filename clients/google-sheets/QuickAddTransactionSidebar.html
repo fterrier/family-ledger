@@ -65,26 +65,12 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     margin-top: 2px;
   }
-  .search-dropdown-input-row {
-    display: flex;
-    align-items: center;
-    border-bottom: 1px solid #dadce0;
-    border-radius: 4px 4px 0 0;
-    background: #fff;
-  }
-  .search-dropdown-prefix {
-    flex-shrink: 0;
-    color: #5f6368;
-    font-size: 13px;
-    padding-left: 8px;
-    white-space: nowrap;
-  }
   .search-dropdown-input {
-    flex: 1;
-    min-width: 0;
+    width: 100%;
     padding: 6px 8px;
     border: none;
-    background: transparent;
+    border-bottom: 1px solid #dadce0;
+    border-radius: 4px 4px 0 0;
     font-size: 13px;
     outline: none;
   }
@@ -234,7 +220,6 @@
             };
           });
         },
-        { prefix: data.destinationAccountSearchPrefix || '' }
       );
     })
     .withFailureHandler(function(err) {

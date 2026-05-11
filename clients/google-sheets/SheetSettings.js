@@ -2,12 +2,12 @@ const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS = 'QUICK_ADD_SOURCE_ACCOU
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS = 'QUICK_ADD_SYMBOLS';
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SOURCE_ACCOUNT = 'QUICK_ADD_DEFAULT_SOURCE_ACCOUNT';
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL = 'QUICK_ADD_DEFAULT_SYMBOL';
-const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX = 'QUICK_ADD_DESTINATION_PREFIX';
+const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS = 'QUICK_ADD_DESTINATION_ACCOUNTS';
 
 function showSheetSettings() {
   const html = HtmlService.createHtmlOutputFromFile('SheetSettingsDialog')
     .setWidth(520)
-    .setHeight(520);
+    .setHeight(560);
   SpreadsheetApp.getUi().showModalDialog(html, 'Sheet Settings');
 }
 
@@ -29,6 +29,26 @@ function listAccountOptions_() {
 function getQuickAddSourceAccountResources_() {
   const rawValue = PropertiesService.getDocumentProperties().getProperty(
     FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS
+  );
+  if (!rawValue) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map(function(value) {
+      return String(value || '').trim();
+    }).filter(Boolean);
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getQuickAddDestinationAccountResources_() {
+  const rawValue = PropertiesService.getDocumentProperties().getProperty(
+    FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS
   );
   if (!rawValue) {
     return [];
@@ -90,14 +110,6 @@ function resolveQuickAddDefaultSymbol_(selectedSymbols, defaultSymbol) {
   return allowed.indexOf(normalizedDefault) !== -1 ? normalizedDefault : '';
 }
 
-function getQuickAddDestinationPrefix_() {
-  return String(
-    PropertiesService.getDocumentProperties().getProperty(
-      FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX
-    ) || ''
-  ).trim();
-}
-
 function getQuickAddSymbols_() {
   const rawValue = PropertiesService.getDocumentProperties().getProperty(
     FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS
@@ -125,14 +137,14 @@ function getSheetSettingsForDialog() {
     accounts: listAccountOptions_(),
     commodities: commodities,
     quickAddSourceAccounts: getQuickAddSourceAccountResources_(),
+    quickAddDestinationAccounts: getQuickAddDestinationAccountResources_(),
     quickAddSymbols: quickAddSymbols,
     defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
     defaultSymbol: resolveQuickAddDefaultSymbol_(quickAddSymbols, getQuickAddDefaultSymbol_()),
-    destinationPrefix: getQuickAddDestinationPrefix_(),
   };
 }
 
-function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSourceAccount, defaultSymbol, destinationPrefix) {
+function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSourceAccount, defaultSymbol, destinationAccounts) {
   const accountOptions = listAccountOptions_();
   const knownAccounts = new Set(accountOptions.map(function(option) {
     return option.resource_name;
@@ -151,10 +163,20 @@ function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSou
       return String(value || '').trim();
     }).filter(Boolean)
     : [];
+  const normalizedDestinationAccounts = Array.isArray(destinationAccounts)
+    ? destinationAccounts.map(function(value) {
+      return String(value || '').trim();
+    }).filter(Boolean)
+    : [];
 
   normalizedSourceAccounts.forEach(function(accountResourceName) {
     if (!knownAccounts.has(accountResourceName)) {
       throw new Error('Unknown quick add source account: ' + accountResourceName);
+    }
+  });
+  normalizedDestinationAccounts.forEach(function(accountResourceName) {
+    if (!knownAccounts.has(accountResourceName)) {
+      throw new Error('Unknown quick add destination account: ' + accountResourceName);
     }
   });
   normalizedSymbols.forEach(function(symbol) {
@@ -167,6 +189,12 @@ function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSou
   normalizedSourceAccounts.forEach(function(accountResourceName) {
     if (uniqueSourceAccounts.indexOf(accountResourceName) === -1) {
       uniqueSourceAccounts.push(accountResourceName);
+    }
+  });
+  const uniqueDestinationAccounts = [];
+  normalizedDestinationAccounts.forEach(function(accountResourceName) {
+    if (uniqueDestinationAccounts.indexOf(accountResourceName) === -1) {
+      uniqueDestinationAccounts.push(accountResourceName);
     }
   });
   const uniqueSymbols = [];
@@ -194,6 +222,10 @@ function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSou
     JSON.stringify(uniqueSourceAccounts)
   );
   properties.setProperty(
+    FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS,
+    JSON.stringify(uniqueDestinationAccounts)
+  );
+  properties.setProperty(
     FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS,
     JSON.stringify(uniqueSymbols)
   );
@@ -209,11 +241,5 @@ function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSou
     properties.setProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL, normalizedDefaultSymbol);
   } else {
     properties.deleteProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL);
-  }
-  const normalizedPrefix = String(destinationPrefix || '').trim();
-  if (normalizedPrefix) {
-    properties.setProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX, normalizedPrefix);
-  } else {
-    properties.deleteProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX);
   }
 }

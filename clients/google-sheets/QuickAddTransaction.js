@@ -11,19 +11,22 @@ function includeHtml_(filename) {
 function getQuickAddTransactionData() {
   const allAccounts = listAccountOptions_();
   const quickAddSourceAccounts = getQuickAddSourceAccountResources_();
+  const quickAddDestinationAccounts = getQuickAddDestinationAccountResources_();
   const quickAddSymbols = getQuickAddSymbols_();
   const sourceAccountOptions = allAccounts.filter(function(option) {
     return quickAddSourceAccounts.indexOf(option.resource_name) !== -1;
   });
+  const destinationAccountOptions = allAccounts.filter(function(option) {
+    return quickAddDestinationAccounts.indexOf(option.resource_name) !== -1;
+  });
   const commodityOptions = buildQuickAddSymbolOptions_(listCommodityOptions_(), quickAddSymbols);
   return {
     sourceAccountOptions: sourceAccountOptions,
-    destinationAccountOptions: allAccounts,
+    destinationAccountOptions: destinationAccountOptions,
     defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
     defaultSymbol: getQuickAddDefaultSymbol_(),
     commodityOptions: commodityOptions,
     configured: sourceAccountOptions.length > 0 && commodityOptions.length > 0,
-    destinationAccountSearchPrefix: getQuickAddDestinationPrefix_(),
   };
 }
 

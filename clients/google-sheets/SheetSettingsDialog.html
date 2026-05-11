@@ -88,9 +88,9 @@
 </div>
 
 <div class="field">
-  <label for="destinationPrefixInput">Destination account search prefix</label>
-  <input type="text" id="destinationPrefixInput" placeholder="e.g. [X] Family" />
-  <div class="hint">Optional. Always prepended to destination account searches in Quick Add Transaction.</div>
+  <label for="destinationAccountsSelect">Quick add destination accounts</label>
+  <select id="destinationAccountsSelect" multiple></select>
+  <div class="hint">Only these accounts will be available as destination accounts in Quick Add Transaction.</div>
 </div>
 
 <div class="actions">
@@ -109,7 +109,7 @@
       populateSourceAccounts(accountOptions, settings.quickAddSourceAccounts || []);
       populateDefaultSourceAccounts(accountOptions, settings.quickAddSourceAccounts || [], settings.defaultSourceAccount || '');
       populateSymbols(settings.commodities || [], settings.quickAddSymbols || [], settings.defaultSymbol || '');
-      document.getElementById('destinationPrefixInput').value = settings.destinationPrefix || '';
+      populateDestinationAccounts(accountOptions, settings.quickAddDestinationAccounts || []);
     })
     .withFailureHandler(function(err) {
       showError(err.message || String(err));
@@ -190,6 +190,18 @@
     select.value = selectedValues.indexOf(defaultValue) !== -1 ? defaultValue : '';
   }
 
+  function populateDestinationAccounts(options, selectedValues) {
+    var select = document.getElementById('destinationAccountsSelect');
+    select.innerHTML = '';
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.resource_name;
+      el.textContent = option.display_name;
+      el.selected = selectedValues.indexOf(option.resource_name) !== -1;
+      select.appendChild(el);
+    });
+  }
+
   function getSelectedValues(id) {
     return Array.prototype.slice.call(document.getElementById(id).selectedOptions).map(function(option) {
       return option.value;
@@ -212,7 +224,7 @@
         getSelectedValues('symbolSelect'),
         document.getElementById('defaultSourceAccountSelect').value,
         document.getElementById('defaultSymbolInput').value,
-        document.getElementById('destinationPrefixInput').value
+        getSelectedValues('destinationAccountsSelect')
       );
   }
 

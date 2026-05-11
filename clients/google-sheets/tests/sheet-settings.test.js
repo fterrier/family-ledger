@@ -101,6 +101,18 @@ test('getQuickAddTransactionData only exposes configured source accounts and sym
   assert.equal(data.defaultSourceAccount, 'accounts/checking');
   assert.equal(data.defaultSymbol, 'EUR');
   assert.equal(data.configured, true);
+  assert.equal(data.destinationAccountSearchPrefix, '');
+});
+
+test('getQuickAddTransactionData exposes stored destination prefix', () => {
+  const { sandbox, documentProperties } = loadCode();
+  sandbox.readAccountSheetEntries_ = function() { return []; };
+  sandbox.fetchFamilyLedgerPagedResource_ = function() { return []; };
+  documentProperties.set('QUICK_ADD_DESTINATION_PREFIX', '[X] Family');
+
+  const data = sandbox.getQuickAddTransactionData();
+
+  assert.equal(data.destinationAccountSearchPrefix, '[X] Family');
 });
 
 test('buildQuickAddSymbolOptions_ filters commodity options to configured shortlist', () => {
@@ -124,4 +136,37 @@ test('resolveQuickAddDefaultSymbol_ clears defaults outside the selected symbol 
   assert.equal(sandbox.resolveQuickAddDefaultSymbol_(['CHF', 'EUR'], 'EUR'), 'EUR');
   assert.equal(sandbox.resolveQuickAddDefaultSymbol_(['CHF'], 'EUR'), '');
   assert.equal(sandbox.resolveQuickAddDefaultSymbol_([], 'CHF'), '');
+});
+
+test('saveSheetSettingsFromDialog stores destination prefix', () => {
+  const { sandbox, documentProperties } = loadCode();
+  sandbox.readAccountSheetEntries_ = function() {
+    return [{ resourceName: 'accounts/cash', displayName: '[A] Cash' }];
+  };
+  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+    return [{ symbol: 'CHF' }];
+  };
+
+  sandbox.saveSheetSettingsFromDialog(
+    ['accounts/cash'], ['CHF'], 'accounts/cash', 'CHF', '[X] Family'
+  );
+
+  assert.equal(documentProperties.get('QUICK_ADD_DESTINATION_PREFIX'), '[X] Family');
+});
+
+test('saveSheetSettingsFromDialog clears destination prefix when empty', () => {
+  const { sandbox, documentProperties } = loadCode();
+  sandbox.readAccountSheetEntries_ = function() {
+    return [{ resourceName: 'accounts/cash', displayName: '[A] Cash' }];
+  };
+  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+    return [{ symbol: 'CHF' }];
+  };
+  documentProperties.set('QUICK_ADD_DESTINATION_PREFIX', '[X] Family');
+
+  sandbox.saveSheetSettingsFromDialog(
+    ['accounts/cash'], ['CHF'], 'accounts/cash', 'CHF', ''
+  );
+
+  assert.equal(sandbox.getQuickAddDestinationPrefix_(), '');
 });

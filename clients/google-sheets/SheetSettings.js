@@ -2,6 +2,7 @@ const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS = 'QUICK_ADD_SOURCE_ACCOU
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS = 'QUICK_ADD_SYMBOLS';
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SOURCE_ACCOUNT = 'QUICK_ADD_DEFAULT_SOURCE_ACCOUNT';
 const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL = 'QUICK_ADD_DEFAULT_SYMBOL';
+const FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX = 'QUICK_ADD_DESTINATION_PREFIX';
 
 function showSheetSettings() {
   const html = HtmlService.createHtmlOutputFromFile('SheetSettingsDialog')
@@ -89,6 +90,14 @@ function resolveQuickAddDefaultSymbol_(selectedSymbols, defaultSymbol) {
   return allowed.indexOf(normalizedDefault) !== -1 ? normalizedDefault : '';
 }
 
+function getQuickAddDestinationPrefix_() {
+  return String(
+    PropertiesService.getDocumentProperties().getProperty(
+      FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX
+    ) || ''
+  ).trim();
+}
+
 function getQuickAddSymbols_() {
   const rawValue = PropertiesService.getDocumentProperties().getProperty(
     FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS
@@ -119,10 +128,11 @@ function getSheetSettingsForDialog() {
     quickAddSymbols: quickAddSymbols,
     defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
     defaultSymbol: resolveQuickAddDefaultSymbol_(quickAddSymbols, getQuickAddDefaultSymbol_()),
+    destinationPrefix: getQuickAddDestinationPrefix_(),
   };
 }
 
-function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSourceAccount, defaultSymbol) {
+function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSourceAccount, defaultSymbol, destinationPrefix) {
   const accountOptions = listAccountOptions_();
   const knownAccounts = new Set(accountOptions.map(function(option) {
     return option.resource_name;
@@ -199,5 +209,11 @@ function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSou
     properties.setProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL, normalizedDefaultSymbol);
   } else {
     properties.deleteProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL);
+  }
+  const normalizedPrefix = String(destinationPrefix || '').trim();
+  if (normalizedPrefix) {
+    properties.setProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX, normalizedPrefix);
+  } else {
+    properties.deleteProperty(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_PREFIX);
   }
 }

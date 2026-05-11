@@ -23,6 +23,7 @@ function getQuickAddTransactionData() {
     defaultSymbol: getQuickAddDefaultSymbol_(),
     commodityOptions: commodityOptions,
     configured: sourceAccountOptions.length > 0 && commodityOptions.length > 0,
+    destinationAccountSearchPrefix: getQuickAddDestinationPrefix_(),
   };
 }
 

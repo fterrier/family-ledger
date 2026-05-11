@@ -87,6 +87,12 @@
   <div class="hint">Must be one of the selected quick add symbols.</div>
 </div>
 
+<div class="field">
+  <label for="destinationPrefixInput">Destination account search prefix</label>
+  <input type="text" id="destinationPrefixInput" placeholder="e.g. [X] Family" />
+  <div class="hint">Optional. Always prepended to destination account searches in Quick Add Transaction.</div>
+</div>
+
 <div class="actions">
   <button class="btn-primary" id="saveBtn" onclick="onSave()">Save</button>
   <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
@@ -103,6 +109,7 @@
       populateSourceAccounts(accountOptions, settings.quickAddSourceAccounts || []);
       populateDefaultSourceAccounts(accountOptions, settings.quickAddSourceAccounts || [], settings.defaultSourceAccount || '');
       populateSymbols(settings.commodities || [], settings.quickAddSymbols || [], settings.defaultSymbol || '');
+      document.getElementById('destinationPrefixInput').value = settings.destinationPrefix || '';
     })
     .withFailureHandler(function(err) {
       showError(err.message || String(err));
@@ -204,7 +211,8 @@
         getSelectedValues('sourceAccountsSelect'),
         getSelectedValues('symbolSelect'),
         document.getElementById('defaultSourceAccountSelect').value,
-        document.getElementById('defaultSymbolInput').value
+        document.getElementById('defaultSymbolInput').value,
+        document.getElementById('destinationPrefixInput').value
       );
   }
 

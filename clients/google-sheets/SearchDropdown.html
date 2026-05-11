@@ -1,99 +1,131 @@
 function attachSearchDropdown_(rootSelect, searchFn) {
   const parent = rootSelect.parentNode;
-  const wrapper = parent.ownerDocument
-    ? parent.ownerDocument.createElement('div')
-    : { style: {}, className: '', appendChild() {} };
+  const doc = parent.ownerDocument
+    ? parent.ownerDocument
+    : { createElement() { return { style: {}, className: '', classList: { add() {} }, appendChild() {}, addEventListener() {} }; } };
+
+  const wrapper = doc.createElement('div');
   wrapper.className = 'search-dropdown-host';
+  parent.insertBefore(wrapper, rootSelect);
 
-  const input = parent.ownerDocument.createElement('input');
-  input.type = 'text';
-  input.placeholder = 'Search account';
-  input.className = 'search-dropdown-input';
+  const valueDisplay = doc.createElement('div');
+  valueDisplay.className = 'search-dropdown-value';
 
-  const arrow = parent.ownerDocument.createElement('div');
+  const valueText = doc.createElement('span');
+  valueText.className = 'search-dropdown-value-text placeholder';
+
+  const arrow = doc.createElement('div');
   arrow.className = 'search-dropdown-trigger';
 
-  parent.insertBefore(wrapper, rootSelect);
-  wrapper.appendChild(input);
-  wrapper.appendChild(arrow);
+  valueDisplay.appendChild(valueText);
+  valueDisplay.appendChild(arrow);
+  wrapper.appendChild(valueDisplay);
+
+  const panel = doc.createElement('div');
+  panel.className = 'search-dropdown-panel';
+  panel.style.display = 'none';
+
+  const input = doc.createElement('input');
+  input.type = 'text';
+  input.className = 'search-dropdown-input';
+  input.placeholder = 'Search...';
 
   rootSelect.classList.add('search-dropdown-select');
   rootSelect.size = 8;
-  rootSelect.style.display = 'none';
 
-  const allOptions = Array.from(rootSelect.options).map(function(option) {
-    return {
-      value: option.value,
-      label: option.textContent,
-    };
+  panel.appendChild(input);
+  panel.appendChild(rootSelect);
+  wrapper.appendChild(panel);
+
+  const allOptions = Array.from(rootSelect.options).map(function(opt) {
+    return { value: opt.value, label: opt.textContent };
   });
 
   let searchTimer = null;
-  let blurTimer = null;
 
-  function clearSearchTimer_() {
-    if (searchTimer !== null) {
-      clearTimeout(searchTimer);
-      searchTimer = null;
-    }
-  }
-
-  function clearBlurTimer_() {
-    if (blurTimer !== null) {
-      clearTimeout(blurTimer);
-      blurTimer = null;
-    }
+  function cancelSearch_() {
+    if (searchTimer !== null) { clearTimeout(searchTimer); searchTimer = null; }
   }
 
   function applyOptions_(options) {
-    const previousValue = rootSelect.value || '';
+    const prev = rootSelect.value || '';
     rootSelect.innerHTML = '';
-    options.forEach(function(option) {
-      const element = parent.ownerDocument.createElement('option');
-      element.value = option.value;
-      element.textContent = option.label;
-      rootSelect.appendChild(element);
+    options.forEach(function(opt) {
+      const el = doc.createElement('option');
+      el.value = opt.value;
+      el.textContent = opt.label;
+      rootSelect.appendChild(el);
     });
-    if (options.some(function(option) { return option.value === previousValue; })) {
-      rootSelect.value = previousValue;
-    } else {
-      rootSelect.value = options.length > 0 ? options[0].value : '';
-    }
-  }
-
-  function showDropdown_() {
-    rootSelect.style.display = 'block';
-  }
-
-  function hideDropdown_() {
-    rootSelect.style.display = 'none';
+    rootSelect.value = options.some(function(o) { return o.value === prev; })
+      ? prev : (options.length > 0 ? options[0].value : '');
   }
 
   function refreshOptions_(query) {
     applyOptions_(searchFn(query, allOptions));
-    showDropdown_();
+  }
+
+  function updateDisplay_() {
+    const opt = rootSelect.options[rootSelect.selectedIndex];
+    if (opt && opt.value) {
+      valueText.textContent = opt.textContent;
+      valueText.className = 'search-dropdown-value-text';
+    } else {
+      valueText.textContent = opt ? opt.textContent : '';
+      valueText.className = 'search-dropdown-value-text placeholder';
+    }
+  }
+
+  function isInWrapper_(target) {
+    let node = target;
+    while (node) {
+      if (node === wrapper) return true;
+      node = node.parentNode;
+    }
+    return false;
+  }
+
+  function hidePanel_() {
+    panel.style.display = 'none';
+    input.value = '';
+  }
+
+  function commitSelection_() {
+    updateDisplay_();
+    hidePanel_();
   }
 
   function openDropdown_() {
-    clearBlurTimer_();
-    clearSearchTimer_();
+    cancelSearch_();
     refreshOptions_('');
+    panel.style.display = 'block';
+    input.focus();
   }
 
-  function selectCurrentOption_() {
-    const option = rootSelect.options[rootSelect.selectedIndex];
-    if (!option) {
-      input.value = '';
-      hideDropdown_();
-      return;
+  refreshOptions_('');
+  updateDisplay_();
+
+  // Toggle on value display click; preventDefault keeps focus in panel
+  valueDisplay.addEventListener('mousedown', function(event) {
+    event.preventDefault();
+    if (panel.style.display === 'none') {
+      openDropdown_();
+    } else {
+      hidePanel_();
     }
-    input.value = option.value ? option.textContent : '';
-    hideDropdown_();
+  });
+
+  // Close when clicking outside the wrapper
+  if (doc.addEventListener) {
+    doc.addEventListener('mousedown', function(event) {
+      if (panel.style.display !== 'none' && !isInWrapper_(event.target)) {
+        commitSelection_();
+      }
+    });
   }
 
+  // Search input filtering with debounce
   input.addEventListener('input', function() {
-    clearBlurTimer_();
-    clearSearchTimer_();
+    cancelSearch_();
     const query = input.value || '';
     if (!query.trim()) {
       refreshOptions_('');
@@ -105,48 +137,28 @@ function attachSearchDropdown_(rootSelect, searchFn) {
     }, 200);
   });
 
-  input.addEventListener('focus', function() {
-    openDropdown_();
-  });
-
-  input.addEventListener('blur', function() {
-    clearBlurTimer_();
-    blurTimer = setTimeout(function() {
-      hideDropdown_();
-    }, 150);
-  });
-
-  wrapper.addEventListener('mousedown', function(event) {
-    if (event.target === rootSelect) {
-      return;
-    }
+  // mousedown fires before blur so selectedIndex is already updated; setTimeout(0)
+  // lets the browser finish updating the selection before we read it
+  rootSelect.addEventListener('mousedown', function() {
     setTimeout(function() {
-      input.focus();
-      openDropdown_();
+      commitSelection_();
     }, 0);
   });
 
+  // change as fallback (e.g. keyboard selection)
   rootSelect.addEventListener('change', function() {
-    selectCurrentOption_();
-  });
-
-  rootSelect.addEventListener('blur', function() {
-    clearBlurTimer_();
-    blurTimer = setTimeout(function() {
-      hideDropdown_();
-    }, 150);
+    commitSelection_();
   });
 
   return {
     clear: function() {
-      clearBlurTimer_();
-      clearSearchTimer_();
-      input.value = '';
+      cancelSearch_();
       rootSelect.value = '';
-      hideDropdown_();
-      const changeEvent = parent.ownerDocument.createEvent('Event');
-      changeEvent.initEvent('change', true, true);
-      rootSelect.dispatchEvent(changeEvent);
+      updateDisplay_();
+      hidePanel_();
+      const evt = doc.createEvent('Event');
+      evt.initEvent('change', true, true);
+      rootSelect.dispatchEvent(evt);
     },
     open: openDropdown_,
   };

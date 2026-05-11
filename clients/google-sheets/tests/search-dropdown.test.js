@@ -34,11 +34,19 @@ function makeFakeDom() {
       parentNode: null,
       listeners: {},
       appendChild(child) {
+        if (child.parentNode && child.parentNode.children) {
+          const idx = child.parentNode.children.indexOf(child);
+          if (idx !== -1) child.parentNode.children.splice(idx, 1);
+        }
         child.parentNode = element;
         element.children.push(child);
         return child;
       },
       insertBefore(child, reference) {
+        if (child.parentNode && child.parentNode.children) {
+          const idx = child.parentNode.children.indexOf(child);
+          if (idx !== -1) child.parentNode.children.splice(idx, 1);
+        }
         child.parentNode = element;
         const index = element.children.indexOf(reference);
         if (index === -1) {
@@ -87,7 +95,7 @@ function makeFakeDom() {
   return { document, makeElement };
 }
 
-test('attachSearchDropdown_ enhances a native select and shows all options on open', () => {
+test('attachSearchDropdown_ shows all options and panel on open', () => {
   const { document, makeElement } = makeFakeDom();
   const { sandbox } = loadCode({ setTimeout, clearTimeout });
   const parent = makeElement('div', document);
@@ -106,12 +114,15 @@ test('attachSearchDropdown_ enhances a native select and shows all options on op
     });
   });
 
-  const host = parent.children[0];
-  const input = host.children[0];
+  // Structure: parent > wrapper(host) > [valueDisplay, panel > [input, select]]
+  const wrapper = parent.children[0];
+  const valueDisplay = wrapper.children[0];
+  const panel = wrapper.children[1];
 
-  input.focus();
+  // Simulate click on the value display to open the dropdown
+  valueDisplay.listeners.mousedown({ preventDefault() {} });
 
-  assert.equal(select.style.display, 'block');
+  assert.equal(panel.style.display, 'block');
   assert.equal(select.options.length, 3);
 });
 
@@ -134,16 +145,24 @@ test('attachSearchDropdown_ debounces filtering and updates native select option
     });
   });
 
-  const input = parent.children[0].children[0];
+  const panel = parent.children[0].children[1];
+  const input = panel.children[0];
+
+  // Open the dropdown first
+  parent.children[0].children[0].listeners.mousedown({ preventDefault() {} });
+
+  // Type a query — before debounce fires, still 2 options
   input.value = 'ffoc';
   input.listeners.input({ target: input });
   assert.equal(select.options.length, 2);
+
+  // After debounce fires, filtered to 1
   await new Promise(function(resolve) { setTimeout(resolve, 220); });
   assert.equal(select.options.length, 1);
   assert.equal(select.options[0].value, 'accounts/0');
 });
 
-test('attachSearchDropdown_ syncs selected option back into the native select value', () => {
+test('attachSearchDropdown_ syncs selected option into value display and closes panel', () => {
   const { document, makeElement } = makeFakeDom();
   const { sandbox } = loadCode({ setTimeout, clearTimeout });
   const parent = makeElement('div', document);
@@ -160,12 +179,17 @@ test('attachSearchDropdown_ syncs selected option back into the native select va
     return options;
   });
 
+  const wrapper = parent.children[0];
+  const valueDisplay = wrapper.children[0];
+  const valueText = valueDisplay.children[0];
+  const panel = wrapper.children[1];
+
   controller.open();
   select.value = 'accounts/food';
   select.selectedIndex = 1;
   select.dispatchEvent({ type: 'change' });
 
   assert.equal(select.value, 'accounts/food');
-  assert.equal(parent.children[0].children[0].value, '[X] Family - Food');
-  assert.equal(select.style.display, 'none');
+  assert.equal(valueText.textContent, '[X] Family - Food');
+  assert.equal(panel.style.display, 'none');
 });

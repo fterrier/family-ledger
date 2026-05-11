@@ -21,6 +21,8 @@ const SOURCE_FILES = [
   'TransactionSave.js',
   'TransactionEdits.js',
   'App.js',
+  'SheetSettings.js',
+  'QuickAddTransaction.js',
   'AccountSearch.html',
   'SearchDropdown.html',
 ];
@@ -299,6 +301,10 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
           });
           return this;
         },
+        setFormula(value) {
+          operations.push({ type: 'setFormula', row, column, value });
+          return this;
+        },
         setHorizontalAlignment() { return this; },
         setWrap() { return this; },
         setWrapStrategy() { return this; },
@@ -335,6 +341,16 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
     },
     getActiveRange() {
       return { getRow() { return 2; } };
+    },
+    insertRowsBefore(rowNumber, count) {
+      operations.push({ type: 'insertRowsBefore', rowNumber, count });
+      const entries = Array.from(rowStore.entries()).sort((a, b) => b[0] - a[0]);
+      entries.forEach(([existingRowNumber, data]) => {
+        if (existingRowNumber >= rowNumber) {
+          rowStore.delete(existingRowNumber);
+          rowStore.set(existingRowNumber + count, data);
+        }
+      });
     },
     insertRowsAfter(rowNumber, count) {
       operations.push({ type: 'insertRowsAfter', rowNumber, count });

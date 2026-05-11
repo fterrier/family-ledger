@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+    padding: 16px;
+  }
+  .field { margin-bottom: 16px; }
+  label { display: block; font-weight: bold; margin-bottom: 6px; }
+  select, input[type="text"] {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  select[multiple] { min-height: 200px; }
+  .hint {
+    margin-top: 4px;
+    color: #5f6368;
+    font-size: 12px;
+  }
+  .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
+  .btn-primary {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-primary:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="errorBox"></div>
+
+<div class="field">
+  <label for="sourceAccountsSelect">Quick add source accounts</label>
+  <select id="sourceAccountsSelect" multiple></select>
+  <div class="hint">Only these accounts will be available as source accounts in Quick Add Transaction.</div>
+</div>
+
+<div class="field">
+  <label for="defaultSourceAccountSelect">Default source account</label>
+  <select id="defaultSourceAccountSelect"></select>
+  <div class="hint">Must be one of the selected quick add source accounts.</div>
+</div>
+
+<div class="field">
+  <label for="symbolSelect">Quick add symbols</label>
+  <select id="symbolSelect" multiple></select>
+  <div class="hint">Only these symbols will be available in Quick Add Transaction.</div>
+</div>
+
+<div class="field">
+  <label for="defaultSymbolInput">Default symbol</label>
+  <select id="defaultSymbolInput"></select>
+  <div class="hint">Must be one of the selected quick add symbols.</div>
+</div>
+
+<div class="actions">
+  <button class="btn-primary" id="saveBtn" onclick="onSave()">Save</button>
+  <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
+</div>
+
+<script>
+  let accountOptions = [];
+  let currentData = null;
+
+  google.script.run
+    .withSuccessHandler(function(settings) {
+      currentData = settings;
+      accountOptions = settings.accounts || [];
+      populateSourceAccounts(accountOptions, settings.quickAddSourceAccounts || []);
+      populateDefaultSourceAccounts(accountOptions, settings.quickAddSourceAccounts || [], settings.defaultSourceAccount || '');
+      populateSymbols(settings.commodities || [], settings.quickAddSymbols || [], settings.defaultSymbol || '');
+    })
+    .withFailureHandler(function(err) {
+      showError(err.message || String(err));
+    })
+    .getSheetSettingsForDialog();
+
+  document.getElementById('sourceAccountsSelect').addEventListener('change', function() {
+    populateDefaultSourceAccounts(accountOptions, getSelectedValues('sourceAccountsSelect'), document.getElementById('defaultSourceAccountSelect').value || '');
+  });
+  document.getElementById('symbolSelect').addEventListener('change', function() {
+    populateDefaultSymbolSelect(
+      currentData ? (currentData.commodities || []) : [],
+      getSelectedValues('symbolSelect'),
+      document.getElementById('defaultSymbolInput').value || ''
+    );
+  });
+
+  function populateSourceAccounts(options, selectedValues) {
+    var select = document.getElementById('sourceAccountsSelect');
+    select.innerHTML = '';
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.resource_name;
+      el.textContent = option.display_name;
+      el.selected = selectedValues.indexOf(option.resource_name) !== -1;
+      select.appendChild(el);
+    });
+  }
+
+  function populateDefaultSourceAccounts(options, selectedValues, defaultValue) {
+    var select = document.getElementById('defaultSourceAccountSelect');
+    select.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'None';
+    select.appendChild(blank);
+    options.forEach(function(option) {
+      if (selectedValues.indexOf(option.resource_name) === -1) {
+        return;
+      }
+      var el = document.createElement('option');
+      el.value = option.resource_name;
+      el.textContent = option.display_name;
+      select.appendChild(el);
+    });
+    select.value = selectedValues.indexOf(defaultValue) !== -1 ? defaultValue : '';
+  }
+
+  function populateSymbols(options, selectedValues, defaultValue) {
+    var select = document.getElementById('symbolSelect');
+    select.innerHTML = '';
+    options.forEach(function(option) {
+      var el = document.createElement('option');
+      el.value = option.symbol;
+      el.textContent = option.symbol;
+      el.selected = selectedValues.indexOf(option.symbol) !== -1;
+      select.appendChild(el);
+    });
+    populateDefaultSymbolSelect(options, selectedValues, defaultValue);
+  }
+
+  function populateDefaultSymbolSelect(options, selectedValues, defaultValue) {
+    var select = document.getElementById('defaultSymbolInput');
+    select.innerHTML = '';
+    var blank = document.createElement('option');
+    blank.value = '';
+    blank.textContent = 'None';
+    select.appendChild(blank);
+    options.forEach(function(option) {
+      if (selectedValues.indexOf(option.symbol) === -1) {
+        return;
+      }
+      var el = document.createElement('option');
+      el.value = option.symbol;
+      el.textContent = option.symbol;
+      select.appendChild(el);
+    });
+    select.value = selectedValues.indexOf(defaultValue) !== -1 ? defaultValue : '';
+  }
+
+  function getSelectedValues(id) {
+    return Array.prototype.slice.call(document.getElementById(id).selectedOptions).map(function(option) {
+      return option.value;
+    });
+  }
+
+  function onSave() {
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('saveBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        document.getElementById('saveBtn').disabled = false;
+      })
+      .saveSheetSettingsFromDialog(
+        getSelectedValues('sourceAccountsSelect'),
+        getSelectedValues('symbolSelect'),
+        document.getElementById('defaultSourceAccountSelect').value,
+        document.getElementById('defaultSymbolInput').value
+      );
+  }
+
+  function showError(message) {
+    var errorBox = document.getElementById('errorBox');
+    errorBox.textContent = message;
+    errorBox.style.display = 'block';
+  }
+</script>
+
+</body>
+</html>

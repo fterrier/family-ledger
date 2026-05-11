@@ -106,10 +106,10 @@
     .withSuccessHandler(function(settings) {
       currentData = settings;
       accountOptions = settings.accounts || [];
-      populateSourceAccounts(accountOptions, settings.quickAddSourceAccounts || []);
+      populateAccountMultiSelect('sourceAccountsSelect', accountOptions, settings.quickAddSourceAccounts || []);
       populateDefaultSourceAccounts(accountOptions, settings.quickAddSourceAccounts || [], settings.defaultSourceAccount || '');
       populateSymbols(settings.commodities || [], settings.quickAddSymbols || [], settings.defaultSymbol || '');
-      populateDestinationAccounts(accountOptions, settings.quickAddDestinationAccounts || []);
+      populateAccountMultiSelect('destinationAccountsSelect', accountOptions, settings.quickAddDestinationAccounts || []);
     })
     .withFailureHandler(function(err) {
       showError(err.message || String(err));
@@ -137,10 +137,6 @@
       el.selected = selectedValues.indexOf(option.resource_name) !== -1;
       select.appendChild(el);
     });
-  }
-
-  function populateSourceAccounts(options, selectedValues) {
-    populateAccountMultiSelect('sourceAccountsSelect', options, selectedValues);
   }
 
   function populateDefaultSourceAccounts(options, selectedValues, defaultValue) {
@@ -192,10 +188,6 @@
       select.appendChild(el);
     });
     select.value = selectedValues.indexOf(defaultValue) !== -1 ? defaultValue : '';
-  }
-
-  function populateDestinationAccounts(options, selectedValues) {
-    populateAccountMultiSelect('destinationAccountsSelect', options, selectedValues);
   }
 
   function getSelectedValues(id) {

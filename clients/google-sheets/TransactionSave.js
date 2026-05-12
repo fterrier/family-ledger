@@ -2,20 +2,17 @@ function pushActiveTransaction() {
   runUserAction_('Push Active Transaction', function() {
     const sheet = requireTransactionSheet_();
     const group = getActiveTransactionGroupFromSheet_(sheet);
-    saveTransactionByName_(sheet, group.rowNumbers[0], { showSuccessAlert: true });
+    saveTransactionByName_(sheet, group, { showSuccessAlert: true });
   });
 }
 
-function saveTransactionByName_(sheet, anchorRow, options, precomputed) {
+function saveTransactionByName_(sheet, precomputed, options) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const anchor = precomputed || perf.wrap('sheet.read_rows', function() {
-      return findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
-    }, function(r) { return r.rowNumbers.length + ' rows'; });
-    const rowNumbers = anchor.rowNumbers;
-    const transactionName = anchor.transactionName;
+    const rowNumbers = precomputed.rowNumbers;
+    const transactionName = precomputed.transactionName;
 
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');

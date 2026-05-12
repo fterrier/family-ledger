@@ -38,22 +38,23 @@ function handleTransactionEdit(e) {
 }
 
 function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, saveOptions) {
-  let precomputed = null;
+  let precomputed;
   if (header === 'split_off_amount') {
     const splitValue = String(rawValue ?? '').trim();
-    if (!splitValue) {
-      return;
-    }
+    if (!splitValue) return;
     performSplitInstructionForRow_(sheet, rowNumber, splitValue);
+    precomputed = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   } else if (header === 'payee') {
     precomputed = propagateTransactionField_(sheet, rowNumber, header, String(rawValue || ''));
   } else if (header === 'narration') {
     precomputed = applyNarrationEdit_(sheet, rowNumber, String(rawValue || ''));
   } else if (header === 'amount') {
-    handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
+    precomputed = handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
+  } else {
+    precomputed = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   }
 
-  saveTransactionByName_(sheet, rowNumber, saveOptions || {}, precomputed);
+  saveTransactionByName_(sheet, precomputed, saveOptions || {});
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
@@ -186,7 +187,8 @@ function focusCell_(sheet, rowNumber, columnNumber) {
 }
 
 function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
-  const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  const precomputed = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  const { rowNumbers } = precomputed;
   const groupRows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
   const row = groupRows.find(function(r) { return r.__rowNumber === rowNumber; });
 
@@ -200,7 +202,7 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   if (isNaN(oldAmount)) {
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-    return;
+    return precomputed;
   }
 
   if (isNaN(newAmount)) {
@@ -211,10 +213,11 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   if (newAmount === oldAmount) {
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-    return;
+    return precomputed;
   }
 
   performSplitFromEditedAmount_(sheet, rowNumber, oldAmount, newAmount, row, groupRows);
+  return findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
 }
 
 function restoreAmountCell_(sheet, rowNumber, amount) {

@@ -348,12 +348,27 @@ test('performSplitInstructionForRow_ treats x and - as delete instructions', () 
 test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_off_amount column', () => {
   const calls = [];
   const { sandbox } = loadCode();
+  const rowStore = new Map([[5, {
+    resource_name: 'transactions/txn_1',
+    destination_account_name: 'Expenses:Food',
+    amount: 84.25,
+    narration_source: 'txn',
+    narration: 'Groceries',
+    source_account_name: 'Assets:Bank',
+    transaction_date: '2026-04-19',
+    payee: '',
+    split_off_amount: '',
+    symbol: 'CHF',
+    status: '',
+    last_error: '',
+  }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
     calls.push({ rowNumber: rowNumber, instruction: instruction });
   };
   sandbox.saveTransactionByName_ = function() {};
 
-  sandbox.applyTransactionEdit_({}, 5, 'split_off_amount', 0, '', {});
+  sandbox.applyTransactionEdit_(fakeSheet, 5, 'split_off_amount', 0, '', {});
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 5, instruction: '0' }]);
 });
@@ -392,14 +407,15 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const saves = [];
-  sandbox.saveTransactionByName_ = function(_sheet, anchorRow) { saves.push(anchorRow); };
+  sandbox.saveTransactionByName_ = function(_sheet, precomputed) { saves.push(precomputed); };
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
 
   assert.equal(rowStore.get(2).narration_source, 'txn');
   assert.equal(rowStore.get(3).narration_source, 'post');
   assert.equal(rowStore.get(3).narration, 'Household');
-  assert.deepEqual(saves, [3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(saves[0].rowNumbers)), [2, 3]);
+  assert.equal(saves[0].transactionName, 'transactions/txn_1');
 });
 
 test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {

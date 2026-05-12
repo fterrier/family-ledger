@@ -48,7 +48,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
     return {};
   };
 
-  sandbox.saveTransactionByName_(fakeSheet, 'transactions/txn_1', {});
+  sandbox.saveTransactionByName_(fakeSheet, 2, {});
 
   assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
   assert.equal(rowStore.get(2).last_error, 'transaction_unbalanced: Transaction is not balanced within tolerance.');
@@ -104,7 +104,7 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
     throw new Error('doctor temporarily unavailable');
   };
 
-  sandbox.saveTransactionByName_(fakeSheet, 'transactions/txn_1', {});
+  sandbox.saveTransactionByName_(fakeSheet, 2, {});
 
   assert.equal(rowStore.get(2).status, 'saved');
   assert.equal(rowStore.get(2).last_error, '');

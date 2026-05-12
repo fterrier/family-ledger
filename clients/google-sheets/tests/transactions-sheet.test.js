@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { loadCode, sampleTransaction } = require('./_harness');
+const { loadCode, sampleTransaction, makeRowStoreSheet_ } = require('./_harness');
 
 test('classifySupportedTransaction_ accepts simple outgoing transaction', () => {
   const { sandbox } = loadCode();
@@ -448,12 +448,58 @@ test('isContiguousRowNumbers_ identifies split and contiguous groups', () => {
   assert.equal(sandbox.isContiguousRowNumbers_([2, 4]), false);
 });
 
-test('findTransactionRowNumbersFromColumnValues_ maps transaction ids to sheet row numbers', () => {
+test('findTransactionRowNumbersFromAnchor_ finds a single non-split row', () => {
   const { sandbox } = loadCode();
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromColumnValues_(['transactions/a', 'transactions/b', 'transactions/a'], 'transactions/a'))),
-    [2, 4]
-  );
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a' }],
+    [3, { resource_name: 'transactions/txn_b' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2))), [2]);
+});
+
+test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anchor', () => {
+  const { sandbox } = loadCode();
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_1' }],
+    [5, { resource_name: 'transactions/txn_2' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3))), [2, 3, 4]);
+});
+
+test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at top', () => {
+  const { sandbox } = loadCode();
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_2' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2))), [2, 3]);
+});
+
+test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at bottom', () => {
+  const { sandbox } = loadCode();
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_0' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_1' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 4))), [3, 4]);
+});
+
+test('findTransactionRowNumbersFromAnchor_ throws when anchor row has no transaction', () => {
+  const { sandbox } = loadCode();
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: '' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.throws(() => sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3), /does not contain a transaction/);
 });
 
 test('buildContiguousRowSpans_ groups scattered row numbers into deletion spans', () => {

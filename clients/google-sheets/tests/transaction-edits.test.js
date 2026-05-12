@@ -284,7 +284,6 @@ test('handleAmountEdit_ converts a decrease into a split of the difference', () 
 test('applyTransactionEdit_ treats numeric 0 as a valid new amount for amount column', () => {
   const calls = [];
   const { sandbox } = loadCode();
-  sandbox.getTransactionNameForRow_ = function() { return 'transactions/txn_1'; };
   sandbox.handleAmountEdit_ = function(_sheet, rowNumber, rawValue, oldRawValue) {
     calls.push({ rowNumber: rowNumber, rawValue: rawValue, oldRawValue: oldRawValue });
   };
@@ -319,7 +318,6 @@ test('performSplitInstructionForRow_ treats x and - as delete instructions', () 
 test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_off_amount column', () => {
   const calls = [];
   const { sandbox } = loadCode();
-  sandbox.getTransactionNameForRow_ = function() { return 'transactions/txn_1'; };
   sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
     calls.push({ rowNumber: rowNumber, instruction: instruction });
   };
@@ -364,14 +362,14 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const saves = [];
-  sandbox.saveTransactionByName_ = function(_sheet, transactionName) { saves.push(transactionName); };
+  sandbox.saveTransactionByName_ = function(_sheet, anchorRow) { saves.push(anchorRow); };
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
 
   assert.equal(rowStore.get(2).narration_source, 'txn');
   assert.equal(rowStore.get(3).narration_source, 'post');
   assert.equal(rowStore.get(3).narration, 'Household');
-  assert.deepEqual(saves, ['transactions/txn_1']);
+  assert.deepEqual(saves, [3]);
 });
 
 test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {

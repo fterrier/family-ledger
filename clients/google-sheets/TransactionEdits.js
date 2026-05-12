@@ -42,16 +42,11 @@ function handleTransactionEdit(e) {
     });
   } catch (error) {
     rollbackFailedEdit_(sheet, row, header, String(e.oldValue ?? ''));
-    handleAutomaticEditError_(sheet, transactionName, error);
+    handleAutomaticEditError_(sheet, row, error);
   }
 }
 
 function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, saveOptions) {
-  const transactionName = getTransactionNameForRow_(sheet, rowNumber);
-  if (!transactionName) {
-    return;
-  }
-
   if (header === 'split_off_amount') {
     const splitValue = String(rawValue ?? '').trim();
     if (!splitValue) {
@@ -59,14 +54,14 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
     }
     performSplitInstructionForRow_(sheet, rowNumber, splitValue);
   } else if (header === 'payee') {
-    propagateTransactionField_(sheet, transactionName, header, String(rawValue || ''));
+    propagateTransactionField_(sheet, rowNumber, header, String(rawValue || ''));
   } else if (header === 'narration') {
-    applyNarrationEdit_(sheet, transactionName, rowNumber, String(rawValue || ''));
+    applyNarrationEdit_(sheet, rowNumber, String(rawValue || ''));
   } else if (header === 'amount') {
     handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
   }
 
-  saveTransactionByName_(sheet, transactionName, saveOptions || {});
+  saveTransactionByName_(sheet, rowNumber, saveOptions || {});
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
@@ -149,7 +144,7 @@ function performDeleteSplitRow_(sheet, rowNumber) {
     throw new Error('The selected row does not contain a transaction.');
   }
 
-  const rowNumbers = findTransactionRowNumbers_(sheet, row.resource_name);
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   if (rowNumbers.length <= 1) {
     row.destination_account_name = '';
     row.split_off_amount = '';
@@ -212,7 +207,7 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   const oldAmount = parseFloat(oldRawValue);
   const newAmount = parseFloat(rawValue);
   if (isNaN(oldAmount)) {
-    clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
+    clearTransactionErrors_(sheet, rowNumber);
     return;
   }
 
@@ -222,7 +217,7 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   }
 
   if (newAmount === oldAmount) {
-    clearTransactionErrors_(sheet, getTransactionNameForRow_(sheet, rowNumber));
+    clearTransactionErrors_(sheet, rowNumber);
     return;
   }
 
@@ -252,22 +247,22 @@ function normalizedFallbackAmount_(amount) {
   return isNaN(n) ? '' : n;
 }
 
-function propagateTransactionField_(sheet, transactionName, header, value) {
-  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
+function propagateTransactionField_(sheet, rowNumber, header, value) {
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 }
 
-function applyNarrationEdit_(sheet, transactionName, rowNumber, value) {
-  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
+function applyNarrationEdit_(sheet, rowNumber, value) {
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   if (rowNumbers.length <= 1) {
     applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value);
     markTransactionRowsDirty_(sheet, rowNumbers);
     return;
   }
 
-  applySplitRowPostingNarrationEdit_(sheet, rowNumber, value);
+  applySplitRowPostingNarrationEdit_(sheet, rowNumber, rowNumbers, value);
   markTransactionRowsDirty_(sheet, rowNumbers);
 }
 
@@ -278,9 +273,9 @@ function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value) {
   writeTransactionSheetRow_(sheet, rowNumber, row);
 }
 
-function applySplitRowPostingNarrationEdit_(sheet, rowNumber, value) {
+function applySplitRowPostingNarrationEdit_(sheet, rowNumber, rowNumbers, value) {
   const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
-  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
+  const groupRows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
   const transactionNarration = inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
   const normalizedValue = String(value || '');
 
@@ -306,8 +301,8 @@ function markTransactionRowsDirty_(sheet, rowNumbers) {
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 }
 
-function clearTransactionErrors_(sheet, transactionName) {
-  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
+function clearTransactionErrors_(sheet, rowNumber) {
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 }
@@ -323,7 +318,7 @@ function inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row) {
 }
 
 function inferTransactionNarrationForSplitRow_(sheet, rowNumber, row) {
-  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
+  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbersFromAnchor_(sheet, rowNumber));
   return inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
 }
 
@@ -340,8 +335,9 @@ function ensureSplitTransactionRetainsTransactionNarration_(groupRows, rowNumber
   }
 }
 
-function handleAutomaticEditError_(sheet, transactionName, error) {
-  setFieldValuesForRowNumbers_(sheet, findTransactionRowNumbers_(sheet, transactionName), 'status', 'error');
-  setFieldValuesForRowNumbers_(sheet, findTransactionRowNumbers_(sheet, transactionName), 'last_error', error.message || String(error));
+function handleAutomaticEditError_(sheet, rowNumber, error) {
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
+  setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
   SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
 }

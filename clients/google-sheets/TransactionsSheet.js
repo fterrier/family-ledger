@@ -217,25 +217,15 @@ function isSourceOnlyTransactionRow_(sheet, rowNumber) {
   if (!sheet || typeof sheet.getRange !== 'function') {
     return false;
   }
-  const probeRange = sheet.getRange(
-    rowNumber,
-    1,
-    1,
-    FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length
-  );
-  if (!probeRange || typeof probeRange.getValues !== 'function') {
+  try {
+    const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+    const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
+    return rows.every(function(groupRow) {
+      return !String(groupRow.destination_account_name || '').trim();
+    });
+  } catch (_e) {
     return false;
   }
-  const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
-  const transactionName = row && row.resource_name ? String(row.resource_name).trim() : '';
-  if (!transactionName) {
-    return false;
-  }
-  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
-  const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
-  return rows.every(function(groupRow) {
-    return !String(groupRow.destination_account_name || '').trim();
-  });
 }
 
 function requireSingleNormalizedValue_(rows, fieldName, label, issues, normalizer) {
@@ -274,34 +264,26 @@ function getTransactionNameForRow_(sheet, rowNumber) {
   return String(sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('resource_name')).getValue() || '').trim();
 }
 
-function readTransactionNameColumnValues_(sheet) {
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) {
-    return [];
+function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
+  const col = getTransactionHeaderColumnIndex_('resource_name');
+  const windowStart = Math.max(2, anchorRow - 25);
+  const windowEnd = anchorRow + 25;
+  const values = sheet.getRange(windowStart, col, windowEnd - windowStart + 1, 1).getValues();
+  const anchorIndex = anchorRow - windowStart;
+  const transactionName = String(values[anchorIndex][0] || '').trim();
+  if (!transactionName) {
+    throw new Error('The selected row does not contain a transaction.');
   }
-  return sheet
-    .getRange(2, getTransactionHeaderColumnIndex_('resource_name'), lastRow - 1, 1)
-    .getValues()
-    .map(function(row) {
-      return String(row[0] || '').trim();
-    });
-}
-
-function findTransactionRowNumbersFromColumnValues_(columnValues, transactionName) {
   const rowNumbers = [];
-  columnValues.forEach(function(value, index) {
-    if (value === transactionName) {
-      rowNumbers.push(index + 2);
-    }
-  });
-  if (rowNumbers.length === 0) {
-    throw new Error('Transaction ' + transactionName + ' is not present in the sheet.');
+  for (let i = anchorIndex; i >= 0; i--) {
+    if (String(values[i][0] || '').trim() !== transactionName) break;
+    rowNumbers.unshift(windowStart + i);
+  }
+  for (let i = anchorIndex + 1; i < values.length; i++) {
+    if (String(values[i][0] || '').trim() !== transactionName) break;
+    rowNumbers.push(windowStart + i);
   }
   return rowNumbers;
-}
-
-function findTransactionRowNumbers_(sheet, transactionName) {
-  return findTransactionRowNumbersFromColumnValues_(readTransactionNameColumnValues_(sheet), transactionName);
 }
 
 function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
@@ -413,13 +395,8 @@ function getActiveTransactionGroupFromSheet_(sheet) {
   if (activeRowNumber <= 1) {
     throw new Error('Select a transaction data row first.');
   }
-
+  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
   const transactionName = getTransactionNameForRow_(sheet, activeRowNumber);
-  if (!transactionName) {
-    throw new Error('The selected row does not contain a transaction.');
-  }
-
-  const rowNumbers = findTransactionRowNumbers_(sheet, transactionName);
   return {
     transactionName: transactionName,
     activeIndex: rowNumbers.indexOf(activeRowNumber),

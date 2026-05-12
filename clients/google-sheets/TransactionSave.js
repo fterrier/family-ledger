@@ -2,18 +2,23 @@ function pushActiveTransaction() {
   runUserAction_('Push Active Transaction', function() {
     const sheet = requireTransactionSheet_();
     const group = getActiveTransactionGroupFromSheet_(sheet);
-    saveTransactionByName_(sheet, group.transactionName, { showSuccessAlert: true });
+    saveTransactionByName_(sheet, group.rowNumbers[0], { showSuccessAlert: true });
   });
 }
 
-function saveTransactionByName_(sheet, transactionName, options) {
+function saveTransactionByName_(sheet, anchorRow, options) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
     const rowNumbers = perf.wrap('sheet.read_rows', function() {
-      return findTransactionRowNumbers_(sheet, transactionName);
+      return findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
     }, function(r) { return r.length + ' rows'; });
+    const transactionName = getTransactionNameForRow_(sheet, rowNumbers[0]);
+
+    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
+    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
+
     const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
     const saveGeneration = beginSaveGeneration_(transactionName);
     const group = {
@@ -29,9 +34,6 @@ function saveTransactionByName_(sheet, transactionName, options) {
       rowCount: rowNumbers.length,
       saveGeneration: saveGeneration,
     });
-
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 
     try {
       const { nameMap: accountNameMap, displayLookup: accountNameLookup } = loadAccountMaps_();

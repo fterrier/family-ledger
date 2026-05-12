@@ -34,7 +34,7 @@ function saveTransactionByName_(sheet, transactionName, options) {
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 
     try {
-      const accountNameMap = loadAccountNameMap_();
+      const { nameMap: accountNameMap, displayLookup: accountNameLookup } = loadAccountMaps_();
       const payload = perf.wrap('data.build_payload', function() {
         return buildTransactionPatchPayloadFromGroup_(group, accountNameMap);
       });
@@ -47,7 +47,6 @@ function saveTransactionByName_(sheet, transactionName, options) {
         transactionName: transactionName,
         saveGeneration: saveGeneration,
       });
-      const accountNameLookup = loadAccountDisplayLookup_();
       const replacementRows = flattenTransactionForSheet_(refreshed, accountNameLookup);
       if (replacementRows === null) {
         throw new Error('The updated transaction is no longer editable in this Sheets client.');

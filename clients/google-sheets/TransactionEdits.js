@@ -64,8 +64,6 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
     applyNarrationEdit_(sheet, transactionName, rowNumber, String(rawValue || ''));
   } else if (header === 'amount') {
     handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
-  } else {
-    clearTransactionErrors_(sheet, transactionName);
   }
 
   saveTransactionByName_(sheet, transactionName, saveOptions || {});

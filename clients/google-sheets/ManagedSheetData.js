@@ -29,10 +29,21 @@ function materializeSheetRow_(sheetConfig, row) {
 }
 
 function setSheetFieldValuesForRowNumbers_(sheet, sheetConfig, rowNumbers, header, value) {
+  if (rowNumbers.length === 0) return;
   const column = getColumnIndex_(sheetConfig, header);
-  rowNumbers.forEach(function(rowNumber) {
-    sheet.getRange(rowNumber, column).setValue(value);
-  });
+  if (rowNumbers.length === 1) {
+    sheet.getRange(rowNumbers[0], column).setValue(value);
+    return;
+  }
+  let contiguous = true;
+  for (let i = 1; i < rowNumbers.length; i++) {
+    if (rowNumbers[i] !== rowNumbers[i - 1] + 1) { contiguous = false; break; }
+  }
+  if (contiguous) {
+    sheet.getRange(rowNumbers[0], column, rowNumbers.length, 1).setValues(rowNumbers.map(function() { return [value]; }));
+  } else {
+    sheet.getRangeList(rowNumbers.map(function(r) { return sheet.getRange(r, column).getA1Notation(); })).setValue(value);
+  }
 }
 
 function buildIssueLookupFormula_(rowNumber) {

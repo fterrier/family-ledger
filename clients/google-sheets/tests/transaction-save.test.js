@@ -37,7 +37,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.loadAccountNameMap_ = function() { return {}; };
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
     return { transaction_date: '2026-04-19', postings: [] };
   };
@@ -85,8 +85,11 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.loadAccountNameMap_ = function() {
-    return { 'Assets:Bank:Checking': 'accounts/source', 'Expenses:Food': 'accounts/food' };
+  sandbox.loadAccountMaps_ = function() {
+    return {
+      nameMap: { 'Assets:Bank:Checking': 'accounts/source', 'Expenses:Food': 'accounts/food' },
+      displayLookup: { 'accounts/source': 'Assets:Bank:Checking', 'accounts/food': 'Expenses:Food' },
+    };
   };
   sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
     return { transaction_date: '2026-04-19', postings: [] };
@@ -96,12 +99,6 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
       return sampleTransaction();
     }
     throw new Error('unexpected api call');
-  };
-  sandbox.loadAccountDisplayLookup_ = function() {
-    return {
-      'accounts/source': 'Assets:Bank:Checking',
-      'accounts/food': 'Expenses:Food',
-    };
   };
   sandbox.refreshDoctorIssueSheets_ = function() {
     throw new Error('doctor temporarily unavailable');

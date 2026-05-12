@@ -76,54 +76,62 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets) {
   neededTargets.forEach(function(t) { if (t.indexOf('transactions/') === 0) txNeededCount++; });
   if (txNeededCount > 0) {
     const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    if (txSheet && txSheet.getLastRow() > 1) {
+    if (txSheet) {
       const lastTxRow = txSheet.getLastRow();
-      const nameRows = txSheet.getRange(2, 1, lastTxRow - 1, 1).getValues();
-      const seen = {};
-      const targetRows = [];
-      nameRows.forEach(function(row, i) {
-        const name = String(row[0] || '');
-        if (name && targetSet[name] && !seen[name]) {
-          seen[name] = true;
-          targetRows.push({ name: name, sheetRow: i + 2 });
-        }
-      });
-      if (targetRows.length > 0) {
-        const minRow = targetRows[0].sheetRow;
-        const maxRow = targetRows[targetRows.length - 1].sheetRow;
-        const labelRows = txSheet.getRange(minRow, 2, maxRow - minRow + 1, 2).getDisplayValues();
-        targetRows.forEach(function(t) {
-          const rowData = labelRows[t.sheetRow - minRow];
-          const parts = ['Transaction'];
-          if (rowData[0]) { parts.push(rowData[0]); }
-          if (rowData[1]) { parts.push(rowData[1]); }
-          lookup[t.name] = parts.join(' ');
+      if (lastTxRow > 1) {
+        const nameRows = txSheet.getRange(2, 1, lastTxRow - 1, 1).getValues();
+        const seen = {};
+        const targetRows = [];
+        nameRows.forEach(function(row, i) {
+          const name = String(row[0] || '');
+          if (name && targetSet[name] && !seen[name]) {
+            seen[name] = true;
+            targetRows.push({ name: name, sheetRow: i + 2 });
+          }
         });
+        if (targetRows.length > 0) {
+          const minRow = targetRows[0].sheetRow;
+          const maxRow = targetRows[targetRows.length - 1].sheetRow;
+          const labelRows = txSheet.getRange(minRow, 2, maxRow - minRow + 1, 2).getValues();
+          targetRows.forEach(function(t) {
+            const rowData = labelRows[t.sheetRow - minRow];
+            const parts = ['Transaction'];
+            if (rowData[0]) { parts.push(rowData[0]); }
+            if (rowData[1]) { parts.push(rowData[1]); }
+            lookup[t.name] = parts.join(' ');
+          });
+        }
       }
     }
   }
 
   const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
-  if (accSheet && accSheet.getLastRow() > 1) {
-    accSheet.getRange(2, 1, accSheet.getLastRow() - 1, 2).getDisplayValues().forEach(function(row) {
-      const resourceName = row[0];
-      if (resourceName && targetSet[resourceName]) {
-        lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
-      }
-    });
+  if (accSheet) {
+    const lastAccRow = accSheet.getLastRow();
+    if (lastAccRow > 1) {
+      accSheet.getRange(2, 1, lastAccRow - 1, 2).getValues().forEach(function(row) {
+        const resourceName = row[0];
+        if (resourceName && targetSet[resourceName]) {
+          lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
+        }
+      });
+    }
   }
 
   const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
-  if (balSheet && balSheet.getLastRow() > 1) {
-    balSheet.getRange(2, 1, balSheet.getLastRow() - 1, 3).getDisplayValues().forEach(function(row) {
-      const resourceName = row[0];
-      if (resourceName && targetSet[resourceName]) {
-        const parts = ['Balance'];
-        if (row[1]) { parts.push(row[1]); }
-        if (row[2]) { parts.push(row[2]); }
-        lookup[resourceName] = parts.join(' ');
-      }
-    });
+  if (balSheet) {
+    const lastBalRow = balSheet.getLastRow();
+    if (lastBalRow > 1) {
+      balSheet.getRange(2, 1, lastBalRow - 1, 3).getValues().forEach(function(row) {
+        const resourceName = row[0];
+        if (resourceName && targetSet[resourceName]) {
+          const parts = ['Balance'];
+          if (row[1]) { parts.push(row[1]); }
+          if (row[2]) { parts.push(row[2]); }
+          lookup[resourceName] = parts.join(' ');
+        }
+      });
+    }
   }
 
   return lookup;

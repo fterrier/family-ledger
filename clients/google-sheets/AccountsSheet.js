@@ -20,6 +20,19 @@ function formatAccountDisplayName_(accountName) {
   return marker + ' ' + tail.join(' - ');
 }
 
+function loadAccountMaps_() {
+  const entries = readAccountSheetEntries_();
+  const nameMap = {};
+  const displayLookup = {};
+  entries.forEach(function(entry) {
+    if (entry.displayName && entry.resourceName) {
+      nameMap[entry.displayName] = entry.resourceName;
+      displayLookup[entry.resourceName] = entry.displayName;
+    }
+  });
+  return { nameMap: nameMap, displayLookup: displayLookup };
+}
+
 function loadAccountNameMap_() {
   const mapping = {};
   readAccountSheetEntries_().forEach(function(entry) {

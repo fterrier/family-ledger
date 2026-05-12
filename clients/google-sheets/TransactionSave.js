@@ -67,8 +67,8 @@ function saveTransactionByName_(sheet, transactionName, options) {
           updateTransactionRowsInPlace_(sheet, rowNumbers, rows, replacementRows);
         } else {
           replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows);
+          ensureTransactionIssueFormulas_(sheet, sheet.getLastRow() - 1);
         }
-        ensureTransactionIssueFormulas_(sheet, sheet.getLastRow() - 1);
       }, replacementRows.length + ' rows');
 
       if (options.showSuccessAlert) {

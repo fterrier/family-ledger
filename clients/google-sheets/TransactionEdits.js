@@ -52,7 +52,6 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
     return;
   }
 
-  let precomputedRowNumbers = null;
   if (header === 'split_off_amount') {
     const splitValue = String(rawValue ?? '').trim();
     if (!splitValue) {
@@ -60,14 +59,14 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
     }
     performSplitInstructionForRow_(sheet, rowNumber, splitValue);
   } else if (header === 'payee') {
-    precomputedRowNumbers = propagateTransactionField_(sheet, transactionName, header, String(rawValue || ''));
+    propagateTransactionField_(sheet, transactionName, header, String(rawValue || ''));
   } else if (header === 'narration') {
-    precomputedRowNumbers = applyNarrationEdit_(sheet, transactionName, rowNumber, String(rawValue || ''));
+    applyNarrationEdit_(sheet, transactionName, rowNumber, String(rawValue || ''));
   } else if (header === 'amount') {
     handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue);
   }
 
-  saveTransactionByName_(sheet, transactionName, saveOptions || {}, precomputedRowNumbers);
+  saveTransactionByName_(sheet, transactionName, saveOptions || {});
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
@@ -258,7 +257,6 @@ function propagateTransactionField_(sheet, transactionName, header, value) {
   setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value);
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'dirty');
   setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-  return rowNumbers;
 }
 
 function applyNarrationEdit_(sheet, transactionName, rowNumber, value) {
@@ -266,12 +264,11 @@ function applyNarrationEdit_(sheet, transactionName, rowNumber, value) {
   if (rowNumbers.length <= 1) {
     applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value);
     markTransactionRowsDirty_(sheet, rowNumbers);
-    return rowNumbers;
+    return;
   }
 
-  applySplitRowPostingNarrationEdit_(sheet, rowNumber, rowNumbers, value);
+  applySplitRowPostingNarrationEdit_(sheet, rowNumber, value);
   markTransactionRowsDirty_(sheet, rowNumbers);
-  return rowNumbers;
 }
 
 function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value) {
@@ -281,9 +278,9 @@ function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, value) {
   writeTransactionSheetRow_(sheet, rowNumber, row);
 }
 
-function applySplitRowPostingNarrationEdit_(sheet, rowNumber, rowNumbers, value) {
+function applySplitRowPostingNarrationEdit_(sheet, rowNumber, value) {
   const row = readSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber);
-  const groupRows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
+  const groupRows = readTransactionSheetRowsByNumbers_(sheet, findTransactionRowNumbers_(sheet, row.resource_name));
   const transactionNarration = inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row);
   const normalizedValue = String(value || '');
 

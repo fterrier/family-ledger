@@ -6,12 +6,12 @@ function pushActiveTransaction() {
   });
 }
 
-function saveTransactionByName_(sheet, transactionName, options, precomputedRowNumbers) {
+function saveTransactionByName_(sheet, transactionName, options) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const rowNumbers = precomputedRowNumbers || perf.wrap('sheet.read_rows', function() {
+    const rowNumbers = perf.wrap('sheet.read_rows', function() {
       return findTransactionRowNumbers_(sheet, transactionName);
     }, function(r) { return r.length + ' rows'; });
     const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);

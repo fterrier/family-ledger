@@ -32,6 +32,7 @@ function syncLedger() {
 
       const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
       perf.wrap('sheet.write_accounts', function() {
+        ensureSheetCapacity_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers.length, accountSyncData.accountRows.length + 1);
         writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
         accountsSheet.setFrozenRows(1);
         ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
@@ -39,6 +40,7 @@ function syncLedger() {
 
       const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
       perf.wrap('sheet.write_balances', function() {
+        ensureSheetCapacity_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length, balanceAssertionRows.length + 1);
         writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers, balanceAssertionRows);
         balancesSheet.setFrozenRows(1);
         ensureBalancesIssueFormulas_(balancesSheet, balanceAssertionRows.length);

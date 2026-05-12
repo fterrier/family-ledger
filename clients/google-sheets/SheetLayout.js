@@ -108,7 +108,6 @@ function hideSheetIfVisible_(sheet) {
 }
 
 function writeSheet_(sheet, headers, rows) {
-  ensureSheetCapacity_(sheet, headers.length, rows.length + 1);
   sheet.clearContents();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
   if (rows.length > 0) {

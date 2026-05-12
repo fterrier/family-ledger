@@ -382,6 +382,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         }
       });
     },
+    clearContents() { operations.push({ type: 'clearContents' }); },
     setFrozenRows() {},
     getName() { return 'Transactions'; },
     setColumnWidth() {},

@@ -377,6 +377,7 @@ function materializeTransactionSheetRow_(row) {
 
 function setTransactionSheetRows_(sheet, rows) {
   const materializedRows = rows.map(materializeTransactionSheetRow_);
+  ensureSheetCapacity_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length, materializedRows.length + 1);
   writeSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers, materializedRows);
   sheet.setFrozenRows(1);
   ensureTransactionIssueFormulas_(sheet, materializedRows.length);

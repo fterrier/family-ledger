@@ -49,18 +49,28 @@ Recommended remote access setup:
 Runtime Apps Script files:
 - `Constants.js`: shared sheet names, registry, and layout metadata
 - `Api.js`: API and pagination helpers
+- `Perf.js`: performance timing helpers
 - `Settings.js`: settings prompts, auth properties, and connection checks
 - `SheetLayout.js`: shared sheet layout, formatting, protection, and reset helpers
+- `ManagedSheetData.js`: VLOOKUP formula helpers for issue columns
 - `AccountsSheet.js`: account sheet sync and validation helpers
+- `BalancesSheet.js`: balance assertion sheet sync helpers
 - `TransactionsSheet.js`: transaction sheet sync, row mapping, and row helpers
 - `DoctorIssues.js`: `ledger:doctor` fetch and issue-sheet syncing
 - `Filters.js`: Quick Filter backend logic
-- `ImporterDialog.js`: import dialog server-side actions
+- `ImporterDialogs.js`: import dialog and importer settings server-side actions
+- `QuickAddTransaction.js`: quick-add transaction sidebar server-side actions
+- `SheetSettings.js`: sheet settings dialog server-side actions
 - `TransactionSave.js`: transaction save lifecycle and refresh flow
 - `TransactionEdits.js`: in-sheet edit, split, delete, and rollback flow
 - `App.js`: menu wiring entrypoint
 - `FilterSidebar.html`: Quick Filter sidebar UI
-- `ImportDialog.html`: Import data dialog UI
+- `ImporterDialog.html`: import data and importer settings dialog UI
+- `ApiSettingsDialog.html`: API connection settings dialog UI
+- `SheetSettingsDialog.html`: sheet display settings dialog UI
+- `QuickAddTransactionSidebar.html`: quick-add transaction sidebar UI
+- `AccountSearch.html`: account search component (included by QuickAddTransactionSidebar)
+- `SearchDropdown.html`: search dropdown component (included by QuickAddTransactionSidebar)
 - `appsscript.json`: Apps Script manifest
 
 Local tooling files:
@@ -119,19 +129,27 @@ If clasp is not available:
 3. Create one Apps Script file for each runtime `.js` file in this directory:
    - `Constants`
    - `Api`
+   - `Perf`
    - `Settings`
+   - `SheetLayout`
+   - `ManagedSheetData`
    - `AccountsSheet`
+   - `BalancesSheet`
    - `TransactionsSheet`
    - `DoctorIssues`
    - `Filters`
-   - `ImporterDialog`
+   - `ImporterDialogs`
+   - `QuickAddTransaction`
+   - `SheetSettings`
    - `TransactionSave`
    - `TransactionEdits`
    - `App`
 4. Paste the matching file contents from this directory into each Apps Script file.
 5. In the Apps Script editor, enable `Show "appsscript.json" manifest file in editor` in `Project Settings`.
 6. Replace the manifest contents with `appsscript.json` from this directory.
-7. Create HTML files named `FilterSidebar` and `ImportDialog`, then paste in `FilterSidebar.html` and `ImportDialog.html`.
+7. Create HTML files for each `.html` file in this directory and paste in the matching contents:
+   `FilterSidebar`, `ImporterDialog`, `ApiSettingsDialog`, `SheetSettingsDialog`,
+   `QuickAddTransactionSidebar`, `AccountSearch`, `SearchDropdown`.
 8. Save the Apps Script project.
 9. Return to the spreadsheet and reload the page.
 

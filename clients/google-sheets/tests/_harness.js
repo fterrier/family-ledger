@@ -17,7 +17,7 @@ const SOURCE_FILES = [
   'BalancesSheet.js',
   'DoctorIssues.js',
   'Filters.js',
-  'ImporterDialog.js',
+  'ImporterDialogs.js',
   'TransactionSave.js',
   'TransactionEdits.js',
   'App.js',
@@ -234,6 +234,15 @@ function loadCode(overrides = {}) {
       },
       sleep(_ms) {},
       ...overrides.Utilities,
+    },
+    HtmlService: {
+      createHtmlOutputFromFile() {
+        throw new Error('Unexpected HtmlService.createHtmlOutputFromFile() call in unit test');
+      },
+      createTemplateFromFile() {
+        throw new Error('Unexpected HtmlService.createTemplateFromFile() call in unit test');
+      },
+      ...overrides.HtmlService,
     },
   };
 

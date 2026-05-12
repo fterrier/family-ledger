@@ -12,6 +12,7 @@ function onOpen() {
     .addItem('Quick Add Transaction', 'showQuickAddTransaction')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
+    .addItem('Importer Settings', 'showImporterSettings')
     .addItem('Import data', 'showImportDialog')
     .addSeparator()
     .addSubMenu(devMenu)

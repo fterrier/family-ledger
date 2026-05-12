@@ -1,8 +1,30 @@
 function showImportDialog() {
-  const html = HtmlService.createHtmlOutputFromFile('ImportDialog')
-    .setWidth(480)
-    .setHeight(560);
-  SpreadsheetApp.getUi().showModalDialog(html, 'Import data');
+  showImporterDialog_({
+    mode: 'import',
+    title: 'Import data',
+    width: 480,
+    height: 560,
+  });
+}
+
+function showImporterSettings() {
+  showImporterDialog_({
+    mode: 'settings',
+    title: 'Importer Settings',
+    width: 520,
+    height: 560,
+  });
+}
+
+function showImporterDialog_(options) {
+  const dialogOptions = options || {};
+  const template = HtmlService.createTemplateFromFile('ImporterDialog');
+  template.mode = dialogOptions.mode || 'import';
+  template.initialImportersJson = JSON.stringify(getImportersForDialog().importers || []);
+  const html = template.evaluate()
+    .setWidth(dialogOptions.width || 480)
+    .setHeight(dialogOptions.height || 560);
+  SpreadsheetApp.getUi().showModalDialog(html, dialogOptions.title || 'Importer Dialog');
 }
 
 function getImportersForDialog() {
@@ -25,7 +47,6 @@ function runImportFromDialog(importerName, base64Content, mimeType, fileName, co
   try {
     const bytes = Utilities.base64Decode(base64Content);
     const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', fileName);
-    // POST auto-records via apiFetch_
     const result = apiFetchMultipartJson_('post', importerName + ':import', {
       file: blob,
       config_override: configOverride ? JSON.stringify(configOverride) : '',
@@ -53,6 +74,14 @@ function runImportFromDialog(importerName, base64Content, mimeType, fileName, co
     clearActivePerf_();
     perf.log('Import');
   }
+}
+
+function saveImporterSettingsFromDialog(importerName, config) {
+  return apiFetchJson_('patch', importerName, {
+    importer: {
+      config: config || {},
+    },
+  });
 }
 
 function buildImportToastSummary_(result) {

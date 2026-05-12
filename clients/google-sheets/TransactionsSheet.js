@@ -218,7 +218,7 @@ function isSourceOnlyTransactionRow_(sheet, rowNumber) {
     return false;
   }
   try {
-    const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+    const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
     const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
     return rows.every(function(groupRow) {
       return !String(groupRow.destination_account_name || '').trim();
@@ -283,7 +283,7 @@ function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
     if (String(values[i][0] || '').trim() !== transactionName) break;
     rowNumbers.push(windowStart + i);
   }
-  return rowNumbers;
+  return { rowNumbers: rowNumbers, transactionName: transactionName };
 }
 
 function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
@@ -396,8 +396,7 @@ function getActiveTransactionGroupFromSheet_(sheet) {
   if (activeRowNumber <= 1) {
     throw new Error('Select a transaction data row first.');
   }
-  const rowNumbers = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
-  const transactionName = getTransactionNameForRow_(sheet, activeRowNumber);
+  const { rowNumbers, transactionName } = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
   return {
     transactionName: transactionName,
     activeIndex: rowNumbers.indexOf(activeRowNumber),

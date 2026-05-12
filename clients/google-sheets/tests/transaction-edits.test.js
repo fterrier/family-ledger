@@ -232,11 +232,26 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
 test('handleAmountEdit_ delegates direct increases to performSplitFromEditedAmount_', () => {
   const calls = [];
   const { sandbox } = loadCode();
+  const rowStore = new Map([[2, {
+    resource_name: 'transactions/txn_1',
+    destination_account_name: 'Expenses:Food',
+    amount: 84.25,
+    narration_source: 'txn',
+    narration: 'Groceries',
+    source_account_name: 'Assets:Bank',
+    transaction_date: '2026-04-19',
+    payee: '',
+    split_off_amount: '',
+    symbol: 'CHF',
+    status: '',
+    last_error: '',
+  }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
     calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
   };
 
-  sandbox.handleAmountEdit_({}, 2, '90', '84.25');
+  sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25');
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, oldAmount: 84.25, newAmount: 90 }]);
 });
@@ -272,11 +287,26 @@ test('rollbackFailedEdit_ clears invalid split_off_amount commands', () => {
 test('handleAmountEdit_ converts a decrease into a split of the difference', () => {
   const calls = [];
   const { sandbox } = loadCode();
+  const rowStore = new Map([[2, {
+    resource_name: 'transactions/txn_1',
+    destination_account_name: 'Expenses:Food',
+    amount: 84.25,
+    narration_source: 'txn',
+    narration: 'Groceries',
+    source_account_name: 'Assets:Bank',
+    transaction_date: '2026-04-19',
+    payee: '',
+    split_off_amount: '',
+    symbol: 'CHF',
+    status: '',
+    last_error: '',
+  }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
     calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
   };
 
-  sandbox.handleAmountEdit_({}, 2, '50', '84.25');
+  sandbox.handleAmountEdit_(fakeSheet, 2, '50', '84.25');
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, oldAmount: 84.25, newAmount: 50 }]);
 });

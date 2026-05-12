@@ -455,7 +455,9 @@ test('findTransactionRowNumbersFromAnchor_ finds a single non-split row', () => 
     [3, { resource_name: 'transactions/txn_b' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2))), [2]);
+  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
+  assert.deepEqual(result.rowNumbers, [2]);
+  assert.equal(result.transactionName, 'transactions/txn_a');
 });
 
 test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anchor', () => {
@@ -467,7 +469,9 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anch
     [5, { resource_name: 'transactions/txn_2' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3))), [2, 3, 4]);
+  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3)));
+  assert.deepEqual(result.rowNumbers, [2, 3, 4]);
+  assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
 test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at top', () => {
@@ -478,7 +482,9 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at top',
     [4, { resource_name: 'transactions/txn_2' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2))), [2, 3]);
+  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
+  assert.deepEqual(result.rowNumbers, [2, 3]);
+  assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
 test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at bottom', () => {
@@ -489,7 +495,9 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at botto
     [4, { resource_name: 'transactions/txn_1' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 4))), [3, 4]);
+  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 4)));
+  assert.deepEqual(result.rowNumbers, [3, 4]);
+  assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
 test('findTransactionRowNumbersFromAnchor_ throws when anchor row has no transaction', () => {

@@ -6,15 +6,16 @@ function pushActiveTransaction() {
   });
 }
 
-function saveTransactionByName_(sheet, anchorRow, options) {
+function saveTransactionByName_(sheet, anchorRow, options, precomputed) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const rowNumbers = perf.wrap('sheet.read_rows', function() {
+    const anchor = precomputed || perf.wrap('sheet.read_rows', function() {
       return findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
-    }, function(r) { return r.length + ' rows'; });
-    const transactionName = getTransactionNameForRow_(sheet, rowNumbers[0]);
+    }, function(r) { return r.rowNumbers.length + ' rows'; });
+    const rowNumbers = anchor.rowNumbers;
+    const transactionName = anchor.transactionName;
 
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');

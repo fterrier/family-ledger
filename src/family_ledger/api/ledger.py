@@ -205,6 +205,11 @@ def get_transaction(transaction: str, session: DbSession) -> TransactionResource
     return _call_service(ledger_service.get_transaction_by_name, session, transaction)
 
 
+@router.delete("/transactions/{transaction:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_transaction(transaction: str, session: DbSession) -> None:
+    _call_service(ledger_service.delete_transaction, session, transaction)
+
+
 @router.post(
     "/prices",
     response_model=PriceResource,

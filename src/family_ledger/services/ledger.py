@@ -384,6 +384,12 @@ def get_transaction_by_name(session: Session, transaction: str) -> TransactionRe
     return serialize_transaction(transaction_row)
 
 
+def delete_transaction(session: Session, transaction: str) -> None:
+    transaction_row = get_transaction_row(session, transaction)
+    session.delete(transaction_row)
+    commit_or_raise(session)
+
+
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:
     validate_symbols_exist(session, {payload.base_symbol, payload.quote.symbol})
     price = Price(

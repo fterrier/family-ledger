@@ -1130,6 +1130,45 @@ def test_patch_missing_transaction_returns_404() -> None:
     assert response.json()["detail"]["code"] == "transaction_not_found"
 
 
+def test_delete_transaction_removes_it_and_returns_204() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    create_commodity(client, "CHF")
+
+    create_response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-05-14",
+                "payee": "To be deleted",
+                "narration": "",
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "-1.00", "symbol": "CHF"}},
+                ],
+            }
+        },
+    )
+    assert create_response.status_code == 201
+    txn_name = create_response.json()["name"]
+
+    delete_response = client.delete(f"/{txn_name}")
+    assert delete_response.status_code == 204
+    assert delete_response.content == b""
+
+    get_response = client.get(f"/{txn_name}")
+    assert get_response.status_code == 404
+
+
+def test_delete_missing_transaction_returns_404() -> None:
+    client = make_client()
+
+    response = client.delete("/transactions/txn_missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "transaction_not_found"
+
+
 def test_normalize_transaction_expands_multi_currency_missing_posting() -> None:
     client = make_client()
 

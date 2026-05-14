@@ -73,9 +73,9 @@ test('applyAccountValidation_ clears stale source account validation and reappli
   sandbox.applyAccountValidation_(transactionSheet, 4);
 
   assert.deepEqual(operations, [
-    { type: 'clearDataValidations', row: 2, column: 6, numRows: 4, numCols: 1 },
     { type: 'clearDataValidations', row: 2, column: 7, numRows: 4, numCols: 1 },
-    { type: 'setDataValidation', row: 2, column: 7, numRows: 4, numCols: 1, hasRule: true },
+    { type: 'clearDataValidations', row: 2, column: 8, numRows: 4, numCols: 1 },
+    { type: 'setDataValidation', row: 2, column: 8, numRows: 4, numCols: 1, hasRule: true },
   ]);
 });
 
@@ -105,7 +105,7 @@ test('refreshTransactionAccountValidation_ clears stale transaction account drop
   sandbox.refreshTransactionAccountValidation_(transactionSheet);
 
   assert.deepEqual(operations, [
-    { type: 'clearDataValidations', row: 2, column: 6, numRows: 3, numCols: 1 },
     { type: 'clearDataValidations', row: 2, column: 7, numRows: 3, numCols: 1 },
+    { type: 'clearDataValidations', row: 2, column: 8, numRows: 3, numCols: 1 },
   ]);
 });

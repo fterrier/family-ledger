@@ -95,66 +95,49 @@ test('findInsertionRowForTransactionDate_ inserts before first greater date and 
   assert.equal(sandbox.findInsertionRowForTransactionDate_(fakeSheet, '2026-04-22'), 6);
 });
 
-test('insertTransactionRowsAtRow_ inserts quick add row before a later transaction', () => {
-  const operations = [];
+test('submitTransactionFromSidebar (add) inserts new row before a later transaction', () => {
   const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Old',
-      narration: '',
-      source_account_name: '[A] Cash',
-      destination_account_name: '',
-      symbol: 'CHF',
-      amount: 10,
-      split_off_amount: '',
-      status: '',
-      issues: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_2',
-      narration_source: 'txn',
-      transaction_date: '2026-04-21',
-      payee: 'Later',
-      narration: '',
-      source_account_name: '[A] Cash',
-      destination_account_name: '',
-      symbol: 'CHF',
-      amount: 15,
-      split_off_amount: '',
-      status: '',
-      issues: '',
-      last_error: '',
-    }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-21' }],
   ]);
-  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { getActiveSheet() { return null; } }; } } });
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
-    operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
+  const { sandbox, documentProperties } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast() {}, setActiveSheet() {}, getSheetByName() { return null; } };
+      },
+    },
+  });
+  documentProperties.set('QUICK_ADD_SOURCE_ACCOUNTS', '["accounts/cash"]');
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.apiFetchJson_ = function(method) {
+    if (method === 'post') {
+      return {
+        name: 'transactions/txn_new',
+        transaction_date: '2026-04-20',
+        payee: 'New',
+        narration: '',
+        postings: [{ account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } }],
+      };
+    }
+    return {};
   };
-  sandbox.ensureTransactionSheetFilter_ = function() {
-    operations.push({ type: 'ensureFilter' });
-  };
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountDisplayLookup_ = function() { return { 'accounts/cash': '[A] Cash' }; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+  sandbox.focusCell_ = function() {};
 
-  const inserted = sandbox.insertTransactionRowsAtRow_(fakeSheet, 3, [{
-    resource_name: 'transactions/txn_new',
-    narration_source: 'txn',
+  const result = sandbox.submitTransactionFromSidebar(null, null, {
     transaction_date: '2026-04-20',
+    source_account: 'accounts/cash',
+    destination_account: '',
+    amount: '12',
+    symbol: 'CHF',
     payee: 'New',
     narration: '',
-    source_account_name: '[A] Cash',
-    destination_account_name: '',
-    symbol: 'CHF',
-    amount: 12,
-    split_off_amount: '',
-    status: '',
-    issues: '',
-    last_error: '',
-  }]);
+  });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(inserted)), [3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.rowNumbers)), [3]);
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2');
 });

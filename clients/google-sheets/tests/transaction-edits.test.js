@@ -282,7 +282,7 @@ test('handleAmountEdit_ rejects edits for source-only transactions', () => {
 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '1', '1.5'), /Amount cannot be edited/);
   assert.deepEqual(JSON.parse(JSON.stringify(operations)).filter((op) => op.type === 'setValue'), [
-    { type: 'setValue', row: 2, column: 9, value: 1.5 },
+    { type: 'setValue', row: 2, column: 10, value: 1.5 },
   ]);
 });
 
@@ -297,7 +297,7 @@ test('rollbackFailedEdit_ clears invalid split_off_amount commands', () => {
 
   sandbox.rollbackFailedEdit_(fakeSheet, 2, 'split_off_amount', '-123');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 2, column: 10, value: '' }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 2, column: 11, value: '' }]);
 });
 
 test('handleAmountEdit_ converts a decrease into a split of the difference', () => {

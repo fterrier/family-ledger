@@ -589,8 +589,8 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
   }]);
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { row: 2, column: 3, value: 'New' },
-    { row: 2, column: 11, value: 'saved' },
+    { row: 2, column: 4, value: 'New' },
+    { row: 2, column: 12, value: 'saved' },
   ]);
 });
 

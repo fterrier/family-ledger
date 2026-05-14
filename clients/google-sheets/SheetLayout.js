@@ -25,6 +25,7 @@ function refreshManagedLedgerSheetLayouts_() {
     if (perf) perf.start('sheet.layout_transactions');
     applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
     refreshTransactionAccountValidation_(txSheet);
+    applyTransactionEditCheckbox_(txSheet);
     ensureTransactionSheetFilter_(txSheet);
     if (perf) perf.end('sheet.layout_transactions');
   }
@@ -296,6 +297,14 @@ function appendIssueConditionalFormatting_(sheet, sheetConfig, rules, fullRange)
 
 function isManagedConditionalFormula_(formula, sheetConfig) {
   return formula === '=$' + getColumnLetter_(sheetConfig, sheetConfig.issueHeader) + '2<>""';
+}
+
+function applyTransactionEditCheckbox_(sheet) {
+  const editColumn = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'edit');
+  const lastRow = sheet.getMaxRows();
+  if (lastRow <= 1) return;
+  sheet.getRange(2, editColumn, lastRow - 1, 1)
+    .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
 }
 
 function columnNumberToLetter_(columnNumber) {

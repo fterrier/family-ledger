@@ -103,6 +103,17 @@
     font-size: 13px;
     cursor: pointer;
   }
+  .btn-danger {
+    padding: 8px 16px;
+    background: #d93025;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-danger:disabled { background: #dadce0; color: #80868b; cursor: default; }
   #errorBox {
     display: none;
     padding: 8px 12px;
@@ -136,29 +147,33 @@
   <div class="hint">Required.</div>
 </div>
 
-<div class="field">
-  <label for="sourceAccountSelect">Source account</label>
-  <select id="sourceAccountSelect"></select>
-  <div class="hint">Required. Only the configured quick-add source account shortlist is shown.</div>
+<div class="twoPostingFields">
+  <div class="field">
+    <label for="sourceAccountSelect">Source account</label>
+    <select id="sourceAccountSelect"></select>
+    <div class="hint" id="sourceAccountHint">Required. Only the configured quick-add source account shortlist is shown.</div>
+  </div>
+
+  <div class="field">
+    <label for="destinationAccountSelect">Destination account</label>
+    <select id="destinationAccountSelect"></select>
+    <div class="hint">Optional. Leave blank to create a source-only transaction.</div>
+  </div>
+
+  <div class="field">
+    <label for="amountInput">Amount</label>
+    <input type="number" id="amountInput" step="0.01" />
+    <div class="hint">Required. Positive amounts are for expenses; negative amounts are for incoming money. Uses the same visible sign convention as the Transactions sheet.</div>
+  </div>
+
+  <div class="field">
+    <label for="symbolSelect">Symbol</label>
+    <select id="symbolSelect"></select>
+    <div class="hint">Required.</div>
+  </div>
 </div>
 
-<div class="field">
-  <label for="destinationAccountSelect">Destination account</label>
-  <select id="destinationAccountSelect"></select>
-  <div class="hint">Optional. Leave blank to create a source-only transaction.</div>
-</div>
-
-<div class="field">
-  <label for="amountInput">Amount</label>
-  <input type="number" id="amountInput" step="0.01" />
-  <div class="hint">Required. Positive amounts are for expenses; negative amounts are for incoming money. Uses the same visible sign convention as the Transactions sheet.</div>
-</div>
-
-<div class="field">
-  <label for="symbolSelect">Symbol</label>
-  <select id="symbolSelect"></select>
-  <div class="hint">Required.</div>
-</div>
+<div id="multiPostingNote" class="hint" style="display:none;margin-bottom:14px">This transaction has multiple postings — account and amount editing is not supported yet.</div>
 
 <div class="field">
   <label for="payeeInput">Payee</label>
@@ -172,60 +187,99 @@
   <div class="hint">Optional.</div>
 </div>
 
-<div class="actions">
-  <button class="btn-primary" id="insertBtn" onclick="onInsert()">Insert</button>
+<div class="actions" id="addActions">
+  <button class="btn-primary" id="insertBtn" onclick="onSubmit()">Insert</button>
   <button class="btn-secondary" onclick="resetForm()">Reset</button>
+</div>
+
+<div class="actions" id="editActions" style="display:none">
+  <button class="btn-primary" id="saveBtn" onclick="onSubmit()">Save</button>
+  <button class="btn-danger" id="deleteBtn" onclick="onDelete()">Delete</button>
+  <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
 </div>
 
 <script>
   <?!= includeHtml_('AccountSearch'); ?>
   <?!= includeHtml_('SearchDropdown'); ?>
 
-  let currentData = null;
-  let destinationDropdown = null;
+  var IS_EDIT = <?= transactionName ? 'true' : 'false' ?>;
+  var EDIT_TRANSACTION_NAME = '<?= transactionName || "" ?>';
+  var EDIT_ANCHOR_ROW = <?= anchorRow || 0 ?>;
+
+  var currentData = null;
+  var destinationDropdown = null;
+  var sourceDropdown = null;
+  var editPostingCount = 0;
+
+  function makeAccountSearchFn_(query, options) {
+    return searchAccountEntries_(
+      buildAccountSearchEntries_(options.map(function(option) {
+        return { resource_name: option.value, display_name: option.label };
+      })),
+      query
+    ).map(function(entry) {
+      return { value: entry.resource_name, label: entry.display_name };
+    });
+  }
+
+  function setSelectValueAndSync(selectId, value) {
+    var sel = document.getElementById(selectId);
+    sel.value = value || '';
+    var ev = document.createEvent('Event');
+    ev.initEvent('change', true, true);
+    sel.dispatchEvent(ev);
+  }
+
+  if (IS_EDIT) {
+    document.getElementById('addActions').style.display = 'none';
+    document.getElementById('editActions').style.display = 'flex';
+    document.getElementById('sourceAccountHint').textContent = 'Source account for this transaction.';
+  }
 
   google.script.run
-    .withSuccessHandler(function(data) {
-      currentData = data;
-      if (!data.configured) {
-        document.getElementById('setupBox').style.display = 'block';
-        document.getElementById('insertBtn').disabled = true;
-        return;
-      }
-      populateAccounts('sourceAccountSelect', data.sourceAccountOptions, true);
-      populateDestinationAccountOptions(data.destinationAccountOptions || []);
-      populateSymbols(data.commodityOptions || []);
-      if (data.defaultSourceAccount) {
-        document.getElementById('sourceAccountSelect').value = data.defaultSourceAccount;
-      }
-      if (data.defaultSymbol) {
-        document.getElementById('symbolSelect').value = data.defaultSymbol;
-      }
-      document.getElementById('dateInput').value = new Date().toISOString().slice(0, 10);
-      destinationDropdown = attachSearchDropdown_(
-        document.getElementById('destinationAccountSelect'),
-        function(query, options) {
-          return searchAccountEntries_(
-            buildAccountSearchEntries_(options.map(function(option) {
-              return {
-                resource_name: option.value,
-                display_name: option.label,
-              };
-            })),
-            query
-          ).map(function(entry) {
-            return {
-              value: entry.resource_name,
-              label: entry.display_name,
-            };
-          });
-        },
-      );
-    })
-    .withFailureHandler(function(err) {
-      showError(err.message || String(err));
-    })
-    .getQuickAddTransactionData();
+    .withSuccessHandler(initForm)
+    .withFailureHandler(function(err) { showError(err.message || String(err)); })
+    .getSidebarData(IS_EDIT ? EDIT_TRANSACTION_NAME : null);
+
+  function initForm(data) {
+    editPostingCount = data.postingCount || 0;
+    currentData = data;
+
+    if (!data.configured) {
+      document.getElementById('setupBox').style.display = 'block';
+      document.getElementById('insertBtn').disabled = true;
+      return;
+    }
+
+    populateAccounts('sourceAccountSelect', data.sourceAccountOptions, !IS_EDIT);
+    populateDestinationAccountOptions(data.destinationAccountOptions);
+    populateSymbols(data.commodityOptions);
+
+    document.getElementById('dateInput').value = data.defaultDate || new Date().toISOString().slice(0, 10);
+    document.getElementById('payeeInput').value = data.defaultPayee || '';
+    document.getElementById('narrationInput').value = data.defaultNarration || '';
+
+    if (data.postingCount > 2) {
+      document.querySelector('.twoPostingFields').style.display = 'none';
+      document.getElementById('multiPostingNote').style.display = 'block';
+      return;
+    }
+
+    document.getElementById('amountInput').value = data.defaultAmount != null ? data.defaultAmount : '';
+    document.getElementById('symbolSelect').value = data.defaultSymbol || '';
+
+    sourceDropdown = attachSearchDropdown_(
+      document.getElementById('sourceAccountSelect'),
+      makeAccountSearchFn_
+    );
+    setSelectValueAndSync('sourceAccountSelect', data.defaultSourceAccount || '');
+
+    destinationDropdown = attachSearchDropdown_(
+      document.getElementById('destinationAccountSelect'),
+      makeAccountSearchFn_
+    );
+    setSelectValueAndSync('destinationAccountSelect', data.defaultDestinationAccount || '');
+  }
 
   function populateAccounts(id, options, includeBlank) {
     var select = document.getElementById(id);
@@ -265,9 +319,7 @@
   }
 
   function resetForm() {
-    if (!currentData) {
-      return;
-    }
+    if (!currentData) return;
     document.getElementById('errorBox').style.display = 'none';
     destinationDropdown.clear();
     document.getElementById('amountInput').value = '';
@@ -281,27 +333,55 @@
     }
   }
 
-  function onInsert() {
+  function onSubmit() {
+    var btn = document.getElementById(IS_EDIT ? 'saveBtn' : 'insertBtn');
     document.getElementById('errorBox').style.display = 'none';
-    document.getElementById('insertBtn').disabled = true;
+    btn.disabled = true;
     google.script.run
       .withSuccessHandler(function() {
-        document.getElementById('insertBtn').disabled = false;
-        resetForm();
+        btn.disabled = false;
+        if (IS_EDIT) {
+          google.script.host.close();
+        } else {
+          resetForm();
+        }
       })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
-        document.getElementById('insertBtn').disabled = false;
+        btn.disabled = false;
       })
-      .quickAddTransactionFromSidebar({
-        transaction_date: document.getElementById('dateInput').value,
-        source_account: document.getElementById('sourceAccountSelect').value,
-        destination_account: document.getElementById('destinationAccountSelect').value,
-        amount: document.getElementById('amountInput').value,
-        symbol: document.getElementById('symbolSelect').value,
-        payee: document.getElementById('payeeInput').value,
-        narration: document.getElementById('narrationInput').value,
-      });
+      .submitTransactionFromSidebar(
+        IS_EDIT ? EDIT_TRANSACTION_NAME : null,
+        IS_EDIT ? EDIT_ANCHOR_ROW : null,
+        {
+          transaction_date: document.getElementById('dateInput').value,
+          source_account: document.getElementById('sourceAccountSelect').value,
+          destination_account: document.getElementById('destinationAccountSelect').value,
+          amount: document.getElementById('amountInput').value,
+          symbol: document.getElementById('symbolSelect').value,
+          payee: document.getElementById('payeeInput').value,
+          narration: document.getElementById('narrationInput').value,
+          postingCount: IS_EDIT ? editPostingCount : null,
+          rawPostings: IS_EDIT && currentData ? (currentData.rawPostings || null) : null,
+        }
+      );
+  }
+
+  function onDelete() {
+    if (!confirm('Delete this transaction? This cannot be undone.')) {
+      return;
+    }
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('deleteBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        document.getElementById('deleteBtn').disabled = false;
+      })
+      .deleteTransactionFromSidebar(EDIT_TRANSACTION_NAME, EDIT_ANCHOR_ROW);
   }
 
   function showError(message) {

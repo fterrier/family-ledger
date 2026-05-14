@@ -18,7 +18,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 13, values: [headers] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [headers] },
   ]);
 });
 
@@ -56,8 +56,8 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
     {
       sheetName: 'Transactions',
       initialColumns: 8,
-      expectedInsert: { column: 8, howMany: 5 },
-      expectedHide: [1, 5, 12],
+      expectedInsert: { column: 8, howMany: 6 },
+      expectedHide: [2, 6, 13],
     },
     {
       sheetName: 'Accounts',
@@ -126,7 +126,7 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   const { sandbox } = loadCode();
   const fakeSheet = {
     getName() { return 'Transactions'; },
-    getMaxColumns() { return 13; },
+    getMaxColumns() { return 14; },
     getLastRow() { return 5; },
     getMaxRows() { return 5; },
     showColumns(column, count) { operations.push({ type: 'show', column, count }); },
@@ -136,10 +136,10 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   sandbox.applySheetHiddenColumns_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'show', column: 1, count: 13 },
-    { type: 'hide', column: 1 },
-    { type: 'hide', column: 5 },
-    { type: 'hide', column: 12 },
+    { type: 'show', column: 1, count: 14 },
+    { type: 'hide', column: 2 },
+    { type: 'hide', column: 6 },
+    { type: 'hide', column: 13 },
   ]);
 });
 
@@ -162,9 +162,9 @@ test('applySheetDirectFormatting_ applies grouped formatting from config metadat
   sandbox.applySheetDirectFormatting_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   const leftAlign = operations.find((op) => op.type === 'rangeListAlign' && op.notations.includes('G1:G5'));
-  const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('M1:M5'));
-  const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('M1:M5'));
-  const dateFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('B2:B5'));
+  const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('N1:N5'));
+  const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('N1:N5'));
+  const dateFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('C2:C5'));
   assert.equal(leftAlign.value, 'left');
   assert.equal(issuesWrap.value, false);
   assert.equal(issuesWrapStrategy.value, 'OVERFLOW');
@@ -181,7 +181,7 @@ test('ensureSheetConditionalFormatting_ keeps only issue-state background rules 
   const rules = operations.find((op) => op.type === 'setConditionalFormatRules').rules;
   const backgroundRules = rules.filter((rule) => rule.background);
   assert.deepEqual(JSON.parse(JSON.stringify(backgroundRules.map((rule) => ({ formula: rule.formula, background: rule.background })))), [
-    { formula: '=$M2<>""', background: '#fee2e2' },
+    { formula: '=$N2<>""', background: '#fee2e2' },
   ]);
 });
 
@@ -218,7 +218,7 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
     getBooleanCondition() {
         return {
           getCriteriaType() { return sandbox.SpreadsheetApp.BooleanCriteria.CUSTOM_FORMULA; },
-          getCriteriaValues() { return ['=$M2<>""']; },
+          getCriteriaValues() { return ['=$N2<>""']; },
         };
       },
     };
@@ -263,6 +263,9 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   sandbox.refreshTransactionAccountValidation_ = function(sheet) {
     calls.push({ type: 'validation', sheet: sheet.name });
   };
+  sandbox.applyTransactionEditCheckbox_ = function(sheet) {
+    calls.push({ type: 'editCheckbox', sheet: sheet.name });
+  };
   sandbox.ensureTransactionSheetFilter_ = function(sheet) {
     calls.push({ type: 'filter', sheet: sheet.name });
   };
@@ -275,6 +278,7 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   assert.deepEqual(calls, [
     { type: 'layout', sheet: 'Transactions' },
     { type: 'validation', sheet: 'Transactions' },
+    { type: 'editCheckbox', sheet: 'Transactions' },
     { type: 'filter', sheet: 'Transactions' },
     { type: 'layout', sheet: 'Accounts' },
     { type: 'filter', sheet: 'Accounts' },

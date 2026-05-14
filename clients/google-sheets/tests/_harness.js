@@ -92,6 +92,9 @@ function loadCode(overrides = {}) {
           requireValueInRange() {
             return this;
           },
+          requireCheckbox() {
+            return this;
+          },
           setAllowInvalid() {
             return this;
           },
@@ -401,6 +404,17 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         if (existingRowNumber > rowNumber) {
           rowStore.delete(existingRowNumber);
           rowStore.set(existingRowNumber - 1, data);
+        }
+      });
+    },
+    deleteRows(startRow, count) {
+      operations.push({ type: 'deleteRows', startRow, count });
+      for (let i = 0; i < count; i += 1) rowStore.delete(startRow + i);
+      const entries = Array.from(rowStore.entries()).sort((a, b) => a[0] - b[0]);
+      entries.forEach(([existingRowNumber, data]) => {
+        if (existingRowNumber >= startRow + count) {
+          rowStore.delete(existingRowNumber);
+          rowStore.set(existingRowNumber - count, data);
         }
       });
     },

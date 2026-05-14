@@ -15,6 +15,12 @@ function handleTransactionEdit(e) {
   }
 
   const header = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers[column - 1];
+
+  if (header === 'edit' && (e.value === true || e.value === 'TRUE')) {
+    openEditTransactionSidebar_(sheet, row);
+    return;
+  }
+
   if (
     header !== 'payee' &&
     header !== 'narration' &&
@@ -297,6 +303,25 @@ function ensureSplitTransactionRetainsTransactionNarration_(groupRows, rowNumber
   if (otherTransactionRows.length === 0 && String(newValue || '') !== transactionNarration) {
     throw new Error('At least one split row must keep the transaction narration.');
   }
+}
+
+function openEditTransactionSidebar_(sheet, rowNumber) {
+  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('edit')).setValue(false);
+  let transactionName;
+  try {
+    transactionName = findTransactionRowNumbersFromAnchor_(sheet, rowNumber).transactionName;
+  } catch (_e) {
+    SpreadsheetApp.getUi().alert(
+      'Edit Transaction',
+      'The selected row does not contain a transaction.',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+  const template = HtmlService.createTemplateFromFile('QuickAddTransactionSidebar');
+  template.transactionName = transactionName;
+  template.anchorRow = rowNumber;
+  SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle('Edit Transaction'));
 }
 
 function handleAutomaticEditError_(sheet, rowNumber, error) {

@@ -59,6 +59,12 @@ function buildSheetConfig_(key, name, columnLayout, options) {
 
 const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
   transactions: buildSheetConfig_('transactions', FAMILY_LEDGER_SHEET_NAMES.transactions, {
+    edit: {
+      width: 40,
+      role: 'action',
+      note: 'Click to open the Edit/Delete Transaction sidebar.',
+      alignment: 'center',
+    },
     resource_name: {
       width: 180,
       role: 'system',

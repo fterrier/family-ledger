@@ -1,6 +1,6 @@
-function buildBalanceAssertionSyncRows_(balanceAssertions, accountDisplayLookup) {
+function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {
   return balanceAssertions.map(function(assertion) {
-    const accountDisplay = accountDisplayLookup[assertion.account] || assertion.account;
+    const accountDisplay = accountResourceToDisplayName[assertion.account] || assertion.account;
     return [
       assertion.name,
       assertion.assertion_date,

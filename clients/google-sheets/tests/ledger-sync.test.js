@@ -9,6 +9,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   const sheets = {
     Accounts: { name: 'Accounts', setFrozenRows() {} },
     Balances: { name: 'Balances', setFrozenRows() {} },
+    Commodities: { name: 'Commodities', setFrozenRows() {} },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; } },
   };
   const { sandbox } = loadCode({
@@ -30,19 +31,18 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   };
   sandbox.fetchFamilyLedgerPagedResource_ = function(path, resourceKey) {
     calls.push({ type: 'fetch', path, resourceKey });
+    if (resourceKey === 'commodities') return [{ symbol: 'CHF' }];
     if (resourceKey === 'accounts') {
       return [{ name: 'accounts/checking', account_name: 'Assets:Bank:Checking' }];
     }
-    if (resourceKey === 'balance_assertions') {
-      return [];
-    }
+    if (resourceKey === 'balance_assertions') return [];
     return [{ name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [] }];
   };
   sandbox.buildAccountSyncData_ = function(accounts) {
     calls.push({ type: 'buildAccountSyncData', count: accounts.length });
     return {
       accountRows: [['accounts/checking', '[A] Bank - Checking', '']],
-      accountDisplayLookup: { 'accounts/checking': '[A] Bank - Checking' },
+      accountResourceToDisplayName: { 'accounts/checking': '[A] Bank - Checking' },
       accountCount: 1,
     };
   };
@@ -77,11 +77,13 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   sandbox.syncLedger();
 
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'fetch'))), [
+    { type: 'fetch', path: '/commodities?page_size=1000', resourceKey: 'commodities' },
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
     { type: 'fetch', path: '/transactions?page_size=1000', resourceKey: 'transactions' },
     { type: 'fetch', path: '/balance-assertions?page_size=1000', resourceKey: 'balance_assertions' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
+    { type: 'writeSheet', sheet: 'Commodities', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
   ]);

@@ -2,6 +2,7 @@ const FAMILY_LEDGER_SHEET_NAMES = {
   accounts: 'Accounts',
   transactions: 'Transactions',
   balances: 'Balances',
+  commodities: 'Commodities',
   issues: 'Issues',
 };
 
@@ -228,6 +229,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     hiddenHeaders: ['resource_name'],
     protectedHeaders: ['resource_name'],
   }),
+  commodities: buildSheetConfig_('commodities', FAMILY_LEDGER_SHEET_NAMES.commodities, {
+    symbol: {
+      width: 80,
+      role: 'readonly',
+      note: 'Commodity symbol.',
+      alignment: 'left',
+    },
+  }, { issueHeader: null }),
   issues: buildSheetConfig_('issues', FAMILY_LEDGER_SHEET_NAMES.issues, {
     target: {
       width: 220,

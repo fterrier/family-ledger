@@ -46,6 +46,13 @@ function refreshManagedLedgerSheetLayouts_() {
     if (perf) perf.end('sheet.layout_balances');
   }
 
+  const cmdSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.commodities);
+  if (cmdSheet) {
+    if (perf) perf.start('sheet.layout_commodities');
+    applyManagedSheetLayout_(cmdSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities);
+    if (perf) perf.end('sheet.layout_commodities');
+  }
+
   const issuesSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.issues);
   if (issuesSheet) {
     if (perf) perf.start('sheet.layout_issues');

@@ -273,19 +273,19 @@ test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in
     rows: [
       {
         resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
-        payee: 'Migros', narration: 'Groceries split', source_account_name: 'Assets:Bank:Checking',
-        destination_account_name: 'Expenses:Household', amount: 34.25, symbol: 'CHF', __rowNumber: 4,
+        payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
+        destination_account_name: '[X] Household', amount: 34.25, symbol: 'CHF', __rowNumber: 4,
       },
       {
         resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
-        payee: 'Migros', narration: 'Groceries split', source_account_name: 'Assets:Bank:Checking',
-        destination_account_name: 'Expenses:Food', amount: 50, symbol: 'CHF', __rowNumber: 5,
+        payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
+        destination_account_name: '[X] Food', amount: 50, symbol: 'CHF', __rowNumber: 5,
       },
     ],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
-    'Expenses:Household': 'accounts/household',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
+    '[X] Household': 'accounts/household',
   });
 
   assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
@@ -307,12 +307,12 @@ test('buildTransactionPatchPayloadFromGroup_ normalizes Sheets date objects to y
     contiguous: true,
     rows: [{
       resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
-      payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
+      payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
     }],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
   });
 
   assert.equal(payload.transaction_date, '2019-09-15');
@@ -326,19 +326,19 @@ test('buildTransactionPatchPayloadFromGroup_ keeps transaction narration separat
     rows: [
       {
         resource_name: 'transactions/txn_1', narration_source: 'post', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'A', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food',
+        narration: 'A', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
         amount: 50, symbol: 'CHF', __rowNumber: 2,
       },
       {
         resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Shared', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household',
+        narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
         amount: 34.25, symbol: 'CHF', __rowNumber: 3,
       },
     ],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
-    'Expenses:Household': 'accounts/household',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
+    '[X] Household': 'accounts/household',
   });
 
   assert.equal(payload.narration, 'Shared');
@@ -356,19 +356,19 @@ test('buildTransactionPatchPayloadFromGroup_ treats differing split row narratio
     rows: [
       {
         resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Shared', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food',
+        narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
         amount: 50, symbol: 'CHF', __rowNumber: 2,
       },
       {
         resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Household', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household',
+        narration: 'Household', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
         amount: 34.25, symbol: 'CHF', __rowNumber: 3,
       },
     ],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
-    'Expenses:Household': 'accounts/household',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
+    '[X] Household': 'accounts/household',
   });
 
   assert.equal(payload.narration, 'Shared');
@@ -385,11 +385,11 @@ test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when 
     contiguous: true,
     rows: [{
       resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
-      narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '',
+      narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '',
       amount: 1.5, symbol: 'CHF', __rowNumber: 2,
     }],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
+    '[A] Bank - Checking': 'accounts/source',
   });
 
   assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
@@ -407,12 +407,12 @@ test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank d
     transactionName: 'transactions/txn_1',
     contiguous: true,
     rows: [
-      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
-      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
+      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
+      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
     ],
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
   }), /must either all have destination accounts or all leave destination_account_name blank/);
 });
 
@@ -597,8 +597,8 @@ test('updateTransactionRowsInPlace_ writes only changed cells', () => {
 test('flattenTransactionForSheet_ passes transaction_date string through unchanged', () => {
   const { sandbox } = loadCode();
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
-    'accounts/source': 'Assets:Bank:Checking',
-    'accounts/food': 'Expenses:Food',
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
   });
   assert.equal(rows[0].transaction_date, '2026-04-19');
 });
@@ -606,16 +606,16 @@ test('flattenTransactionForSheet_ passes transaction_date string through unchang
 test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API payload', () => {
   const { sandbox } = loadCode();
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
-    'accounts/source': 'Assets:Bank:Checking',
-    'accounts/food': 'Expenses:Food',
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
   });
   const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
     transactionName: 'transactions/txn_1',
     contiguous: true,
     rows: rows,
   }, {
-    'Assets:Bank:Checking': 'accounts/source',
-    'Expenses:Food': 'accounts/food',
+    '[A] Bank - Checking': 'accounts/source',
+    '[X] Food': 'accounts/food',
   });
 
   assert.equal(payload.transaction_date, '2026-04-19');

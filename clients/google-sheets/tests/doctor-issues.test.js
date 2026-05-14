@@ -121,7 +121,8 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
         details: { severity: 'warning' },
       }],
     },
-    function() { return issueSheet; }
+    function() { return issueSheet; },
+    {}
   );
 
   // setValuesCalls[0] = header row; setValuesCalls[1] = data rows

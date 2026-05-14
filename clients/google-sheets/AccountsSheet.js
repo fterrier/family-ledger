@@ -20,27 +20,11 @@ function formatAccountDisplayName_(accountName) {
   return marker + ' ' + tail.join(' - ');
 }
 
-function loadAccountMaps_() {
-  const entries = readAccountSheetEntries_();
-  const nameMap = {};
-  const displayLookup = {};
-  entries.forEach(function(entry) {
-    if (entry.displayName && entry.resourceName) {
-      nameMap[entry.displayName] = entry.resourceName;
-      displayLookup[entry.resourceName] = entry.displayName;
-    }
-  });
-  return { nameMap: nameMap, displayLookup: displayLookup };
-}
-
-function loadAccountDisplayLookup_() {
-  const lookup = {};
-  readAccountSheetEntries_().forEach(function(entry) {
-    if (entry.displayName && entry.resourceName) {
-      lookup[entry.resourceName] = entry.displayName;
-    }
-  });
-  return lookup;
+function loadAccountOptions_() {
+  return readAccountSheetEntries_()
+    .filter(function(entry) { return entry.resourceName && entry.displayName; })
+    .map(function(entry) { return { resource_name: entry.resourceName, display_name: entry.displayName }; })
+    .sort(function(a, b) { return a.display_name.localeCompare(b.display_name); });
 }
 
 function readAccountSheetEntries_() {
@@ -56,14 +40,6 @@ function readAccountSheetEntries_() {
       displayName: row[1] ? String(row[1]) : '',
     };
   });
-}
-
-function resolveAccountResourceName_(accountNameMap, accountName) {
-  const resourceName = accountNameMap[accountName];
-  if (!resourceName) {
-    throw new Error('Unknown account_name: ' + accountName);
-  }
-  return resourceName;
 }
 
 
@@ -100,11 +76,17 @@ function applyAccountValidation_(sheet, rowCount) {
 
 function applyAccountValidationToRowNumbers_(sheet, rowNumbers) {
   if (rowNumbers.length === 0) return;
-  clearTransactionAccountValidationRows_(sheet, rowNumbers);
+  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
+  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
+  const spans = buildContiguousRowSpans_(rowNumbers.slice().sort(function(a, b) { return a - b; }));
+  spans.forEach(function(span) {
+    sheet.getRange(span.start, sourceColumn, span.count, 1).clearDataValidations();
+    sheet.getRange(span.start, destinationColumn, span.count, 1).clearDataValidations();
+  });
   const validation = buildAccountValidationRule_();
   if (!validation) return;
-  rowNumbers.forEach(function(rowNumber) {
-    sheet.getRange(rowNumber, validation.destinationColumn).setDataValidation(validation.rule);
+  spans.forEach(function(span) {
+    sheet.getRange(span.start, validation.destinationColumn, span.count, 1).setDataValidation(validation.rule);
   });
 }
 
@@ -120,16 +102,4 @@ function clearTransactionAccountValidationColumns_(sheet, startRow, rowCount) {
   const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
   sheet.getRange(startRow, sourceColumn, rowCount, 1).clearDataValidations();
   sheet.getRange(startRow, destinationColumn, rowCount, 1).clearDataValidations();
-}
-
-function clearTransactionAccountValidationRows_(sheet, rowNumbers) {
-  if (rowNumbers.length === 0) {
-    return;
-  }
-  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
-  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
-  rowNumbers.forEach(function(rowNumber) {
-    sheet.getRange(rowNumber, sourceColumn).clearDataValidations();
-    sheet.getRange(rowNumber, destinationColumn).clearDataValidations();
-  });
 }

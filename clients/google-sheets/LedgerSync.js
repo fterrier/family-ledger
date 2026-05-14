@@ -6,6 +6,11 @@ function syncLedger() {
       ensureEditTriggerInstalled_();
 
       // API fetches auto-record into perf via apiFetch_
+      const commodities = fetchFamilyLedgerPagedResource_(
+        '/commodities?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'commodities'
+      );
+
       const accounts = fetchFamilyLedgerPagedResource_(
         '/accounts?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
         'accounts'
@@ -19,7 +24,7 @@ function syncLedger() {
         'transactions'
       );
       const transactionSyncData = perf.wrap('data.build_transactions', function() {
-        return buildTransactionSyncData_(transactions, accountSyncData.accountDisplayLookup);
+        return buildTransactionSyncData_(transactions, accountSyncData.accountResourceToDisplayName);
       }, function(r) { return r.rows.length + ' rows'; });
 
       const balanceAssertions = fetchFamilyLedgerPagedResource_(
@@ -27,8 +32,14 @@ function syncLedger() {
         'balance_assertions'
       );
       const balanceAssertionRows = perf.wrap('data.build_balances', function() {
-        return buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountDisplayLookup);
+        return buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountResourceToDisplayName);
       }, function(r) { return r.length + ' rows'; });
+
+      const commoditiesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
+      perf.wrap('sheet.write_commodities', function() {
+        writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities.headers, commodities.map(function(c) { return [c.symbol]; }));
+        commoditiesSheet.setFrozenRows(1);
+      }, commodities.length + ' commodities');
 
       const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
       perf.wrap('sheet.write_accounts', function() {
@@ -51,10 +62,10 @@ function syncLedger() {
         setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
       }, transactionSyncData.rows.length + ' rows');
 
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountDisplayLookup); });
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
 
       SpreadsheetApp.getActiveSpreadsheet().toast(
-        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),
+        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length),
         'Ledger Sync Complete',
         10
       );
@@ -83,9 +94,9 @@ function ensureEditTriggerInstalled_() {
   }
 }
 
-function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount) {
+function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount, commodityCount) {
   const message = [
-    'Synced ' + accountCount + ' accounts.',
+    'Synced ' + accountCount + ' accounts, ' + commodityCount + ' commodities.',
     'Fetched ' + transactionCount + ' transactions and synced ' + transactionSyncData.rows.length + ' allocation rows.',
     'Synced ' + balanceAssertionCount + ' balance assertions.',
   ];
@@ -107,24 +118,24 @@ function buildAccountSyncData_(accounts) {
   const rows = displayEntries.map(function(entry) {
     return [entry.resource_name, entry.display_name, ''];
   });
-  const accountDisplayLookup = {};
+  const accountResourceToDisplayName = {};
   displayEntries.forEach(function(entry) {
-    accountDisplayLookup[entry.resource_name] = entry.display_name;
+    accountResourceToDisplayName[entry.resource_name] = entry.display_name;
   });
   return {
     accountRows: rows,
-    accountDisplayLookup: accountDisplayLookup,
+    accountResourceToDisplayName: accountResourceToDisplayName,
     accountCount: displayEntries.length,
   };
 }
 
-function buildTransactionSyncData_(transactions, accountNameLookup) {
+function buildTransactionSyncData_(transactions, accountResourceToDisplayName) {
   const rows = [];
   const skippedExamples = [];
   let skippedCount = 0;
 
   transactions.forEach(function(transaction) {
-    const renderedRows = flattenTransactionForSheet_(transaction, accountNameLookup);
+    const renderedRows = flattenTransactionForSheet_(transaction, accountResourceToDisplayName);
     if (renderedRows === null) {
       skippedCount += 1;
       if (skippedExamples.length < 10) {

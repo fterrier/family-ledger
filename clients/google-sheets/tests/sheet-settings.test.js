@@ -11,9 +11,7 @@ test('saveSheetSettingsFromDialog stores shortlist, default source account, and 
       { resourceName: 'accounts/checking', displayName: '[A] Bank - Checking' },
     ];
   };
-  sandbox.fetchFamilyLedgerPagedResource_ = function(path, resourceKey) {
-    assert.equal(path, '/commodities?page_size=1000');
-    assert.equal(resourceKey, 'commodities');
+  sandbox.readCommoditySheetEntries_ = function() {
     return [{ symbol: 'CHF' }, { symbol: 'EUR' }];
   };
 
@@ -38,7 +36,7 @@ test('saveSheetSettingsFromDialog rejects default source account outside shortli
       { resourceName: 'accounts/checking', displayName: '[A] Bank - Checking' },
     ];
   };
-  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+  sandbox.readCommoditySheetEntries_ = function() {
     return [{ symbol: 'CHF' }];
   };
 
@@ -57,7 +55,7 @@ test('saveSheetSettingsFromDialog rejects default symbol outside configured symb
       { resourceName: 'accounts/cash', displayName: '[A] Liquid - Cash' },
     ];
   };
-  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+  sandbox.readCommoditySheetEntries_ = function() {
     return [{ symbol: 'CHF' }, { symbol: 'EUR' }];
   };
 
@@ -78,7 +76,7 @@ test('saveSheetSettingsFromDialog stores destination accounts shortlist', () => 
       { resourceName: 'accounts/cash', displayName: '[A] Cash' },
     ];
   };
-  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+  sandbox.readCommoditySheetEntries_ = function() {
     return [{ symbol: 'CHF' }];
   };
 
@@ -98,7 +96,7 @@ test('saveSheetSettingsFromDialog rejects destination account not in account lis
   sandbox.readAccountSheetEntries_ = function() {
     return [{ resourceName: 'accounts/cash', displayName: '[A] Cash' }];
   };
-  sandbox.fetchFamilyLedgerPagedResource_ = function() {
+  sandbox.readCommoditySheetEntries_ = function() {
     return [{ symbol: 'CHF' }];
   };
 
@@ -106,65 +104,6 @@ test('saveSheetSettingsFromDialog rejects destination account not in account lis
     ['accounts/cash'], ['CHF'], 'accounts/cash', 'CHF',
     ['accounts/unknown']
   ), /Unknown quick add destination account/);
-});
-
-test('getQuickAddTransactionData only exposes configured source accounts and symbols', () => {
-  const { sandbox, documentProperties } = loadCode();
-  sandbox.readAccountSheetEntries_ = function() {
-    return [
-      { resourceName: 'accounts/cash', displayName: '[A] Liquid - Cash' },
-      { resourceName: 'accounts/checking', displayName: '[A] Bank - Checking' },
-      { resourceName: 'accounts/food', displayName: '[X] Food' },
-    ];
-  };
-  sandbox.fetchFamilyLedgerPagedResource_ = function(path, resourceKey) {
-    assert.equal(path, '/commodities?page_size=1000');
-    assert.equal(resourceKey, 'commodities');
-    return [{ symbol: 'CHF' }, { symbol: 'EUR' }, { symbol: 'USD' }];
-  };
-  documentProperties.set('QUICK_ADD_SOURCE_ACCOUNTS', '["accounts/cash","accounts/checking"]');
-  documentProperties.set('QUICK_ADD_SYMBOLS', '["CHF","EUR"]');
-  documentProperties.set('QUICK_ADD_DEFAULT_SOURCE_ACCOUNT', 'accounts/checking');
-  documentProperties.set('QUICK_ADD_DEFAULT_SYMBOL', 'EUR');
-
-  const data = JSON.parse(JSON.stringify(sandbox.getQuickAddTransactionData()));
-
-  assert.deepEqual(data.sourceAccountOptions, [
-    { resource_name: 'accounts/checking', display_name: '[A] Bank - Checking' },
-    { resource_name: 'accounts/cash', display_name: '[A] Liquid - Cash' },
-  ]);
-  assert.deepEqual(data.commodityOptions, [
-    { symbol: 'CHF' },
-    { symbol: 'EUR' },
-  ]);
-  assert.equal(data.defaultSourceAccount, 'accounts/checking');
-  assert.equal(data.defaultSymbol, 'EUR');
-  assert.equal(data.configured, true);
-  assert.deepEqual(data.destinationAccountOptions, []);
-});
-
-test('getQuickAddTransactionData filters destination accounts to configured shortlist', () => {
-  const { sandbox, documentProperties } = loadCode();
-  sandbox.readAccountSheetEntries_ = function() {
-    return [
-      { resourceName: 'accounts/food', displayName: '[X] Food' },
-      { resourceName: 'accounts/coffee', displayName: '[X] Coffee' },
-      { resourceName: 'accounts/cash', displayName: '[A] Cash' },
-    ];
-  };
-  sandbox.fetchFamilyLedgerPagedResource_ = function() {
-    return [{ symbol: 'CHF' }];
-  };
-  documentProperties.set('QUICK_ADD_SOURCE_ACCOUNTS', '["accounts/cash"]');
-  documentProperties.set('QUICK_ADD_SYMBOLS', '["CHF"]');
-  documentProperties.set('QUICK_ADD_DESTINATION_ACCOUNTS', '["accounts/food","accounts/coffee"]');
-
-  const data = JSON.parse(JSON.stringify(sandbox.getQuickAddTransactionData()));
-
-  assert.deepEqual(data.destinationAccountOptions, [
-    { resource_name: 'accounts/coffee', display_name: '[X] Coffee' },
-    { resource_name: 'accounts/food', display_name: '[X] Food' },
-  ]);
 });
 
 test('buildQuickAddSymbolOptions_ filters commodity options to configured shortlist', () => {

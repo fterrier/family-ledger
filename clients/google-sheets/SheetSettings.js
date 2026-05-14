@@ -11,20 +11,6 @@ function showSheetSettings() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Sheet Settings');
 }
 
-function listAccountOptions_() {
-  try {
-    return readAccountSheetEntries_().map(function(entry) {
-      return {
-        resource_name: entry.resourceName,
-        display_name: entry.displayName,
-      };
-    }).sort(function(left, right) {
-      return left.display_name.localeCompare(right.display_name);
-    });
-  } catch (_error) {
-    return [];
-  }
-}
 
 function getDocPropJsonArray_(propKey) {
   const rawValue = PropertiesService.getDocumentProperties().getProperty(propKey);
@@ -61,19 +47,44 @@ function getQuickAddDefaultSymbol_() {
   ).trim();
 }
 
+function readCommoditySheetEntries_() {
+  const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+  return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
+    .map(function(row) { return { symbol: String(row[0] || '').trim() }; })
+    .filter(function(entry) { return entry.symbol; });
+}
+
 function listCommodityOptions_() {
   try {
-    return fetchFamilyLedgerPagedResource_(
-      '/commodities?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
-      'commodities'
-    ).map(function(commodity) {
-      return { symbol: commodity.symbol };
-    }).sort(function(left, right) {
+    return readCommoditySheetEntries_().sort(function(left, right) {
       return left.symbol.localeCompare(right.symbol);
     });
   } catch (_error) {
     return [];
   }
+}
+
+function getAllQuickAddSettings_() {
+  const props = PropertiesService.getDocumentProperties().getProperties();
+  function parseJsonArray(key) {
+    const rawValue = props[key];
+    if (!rawValue) return [];
+    try {
+      const parsed = JSON.parse(rawValue);
+      return Array.isArray(parsed)
+        ? parsed.map(function(v) { return String(v || '').trim(); }).filter(Boolean)
+        : [];
+    } catch (_error) { return []; }
+  }
+  return {
+    sourceAccounts: parseJsonArray(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS),
+    destinationAccounts: parseJsonArray(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS),
+    symbols: parseJsonArray(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS),
+    defaultSourceAccount: String(props[FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SOURCE_ACCOUNT] || '').trim(),
+    defaultSymbol: String(props[FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DEFAULT_SYMBOL] || '').trim(),
+  };
 }
 
 function buildQuickAddSymbolOptions_(commodityOptions, selectedSymbols) {
@@ -97,7 +108,7 @@ function getSheetSettingsForDialog() {
   const commodities = listCommodityOptions_();
   const quickAddSymbols = getQuickAddSymbols_();
   return {
-    accounts: listAccountOptions_(),
+    accounts: loadAccountOptions_(),
     commodities: commodities,
     quickAddSourceAccounts: getQuickAddSourceAccountResources_(),
     quickAddDestinationAccounts: getQuickAddDestinationAccountResources_(),
@@ -108,10 +119,7 @@ function getSheetSettingsForDialog() {
 }
 
 function saveSheetSettingsFromDialog(sourceAccounts, quickAddSymbols, defaultSourceAccount, defaultSymbol, destinationAccounts) {
-  const accountOptions = listAccountOptions_();
-  const knownAccounts = new Set(accountOptions.map(function(option) {
-    return option.resource_name;
-  }));
+  const knownAccounts = new Set(loadAccountOptions_().map(function(o) { return o.resource_name; }));
   const commodityOptions = listCommodityOptions_();
   const knownSymbols = new Set(commodityOptions.map(function(option) {
     return option.symbol;

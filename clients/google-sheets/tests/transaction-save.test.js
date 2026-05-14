@@ -24,8 +24,8 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -48,8 +48,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   };
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
-  const preloadedAccounts = { nameMap: {}, displayLookup: {} };
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, preloadedAccounts);
+  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, []);
 
   assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
   assert.equal(rowStore.get(2).last_error, 'transaction_unbalanced: Transaction is not balanced within tolerance.');
@@ -65,8 +64,8 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -100,12 +99,11 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
   };
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
-  const preloadedAccounts = {
-    nameMap: { 'Assets:Bank:Checking': 'accounts/source', 'Expenses:Food': 'accounts/food' },
-    displayLookup: { 'accounts/source': 'Assets:Bank:Checking', 'accounts/food': 'Expenses:Food' },
-    validationRule: null,
-  };
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, preloadedAccounts);
+  const accountOptions = [
+    { resource_name: 'accounts/source', display_name: '[A] Bank - Checking' },
+    { resource_name: 'accounts/food', display_name: '[X] Food' },
+  ];
+  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
   assert.equal(rowStore.get(2).status, 'saved');
   assert.equal(rowStore.get(2).last_error, '');
@@ -154,9 +152,11 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
   };
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
-  const displayLookup = { 'accounts/source': '[+] Checking', 'accounts/food': '[E] Food' };
-  const preloadedAccounts = { nameMap: {}, displayLookup: displayLookup };
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, preloadedAccounts);
+  const accountOptions = [
+    { resource_name: 'accounts/source', display_name: '[+] Checking' },
+    { resource_name: 'accounts/food', display_name: '[E] Food' },
+  ];
+  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
-  assert.deepEqual(capturedLookup, displayLookup);
+  assert.deepEqual(JSON.parse(JSON.stringify(capturedLookup)), { 'accounts/source': '[+] Checking', 'accounts/food': '[E] Food' });
 });

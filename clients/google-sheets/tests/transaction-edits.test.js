@@ -11,8 +11,8 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -39,7 +39,7 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
 
   assert.equal(rowStore.get(2).amount, 50);
   assert.equal(rowStore.get(3).amount, 34.25);
-  assert.equal(rowStore.get(3).destination_account_name, 'Expenses:Food');
+  assert.equal(rowStore.get(3).destination_account_name, '[X] Food');
 });
 
 test('performSplitForRow_ splits a negative-amount row using a positive split amount', () => {
@@ -50,7 +50,7 @@ test('performSplitForRow_ splits a negative-amount row using a positive split am
       transaction_date: '2026-04-19',
       payee: 'Employer',
       narration: 'Salary',
-      source_account_name: 'Assets:Bank:Checking',
+      source_account_name: '[A] Bank - Checking',
       destination_account_name: '[I] Salary',
       amount: -5000,
       split_off_amount: '',
@@ -89,8 +89,8 @@ test('performSplitForRow_ writes 0 amount to sheet without coercing to blank', (
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '0',
       symbol: 'CHF',
@@ -128,8 +128,8 @@ test('insertSplitRow_ focuses the newly inserted row in the specified column', (
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -172,8 +172,8 @@ test('focusCell_ activates the requested sheet cell', () => {
 test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
 
   const { sandbox } = loadCode();
@@ -190,7 +190,7 @@ test('performDeleteSplitRow_ merges deleted amount into previous sibling row', (
 
 test('performDeleteSplitRow_ resets the last destination row to source-only state', () => {
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 84.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
 
   const { sandbox } = loadCode();
@@ -209,8 +209,8 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
 test('performDeleteSplitRow_ focuses the merge target row when deleting the lower row', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
@@ -228,8 +228,8 @@ test('performDeleteSplitRow_ focuses the merge target row when deleting the lowe
 test('performDeleteSplitRow_ focuses rowNumber when deleting the upper row (surviving row shifts up)', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
@@ -249,11 +249,11 @@ test('handleAmountEdit_ delegates direct increases to insertSplitRow_', () => {
   const { sandbox } = loadCode();
   const rowStore = new Map([[2, {
     resource_name: 'transactions/txn_1',
-    destination_account_name: 'Expenses:Food',
+    destination_account_name: '[X] Food',
     amount: 84.25,
     narration_source: 'txn',
     narration: 'Groceries',
-    source_account_name: 'Assets:Bank',
+    source_account_name: '[A] Bank',
     transaction_date: '2026-04-19',
     payee: '',
     split_off_amount: '',
@@ -275,7 +275,7 @@ test('handleAmountEdit_ delegates direct increases to insertSplitRow_', () => {
 test('handleAmountEdit_ rejects edits for source-only transactions', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
@@ -305,11 +305,11 @@ test('handleAmountEdit_ converts a decrease into a split of the difference', () 
   const { sandbox } = loadCode();
   const rowStore = new Map([[2, {
     resource_name: 'transactions/txn_1',
-    destination_account_name: 'Expenses:Food',
+    destination_account_name: '[X] Food',
     amount: 84.25,
     narration_source: 'txn',
     narration: 'Groceries',
-    source_account_name: 'Assets:Bank',
+    source_account_name: '[A] Bank',
     transaction_date: '2026-04-19',
     payee: '',
     split_off_amount: '',
@@ -331,7 +331,7 @@ test('handleAmountEdit_ converts a decrease into a split of the difference', () 
 test('applyTransactionEdit_ treats numeric 0 as a valid new amount for amount column', () => {
   const calls = [];
   const { sandbox } = loadCode();
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.handleAmountEdit_ = function(_sheet, rowNumber, rawValue, oldRawValue) {
     calls.push({ rowNumber: rowNumber, rawValue: rawValue, oldRawValue: oldRawValue });
   };
@@ -368,11 +368,11 @@ test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_o
   const { sandbox } = loadCode();
   const rowStore = new Map([[5, {
     resource_name: 'transactions/txn_1',
-    destination_account_name: 'Expenses:Food',
+    destination_account_name: '[X] Food',
     amount: 84.25,
     narration_source: 'txn',
     narration: 'Groceries',
-    source_account_name: 'Assets:Bank',
+    source_account_name: '[A] Bank',
     transaction_date: '2026-04-19',
     payee: '',
     split_off_amount: '',
@@ -381,7 +381,7 @@ test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_o
     last_error: '',
   }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
     calls.push({ rowNumber: rowNumber, instruction: instruction });
   };
@@ -400,8 +400,8 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -414,8 +414,8 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -425,7 +425,7 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   const saves = [];
   sandbox.saveTransactionByName_ = function(_sheet, precomputed) { saves.push(precomputed); };
 
@@ -446,8 +446,8 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -460,8 +460,8 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Household',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -471,7 +471,7 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
@@ -488,8 +488,8 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -502,8 +502,8 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -513,7 +513,7 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Groceries', 'Groceries', {});
@@ -530,8 +530,8 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Produce',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -544,8 +544,8 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 10,
       split_off_amount: '',
       symbol: 'CHF',
@@ -555,7 +555,7 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', '', 'Produce', {});
@@ -572,8 +572,8 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -586,8 +586,8 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Household',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -597,7 +597,7 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
+  sandbox.loadAccountOptions_ = function() { return []; };
 
   assert.throws(
     () => sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', 'Produce', 'Groceries', {}),
@@ -615,8 +615,8 @@ test('performSplitForRow_ does not inherit explicit posting narration onto the n
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Produce',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 84.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -629,8 +629,8 @@ test('performSplitForRow_ does not inherit explicit posting narration onto the n
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 10,
       split_off_amount: '',
       symbol: 'CHF',
@@ -658,8 +658,8 @@ test('performDeleteSplitRow_ keeps surviving row narration ownership when removi
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -672,8 +672,8 @@ test('performDeleteSplitRow_ keeps surviving row narration ownership when removi
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Household',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -700,8 +700,8 @@ test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitti
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Food',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food',
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
@@ -714,8 +714,8 @@ test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitti
       transaction_date: '2026-04-19',
       payee: 'Migros',
       narration: 'Household',
-      source_account_name: 'Assets:Bank:Checking',
-      destination_account_name: 'Expenses:Household',
+      source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household',
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
@@ -735,7 +735,7 @@ test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitti
 
 test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: 'Assets:Bank:Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);

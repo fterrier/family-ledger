@@ -2,12 +2,12 @@ function pushActiveTransaction() {
   runUserAction_('Push Active Transaction', function() {
     const sheet = requireTransactionSheet_();
     const group = getActiveTransactionGroupFromSheet_(sheet);
-    const preloadedAccounts = loadAccountMaps_();
-    saveTransactionByName_(sheet, group, { showSuccessAlert: true }, preloadedAccounts);
+    const accountOptions = loadAccountOptions_();
+    saveTransactionByName_(sheet, group, { showSuccessAlert: true }, accountOptions);
   });
 }
 
-function saveTransactionByName_(sheet, precomputed, options, preloadedAccounts) {
+function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
@@ -35,10 +35,15 @@ function saveTransactionByName_(sheet, precomputed, options, preloadedAccounts) 
       saveGeneration: saveGeneration,
     });
 
-    const { nameMap: accountNameMap, displayLookup: accountNameLookup } = preloadedAccounts;
+    const accountResourceToDisplayName = {};
+    const accountDisplayNameToResource = {};
+    (accountOptions || []).forEach(function(o) {
+      accountResourceToDisplayName[o.resource_name] = o.display_name;
+      accountDisplayNameToResource[o.display_name] = o.resource_name;
+    });
     try {
       const payload = perf.wrap('data.build_payload', function() {
-        return buildTransactionPatchPayloadFromGroup_(group, accountNameMap);
+        return buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource);
       });
       // PATCH auto-records via apiFetch_
       const refreshed = apiFetchJson_('patch', '/' + transactionName, {
@@ -49,7 +54,7 @@ function saveTransactionByName_(sheet, precomputed, options, preloadedAccounts) 
         transactionName: transactionName,
         saveGeneration: saveGeneration,
       });
-      const replacementRows = flattenTransactionForSheet_(refreshed, accountNameLookup);
+      const replacementRows = flattenTransactionForSheet_(refreshed, accountResourceToDisplayName);
       if (replacementRows === null) {
         throw new Error('The updated transaction is no longer editable in this Sheets client.');
       }
@@ -101,7 +106,7 @@ function saveTransactionByName_(sheet, precomputed, options, preloadedAccounts) 
 
     debugLog_('saveTransactionByName:doctorRefreshStarting', { transactionName: transactionName, saveGeneration: saveGeneration });
     try {
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountNameLookup); });
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
     } catch (error) {
       debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
         message: error && error.message ? error.message : String(error),

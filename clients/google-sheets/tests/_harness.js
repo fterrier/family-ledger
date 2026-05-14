@@ -218,6 +218,11 @@ function loadCode(overrides = {}) {
           getProperty(key) {
             return documentProperties.has(key) ? documentProperties.get(key) : null;
           },
+          getProperties() {
+            const result = {};
+            documentProperties.forEach(function(value, key) { result[key] = value; });
+            return result;
+          },
           setProperty(key, value) {
             documentProperties.set(key, value);
           },

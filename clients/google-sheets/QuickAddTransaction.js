@@ -8,76 +8,48 @@ function includeHtml_(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-function getQuickAddTransactionData() {
-  const allAccounts = listAccountOptions_();
-  const quickAddSourceAccounts = getQuickAddSourceAccountResources_();
-  const quickAddDestinationAccounts = getQuickAddDestinationAccountResources_();
-  const quickAddSymbols = getQuickAddSymbols_();
-  const sourceAccountOptions = allAccounts.filter(function(option) {
-    return quickAddSourceAccounts.indexOf(option.resource_name) !== -1;
-  });
-  const destinationAccountOptions = allAccounts.filter(function(option) {
-    return quickAddDestinationAccounts.indexOf(option.resource_name) !== -1;
-  });
-  const commodityOptions = buildQuickAddSymbolOptions_(listCommodityOptions_(), quickAddSymbols);
-  return {
-    sourceAccountOptions: sourceAccountOptions,
-    destinationAccountOptions: destinationAccountOptions,
-    defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
-    defaultSymbol: getQuickAddDefaultSymbol_(),
-    commodityOptions: commodityOptions,
-    configured: sourceAccountOptions.length > 0 && commodityOptions.length > 0,
-  };
-}
-
 function submitTransactionFromSidebar(transactionName, anchorRow, input) {
   const isEdit = Boolean(transactionName);
   return runUserAction_(isEdit ? 'Save Transaction' : 'Quick Add Transaction', function() {
     const perf = createPerf_();
     setActivePerf_(perf);
     try {
-      const request = perf.wrap('data.normalize', function() {
-        return normalizeQuickAddTransactionInput_(input || {}, !isEdit);
-      });
+      const { transaction_date = '', payee: rawPayee = '', narration: rawNarration = '', postings } = input || {};
+      const transactionDate = normalizeTransactionDate_(transaction_date);
+      if (!transactionDate) throw new Error('Transaction date is required.');
+      const payee = String(rawPayee).trim() || null;
+      const narration = String(rawNarration).trim() || null;
 
       let apiResult;
       if (isEdit) {
-        const payload = {
-          transaction_date: request.transaction_date,
-          payee: request.payee,
-          narration: request.narration,
-        };
-        let updateMask = 'transaction_date,payee,narration';
-        if (request.source_account) {
-          payload.postings = buildTransactionPostings_(request);
-          updateMask += ',postings';
-        } else if (input && input.rawPostings && input.rawPostings.length > 0) {
-          payload.postings = input.rawPostings;
-          updateMask += ',postings';
-        }
         apiResult = apiFetchJson_('patch', '/' + transactionName, {
-          transaction: payload,
-          update_mask: updateMask,
+          transaction: { transaction_date: transactionDate, payee: payee, narration: narration, postings: postings },
+          update_mask: 'transaction_date,payee,narration,postings',
         });
       } else {
         apiResult = apiFetchJson_('post', '/transactions', {
-          transaction: buildQuickAddTransactionPayload_(request),
+          transaction: {
+            transaction_date: transactionDate,
+            payee: payee,
+            narration: narration,
+            postings: postings,
+            entity_metadata: { source: 'google_sheets_quick_add' },
+          },
         });
       }
 
       const sheet = perf.wrap('sheet.get', function() {
         return getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
       });
-      const accountLookup = perf.wrap('data.load_accounts', function() {
-        return loadAccountDisplayLookup_();
+      const accountOptions = perf.wrap('data.load_accounts', function() {
+        return loadAccountOptions_();
       });
-      const renderedRows = flattenTransactionForSheet_(apiResult, accountLookup);
+      const accountResourceToDisplayName = {};
+      accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
+      const renderedRows = flattenTransactionForSheet_(apiResult, accountResourceToDisplayName);
 
-      if (isEdit && renderedRows === null) {
-        throw new Error('The updated transaction is no longer editable in this Sheets client.');
-      }
-      if (!isEdit && (!renderedRows || renderedRows.length === 0)) {
-        throw new Error('Created transaction could not be rendered into the Transactions sheet.');
+      if (!renderedRows || renderedRows.length === 0) {
+        throw new Error('Transaction could not be rendered into the Transactions sheet.');
       }
       if (isEdit) {
         renderedRows.forEach(function(row) { row.status = 'saved'; });
@@ -85,9 +57,19 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
 
       const rowNumbers = perf.wrap('sheet.find_rows', function() {
         if (isEdit) {
-          return findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers;
+          const found = findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers;
+          const oldCount = found.length;
+          const newCount = renderedRows.length;
+          if (newCount > oldCount) {
+            sheet.insertRowsAfter(found[found.length - 1], newCount - oldCount);
+            for (let i = oldCount; i < newCount; i++) found.push(found[0] + i);
+          } else if (newCount < oldCount) {
+            sheet.deleteRows(found[newCount], oldCount - newCount);
+            found.splice(newCount);
+          }
+          return found;
         }
-        const insertionRow = findInsertionRowForTransactionDate_(sheet, request.transaction_date);
+        const insertionRow = findInsertionRowForTransactionDate_(sheet, transactionDate);
         const lastRow = sheet.getLastRow();
         let startRow;
         if (lastRow <= 1) {
@@ -109,7 +91,7 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         applyTransactionIssueFormulasToRowNumbers_(sheet, rowNumbers);
       });
 
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountLookup); });
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
 
       if (isEdit) {
         SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Edit Transaction', 5);
@@ -119,7 +101,7 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sheet);
         focusCell_(sheet, rowNumbers[0], payeeColumn);
         SpreadsheetApp.getActiveSpreadsheet().toast(
-          'Inserted transaction on ' + request.transaction_date + '.',
+          'Inserted transaction on ' + transactionDate + '.',
           'Quick Add Transaction', 5
         );
         return { transactionName: apiResult.name, rowNumbers: rowNumbers };
@@ -129,65 +111,6 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       perf.log(isEdit ? 'Save Transaction' : 'Quick Add Transaction');
     }
   });
-}
-
-function normalizeQuickAddTransactionInput_(input, requireShortlistSource) {
-  if (requireShortlistSource === undefined) requireShortlistSource = true;
-  const transactionDate = normalizeTransactionDate_(input.transaction_date || '');
-  const payee = String(input.payee || '').trim();
-  const narration = String(input.narration || '').trim();
-  if (!transactionDate) throw new Error('Transaction date is required.');
-
-  const needsPostingFields = (input.postingCount == null || input.postingCount === 2);
-  let sourceAccount = null, destinationAccount = null, symbol = null, amount = null;
-  if (needsPostingFields) {
-    sourceAccount = String(input.source_account || '').trim();
-    destinationAccount = String(input.destination_account || '').trim();
-    symbol = String(input.symbol || '').trim();
-    amount = parseFloat(String(input.amount || '').trim());
-    if (!sourceAccount) throw new Error('Source account is required.');
-    if (!symbol) throw new Error('Symbol is required.');
-    if (isNaN(amount)) throw new Error('Amount must be a valid number.');
-    if (amount === 0) throw new Error('Amount must be non-zero.');
-    if (requireShortlistSource) {
-      const allowed = getQuickAddSourceAccountResources_();
-      if (allowed.indexOf(sourceAccount) === -1)
-        throw new Error('Source account is not part of the quick add shortlist.');
-    }
-  }
-  return {
-    transaction_date: transactionDate,
-    source_account: sourceAccount,
-    destination_account: destinationAccount || null,
-    symbol: symbol,
-    amount: amount,
-    payee: payee || null,
-    narration: narration || null,
-  };
-}
-
-function buildTransactionPostings_(request) {
-  const postings = [{
-    account: request.source_account,
-    units: { amount: String(-request.amount), symbol: request.symbol },
-  }];
-  if (request.destination_account) {
-    postings.push({
-      account: request.destination_account,
-      units: { amount: String(request.amount), symbol: request.symbol },
-    });
-  }
-  return postings;
-}
-
-function buildQuickAddTransactionPayload_(request) {
-  return {
-    transaction_date: request.transaction_date,
-    payee: request.payee,
-    narration: request.narration,
-    entity_metadata: { source: 'google_sheets_quick_add' },
-    postings: buildTransactionPostings_(request),
-  };
 }
 
 function buildTransactionGroupAnchors_(sheet) {
@@ -228,50 +151,16 @@ function findInsertionRowForTransactionDate_(sheet, transactionDate) {
   return lastAnchor ? lastAnchor.lastRow + 1 : 2;
 }
 
-function applyTransactionIssueFormulasToRowNumbers_(sheet, rowNumbers) {
-  if (!rowNumbers || rowNumbers.length === 0) {
-    return;
-  }
-  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
-  rowNumbers.forEach(function(rowNumber) {
-    sheet.getRange(rowNumber, issuesColumn).setFormula(buildIssueLookupFormula_(rowNumber));
-  });
-}
-
-
-function getEditTransactionData(transactionName) {
-  const transaction = apiFetchJson_('get', '/' + transactionName);
-  const allAccounts = listAccountOptions_();
-  const commodities = listCommodityOptions_();
-  const postingCount = Array.isArray(transaction.postings) ? transaction.postings.length : 0;
-  const result = {
-    transaction: transaction,
-    accounts: allAccounts,
-    commodities: commodities,
-    postingCount: postingCount,
-  };
-  if (postingCount === 2) {
-    const sourceIdx = transaction.postings.findIndex(function(p) {
-      return parseFloat(p.units.amount) < 0;
-    });
-    const destIdx = sourceIdx === -1 ? 1 : 1 - sourceIdx;
-    const src = transaction.postings[sourceIdx === -1 ? 0 : sourceIdx];
-    const dst = transaction.postings[destIdx];
-    result.sourceAccount = src.account;
-    result.destinationAccount = dst.account;
-    result.amount = Math.abs(parseFloat(src.units.amount));
-    result.symbol = src.units.symbol;
-  }
-  return result;
-}
-
 function deleteTransactionFromSidebar(transactionName, anchorRow) {
   return runUserAction_('Delete Transaction', function() {
     apiFetchJson_('delete', '/' + transactionName);
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
     const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
     replaceTransactionRowsInSheet_(sheet, rowNumbers, []);
-    refreshDoctorIssueSheets_();
+    const accountOptions = loadAccountOptions_();
+    const accountResourceToDisplayName = {};
+    accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
+    refreshDoctorIssueSheets_(accountResourceToDisplayName);
     SpreadsheetApp.getActiveSpreadsheet().toast('Transaction deleted.', 'Edit Transaction', 5);
   });
 }
@@ -279,16 +168,18 @@ function deleteTransactionFromSidebar(transactionName, anchorRow) {
 function getSidebarData(transactionName) {
   if (transactionName) {
     const transaction = apiFetchJson_('get', '/' + transactionName);
-    const allAccounts = listAccountOptions_();
-    const commodities = listCommodityOptions_();
+    const allAccounts = loadAccountOptions_();
+    const allCommodities = listCommodityOptions_();
     const postingCount = Array.isArray(transaction.postings) ? transaction.postings.length : 0;
     const result = {
       configured: true,
       postingCount: postingCount,
       rawPostings: transaction.postings || [],
+      allAccountOptions: allAccounts,
+      allCommodityOptions: allCommodities,
       sourceAccountOptions: allAccounts,
       destinationAccountOptions: allAccounts,
-      commodityOptions: commodities,
+      commodityOptions: allCommodities,
       defaultDate: transaction.transaction_date || '',
       defaultPayee: transaction.payee || '',
       defaultNarration: transaction.narration || '',
@@ -297,42 +188,45 @@ function getSidebarData(transactionName) {
       defaultAmount: null,
       defaultSymbol: null,
     };
-    if (postingCount === 2) {
+    if (postingCount === 1 || postingCount === 2) {
       const sourceIdx = transaction.postings.findIndex(function(p) {
         return parseFloat(p.units.amount) < 0;
       });
       const src = transaction.postings[sourceIdx === -1 ? 0 : sourceIdx];
-      const dst = transaction.postings[sourceIdx === -1 ? 1 : 1 - sourceIdx];
       result.defaultSourceAccount = src.account;
-      result.defaultDestinationAccount = dst.account;
       result.defaultAmount = Math.abs(parseFloat(src.units.amount));
       result.defaultSymbol = src.units.symbol;
+      if (postingCount === 2) {
+        const dst = transaction.postings[sourceIdx === -1 ? 1 : 1 - sourceIdx];
+        result.defaultDestinationAccount = dst.account;
+      }
     }
     return result;
   }
-  const allAccounts = listAccountOptions_();
-  const quickAddSourceAccounts = getQuickAddSourceAccountResources_();
-  const quickAddDestinationAccounts = getQuickAddDestinationAccountResources_();
-  const quickAddSymbols = getQuickAddSymbols_();
+  const settings = getAllQuickAddSettings_();
+  const allAccounts = loadAccountOptions_();
+  const allCommodities = listCommodityOptions_();
   const sourceAccountOptions = allAccounts.filter(function(o) {
-    return quickAddSourceAccounts.indexOf(o.resource_name) !== -1;
+    return settings.sourceAccounts.indexOf(o.resource_name) !== -1;
   });
   const destinationAccountOptions = allAccounts.filter(function(o) {
-    return quickAddDestinationAccounts.indexOf(o.resource_name) !== -1;
+    return settings.destinationAccounts.indexOf(o.resource_name) !== -1;
   });
-  const commodityOptions = buildQuickAddSymbolOptions_(listCommodityOptions_(), quickAddSymbols);
+  const commodityOptions = buildQuickAddSymbolOptions_(allCommodities, settings.symbols);
   return {
     configured: sourceAccountOptions.length > 0 && commodityOptions.length > 0,
     postingCount: null,
+    allAccountOptions: allAccounts,
+    allCommodityOptions: allCommodities,
     sourceAccountOptions: sourceAccountOptions,
     destinationAccountOptions: destinationAccountOptions,
     commodityOptions: commodityOptions,
     defaultDate: null,
     defaultPayee: null,
     defaultNarration: null,
-    defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
+    defaultSourceAccount: settings.defaultSourceAccount || null,
     defaultDestinationAccount: null,
     defaultAmount: null,
-    defaultSymbol: getQuickAddDefaultSymbol_(),
+    defaultSymbol: settings.defaultSymbol || null,
   };
 }

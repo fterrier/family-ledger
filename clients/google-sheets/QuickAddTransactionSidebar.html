@@ -82,6 +82,34 @@
     font-size: 13px;
     min-height: 160px;
   }
+  .posting-row {
+    display: grid;
+    grid-template-columns: 1fr 70px 28px;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .posting-account {
+    grid-column: 1 / -1;
+  }
+  .posting-row select, .posting-row input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .btn-icon {
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #5f6368;
+    font-size: 14px;
+    line-height: 1;
+  }
   .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
   .btn-primary {
     padding: 8px 20px;
@@ -171,9 +199,21 @@
     <select id="symbolSelect"></select>
     <div class="hint">Required.</div>
   </div>
+  <div style="text-align:right;margin-top:2px">
+    <a href="#" onclick="switchToAdvancedMode(); return false;" style="font-size:12px;color:#1a73e8">Advanced editor →</a>
+  </div>
 </div>
 
-<div id="multiPostingNote" class="hint" style="display:none;margin-bottom:14px">This transaction has multiple postings — account and amount editing is not supported yet.</div>
+<div id="advancedPostingFields" style="display:none">
+  <div class="field">
+    <label>Postings</label>
+    <div id="postingList"></div>
+    <div style="display:flex;gap:12px;margin-top:6px;align-items:center">
+      <button type="button" class="btn-secondary" style="width:auto;padding:4px 10px;font-size:12px" onclick="addPostingRow()">+ Add posting</button>
+      <a href="#" onclick="switchToSimpleMode(); return false;" style="font-size:12px;color:#1a73e8">← Simple form</a>
+    </div>
+  </div>
+</div>
 
 <div class="field">
   <label for="payeeInput">Payee</label>
@@ -210,6 +250,7 @@
   var destinationDropdown = null;
   var sourceDropdown = null;
   var editPostingCount = 0;
+  var postingMode = 'simple';  // 'simple' | 'advanced'
 
   function makeAccountSearchFn_(query, options) {
     return searchAccountEntries_(
@@ -241,6 +282,124 @@
     .withFailureHandler(function(err) { showError(err.message || String(err)); })
     .getSidebarData(IS_EDIT ? EDIT_TRANSACTION_NAME : null);
 
+  function addPostingRow(posting) {
+    var accounts = currentData ? currentData.allAccountOptions : [];
+    var symbols = currentData ? currentData.allCommodityOptions : [];
+    var row = document.createElement('div');
+    row.className = 'posting-row';
+
+    var acctSel = document.createElement('select');
+    acctSel.className = 'posting-account';
+    [{ resource_name: '', display_name: 'Account' }].concat(accounts).forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.resource_name; opt.textContent = o.display_name;
+      acctSel.appendChild(opt);
+    });
+
+    var amtInput = document.createElement('input');
+    amtInput.type = 'number'; amtInput.step = '0.01'; amtInput.placeholder = '0.00';
+    amtInput.className = 'posting-amount';
+
+    var symSel = document.createElement('select');
+    symSel.className = 'posting-symbol';
+    [{ symbol: '' }].concat(symbols).forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.symbol; opt.textContent = o.symbol || '—';
+      symSel.appendChild(opt);
+    });
+
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'btn-icon'; removeBtn.textContent = '×';
+    removeBtn.onclick = function() { row.remove(); updateModeToggle(); };
+
+    if (posting) {
+      acctSel.value = posting.account || '';
+      amtInput.value = posting.units ? posting.units.amount : '';
+      symSel.value = posting.units ? posting.units.symbol : '';
+    }
+    row.appendChild(acctSel); row.appendChild(amtInput);
+    row.appendChild(symSel); row.appendChild(removeBtn);
+    document.getElementById('postingList').appendChild(row);
+    updateModeToggle();
+  }
+
+  function updateModeToggle() {
+    var rows = document.querySelectorAll('#postingList .posting-row');
+    var link = document.getElementById('switchToSimpleLink');
+    if (link) link.style.display = rows.length <= 2 ? '' : 'none';
+  }
+
+  function collectPostings() {
+    var rows = document.querySelectorAll('#postingList .posting-row');
+    if (!rows.length) { showError('At least one posting is required.'); return null; }
+    var postings = [], valid = true;
+    rows.forEach(function(row) {
+      var acct = row.querySelector('.posting-account').value;
+      var amt = row.querySelector('.posting-amount').value;
+      var sym = row.querySelector('.posting-symbol').value;
+      if (!acct || amt === '' || !sym) { valid = false; }
+      else postings.push({ account: acct, units: { amount: amt, symbol: sym } });
+    });
+    if (!valid) { showError('All posting fields (account, amount, symbol) are required.'); return null; }
+    return postings;
+  }
+
+  function collectSimplePostings() {
+    var src = document.getElementById('sourceAccountSelect').value;
+    var dst = document.getElementById('destinationAccountSelect').value;
+    var amt = parseFloat(document.getElementById('amountInput').value);
+    var sym = document.getElementById('symbolSelect').value;
+    if (!src) { showError('Source account is required.'); return null; }
+    if (isNaN(amt) || amt === 0) { showError('Amount must be a non-zero number.'); return null; }
+    if (!sym) { showError('Symbol is required.'); return null; }
+    var postings = [{ account: src, units: { amount: String(-amt), symbol: sym } }];
+    if (dst) postings.push({ account: dst, units: { amount: String(amt), symbol: sym } });
+    return postings;
+  }
+
+  function switchToAdvancedMode() {
+    var src = document.getElementById('sourceAccountSelect').value;
+    var dst = document.getElementById('destinationAccountSelect').value;
+    var amt = parseFloat(document.getElementById('amountInput').value);
+    var sym = document.getElementById('symbolSelect').value;
+    document.getElementById('postingList').innerHTML = '';
+    if (src && !isNaN(amt) && sym) {
+      addPostingRow({ account: src, units: { amount: String(-amt), symbol: sym } });
+      if (dst) addPostingRow({ account: dst, units: { amount: String(amt), symbol: sym } });
+    }
+    document.querySelector('.twoPostingFields').style.display = 'none';
+    document.getElementById('advancedPostingFields').style.display = 'block';
+    postingMode = 'advanced';
+  }
+
+  function switchToSimpleMode() {
+    var rows = document.querySelectorAll('#postingList .posting-row');
+    if (rows.length > 2) { showError('Reduce to 2 postings before switching to simple form.'); return; }
+    if (rows.length >= 1) {
+      var r0 = rows[0], r1 = rows.length > 1 ? rows[1] : null;
+      var acct0 = r0.querySelector('.posting-account').value;
+      var amt0 = parseFloat(r0.querySelector('.posting-amount').value);
+      var sym0 = r0.querySelector('.posting-symbol').value;
+      var src, dst, absAmt;
+      if (r1) {
+        var acct1 = r1.querySelector('.posting-account').value;
+        var amt1 = parseFloat(r1.querySelector('.posting-amount').value);
+        src = amt0 < 0 ? acct0 : acct1;
+        dst = amt0 < 0 ? acct1 : acct0;
+        absAmt = Math.abs(amt0 < 0 ? amt0 : amt1);
+      } else {
+        src = acct0; dst = ''; absAmt = Math.abs(amt0);
+      }
+      setSelectValueAndSync('sourceAccountSelect', src);
+      setSelectValueAndSync('destinationAccountSelect', dst);
+      document.getElementById('amountInput').value = absAmt || '';
+      document.getElementById('symbolSelect').value = sym0;
+    }
+    document.getElementById('advancedPostingFields').style.display = 'none';
+    document.querySelector('.twoPostingFields').style.display = 'block';
+    postingMode = 'simple';
+  }
+
   function initForm(data) {
     editPostingCount = data.postingCount || 0;
     currentData = data;
@@ -251,20 +410,21 @@
       return;
     }
 
-    populateAccounts('sourceAccountSelect', data.sourceAccountOptions, !IS_EDIT);
-    populateDestinationAccountOptions(data.destinationAccountOptions);
-    populateSymbols(data.commodityOptions);
-
     document.getElementById('dateInput').value = data.defaultDate || new Date().toISOString().slice(0, 10);
     document.getElementById('payeeInput').value = data.defaultPayee || '';
     document.getElementById('narrationInput').value = data.defaultNarration || '';
 
     if (data.postingCount > 2) {
       document.querySelector('.twoPostingFields').style.display = 'none';
-      document.getElementById('multiPostingNote').style.display = 'block';
+      document.getElementById('advancedPostingFields').style.display = 'block';
+      (data.rawPostings || []).forEach(function(p) { addPostingRow(p); });
+      postingMode = 'advanced';
       return;
     }
 
+    populateAccounts('sourceAccountSelect', data.sourceAccountOptions, !IS_EDIT);
+    populateDestinationAccountOptions(data.destinationAccountOptions);
+    populateSymbols(data.commodityOptions);
     document.getElementById('amountInput').value = data.defaultAmount != null ? data.defaultAmount : '';
     document.getElementById('symbolSelect').value = data.defaultSymbol || '';
 
@@ -279,6 +439,7 @@
       makeAccountSearchFn_
     );
     setSelectValueAndSync('destinationAccountSelect', data.defaultDestinationAccount || '');
+    postingMode = 'simple';
   }
 
   function populateAccounts(id, options, includeBlank) {
@@ -334,8 +495,11 @@
   }
 
   function onSubmit() {
-    var btn = document.getElementById(IS_EDIT ? 'saveBtn' : 'insertBtn');
     document.getElementById('errorBox').style.display = 'none';
+    var postings = postingMode === 'advanced' ? collectPostings() : collectSimplePostings();
+    if (!postings) return;
+
+    var btn = document.getElementById(IS_EDIT ? 'saveBtn' : 'insertBtn');
     btn.disabled = true;
     google.script.run
       .withSuccessHandler(function() {
@@ -355,14 +519,9 @@
         IS_EDIT ? EDIT_ANCHOR_ROW : null,
         {
           transaction_date: document.getElementById('dateInput').value,
-          source_account: document.getElementById('sourceAccountSelect').value,
-          destination_account: document.getElementById('destinationAccountSelect').value,
-          amount: document.getElementById('amountInput').value,
-          symbol: document.getElementById('symbolSelect').value,
           payee: document.getElementById('payeeInput').value,
           narration: document.getElementById('narrationInput').value,
-          postingCount: IS_EDIT ? editPostingCount : null,
-          rawPostings: IS_EDIT && currentData ? (currentData.rawPostings || null) : null,
+          postings: postings,
         }
       );
   }

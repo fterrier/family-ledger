@@ -1,5 +1,5 @@
-function flattenTransactionForSheet_(transaction, accountNameLookup) {
-  const shape = classifySupportedTransaction_(transaction, accountNameLookup);
+function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) {
+  const shape = classifySupportedTransaction_(transaction, accountResourceToDisplayName);
   if (shape === null) {
     return null;
   }
@@ -25,7 +25,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   }
 
   const sourcePosting = transaction.postings[shape.sourceIndex];
-  const sourceAccountName = accountNameLookup[sourcePosting.account] || sourcePosting.account;
+  const sourceAccountName = accountResourceToDisplayName[sourcePosting.account] || sourcePosting.account;
   const sourcePostingNarration = String(sourcePosting.narration || '');
   const issues = '';
 
@@ -58,7 +58,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
       payee: transaction.payee || '',
       narration: effectiveSheetNarration_(transactionNarration, postingNarration),
       source_account_name: sourceAccountName,
-      destination_account_name: accountNameLookup[posting.account] || posting.account,
+      destination_account_name: accountResourceToDisplayName[posting.account] || posting.account,
       amount: parseFloat(posting.units.amount),
       split_off_amount: '',
       symbol: posting.units.symbol,
@@ -69,7 +69,7 @@ function flattenTransactionForSheet_(transaction, accountNameLookup) {
   });
 }
 
-function classifySupportedTransaction_(transaction, accountNameLookup) {
+function classifySupportedTransaction_(transaction, accountResourceToDisplayName) {
   if (!transaction || !Array.isArray(transaction.postings)) {
     return null;
   }
@@ -88,7 +88,7 @@ function classifySupportedTransaction_(transaction, accountNameLookup) {
     else if (symbol !== p.units.symbol) return null;
   }
 
-  const lookup = accountNameLookup || {};
+  const lookup = accountResourceToDisplayName || {};
   const balanceIndexes = [];
   for (let i = 0; i < postings.length; i++) {
     const name = lookup[postings[i].account] || '';
@@ -124,7 +124,7 @@ function classifySupportedTransaction_(transaction, accountNameLookup) {
   return { sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, symbol: symbol };
 }
 
-function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
+function buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource) {
   const issues = [];
   const sourceAccountName = requireSingleNormalizedValue_(
     group.rows,
@@ -143,7 +143,8 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   const payee = readOptionalNormalizedValue_(group.rows, 'payee', 'payee', issues);
   const narration = inferTransactionNarrationFromGroupRows_(group.rows, issues);
   const isSplitTransaction = group.rows.length > 1;
-  const sourceAccount = resolveAccountResourceName_(accountNameMap, sourceAccountName);
+  const sourceAccount = accountDisplayNameToResource[sourceAccountName];
+  if (!sourceAccount) throw new Error('Unknown account_name: ' + sourceAccountName);
   const destinationRows = [];
   const blankDestinationRowNumbers = [];
   const amounts = [];
@@ -162,8 +163,10 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
     }
 
     if (destinationAccountName) {
+      const destinationAccount = accountDisplayNameToResource[destinationAccountName];
+      if (!destinationAccount) throw new Error('Unknown account_name: ' + destinationAccountName);
       destinationRows.push({
-        account: resolveAccountResourceName_(accountNameMap, destinationAccountName),
+        account: destinationAccount,
         amount: amount,
         narration: normalizePostingNarrationFromSheetRow_(row, narration, isSplitTransaction),
       });
@@ -475,6 +478,19 @@ function buildSequentialRowNumbers_(startRow, count) {
   return rowNumbers;
 }
 
+
+function applyTransactionIssueFormulasToRowNumbers_(sheet, rowNumbers) {
+  if (!rowNumbers || rowNumbers.length === 0) return;
+  const issuesColumn = getTransactionHeaderColumnIndex_('issues');
+  const spans = buildContiguousRowSpans_(rowNumbers.slice().sort(function(a, b) { return a - b; }));
+  spans.forEach(function(span) {
+    const formulas = [];
+    for (let i = 0; i < span.count; i++) {
+      formulas.push([buildIssueLookupFormula_(span.start + i)]);
+    }
+    sheet.getRange(span.start, issuesColumn, span.count, 1).setFormulas(formulas);
+  });
+}
 
 function ensureTransactionIssueFormulas_(sheet, rowCount) {
   ensureManagedSheetIssueFormulas_(

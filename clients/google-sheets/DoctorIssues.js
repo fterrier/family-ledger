@@ -67,7 +67,7 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
-function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountLookup) {
+function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceToDisplayName) {
   const lookup = {};
   const targetSet = {};
   neededTargets.forEach(function(t) { targetSet[t] = true; });
@@ -95,9 +95,9 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountLookup) {
     }
   }
 
-  Object.keys(accountLookup || {}).forEach(function(resourceName) {
+  Object.keys(accountResourceToDisplayName).forEach(function(resourceName) {
     if (targetSet[resourceName]) {
-      const displayName = accountLookup[resourceName];
+      const displayName = accountResourceToDisplayName[resourceName];
       lookup[resourceName] = displayName ? 'Account ' + displayName : 'Account';
     }
   });
@@ -128,22 +128,22 @@ function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, row
   return '=IFERROR(HYPERLINK(' + urlPart + ',"' + escaped + '"),"' + escaped + '")';
 }
 
-function refreshDoctorIssueSheets_(accountLookup) {
+function refreshDoctorIssueSheets_(accountResourceToDisplayName) {
   const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
   debugLog_('refreshDoctorIssueSheets:fetched', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
       return total + issues.length;
     }, 0),
   });
-  writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_, accountLookup);
+  writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_, accountResourceToDisplayName);
   return issuesByTarget;
 }
 
-function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountLookup) {
+function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountResourceToDisplayName) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
   const sortedTargets = Object.keys(issuesByTarget).sort();
-  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountLookup);
+  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountResourceToDisplayName);
   const sheetByName = {};
   const dataRows = sortedTargets.map(function(target, index) {
     const issues = issuesByTarget[target] || [];

@@ -67,7 +67,7 @@ function quickAddTransactionFromSidebar(input) {
         'Quick Add Transaction',
         5
       );
-      perf.wrap('doctor', refreshDoctorIssueSheets_);
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountLookup); });
       return {
         transactionName: created.name,
         rowNumbers: insertedRowNumbers,
@@ -203,17 +203,18 @@ function insertTransactionRowsAtRow_(sheet, insertionRow, rows) {
   }
   const rowCount = rows.length;
   let startRow = insertionRow;
-  if (sheet.getLastRow() <= 1) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
     startRow = 2;
     sheet.getRange(startRow, 1, rowCount, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
       .setValues(rows.map(materializeTransactionSheetRow_));
-  } else if (startRow <= sheet.getLastRow()) {
+  } else if (startRow <= lastRow) {
     sheet.insertRowsBefore(startRow, rowCount);
     sheet.getRange(startRow, 1, rowCount, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
       .setValues(rows.map(materializeTransactionSheetRow_));
   } else {
-    sheet.insertRowsAfter(Math.max(sheet.getLastRow(), 1), rowCount);
-    startRow = Math.max(sheet.getLastRow() - rowCount + 1, 2);
+    sheet.insertRowsAfter(Math.max(lastRow, 1), rowCount);
+    startRow = Math.max(lastRow + 1, 2);
     sheet.getRange(startRow, 1, rowCount, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
       .setValues(rows.map(materializeTransactionSheetRow_));
   }

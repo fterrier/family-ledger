@@ -213,20 +213,6 @@ function buildTransactionPatchPayloadFromGroup_(group, accountNameMap) {
   };
 }
 
-function isSourceOnlyTransactionRow_(sheet, rowNumber) {
-  if (!sheet || typeof sheet.getRange !== 'function') {
-    return false;
-  }
-  try {
-    const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-    const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
-    return rows.every(function(groupRow) {
-      return !String(groupRow.destination_account_name || '').trim();
-    });
-  } catch (_e) {
-    return false;
-  }
-}
 
 function requireSingleNormalizedValue_(rows, fieldName, label, issues, normalizer) {
   const values = rows.map(function(row) {
@@ -257,33 +243,33 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   return distinct.length === 0 ? null : distinct[0];
 }
 
-function getTransactionNameForRow_(sheet, rowNumber) {
-  if (rowNumber <= 1) {
-    return '';
-  }
-  return String(sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('resource_name')).getValue() || '').trim();
-}
 
 function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
-  const col = getTransactionHeaderColumnIndex_('resource_name');
+  const headers = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers;
+  const resourceNameColIndex = getTransactionHeaderColumnIndex_('resource_name') - 1;
   const windowStart = Math.max(2, anchorRow - 25);
   const windowEnd = anchorRow + 25;
-  const values = sheet.getRange(windowStart, col, windowEnd - windowStart + 1, 1).getValues();
+  const values = sheet.getRange(windowStart, 1, windowEnd - windowStart + 1, headers.length).getValues();
   const anchorIndex = anchorRow - windowStart;
-  const transactionName = String(values[anchorIndex][0] || '').trim();
+  const transactionName = String(values[anchorIndex][resourceNameColIndex] || '').trim();
   if (!transactionName) {
     throw new Error('The selected row does not contain a transaction.');
   }
   const rowNumbers = [];
   for (let i = anchorIndex; i >= 0; i--) {
-    if (String(values[i][0] || '').trim() !== transactionName) break;
+    if (String(values[i][resourceNameColIndex] || '').trim() !== transactionName) break;
     rowNumbers.unshift(windowStart + i);
   }
   for (let i = anchorIndex + 1; i < values.length; i++) {
-    if (String(values[i][0] || '').trim() !== transactionName) break;
+    if (String(values[i][resourceNameColIndex] || '').trim() !== transactionName) break;
     rowNumbers.push(windowStart + i);
   }
-  return { rowNumbers: rowNumbers, transactionName: transactionName };
+  const rows = rowNumbers.map(function(rn) {
+    const row = rowToObject_(headers, values[rn - windowStart]);
+    row.__rowNumber = rn;
+    return row;
+  });
+  return { rowNumbers: rowNumbers, transactionName: transactionName, rows: rows };
 }
 
 function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
@@ -363,10 +349,6 @@ function normalizeSheetCellValue_(value) {
   return String(value ?? '');
 }
 
-function readTransactionSheetRowsByNumbers_(sheet, rowNumbers) {
-  return readSheetRowsByNumbers_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumbers);
-}
-
 function writeTransactionSheetRow_(sheet, rowNumber, row) {
   writeSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber, row);
 }
@@ -396,12 +378,12 @@ function getActiveTransactionGroupFromSheet_(sheet) {
   if (activeRowNumber <= 1) {
     throw new Error('Select a transaction data row first.');
   }
-  const { rowNumbers, transactionName } = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
+  const { rowNumbers, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
   return {
     transactionName: transactionName,
     activeIndex: rowNumbers.indexOf(activeRowNumber),
     rowNumbers: rowNumbers,
-    rows: readTransactionSheetRowsByNumbers_(sheet, rowNumbers),
+    rows: rows,
     contiguous: isContiguousRowNumbers_(rowNumbers),
   };
 }
@@ -466,16 +448,17 @@ function replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows) {
     return;
   }
 
+  const lastRow = sheet.getLastRow();
   let insertionRow = firstRowNumber;
-  if (insertionRow > sheet.getLastRow() + 1) {
-    insertionRow = sheet.getLastRow() + 1;
+  if (insertionRow > lastRow + 1) {
+    insertionRow = lastRow + 1;
   }
 
-  if (insertionRow <= sheet.getLastRow()) {
+  if (insertionRow <= lastRow) {
     sheet.insertRowsBefore(insertionRow, replacementRows.length);
   } else {
-    sheet.insertRowsAfter(Math.max(sheet.getLastRow(), 1), replacementRows.length);
-    insertionRow = Math.max(sheet.getLastRow() - replacementRows.length + 1, 2);
+    sheet.insertRowsAfter(Math.max(lastRow, 1), replacementRows.length);
+    insertionRow = Math.max(lastRow - replacementRows.length + 1, 2);
   }
 
   sheet
@@ -490,14 +473,6 @@ function buildSequentialRowNumbers_(startRow, count) {
     rowNumbers.push(startRow + index);
   }
   return rowNumbers;
-}
-
-function cloneTransactionSheetRow_(row) {
-  const clone = {};
-  Object.keys(row).forEach(function(key) {
-    clone[key] = row[key];
-  });
-  return clone;
 }
 
 

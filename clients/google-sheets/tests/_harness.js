@@ -54,6 +54,7 @@ function loadCode(overrides = {}) {
     SpreadsheetApp: {
       ProtectionType: { RANGE: 'RANGE' },
       BooleanCriteria: { CUSTOM_FORMULA: 'CUSTOM_FORMULA' },
+      flush() {},
       getUi() {
         throw new Error('Unexpected SpreadsheetApp.getUi() call in unit test');
       },
@@ -153,6 +154,27 @@ function loadCode(overrides = {}) {
         return {
           getSheetByName(name) {
             return (overrides.sheetsByName || {})[name] || null;
+          },
+          insertSheet(name) {
+            return {
+              getName() { return name; },
+              getLastRow() { return 1; },
+              getMaxRows() { return 1; },
+              getMaxColumns() { return 1; },
+              getRange() {
+                return {
+                  getValues() { return []; },
+                  setValues() { return this; },
+                  clearContents() {},
+                  setFormulas() {},
+                };
+              },
+              clearContents() {},
+              setFrozenRows() {},
+              hideSheet() {},
+              isSheetHidden() { return false; },
+              getSheetId() { return 0; },
+            };
           },
         };
       },

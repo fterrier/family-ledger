@@ -51,7 +51,7 @@ function syncLedger() {
         setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
       }, transactionSyncData.rows.length + ' rows');
 
-      perf.wrap('doctor', refreshDoctorIssueSheets_);
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountDisplayLookup); });
 
       SpreadsheetApp.getActiveSpreadsheet().toast(
         buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length),

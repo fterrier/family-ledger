@@ -101,12 +101,6 @@ function getOrCreateSheet_(sheetName) {
 }
 
 
-function hideSheetIfVisible_(sheet) {
-  if (!sheet.isSheetHidden || !sheet.isSheetHidden()) {
-    sheet.hideSheet();
-  }
-}
-
 function writeSheet_(sheet, headers, rows) {
   sheet.clearContents();
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]);

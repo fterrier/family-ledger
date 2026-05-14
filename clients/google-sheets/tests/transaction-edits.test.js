@@ -118,64 +118,41 @@ test('performSplitForRow_ writes 0 amount to sheet without coercing to blank', (
   assert.equal(rowStore.get(3).amount, 0);
 });
 
-test('focusPostEnterAfterInsert_ moves focus to the next row in the edited column', () => {
-  const { sandbox } = loadCode();
+
+
+test('insertSplitRow_ focuses the newly inserted row in the specified column', () => {
   const operations = [];
-  const fakeSheet = {
-    getLastRow() { return 20; },
-    getRange(row, column) {
-      return { activate() { operations.push({ row: row, column: column }); } };
-    },
-  };
-
-  sandbox.focusPostEnterAfterInsert_(fakeSheet, 12, 5);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 13, column: 5 }]);
-});
-
-test('focusPostEnterAfterInsert_ clamps to the last row when needed', () => {
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: 'Assets:Bank:Checking',
+      destination_account_name: 'Expenses:Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '',
+      last_error: '',
+    }],
+  ]);
   const { sandbox } = loadCode();
-  const operations = [];
-  const fakeSheet = {
-    getLastRow() { return 10; },
-    getRange(row, column) {
-      return { activate() { operations.push({ row: row, column: column }); } };
-    },
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getRange = function(row, column, numRows, numCols) {
+    if (numRows === undefined) {
+      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
+    }
+    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
   };
+  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+  const groupRows = [{ ...rowStore.get(2), __rowNumber: 2 }];
 
-  sandbox.focusPostEnterAfterInsert_(fakeSheet, 10, 5);
+  sandbox.insertSplitRow_(fakeSheet, 2, groupRows[0], groupRows, 30, 20, 'split_off_amount');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 10, column: 5 }]);
-});
-
-test('focusPostEnterAfterDelete_ keeps focus on the edited row in the edited column', () => {
-  const { sandbox } = loadCode();
-  const operations = [];
-  const fakeSheet = {
-    getLastRow() { return 20; },
-    getRange(row, column) {
-      return { activate() { operations.push({ row: row, column: column }); } };
-    },
-  };
-
-  sandbox.focusPostEnterAfterDelete_(fakeSheet, 12, 5);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 12, column: 5 }]);
-});
-
-test('focusPostEnterAfterDelete_ clamps to the last row when needed', () => {
-  const { sandbox } = loadCode();
-  const operations = [];
-  const fakeSheet = {
-    getLastRow() { return 10; },
-    getRange(row, column) {
-      return { activate() { operations.push({ row: row, column: column }); } };
-    },
-  };
-
-  sandbox.focusPostEnterAfterDelete_(fakeSheet, 12, 5);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 10, column: 5 }]);
+  const activates = operations.filter(function(op) { return op.type === 'activate'; });
+  assert.equal(activates.length, 1);
+  assert.equal(activates[0].row, 3);
 });
 
 test('focusCell_ activates the requested sheet cell', () => {
@@ -229,7 +206,45 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
   assert.equal(rowStore.get(2).status, 'dirty');
 });
 
-test('handleAmountEdit_ delegates direct increases to performSplitFromEditedAmount_', () => {
+test('performDeleteSplitRow_ focuses the merge target row when deleting the lower row', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return { getRow() { return 3; }, getColumn() { return 10; } };
+  };
+
+  sandbox.performDeleteSplitRow_(fakeSheet, 3);
+
+  const activates = operations.filter(function(op) { return op.type === 'activate'; });
+  assert.equal(activates.length, 1);
+  assert.equal(activates[0].row, 2);
+});
+
+test('performDeleteSplitRow_ focuses rowNumber when deleting the upper row (surviving row shifts up)', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  fakeSheet.getActiveRange = function() {
+    return { getRow() { return 2; }, getColumn() { return 10; } };
+  };
+
+  sandbox.performDeleteSplitRow_(fakeSheet, 2);
+
+  const activates = operations.filter(function(op) { return op.type === 'activate'; });
+  assert.equal(activates.length, 1);
+  assert.equal(activates[0].row, 2);
+});
+
+test('handleAmountEdit_ delegates direct increases to insertSplitRow_', () => {
   const calls = [];
   const { sandbox } = loadCode();
   const rowStore = new Map([[2, {
@@ -247,13 +262,14 @@ test('handleAmountEdit_ delegates direct increases to performSplitFromEditedAmou
     last_error: '',
   }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
-    calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
+  sandbox.insertSplitRow_ = function(_sheet, rowNumber, _row, _groupRows, rowAmount, splitAmount) {
+    calls.push({ rowNumber: rowNumber, rowAmount: rowAmount, splitAmount: splitAmount });
+    return [{ __rowNumber: rowNumber }];
   };
 
   sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, oldAmount: 84.25, newAmount: 90 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, rowAmount: 90, splitAmount: -5.75 }]);
 });
 
 test('handleAmountEdit_ rejects edits for source-only transactions', () => {
@@ -302,18 +318,20 @@ test('handleAmountEdit_ converts a decrease into a split of the difference', () 
     last_error: '',
   }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.performSplitFromEditedAmount_ = function(_sheet, rowNumber, oldAmount, newAmount) {
-    calls.push({ rowNumber: rowNumber, oldAmount: oldAmount, newAmount: newAmount });
+  sandbox.insertSplitRow_ = function(_sheet, rowNumber, _row, _groupRows, rowAmount, splitAmount) {
+    calls.push({ rowNumber: rowNumber, rowAmount: rowAmount, splitAmount: splitAmount });
+    return [{ __rowNumber: rowNumber }];
   };
 
   sandbox.handleAmountEdit_(fakeSheet, 2, '50', '84.25');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, oldAmount: 84.25, newAmount: 50 }]);
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, rowAmount: 50, splitAmount: 34.25 }]);
 });
 
 test('applyTransactionEdit_ treats numeric 0 as a valid new amount for amount column', () => {
   const calls = [];
   const { sandbox } = loadCode();
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.handleAmountEdit_ = function(_sheet, rowNumber, rawValue, oldRawValue) {
     calls.push({ rowNumber: rowNumber, rawValue: rawValue, oldRawValue: oldRawValue });
   };
@@ -363,6 +381,7 @@ test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_o
     last_error: '',
   }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
     calls.push({ rowNumber: rowNumber, instruction: instruction });
   };
@@ -406,6 +425,7 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   const saves = [];
   sandbox.saveTransactionByName_ = function(_sheet, precomputed) { saves.push(precomputed); };
 
@@ -451,6 +471,7 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
@@ -492,6 +513,7 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Groceries', 'Groceries', {});
@@ -533,6 +555,7 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
   sandbox.saveTransactionByName_ = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', '', 'Produce', {});
@@ -574,6 +597,7 @@ test('applyTransactionEdit_ rejects converting the last transaction narration ro
   ]);
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountMaps_ = function() { return { nameMap: {}, displayLookup: {} }; };
 
   assert.throws(
     () => sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', 'Produce', 'Groceries', {}),

@@ -165,10 +165,10 @@ function buildQuickFilterAccountFormula_(sheetConfig, accountHeaders, prefix) {
 
 function applyQuickFilterCriteria_(sheet, sheetConfig, header, formula) {
   if (!sheet || !formula) return;
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return;
   let filter = sheet.getFilter();
   if (!filter) {
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return;
     filter = sheet.getRange(1, 1, lastRow, sheetConfig.headers.length).createFilter();
   }
   filter.setColumnFilterCriteria(

@@ -1,35 +1,3 @@
-function readSheetRow_(sheet, sheetConfig, rowNumber) {
-  const values = sheet.getRange(
-    rowNumber,
-    1,
-    1,
-    sheetConfig.headers.length
-  ).getValues()[0];
-  const row = rowToObject_(sheetConfig.headers, values);
-  row.__rowNumber = rowNumber;
-  return row;
-}
-
-function readSheetRowsByNumbers_(sheet, sheetConfig, rowNumbers) {
-  if (rowNumbers.length === 0) return [];
-  if (rowNumbers.length === 1) return [readSheetRow_(sheet, sheetConfig, rowNumbers[0])];
-  let contiguous = true;
-  for (let i = 1; i < rowNumbers.length; i++) {
-    if (rowNumbers[i] !== rowNumbers[i - 1] + 1) { contiguous = false; break; }
-  }
-  if (contiguous) {
-    const values = sheet.getRange(rowNumbers[0], 1, rowNumbers.length, sheetConfig.headers.length).getValues();
-    return values.map(function(rowValues, index) {
-      const row = rowToObject_(sheetConfig.headers, rowValues);
-      row.__rowNumber = rowNumbers[index];
-      return row;
-    });
-  }
-  return rowNumbers.map(function(rowNumber) {
-    return readSheetRow_(sheet, sheetConfig, rowNumber);
-  });
-}
-
 function writeSheetRow_(sheet, sheetConfig, rowNumber, row) {
   sheet
     .getRange(rowNumber, 1, 1, sheetConfig.headers.length)

@@ -2,11 +2,12 @@ function pushActiveTransaction() {
   runUserAction_('Push Active Transaction', function() {
     const sheet = requireTransactionSheet_();
     const group = getActiveTransactionGroupFromSheet_(sheet);
-    saveTransactionByName_(sheet, group, { showSuccessAlert: true });
+    const preloadedAccounts = loadAccountMaps_();
+    saveTransactionByName_(sheet, group, { showSuccessAlert: true }, preloadedAccounts);
   });
 }
 
-function saveTransactionByName_(sheet, precomputed, options) {
+function saveTransactionByName_(sheet, precomputed, options, preloadedAccounts) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
@@ -17,7 +18,8 @@ function saveTransactionByName_(sheet, precomputed, options) {
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
 
-    const rows = readTransactionSheetRowsByNumbers_(sheet, rowNumbers);
+    const rows = precomputed.rows;
+    SpreadsheetApp.flush();
     const saveGeneration = beginSaveGeneration_(transactionName);
     const group = {
       transactionName: transactionName,
@@ -33,8 +35,8 @@ function saveTransactionByName_(sheet, precomputed, options) {
       saveGeneration: saveGeneration,
     });
 
+    const { nameMap: accountNameMap, displayLookup: accountNameLookup } = preloadedAccounts;
     try {
-      const { nameMap: accountNameMap, displayLookup: accountNameLookup } = loadAccountMaps_();
       const payload = perf.wrap('data.build_payload', function() {
         return buildTransactionPatchPayloadFromGroup_(group, accountNameMap);
       });
@@ -99,7 +101,7 @@ function saveTransactionByName_(sheet, precomputed, options) {
 
     debugLog_('saveTransactionByName:doctorRefreshStarting', { transactionName: transactionName, saveGeneration: saveGeneration });
     try {
-      perf.wrap('doctor', refreshDoctorIssueSheets_);
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountNameLookup); });
     } catch (error) {
       debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
         message: error && error.message ? error.message : String(error),
@@ -119,7 +121,7 @@ function saveTransactionByName_(sheet, precomputed, options) {
 
 function beginSaveGeneration_(transactionName) {
   const properties = PropertiesService.getDocumentProperties();
-  const key = getSaveGenerationKey_(transactionName);
+  const key = 'family_ledger_save_generation:' + transactionName;
   const currentValue = parseInt(properties.getProperty(key) || '0', 10);
   const nextValue = String(currentValue + 1);
   properties.setProperty(key, nextValue);
@@ -127,9 +129,5 @@ function beginSaveGeneration_(transactionName) {
 }
 
 function isCurrentSaveGeneration_(transactionName, generation) {
-  return PropertiesService.getDocumentProperties().getProperty(getSaveGenerationKey_(transactionName)) === generation;
-}
-
-function getSaveGenerationKey_(transactionName) {
-  return 'family_ledger_save_generation:' + transactionName;
+  return PropertiesService.getDocumentProperties().getProperty('family_ledger_save_generation:' + transactionName) === generation;
 }

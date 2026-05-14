@@ -26,44 +26,23 @@ function listAccountOptions_() {
   }
 }
 
-function getQuickAddSourceAccountResources_() {
-  const rawValue = PropertiesService.getDocumentProperties().getProperty(
-    FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS
-  );
-  if (!rawValue) {
-    return [];
-  }
+function getDocPropJsonArray_(propKey) {
+  const rawValue = PropertiesService.getDocumentProperties().getProperty(propKey);
+  if (!rawValue) return [];
   try {
     const parsed = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.map(function(value) {
-      return String(value || '').trim();
-    }).filter(Boolean);
-  } catch (_error) {
-    return [];
-  }
+    return Array.isArray(parsed)
+      ? parsed.map(function(value) { return String(value || '').trim(); }).filter(Boolean)
+      : [];
+  } catch (_error) { return []; }
+}
+
+function getQuickAddSourceAccountResources_() {
+  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS);
 }
 
 function getQuickAddDestinationAccountResources_() {
-  const rawValue = PropertiesService.getDocumentProperties().getProperty(
-    FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS
-  );
-  if (!rawValue) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.map(function(value) {
-      return String(value || '').trim();
-    }).filter(Boolean);
-  } catch (_error) {
-    return [];
-  }
+  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS);
 }
 
 function getQuickAddDefaultSourceAccount_() {
@@ -111,23 +90,7 @@ function resolveQuickAddDefaultSymbol_(selectedSymbols, defaultSymbol) {
 }
 
 function getQuickAddSymbols_() {
-  const rawValue = PropertiesService.getDocumentProperties().getProperty(
-    FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS
-  );
-  if (!rawValue) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return parsed.map(function(value) {
-      return String(value || '').trim();
-    }).filter(Boolean);
-  } catch (_error) {
-    return [];
-  }
+  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS);
 }
 
 function getSheetSettingsForDialog() {

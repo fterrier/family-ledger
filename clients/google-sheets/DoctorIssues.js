@@ -67,7 +67,7 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
-function buildNavigateLabelLookup_(spreadsheet, neededTargets) {
+function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountLookup) {
   const lookup = {};
   const targetSet = {};
   neededTargets.forEach(function(t) { targetSet[t] = true; });
@@ -79,44 +79,28 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets) {
     if (txSheet) {
       const lastTxRow = txSheet.getLastRow();
       if (lastTxRow > 1) {
-        const nameRows = txSheet.getRange(2, 1, lastTxRow - 1, 1).getValues();
+        const txRows = txSheet.getRange(2, 1, lastTxRow - 1, 3).getValues();
         const seen = {};
-        const targetRows = [];
-        nameRows.forEach(function(row, i) {
+        txRows.forEach(function(row) {
           const name = String(row[0] || '');
           if (name && targetSet[name] && !seen[name]) {
             seen[name] = true;
-            targetRows.push({ name: name, sheetRow: i + 2 });
+            const parts = ['Transaction'];
+            if (row[1]) { parts.push(row[1]); }
+            if (row[2]) { parts.push(row[2]); }
+            lookup[name] = parts.join(' ');
           }
         });
-        if (targetRows.length > 0) {
-          const minRow = targetRows[0].sheetRow;
-          const maxRow = targetRows[targetRows.length - 1].sheetRow;
-          const labelRows = txSheet.getRange(minRow, 2, maxRow - minRow + 1, 2).getValues();
-          targetRows.forEach(function(t) {
-            const rowData = labelRows[t.sheetRow - minRow];
-            const parts = ['Transaction'];
-            if (rowData[0]) { parts.push(rowData[0]); }
-            if (rowData[1]) { parts.push(rowData[1]); }
-            lookup[t.name] = parts.join(' ');
-          });
-        }
       }
     }
   }
 
-  const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
-  if (accSheet) {
-    const lastAccRow = accSheet.getLastRow();
-    if (lastAccRow > 1) {
-      accSheet.getRange(2, 1, lastAccRow - 1, 2).getValues().forEach(function(row) {
-        const resourceName = row[0];
-        if (resourceName && targetSet[resourceName]) {
-          lookup[resourceName] = row[1] ? 'Account ' + row[1] : 'Account';
-        }
-      });
+  Object.keys(accountLookup || {}).forEach(function(resourceName) {
+    if (targetSet[resourceName]) {
+      const displayName = accountLookup[resourceName];
+      lookup[resourceName] = displayName ? 'Account ' + displayName : 'Account';
     }
-  }
+  });
 
   const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
   if (balSheet) {
@@ -144,37 +128,22 @@ function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, row
   return '=IFERROR(HYPERLINK(' + urlPart + ',"' + escaped + '"),"' + escaped + '")';
 }
 
-function refreshVisibleLedgerIssuesFromDoctor_() {
-  try {
-    refreshDoctorIssueSheets_();
-  } catch (error) {
-    debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
-      message: error && error.message ? error.message : String(error),
-    });
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
-      'Family Ledger',
-      5
-    );
-  }
-}
-
-function refreshDoctorIssueSheets_() {
+function refreshDoctorIssueSheets_(accountLookup) {
   const issuesByTarget = fetchLedgerDoctorIssuesByTarget_();
   debugLog_('refreshDoctorIssueSheets:fetched', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {
       return total + issues.length;
     }, 0),
   });
-  writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_);
+  writeFetchedDoctorIssueSheets_(issuesByTarget, getOrCreateSheet_, accountLookup);
   return issuesByTarget;
 }
 
-function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet) {
+function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountLookup) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
   const sortedTargets = Object.keys(issuesByTarget).sort();
-  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets);
+  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountLookup);
   const sheetByName = {};
   const dataRows = sortedTargets.map(function(target, index) {
     const issues = issuesByTarget[target] || [];

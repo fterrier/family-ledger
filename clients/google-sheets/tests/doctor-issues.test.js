@@ -134,7 +134,7 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
   assert.equal(dataCall.values[1][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
 });
 
-test('refreshVisibleLedgerIssuesFromDoctor_ writes Issues sheet without modifying visible rows inline', () => {
+test('refreshDoctorIssueSheets_ groups fetched issues by target and passes them to write', () => {
   const writeCalls = [];
   const { sandbox } = loadCode({
     SpreadsheetApp: {
@@ -173,7 +173,7 @@ test('refreshVisibleLedgerIssuesFromDoctor_ writes Issues sheet without modifyin
     writeCalls.push({ targetCount: Object.keys(issuesByTarget).length });
   };
 
-  sandbox.refreshVisibleLedgerIssuesFromDoctor_();
+  sandbox.refreshDoctorIssueSheets_();
 
   assert.equal(writeCalls.length, 1);
   assert.equal(writeCalls[0].targetCount, 2);

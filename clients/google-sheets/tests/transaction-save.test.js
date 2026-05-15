@@ -161,33 +161,46 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
   assert.deepEqual(JSON.parse(JSON.stringify(capturedLookup)), { 'accounts/source': '[+] Checking', 'accounts/food': '[E] Food' });
 });
 
-// --- saveEntityToSheet_ ---
+// --- saveTransactionToSheet_ ---
+// These tests mock flattenTransactionForSheet_ and applyTransactionResponseToSheet_
+// to keep focus on the lifecycle behavior (status tracking, error handling, generation).
 
-test('saveEntityToSheet_ sets saving status, clears to empty after success', () => {
-  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
-  const { sandbox } = loadCode();
+function makeSaveTransactionSandbox(rowStore, overrides) {
+  const { sandbox } = loadCode(overrides);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  const statusDuringDoSave = [];
+  // Default mocks for the flatten+apply step; override per test when testing those paths.
+  sandbox.flattenTransactionForSheet_ = function() {
+    return [{ transaction_date: '2026-04-19', status: '', last_error: '', split_off_amount: '' }];
+  };
+  sandbox.applyTransactionResponseToSheet_ = function(sheet, rowNumbers) {
+    return rowNumbers || [2];
+  };
+  return { sandbox, fakeSheet };
+}
 
-  sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+test('saveTransactionToSheet_ sets saving status before doApiCall, clears to empty after success', () => {
+  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
+  const statusDuringApiCall = [];
+
+  sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
     function() {
-      statusDuringDoSave.push(rowStore.get(2).status);
-      return [2];
+      statusDuringApiCall.push(rowStore.get(2).status);
+      return { name: 'transactions/txn_1' };
     },
     function() {}
   );
 
-  assert.deepEqual(statusDuringDoSave, ['saving']);
+  assert.deepEqual(statusDuringApiCall, ['saving']);
   assert.equal(rowStore.get(2).status, '');
 });
 
-test('saveEntityToSheet_ writes error status and last_error on doSave failure', () => {
+test('saveTransactionToSheet_ writes error status and last_error on doApiCall failure', () => {
   const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   assert.throws(function() {
-    sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+    sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
       function() { throw new Error('network error'); },
       function() {}
     );
@@ -197,17 +210,17 @@ test('saveEntityToSheet_ writes error status and last_error on doSave failure', 
   assert.equal(rowStore.get(2).last_error, 'network error');
 });
 
-test('saveEntityToSheet_ clears status to empty after afterSave completes', () => {
+test('saveTransactionToSheet_ clears status to empty after afterSave completes', () => {
   const rowStore = new Map([
     [2, { status: 'dirty', last_error: '' }],
     [3, { status: 'dirty', last_error: '' }],
   ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
   let afterSaveCalled = false;
+  sandbox.applyTransactionResponseToSheet_ = function() { return [2, 3]; };
 
-  sandbox.saveEntityToSheet_(fakeSheet, [2, 3], 'transactions/txn_1',
-    function() { return [2, 3]; },
+  sandbox.saveTransactionToSheet_(fakeSheet, [2, 3], null, 'transactions/txn_1', {},
+    function() { return { name: 'transactions/txn_1' }; },
     function() { afterSaveCalled = true; }
   );
 
@@ -216,51 +229,61 @@ test('saveEntityToSheet_ clears status to empty after afterSave completes', () =
   assert.equal(rowStore.get(3).status, '');
 });
 
-test('saveEntityToSheet_ skips pre-call status and error writes when existingRowNumbers is null (POST)', () => {
+test('saveTransactionToSheet_ skips pre-call status writes when existingRowNumbers is null (POST)', () => {
   const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
-  // POST path: existingRowNumbers=null, entityName=null
-  sandbox.saveEntityToSheet_(fakeSheet, null, null,
-    function() { return [2]; },
+  sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
+    function() { return { name: 'transactions/txn_new' }; },
     function() {}
   );
 
-  // Row 2 untouched before doSave (no 'saving' written since existingRowNumbers is null)
-  // After success, status cleared on finalRowNumbers=[2]
+  // No 'saving' written before doApiCall (existingRowNumbers is null)
+  // After success, status cleared on finalRowNumbers=[2] (from mock applyTransactionResponseToSheet_)
   assert.equal(rowStore.get(2).status, '');
 });
 
-test('saveEntityToSheet_ does not write error to sheet when existingRowNumbers is null (POST failure)', () => {
+test('saveTransactionToSheet_ does not write error to sheet when existingRowNumbers is null (POST failure)', () => {
   const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   assert.throws(function() {
-    sandbox.saveEntityToSheet_(fakeSheet, null, null,
+    sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
       function() { throw new Error('server error'); },
       function() {}
     );
   }, /server error/);
 
-  // No sheet write should have happened for error status
   assert.equal(rowStore.get(2).status, 'clean');
   assert.equal(rowStore.get(2).last_error, '');
 });
 
-test('saveEntityToSheet_ aborts cleanly when doSave returns null (stale generation)', () => {
+test('saveTransactionToSheet_ aborts cleanly when doApiCall returns null (stale generation)', () => {
   const rowStore = new Map([[2, { status: 'saving', last_error: '' }]]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
   let afterSaveCalled = false;
 
-  const result = sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+  const result = sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
     function() { return null; },
     function() { afterSaveCalled = true; }
   );
 
   assert.equal(result, null);
   assert.equal(afterSaveCalled, false);
-  assert.equal(rowStore.get(2).status, 'saving'); // unchanged since doSave returned null
+  assert.equal(rowStore.get(2).status, 'saving'); // unchanged — doApiCall returned null
+});
+
+test('saveTransactionToSheet_ throws when flattenTransactionForSheet_ returns empty rows', () => {
+  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
+  sandbox.flattenTransactionForSheet_ = function() { return []; };
+
+  assert.throws(function() {
+    sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+      function() { return { name: 'transactions/txn_1' }; },
+      function() {}
+    );
+  }, /could not be rendered/);
+
+  assert.equal(rowStore.get(2).status, 'error');
 });

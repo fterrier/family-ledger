@@ -34,17 +34,21 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         : null;
 
       let newTransactionName;
-      const rowNumbers = saveEntityToSheet_(sheet, existingRowNumbers, isEdit ? transactionName : null,
+      const rowNumbers = saveTransactionToSheet_(sheet, existingRowNumbers, null,
+        isEdit ? transactionName : null, accountResourceToDisplayName,
         function(saveGeneration) {
-          let apiResult;
           if (isEdit) {
-            apiResult = apiFetchJson_('patch', '/' + transactionName, {
-              transaction: { transaction_date: transactionDate, payee: payee, narration: narration, postings: postings },
-              update_mask: 'transaction_date,payee,narration,postings',
+            const result = perf.wrap('api.patch', function() {
+              return apiFetchJson_('patch', '/' + transactionName, {
+                transaction: { transaction_date: transactionDate, payee: payee, narration: narration, postings: postings },
+                update_mask: 'transaction_date,payee,narration,postings',
+              });
             });
             if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) return null;
-          } else {
-            apiResult = apiFetchJson_('post', '/transactions', {
+            return result;
+          }
+          const result = perf.wrap('api.post', function() {
+            return apiFetchJson_('post', '/transactions', {
               transaction: {
                 transaction_date: transactionDate,
                 payee: payee,
@@ -53,18 +57,9 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
                 entity_metadata: { source: 'google_sheets_quick_add' },
               },
             });
-            newTransactionName = apiResult.name;
-          }
-          const renderedRows = flattenTransactionForSheet_(apiResult, accountResourceToDisplayName);
-          if (!renderedRows || renderedRows.length === 0) {
-            throw new Error('Transaction could not be rendered into the Transactions sheet.');
-          }
-          renderedRows.forEach(function(row) {
-            row.split_off_amount = '';
-            row.status = 'saved';
-            row.last_error = '';
           });
-          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, null, renderedRows);
+          newTransactionName = result.name;
+          return result;
         },
         function() {
           try {

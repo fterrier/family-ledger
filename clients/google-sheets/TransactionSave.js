@@ -7,31 +7,50 @@ function pushActiveTransaction() {
   });
 }
 
-// Orchestrates the full save lifecycle for any sheet entity row(s):
+// Orchestrates the full save lifecycle for a transaction:
 //   - sets status='saving' on existing rows before the API call
 //   - on error: writes status='error' + last_error, always rethrows
-//   - on success: flushes so 'saved' is briefly visible, runs afterSave, then clears status
+//   - on success: flushes so 'saved' is briefly visible, runs afterSave, then clears status to ''
 //
-// existingRowNumbers: null for new entities (POST), array for existing (PATCH)
-// entityName: string key for save-generation tracking (PATCH); null skips tracking (POST)
-// doSave(saveGeneration): makes the API call and applies the response to the sheet;
-//   return null to abort (stale generation), return finalRowNumbers on success
-// afterSave(finalRowNumbers): runs post-save work (doctor refresh etc.); errors are the caller's responsibility
+// existingRowNumbers: null for POST (new), array for PATCH (edit)
+// existingRows: preloaded row data for optimization; null = always full write
+// transactionName: null for POST (skips generation tracking); string for PATCH
+// accountLookup: resource_name → display_name map passed to flattenTransactionForSheet_
+// doApiCall(saveGeneration): makes the API call; return null to abort (stale generation)
+// afterSave(finalRowNumbers): runs post-save work (doctor etc.); errors are the caller's responsibility
 // Returns finalRowNumbers, or null if aborted.
-function saveEntityToSheet_(sheet, existingRowNumbers, entityName, doSave, afterSave) {
+function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transactionName, accountLookup, doApiCall, afterSave) {
   if (existingRowNumbers) {
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', '');
     SpreadsheetApp.flush();
   }
 
-  const saveGeneration = entityName ? beginSaveGeneration_(entityName) : null;
+  const saveGeneration = transactionName ? beginSaveGeneration_(transactionName) : null;
   let finalRowNumbers;
 
   try {
-    finalRowNumbers = doSave(saveGeneration);
+    const apiResult = doApiCall(saveGeneration);
+    if (!apiResult) return null;
+
+    const replacementRows = flattenTransactionForSheet_(apiResult, accountLookup);
+    if (!replacementRows || replacementRows.length === 0) {
+      throw new Error('Transaction could not be rendered into the Transactions sheet.');
+    }
+    replacementRows.forEach(function(row) {
+      row.split_off_amount = '';
+      row.status = 'saved';
+      row.last_error = '';
+    });
+
+    const perf = getActivePerf_();
+    finalRowNumbers = perf
+      ? perf.wrap('sheet.apply_rows', function() {
+          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, existingRows, replacementRows);
+        })
+      : applyTransactionResponseToSheet_(sheet, existingRowNumbers, existingRows, replacementRows);
   } catch (error) {
-    if (existingRowNumbers && (!saveGeneration || isCurrentSaveGeneration_(entityName, saveGeneration))) {
+    if (existingRowNumbers && (!saveGeneration || isCurrentSaveGeneration_(transactionName, saveGeneration))) {
       setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'error');
       setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', error.message || String(error));
     }
@@ -67,28 +86,19 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
     });
 
     try {
-      saveEntityToSheet_(sheet, rowNumbers, transactionName,
+      saveTransactionToSheet_(sheet, rowNumbers, rows, transactionName, accountResourceToDisplayName,
         function(saveGeneration) {
           const payload = perf.wrap('data.build_payload', function() {
             return buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource);
           });
-          const refreshed = apiFetchJson_('patch', '/' + transactionName, {
-            transaction: payload,
-            update_mask: 'payee,narration,postings',
+          const refreshed = perf.wrap('api.patch', function() {
+            return apiFetchJson_('patch', '/' + transactionName, {
+              transaction: payload,
+              update_mask: 'payee,narration,postings',
+            });
           });
           if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) return null;
-          const replacementRows = flattenTransactionForSheet_(refreshed, accountResourceToDisplayName);
-          if (replacementRows === null) {
-            throw new Error('The updated transaction is no longer editable in this Sheets client.');
-          }
-          replacementRows.forEach(function(row) {
-            row.split_off_amount = '';
-            row.status = 'saved';
-            row.last_error = '';
-          });
-          return perf.wrap('sheet.update_rows', function() {
-            return applyTransactionResponseToSheet_(sheet, rowNumbers, rows, replacementRows);
-          }, replacementRows.length + ' rows');
+          return refreshed;
         },
         function() {
           try {

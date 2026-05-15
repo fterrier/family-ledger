@@ -55,40 +55,11 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         renderedRows.forEach(function(row) { row.status = 'saved'; });
       }
 
-      const rowNumbers = perf.wrap('sheet.find_rows', function() {
-        if (isEdit) {
-          const found = findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers;
-          const oldCount = found.length;
-          const newCount = renderedRows.length;
-          if (newCount > oldCount) {
-            sheet.insertRowsAfter(found[found.length - 1], newCount - oldCount);
-            for (let i = oldCount; i < newCount; i++) found.push(found[0] + i);
-          } else if (newCount < oldCount) {
-            sheet.deleteRows(found[newCount], oldCount - newCount);
-            found.splice(newCount);
-          }
-          return found;
-        }
-        const insertionRow = findInsertionRowForTransactionDate_(sheet, transactionDate);
-        const lastRow = sheet.getLastRow();
-        let startRow;
-        if (lastRow <= 1) {
-          startRow = 2;
-        } else if (insertionRow <= lastRow) {
-          sheet.insertRowsBefore(insertionRow, renderedRows.length);
-          startRow = insertionRow;
-        } else {
-          sheet.insertRowsAfter(Math.max(lastRow, 1), renderedRows.length);
-          startRow = Math.max(lastRow + 1, 2);
-        }
-        return buildSequentialRowNumbers_(startRow, renderedRows.length);
-      });
-
-      perf.wrap('sheet.write_rows', function() {
-        sheet.getRange(rowNumbers[0], 1, rowNumbers.length, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
-          .setValues(renderedRows.map(materializeTransactionSheetRow_));
-        applyAccountValidationToRowNumbers_(sheet, rowNumbers);
-        applyTransactionIssueFormulasToRowNumbers_(sheet, rowNumbers);
+      const rowNumbers = perf.wrap('sheet.apply_rows', function() {
+        const existingRowNumbers = isEdit
+          ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers
+          : null;
+        return applyTransactionResponseToSheet_(sheet, existingRowNumbers, null, renderedRows);
       });
 
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
@@ -111,44 +82,6 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       perf.log(isEdit ? 'Save Transaction' : 'Quick Add Transaction');
     }
   });
-}
-
-function buildTransactionGroupAnchors_(sheet) {
-  const lastRow = sheet.getLastRow();
-  const anchors = [];
-  if (lastRow <= 1) return anchors;
-  const nameCol = getTransactionHeaderColumnIndex_('resource_name');
-  const dateCol = getTransactionHeaderColumnIndex_('transaction_date');
-  const startCol = Math.min(nameCol, dateCol);
-  const colCount = Math.max(nameCol, dateCol) - startCol + 1;
-  const values = sheet.getRange(2, startCol, lastRow - 1, colCount).getValues();
-  let current = null;
-  values.forEach(function(rowValues, index) {
-    const transactionName = String(rowValues[nameCol - startCol] || '').trim();
-    if (!transactionName) return;
-    const rowNumber = index + 2;
-    const transactionDate = normalizeTransactionDate_(rowValues[dateCol - startCol]);
-    if (!current || current.transactionName !== transactionName) {
-      if (current) anchors.push(current);
-      current = { transactionName: transactionName, firstRow: rowNumber, lastRow: rowNumber, transactionDate: transactionDate };
-      return;
-    }
-    current.lastRow = rowNumber;
-  });
-  if (current) anchors.push(current);
-  return anchors;
-}
-
-function findInsertionRowForTransactionDate_(sheet, transactionDate) {
-  const normalizedDate = normalizeTransactionDate_(transactionDate);
-  const anchors = buildTransactionGroupAnchors_(sheet);
-  for (let index = 0; index < anchors.length; index += 1) {
-    if (anchors[index].transactionDate > normalizedDate) {
-      return anchors[index].firstRow;
-    }
-  }
-  const lastAnchor = anchors[anchors.length - 1];
-  return lastAnchor ? lastAnchor.lastRow + 1 : 2;
 }
 
 function deleteTransactionFromSidebar(transactionName, anchorRow) {

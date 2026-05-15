@@ -67,15 +67,7 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
         row.last_error = '';
       });
       perf.wrap('sheet.update_rows', function() {
-        if (areTransactionRowsEquivalentForRefresh_(rows, replacementRows)) {
-          setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saved');
-          setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-        } else if (canUpdateTransactionRowsInPlace_(rows, replacementRows)) {
-          updateTransactionRowsInPlace_(sheet, rowNumbers, rows, replacementRows);
-        } else {
-          replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows);
-          ensureTransactionIssueFormulas_(sheet, sheet.getLastRow() - 1);
-        }
+        applyTransactionResponseToSheet_(sheet, rowNumbers, rows, replacementRows);
       }, replacementRows.length + ' rows');
 
       if (options.showSuccessAlert) {

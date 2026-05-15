@@ -500,6 +500,96 @@ function ensureTransactionIssueFormulas_(sheet, rowCount) {
   );
 }
 
+function buildTransactionGroupAnchors_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const anchors = [];
+  if (lastRow <= 1) return anchors;
+  const nameCol = getTransactionHeaderColumnIndex_('resource_name');
+  const dateCol = getTransactionHeaderColumnIndex_('transaction_date');
+  const startCol = Math.min(nameCol, dateCol);
+  const colCount = Math.max(nameCol, dateCol) - startCol + 1;
+  const values = sheet.getRange(2, startCol, lastRow - 1, colCount).getValues();
+  let current = null;
+  values.forEach(function(rowValues, index) {
+    const transactionName = String(rowValues[nameCol - startCol] || '').trim();
+    if (!transactionName) return;
+    const rowNumber = index + 2;
+    const transactionDate = normalizeTransactionDate_(rowValues[dateCol - startCol]);
+    if (!current || current.transactionName !== transactionName) {
+      if (current) anchors.push(current);
+      current = { transactionName: transactionName, firstRow: rowNumber, lastRow: rowNumber, transactionDate: transactionDate };
+      return;
+    }
+    current.lastRow = rowNumber;
+  });
+  if (current) anchors.push(current);
+  return anchors;
+}
+
+function findInsertionRowForTransactionDate_(sheet, transactionDate) {
+  const normalizedDate = normalizeTransactionDate_(transactionDate);
+  const anchors = buildTransactionGroupAnchors_(sheet);
+  for (let index = 0; index < anchors.length; index += 1) {
+    if (anchors[index].transactionDate > normalizedDate) {
+      return anchors[index].firstRow;
+    }
+  }
+  const lastAnchor = anchors[anchors.length - 1];
+  return lastAnchor ? lastAnchor.lastRow + 1 : 2;
+}
+
+function applyTransactionResponseToSheet_(sheet, rowNumbers, existingRows, replacementRows) {
+  // When prior row data is available, try cheaper update strategies first
+  if (rowNumbers && existingRows) {
+    if (areTransactionRowsEquivalentForRefresh_(existingRows, replacementRows)) {
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', replacementRows[0].status || '');
+      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
+      return rowNumbers;
+    }
+    if (canUpdateTransactionRowsInPlace_(existingRows, replacementRows)) {
+      updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacementRows);
+      return rowNumbers;
+    }
+  }
+
+  // Full write: adjust sheet rows to match replacement count, then write all
+  let targetRowNumbers;
+  if (!rowNumbers) {
+    // New transaction: insert rows at date-sorted position
+    const insertionRow = findInsertionRowForTransactionDate_(sheet, replacementRows[0].transaction_date);
+    const lastRow = sheet.getLastRow();
+    let startRow;
+    if (lastRow <= 1) {
+      startRow = 2;
+    } else if (insertionRow <= lastRow) {
+      sheet.insertRowsBefore(insertionRow, replacementRows.length);
+      startRow = insertionRow;
+    } else {
+      sheet.insertRowsAfter(Math.max(lastRow, 1), replacementRows.length);
+      startRow = Math.max(lastRow + 1, 2);
+    }
+    targetRowNumbers = buildSequentialRowNumbers_(startRow, replacementRows.length);
+  } else if (rowNumbers.length === replacementRows.length) {
+    // Same count: write in place without structural changes
+    targetRowNumbers = rowNumbers;
+  } else {
+    // Count changed: adjust rows (transactions are always contiguous)
+    const sorted = rowNumbers.slice().sort(function(a, b) { return a - b; });
+    if (replacementRows.length > rowNumbers.length) {
+      sheet.insertRowsAfter(sorted[sorted.length - 1], replacementRows.length - rowNumbers.length);
+    } else {
+      sheet.deleteRows(sorted[0] + replacementRows.length, rowNumbers.length - replacementRows.length);
+    }
+    targetRowNumbers = buildSequentialRowNumbers_(sorted[0], replacementRows.length);
+  }
+
+  sheet.getRange(targetRowNumbers[0], 1, targetRowNumbers.length, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
+    .setValues(replacementRows.map(materializeTransactionSheetRow_));
+  applyAccountValidationToRowNumbers_(sheet, targetRowNumbers);
+  applyTransactionIssueFormulasToRowNumbers_(sheet, targetRowNumbers);
+  return targetRowNumbers;
+}
+
 
 function normalizeTransactionDate_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]') {

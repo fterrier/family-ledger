@@ -603,6 +603,191 @@ test('flattenTransactionForSheet_ passes transaction_date string through unchang
   assert.equal(rows[0].transaction_date, '2026-04-19');
 });
 
+// --- applyTransactionResponseToSheet_ ---
+
+function makeReplacementRows_(sandbox, overrides = {}) {
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(overrides.txn || {}), {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+  });
+  rows.forEach(function(row) {
+    row.split_off_amount = '';
+    row.status = 'saved';
+    row.last_error = '';
+  });
+  return rows;
+}
+
+test('applyTransactionResponseToSheet_ inserts new transaction mid-sheet at date-sorted position', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+    [3, { resource_name: 'transactions/txn_b', transaction_date: '2026-04-21', payee: 'B' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-20', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
+});
+
+test('applyTransactionResponseToSheet_ appends new transaction when date is after all existing', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-25', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+});
+
+test('applyTransactionResponseToSheet_ writes to row 2 when sheet is empty', () => {
+  const operations = [];
+  const rowStore = new Map();
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+
+  // sampleTransaction has 1 destination → 1 row
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+});
+
+test('applyTransactionResponseToSheet_ uses field-only update when rows are equivalent', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+  const existingRows = replacementRows.map(function(r) { return Object.assign({}, r, { status: 'dirty' }); });
+
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], existingRows, replacementRows);
+
+  const setValuesOps = operations.filter(function(op) { return op.type === 'setValues'; });
+  const setValueOps = operations.filter(function(op) { return op.type === 'setValue'; });
+  assert.equal(setValuesOps.length, 0, 'should not call setValues when rows are equivalent');
+  assert.ok(setValueOps.length > 0, 'should set status/last_error fields');
+  assert.equal(rowStore.get(2).status, 'saved');
+  assert.equal(rowStore.get(2).last_error, '');
+});
+
+test('applyTransactionResponseToSheet_ uses in-place update when structure is compatible', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+  const existingRows = replacementRows.map(function(r) { return Object.assign({}, r, { payee: 'Old Payee', status: 'dirty' }); });
+
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], existingRows, replacementRows);
+
+  const setValuesOps = operations.filter(function(op) { return op.type === 'setValues'; });
+  const setValueOps = operations.filter(function(op) { return op.type === 'setValue'; });
+  assert.equal(setValuesOps.length, 0, 'should not call setValues for in-place update');
+  assert.ok(setValueOps.length > 0, 'should write changed cells');
+  assert.equal(rowStore.get(2).payee, 'Migros');
+});
+
+test('applyTransactionResponseToSheet_ deletes excess rows when posting count decreases', () => {
+  // Two split rows → one merged row: row 3 should be deleted, row 4 shifts to 3
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 50, symbol: 'CHF', status: 'saved', last_error: '', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
+          amount: 34.25, symbol: 'CHF', status: 'saved', last_error: '', split_off_amount: '', issues: '' }],
+    [4, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  // sampleTransaction has 1 destination → flattenTransactionForSheet_ returns 1 row
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_other');
+  const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
+  assert.equal(deleteOps.length, 1);
+});
+
+test('applyTransactionResponseToSheet_ inserts rows when posting count increases', () => {
+  // One row → two split rows: a row should be inserted after row 2, row 3 shifts to 4
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', status: 'saved', last_error: '', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  // Use a 3-posting transaction (2 destinations) so flattenTransactionForSheet_ returns 2 rows
+  const splitTxn = sampleTransaction({ postings: [
+    { account: 'accounts/source', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+    { account: 'accounts/household', units: { amount: '34.25', symbol: 'CHF' } },
+  ]});
+  const replacementRows = sandbox.flattenTransactionForSheet_(splitTxn, {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+    'accounts/household': '[X] Household',
+  });
+  replacementRows.forEach(function(row) { row.split_off_amount = ''; row.status = 'saved'; row.last_error = ''; });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2, 3]);
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_other');
+  const insertOps = operations.filter(function(op) { return op.type === 'insertRowsAfter'; });
+  assert.equal(insertOps.length, 1);
+});
+
+test('applyTransactionResponseToSheet_ does full setValues when same count and no existingRows', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '',
+          amount: -84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  let setValuesCalled = false;
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], null, replacementRows);
+
+  assert.equal(rowStore.get(2).payee, 'Migros');
+  assert.equal(rowStore.get(2).status, 'saved');
+});
+
 test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API payload', () => {
   const { sandbox } = loadCode();
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {

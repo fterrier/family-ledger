@@ -518,82 +518,6 @@ test('buildContiguousRowSpans_ groups scattered row numbers into deletion spans'
   ]);
 });
 
-test('canUpdateTransactionRowsInPlace_ accepts same-shape replacement rows', () => {
-  const { sandbox } = loadCode();
-  assert.equal(sandbox.canUpdateTransactionRowsInPlace_([
-    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-  ], [
-    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-  ]), true);
-});
-
-test('canUpdateTransactionRowsInPlace_ rejects row count changes', () => {
-  const { sandbox } = loadCode();
-  assert.equal(sandbox.canUpdateTransactionRowsInPlace_([
-    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-  ], [
-    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-    { resource_name: 'transactions/txn_1', source_account_name: 'Assets:Bank:Checking', symbol: 'CHF' },
-  ]), false);
-});
-
-test('areTransactionRowsEquivalentForRefresh_ ignores transient helper fields', () => {
-  const { sandbox } = loadCode();
-  assert.equal(sandbox.areTransactionRowsEquivalentForRefresh_([
-    {
-      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
-      split_off_amount: '10', symbol: 'CHF', status: 'saving', last_error: 'temporary',
-    },
-  ], [
-    {
-      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
-      split_off_amount: '', symbol: 'CHF', status: 'saved', last_error: '',
-    },
-  ]), true);
-});
-
-test('areTransactionRowsEquivalentForRefresh_ detects business-field differences', () => {
-  const { sandbox } = loadCode();
-  assert.equal(sandbox.areTransactionRowsEquivalentForRefresh_([
-    {
-      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25, symbol: 'CHF',
-    },
-  ], [
-    {
-      resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries',
-      source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Household', amount: 84.25, symbol: 'CHF',
-    },
-  ]), false);
-});
-
-test('updateTransactionRowsInPlace_ writes only changed cells', () => {
-  const operations = [];
-  const { sandbox } = loadCode();
-  const fakeSheet = {
-    getRange(row, column) {
-      return { setValue(value) { operations.push({ row, column, value }); } };
-    },
-  };
-
-  sandbox.updateTransactionRowsInPlace_(fakeSheet, [2], [{
-    resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old', narration: 'Keep',
-    source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
-    split_off_amount: '', symbol: 'CHF', status: 'saving', last_error: '',
-  }], [{
-    resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'New', narration: 'Keep',
-    source_account_name: 'Assets:Bank:Checking', destination_account_name: 'Expenses:Food', amount: 84.25,
-    split_off_amount: '', symbol: 'CHF', status: 'saved', last_error: '',
-  }]);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { row: 2, column: 4, value: 'New' },
-    { row: 2, column: 12, value: 'saved' },
-  ]);
-});
-
 test('flattenTransactionForSheet_ passes transaction_date string through unchanged', () => {
   const { sandbox } = loadCode();
   const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
@@ -662,49 +586,6 @@ test('applyTransactionResponseToSheet_ writes to row 2 when sheet is empty', () 
   // sampleTransaction has 1 destination → 1 row
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
-});
-
-test('applyTransactionResponseToSheet_ uses field-only update when rows are equivalent', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
-          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
-          amount: 84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  const replacementRows = makeReplacementRows_(sandbox);
-  const existingRows = replacementRows.map(function(r) { return Object.assign({}, r, { status: 'dirty' }); });
-
-  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], existingRows, replacementRows);
-
-  const setValuesOps = operations.filter(function(op) { return op.type === 'setValues'; });
-  const setValueOps = operations.filter(function(op) { return op.type === 'setValue'; });
-  assert.equal(setValuesOps.length, 0, 'should not call setValues when rows are equivalent');
-  assert.ok(setValueOps.length > 0, 'should set status/last_error fields');
-  assert.equal(rowStore.get(2).status, 'saved');
-  assert.equal(rowStore.get(2).last_error, '');
-});
-
-test('applyTransactionResponseToSheet_ uses in-place update when structure is compatible', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
-          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
-          amount: 84.25, symbol: 'CHF', status: 'dirty', last_error: '', split_off_amount: '', issues: '' }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  const replacementRows = makeReplacementRows_(sandbox);
-  const existingRows = replacementRows.map(function(r) { return Object.assign({}, r, { payee: 'Old Payee', status: 'dirty' }); });
-
-  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], existingRows, replacementRows);
-
-  const setValuesOps = operations.filter(function(op) { return op.type === 'setValues'; });
-  const setValueOps = operations.filter(function(op) { return op.type === 'setValue'; });
-  assert.equal(setValuesOps.length, 0, 'should not call setValues for in-place update');
-  assert.ok(setValueOps.length > 0, 'should write changed cells');
-  assert.equal(rowStore.get(2).payee, 'Migros');
 });
 
 test('applyTransactionResponseToSheet_ deletes excess rows when posting count decreases', () => {

@@ -216,7 +216,6 @@ function buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResou
   };
 }
 
-
 function requireSingleNormalizedValue_(rows, fieldName, label, issues, normalizer) {
   const values = rows.map(function(row) {
     const value = row[fieldName];
@@ -245,7 +244,6 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   }
   return distinct.length === 0 ? null : distinct[0];
 }
-
 
 function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
   const headers = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers;
@@ -279,79 +277,6 @@ function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
   setSheetFieldValuesForRowNumbers_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumbers, header, value);
 }
 
-function updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacementRows) {
-  rowNumbers.forEach(function(rowNumber, index) {
-    const existingRow = existingRows[index] || {};
-    const replacementRow = replacementRows[index] || {};
-    const changedHeaders = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.filter(function(header) {
-      const layout = FAMILY_LEDGER_SHEET_REGISTRY.transactions.columnLayout[header];
-      return !layout.formulaManaged &&
-        normalizeSheetCellValue_(existingRow[header]) !== normalizeSheetCellValue_(replacementRow[header]);
-    });
-
-    changedHeaders.forEach(function(header) {
-      sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_(header)).setValue(replacementRow[header] ?? '');
-    });
-  });
-}
-
-function canUpdateTransactionRowsInPlace_(existingRows, replacementRows) {
-  if (existingRows.length !== replacementRows.length || existingRows.length === 0) {
-    return false;
-  }
-
-  for (let index = 0; index < existingRows.length; index += 1) {
-    const existingRow = existingRows[index];
-    const replacementRow = replacementRows[index];
-    if (
-      normalizeSheetCellValue_(existingRow.resource_name) !== normalizeSheetCellValue_(replacementRow.resource_name) ||
-      normalizeSheetCellValue_(existingRow.source_account_name) !== normalizeSheetCellValue_(replacementRow.source_account_name) ||
-      normalizeSheetCellValue_(existingRow.symbol) !== normalizeSheetCellValue_(replacementRow.symbol)
-    ) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function areTransactionRowsEquivalentForRefresh_(existingRows, replacementRows) {
-  if (existingRows.length !== replacementRows.length) {
-    return false;
-  }
-
-  for (let index = 0; index < existingRows.length; index += 1) {
-    const existingComparable = comparableTransactionSheetRow_(existingRows[index]);
-    const replacementComparable = comparableTransactionSheetRow_(replacementRows[index]);
-    if (JSON.stringify(existingComparable) !== JSON.stringify(replacementComparable)) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-function comparableTransactionSheetRow_(row) {
-  return {
-    resource_name: normalizeSheetCellValue_(row.resource_name),
-    narration_source: normalizeSheetCellValue_(row.narration_source),
-    transaction_date: normalizeSheetCellValue_(row.transaction_date),
-    payee: normalizeSheetCellValue_(row.payee),
-    narration: normalizeSheetCellValue_(row.narration),
-    source_account_name: normalizeSheetCellValue_(row.source_account_name),
-    destination_account_name: normalizeSheetCellValue_(row.destination_account_name),
-    amount: normalizeSheetCellValue_(row.amount),
-    symbol: normalizeSheetCellValue_(row.symbol),
-  };
-}
-
-function normalizeSheetCellValue_(value) {
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    return normalizeTransactionDate_(value);
-  }
-  return String(value ?? '');
-}
-
 function writeTransactionSheetRow_(sheet, rowNumber, row) {
   writeSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber, row);
 }
@@ -366,29 +291,6 @@ function setTransactionSheetRows_(sheet, rows) {
   writeSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers, materializedRows);
   sheet.setFrozenRows(1);
   ensureTransactionIssueFormulas_(sheet, materializedRows.length);
-}
-
-function requireTransactionSheet_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  if (sheet.getName() !== FAMILY_LEDGER_SHEET_NAMES.transactions) {
-    throw new Error('Select the Transactions sheet first.');
-  }
-  return sheet;
-}
-
-function getActiveTransactionGroupFromSheet_(sheet) {
-  const activeRowNumber = sheet.getActiveRange().getRow();
-  if (activeRowNumber <= 1) {
-    throw new Error('Select a transaction data row first.');
-  }
-  const { rowNumbers, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, activeRowNumber);
-  return {
-    transactionName: transactionName,
-    activeIndex: rowNumbers.indexOf(activeRowNumber),
-    rowNumbers: rowNumbers,
-    rows: rows,
-    contiguous: isContiguousRowNumbers_(rowNumbers),
-  };
 }
 
 function getTransactionHeaderColumnIndex_(header) {
@@ -539,19 +441,6 @@ function findInsertionRowForTransactionDate_(sheet, transactionDate) {
 }
 
 function applyTransactionResponseToSheet_(sheet, rowNumbers, existingRows, replacementRows) {
-  // When prior row data is available, try cheaper update strategies first
-  if (rowNumbers && existingRows) {
-    if (areTransactionRowsEquivalentForRefresh_(existingRows, replacementRows)) {
-      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', replacementRows[0].status || '');
-      setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-      return rowNumbers;
-    }
-    if (canUpdateTransactionRowsInPlace_(existingRows, replacementRows)) {
-      updateTransactionRowsInPlace_(sheet, rowNumbers, existingRows, replacementRows);
-      return rowNumbers;
-    }
-  }
-
   // Full write: adjust sheet rows to match replacement count, then write all
   let targetRowNumbers;
   if (!rowNumbers) {

@@ -97,6 +97,8 @@ test('saveTransactionByName_ clears status to empty after doctor refresh fails f
   sandbox.refreshDoctorIssueSheets_ = function() {
     throw new Error('doctor temporarily unavailable');
   };
+  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+  sandbox.applyTransactionIssueFormulasToRowNumbers_ = function() {};
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
   const accountOptions = [
@@ -147,6 +149,8 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
     if (method === 'patch') return sampleTransaction();
     throw new Error('unexpected api call');
   };
+  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+  sandbox.applyTransactionIssueFormulasToRowNumbers_ = function() {};
 
   let capturedLookup;
   sandbox.refreshDoctorIssueSheets_ = function(accountLookup) {

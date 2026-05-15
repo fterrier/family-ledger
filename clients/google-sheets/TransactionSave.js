@@ -10,16 +10,15 @@ function pushActiveTransaction() {
 // Orchestrates the full save lifecycle for a transaction:
 //   - sets status='saving' on existing rows before the API call
 //   - on error: writes status='error' + last_error, always rethrows
-//   - on success: flushes so 'saved' is briefly visible, runs afterSave, then clears status to ''
+//   - on success: flushes so 'saved' is briefly visible, refreshes doctor, then clears status to ''
 //
 // existingRowNumbers: null for POST (new), array for PATCH (edit)
 // existingRows: preloaded row data for optimization; null = always full write
 // transactionName: null for POST (skips generation tracking); string for PATCH
 // accountLookup: resource_name → display_name map passed to flattenTransactionForSheet_
 // doApiCall(saveGeneration): makes the API call; return null to abort (stale generation)
-// afterSave(finalRowNumbers): runs post-save work (doctor etc.); errors are the caller's responsibility
 // Returns finalRowNumbers, or null if aborted.
-function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transactionName, accountLookup, doApiCall, afterSave) {
+function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transactionName, accountLookup, doApiCall) {
   if (existingRowNumbers) {
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', '');
@@ -60,7 +59,20 @@ function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transa
   if (!finalRowNumbers) return null;
 
   SpreadsheetApp.flush();
-  afterSave(finalRowNumbers);
+  const perf = getActivePerf_();
+  try {
+    if (perf) {
+      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountLookup); });
+    } else {
+      refreshDoctorIssueSheets_(accountLookup);
+    }
+  } catch (error) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
+      'Family Ledger',
+      5
+    );
+  }
   setFieldValuesForRowNumbers_(sheet, finalRowNumbers, 'status', '');
   return finalRowNumbers;
 }
@@ -99,17 +111,6 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
           });
           if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) return null;
           return refreshed;
-        },
-        function() {
-          try {
-            perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
-          } catch (error) {
-            SpreadsheetApp.getActiveSpreadsheet().toast(
-              'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
-              'Family Ledger',
-              5
-            );
-          }
         }
       );
     } catch (error) {
@@ -123,9 +124,8 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
         'Successfully pushed the active transaction.',
         SpreadsheetApp.getUi().ButtonSet.OK
       );
-    }
-    if (options.showSuccessToast) {
-      SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
+    } else {
+      SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Family Ledger', 3);
     }
   } finally {
     clearActivePerf_();

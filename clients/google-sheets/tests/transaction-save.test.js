@@ -107,8 +107,10 @@ test('saveTransactionByName_ clears status to empty after doctor refresh fails f
 
   assert.equal(rowStore.get(2).status, '');
   assert.equal(rowStore.get(2).last_error, '');
-  assert.equal(toasts.length, 1);
+  // Doctor failure toast + success toast (both fired; doctor failure comes first from saveTransactionToSheet_)
+  assert.equal(toasts.length, 2);
   assert.match(toasts[0].message, /Saved changes, but failed to refresh ledger doctor issues/);
+  assert.equal(toasts[1].message, 'Transaction saved.');
 });
 
 test('saveTransactionByName_ passes the preloaded account display lookup to the doctor', () => {
@@ -168,13 +170,14 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
 function makeSaveTransactionSandbox(rowStore, overrides) {
   const { sandbox } = loadCode(overrides);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  // Default mocks for the flatten+apply step; override per test when testing those paths.
+  // Default mocks for the flatten+apply+doctor steps; override per test when testing those paths.
   sandbox.flattenTransactionForSheet_ = function() {
     return [{ transaction_date: '2026-04-19', status: '', last_error: '', split_off_amount: '' }];
   };
   sandbox.applyTransactionResponseToSheet_ = function(sheet, rowNumbers) {
     return rowNumbers || [2];
   };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
   return { sandbox, fakeSheet };
 }
 
@@ -187,8 +190,7 @@ test('saveTransactionToSheet_ sets saving status before doApiCall, clears to emp
     function() {
       statusDuringApiCall.push(rowStore.get(2).status);
       return { name: 'transactions/txn_1' };
-    },
-    function() {}
+    }
   );
 
   assert.deepEqual(statusDuringApiCall, ['saving']);
@@ -201,8 +203,7 @@ test('saveTransactionToSheet_ writes error status and last_error on doApiCall fa
 
   assert.throws(function() {
     sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
-      function() { throw new Error('network error'); },
-      function() {}
+      function() { throw new Error('network error'); }
     );
   }, /network error/);
 
@@ -210,21 +211,18 @@ test('saveTransactionToSheet_ writes error status and last_error on doApiCall fa
   assert.equal(rowStore.get(2).last_error, 'network error');
 });
 
-test('saveTransactionToSheet_ clears status to empty after afterSave completes', () => {
+test('saveTransactionToSheet_ clears status to empty after doctor refresh', () => {
   const rowStore = new Map([
     [2, { status: 'dirty', last_error: '' }],
     [3, { status: 'dirty', last_error: '' }],
   ]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
-  let afterSaveCalled = false;
   sandbox.applyTransactionResponseToSheet_ = function() { return [2, 3]; };
 
   sandbox.saveTransactionToSheet_(fakeSheet, [2, 3], null, 'transactions/txn_1', {},
-    function() { return { name: 'transactions/txn_1' }; },
-    function() { afterSaveCalled = true; }
+    function() { return { name: 'transactions/txn_1' }; }
   );
 
-  assert.equal(afterSaveCalled, true);
   assert.equal(rowStore.get(2).status, '');
   assert.equal(rowStore.get(3).status, '');
 });
@@ -234,8 +232,7 @@ test('saveTransactionToSheet_ skips pre-call status writes when existingRowNumbe
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
-    function() { return { name: 'transactions/txn_new' }; },
-    function() {}
+    function() { return { name: 'transactions/txn_new' }; }
   );
 
   // No 'saving' written before doApiCall (existingRowNumbers is null)
@@ -249,8 +246,7 @@ test('saveTransactionToSheet_ does not write error to sheet when existingRowNumb
 
   assert.throws(function() {
     sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
-      function() { throw new Error('server error'); },
-      function() {}
+      function() { throw new Error('server error'); }
     );
   }, /server error/);
 
@@ -261,15 +257,12 @@ test('saveTransactionToSheet_ does not write error to sheet when existingRowNumb
 test('saveTransactionToSheet_ aborts cleanly when doApiCall returns null (stale generation)', () => {
   const rowStore = new Map([[2, { status: 'saving', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
-  let afterSaveCalled = false;
 
   const result = sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
-    function() { return null; },
-    function() { afterSaveCalled = true; }
+    function() { return null; }
   );
 
   assert.equal(result, null);
-  assert.equal(afterSaveCalled, false);
   assert.equal(rowStore.get(2).status, 'saving'); // unchanged — doApiCall returned null
 });
 
@@ -280,10 +273,30 @@ test('saveTransactionToSheet_ throws when flattenTransactionForSheet_ returns em
 
   assert.throws(function() {
     sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
-      function() { return { name: 'transactions/txn_1' }; },
-      function() {}
+      function() { return { name: 'transactions/txn_1' }; }
     );
   }, /could not be rendered/);
 
   assert.equal(rowStore.get(2).status, 'error');
+});
+
+test('saveTransactionToSheet_ shows failure toast and still clears status when doctor refresh fails', () => {
+  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
+  const toasts = [];
+  const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore, {
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(message, title, seconds) { toasts.push({ message, title, seconds }); } };
+      },
+    },
+  });
+  sandbox.refreshDoctorIssueSheets_ = function() { throw new Error('doctor down'); };
+
+  sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+    function() { return { name: 'transactions/txn_1' }; }
+  );
+
+  assert.equal(rowStore.get(2).status, '');
+  assert.equal(toasts.length, 1);
+  assert.match(toasts[0].message, /failed to refresh ledger doctor issues/);
 });

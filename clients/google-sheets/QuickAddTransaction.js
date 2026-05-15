@@ -8,17 +8,25 @@ function includeHtml_(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
+function parseTransactionSidebarInput_(input) {
+  const { transaction_date = '', payee: rawPayee = '', narration: rawNarration = '', postings } = input || {};
+  const transactionDate = normalizeTransactionDate_(transaction_date);
+  if (!transactionDate) throw new Error('Transaction date is required.');
+  return {
+    transactionDate: transactionDate,
+    payee: String(rawPayee).trim() || null,
+    narration: String(rawNarration).trim() || null,
+    postings: postings,
+  };
+}
+
 function submitTransactionFromSidebar(transactionName, anchorRow, input) {
   const isEdit = Boolean(transactionName);
   return runUserAction_(isEdit ? 'Save Transaction' : 'Quick Add Transaction', function() {
     const perf = createPerf_();
     setActivePerf_(perf);
     try {
-      const { transaction_date = '', payee: rawPayee = '', narration: rawNarration = '', postings } = input || {};
-      const transactionDate = normalizeTransactionDate_(transaction_date);
-      if (!transactionDate) throw new Error('Transaction date is required.');
-      const payee = String(rawPayee).trim() || null;
-      const narration = String(rawNarration).trim() || null;
+      const { transactionDate, payee, narration, postings } = parseTransactionSidebarInput_(input);
 
       const sheet = perf.wrap('sheet.get', function() {
         return getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
@@ -60,32 +68,21 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
           });
           newTransactionName = result.name;
           return result;
-        },
-        function() {
-          try {
-            perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
-          } catch (error) {
-            SpreadsheetApp.getActiveSpreadsheet().toast(
-              'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
-              'Family Ledger',
-              5
-            );
-          }
         }
       );
 
       if (!rowNumbers) return {};
 
       if (isEdit) {
-        SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Edit Transaction', 5);
+        SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Family Ledger', 3);
         return {};
       } else {
         const payeeColumn = getTransactionHeaderColumnIndex_('payee');
         SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sheet);
         focusCell_(sheet, rowNumbers[0], payeeColumn);
         SpreadsheetApp.getActiveSpreadsheet().toast(
-          'Inserted transaction on ' + transactionDate + '.',
-          'Quick Add Transaction', 5
+          'Transaction added on ' + transactionDate + '.',
+          'Family Ledger', 3
         );
         return { transactionName: newTransactionName, rowNumbers: rowNumbers };
       }

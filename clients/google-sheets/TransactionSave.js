@@ -7,20 +7,51 @@ function pushActiveTransaction() {
   });
 }
 
+// Orchestrates the full save lifecycle for any sheet entity row(s):
+//   - sets status='saving' on existing rows before the API call
+//   - on error: writes status='error' + last_error, always rethrows
+//   - on success: flushes so 'saved' is briefly visible, runs afterSave, then clears status
+//
+// existingRowNumbers: null for new entities (POST), array for existing (PATCH)
+// entityName: string key for save-generation tracking (PATCH); null skips tracking (POST)
+// doSave(saveGeneration): makes the API call and applies the response to the sheet;
+//   return null to abort (stale generation), return finalRowNumbers on success
+// afterSave(finalRowNumbers): runs post-save work (doctor refresh etc.); errors are the caller's responsibility
+// Returns finalRowNumbers, or null if aborted.
+function saveEntityToSheet_(sheet, existingRowNumbers, entityName, doSave, afterSave) {
+  if (existingRowNumbers) {
+    setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'saving');
+    setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', '');
+    SpreadsheetApp.flush();
+  }
+
+  const saveGeneration = entityName ? beginSaveGeneration_(entityName) : null;
+  let finalRowNumbers;
+
+  try {
+    finalRowNumbers = doSave(saveGeneration);
+  } catch (error) {
+    if (existingRowNumbers && (!saveGeneration || isCurrentSaveGeneration_(entityName, saveGeneration))) {
+      setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'error');
+      setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', error.message || String(error));
+    }
+    throw error;
+  }
+
+  if (!finalRowNumbers) return null;
+
+  SpreadsheetApp.flush();
+  afterSave(finalRowNumbers);
+  setFieldValuesForRowNumbers_(sheet, finalRowNumbers, 'status', '');
+  return finalRowNumbers;
+}
+
 function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
   options = options || {};
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const rowNumbers = precomputed.rowNumbers;
-    const transactionName = precomputed.transactionName;
-
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'saving');
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', '');
-
-    const rows = precomputed.rows;
-    SpreadsheetApp.flush();
-    const saveGeneration = beginSaveGeneration_(transactionName);
+    const { rowNumbers, transactionName, rows } = precomputed;
     const group = {
       transactionName: transactionName,
       activeIndex: 0,
@@ -28,88 +59,64 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
       rows: rows,
       contiguous: isContiguousRowNumbers_(rowNumbers),
     };
-
-    debugLog_('saveTransactionByName:start', {
-      transactionName: transactionName,
-      rowCount: rowNumbers.length,
-      saveGeneration: saveGeneration,
-    });
-
     const accountResourceToDisplayName = {};
     const accountDisplayNameToResource = {};
     (accountOptions || []).forEach(function(o) {
       accountResourceToDisplayName[o.resource_name] = o.display_name;
       accountDisplayNameToResource[o.display_name] = o.resource_name;
     });
-    try {
-      const payload = perf.wrap('data.build_payload', function() {
-        return buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource);
-      });
-      // PATCH auto-records via apiFetch_
-      const refreshed = apiFetchJson_('patch', '/' + transactionName, {
-        transaction: payload,
-        update_mask: 'payee,narration,postings',
-      });
-      debugLog_('saveTransactionByName:patchSucceeded', {
-        transactionName: transactionName,
-        saveGeneration: saveGeneration,
-      });
-      const replacementRows = flattenTransactionForSheet_(refreshed, accountResourceToDisplayName);
-      if (replacementRows === null) {
-        throw new Error('The updated transaction is no longer editable in this Sheets client.');
-      }
-      if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) {
-        return;
-      }
-      replacementRows.forEach(function(row) {
-        row.split_off_amount = '';
-        row.status = 'saved';
-        row.last_error = '';
-      });
-      perf.wrap('sheet.update_rows', function() {
-        applyTransactionResponseToSheet_(sheet, rowNumbers, rows, replacementRows);
-      }, replacementRows.length + ' rows');
 
-      if (options.showSuccessAlert) {
-        SpreadsheetApp.getUi().alert(
-          'Transaction Updated',
-          'Successfully pushed the active transaction.',
-          SpreadsheetApp.getUi().ButtonSet.OK
-        );
-      }
-      if (options.showSuccessToast) {
-        SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
-      }
+    try {
+      saveEntityToSheet_(sheet, rowNumbers, transactionName,
+        function(saveGeneration) {
+          const payload = perf.wrap('data.build_payload', function() {
+            return buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource);
+          });
+          const refreshed = apiFetchJson_('patch', '/' + transactionName, {
+            transaction: payload,
+            update_mask: 'payee,narration,postings',
+          });
+          if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) return null;
+          const replacementRows = flattenTransactionForSheet_(refreshed, accountResourceToDisplayName);
+          if (replacementRows === null) {
+            throw new Error('The updated transaction is no longer editable in this Sheets client.');
+          }
+          replacementRows.forEach(function(row) {
+            row.split_off_amount = '';
+            row.status = 'saved';
+            row.last_error = '';
+          });
+          return perf.wrap('sheet.update_rows', function() {
+            return applyTransactionResponseToSheet_(sheet, rowNumbers, rows, replacementRows);
+          }, replacementRows.length + ' rows');
+        },
+        function() {
+          try {
+            perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
+          } catch (error) {
+            SpreadsheetApp.getActiveSpreadsheet().toast(
+              'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
+              'Family Ledger',
+              5
+            );
+          }
+        }
+      );
     } catch (error) {
-      debugLog_('saveTransactionByName:error', {
-        transactionName: transactionName,
-        saveGeneration: saveGeneration,
-        message: error && error.message ? error.message : String(error),
-      });
-      if (isCurrentSaveGeneration_(transactionName, saveGeneration)) {
-        setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
-        setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
-      }
-      if (options.showSuccessAlert) {
-        throw error;
-      }
+      if (options.showSuccessAlert) throw error;
       return;
     }
 
-    debugLog_('saveTransactionByName:doctorRefreshStarting', { transactionName: transactionName, saveGeneration: saveGeneration });
-    try {
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
-    } catch (error) {
-      debugLog_('refreshVisibleLedgerIssuesFromDoctor:error', {
-        message: error && error.message ? error.message : String(error),
-      });
-      SpreadsheetApp.getActiveSpreadsheet().toast(
-        'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
-        'Family Ledger',
-        5
+    if (options.showSuccessAlert) {
+      SpreadsheetApp.getUi().alert(
+        'Transaction Updated',
+        'Successfully pushed the active transaction.',
+        SpreadsheetApp.getUi().ButtonSet.OK
       );
     }
-    debugLog_('saveTransactionByName:doctorRefreshFinished', { transactionName: transactionName, saveGeneration: saveGeneration });
+    if (options.showSuccessToast) {
+      SpreadsheetApp.getActiveSpreadsheet().toast('Saved transaction', 'Family Ledger', 3);
+    }
   } finally {
     clearActivePerf_();
     perf.log('Save Transaction');

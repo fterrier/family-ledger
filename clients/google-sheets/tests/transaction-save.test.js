@@ -55,7 +55,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   assert.equal(rowStore.get(2).status, 'error');
 });
 
-test('saveTransactionByName_ keeps saved state when doctor refresh fails after successful patch', () => {
+test('saveTransactionByName_ clears status to empty after doctor refresh fails following successful patch', () => {
   const operations = [];
   const toasts = [];
   const rowStore = new Map([
@@ -105,7 +105,7 @@ test('saveTransactionByName_ keeps saved state when doctor refresh fails after s
   ];
   sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
-  assert.equal(rowStore.get(2).status, 'saved');
+  assert.equal(rowStore.get(2).status, '');
   assert.equal(rowStore.get(2).last_error, '');
   assert.equal(toasts.length, 1);
   assert.match(toasts[0].message, /Saved changes, but failed to refresh ledger doctor issues/);
@@ -159,4 +159,108 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
   sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
   assert.deepEqual(JSON.parse(JSON.stringify(capturedLookup)), { 'accounts/source': '[+] Checking', 'accounts/food': '[E] Food' });
+});
+
+// --- saveEntityToSheet_ ---
+
+test('saveEntityToSheet_ sets saving status, clears to empty after success', () => {
+  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const statusDuringDoSave = [];
+
+  sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+    function() {
+      statusDuringDoSave.push(rowStore.get(2).status);
+      return [2];
+    },
+    function() {}
+  );
+
+  assert.deepEqual(statusDuringDoSave, ['saving']);
+  assert.equal(rowStore.get(2).status, '');
+});
+
+test('saveEntityToSheet_ writes error status and last_error on doSave failure', () => {
+  const rowStore = new Map([[2, { status: 'dirty', last_error: '' }]]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  assert.throws(function() {
+    sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+      function() { throw new Error('network error'); },
+      function() {}
+    );
+  }, /network error/);
+
+  assert.equal(rowStore.get(2).status, 'error');
+  assert.equal(rowStore.get(2).last_error, 'network error');
+});
+
+test('saveEntityToSheet_ clears status to empty after afterSave completes', () => {
+  const rowStore = new Map([
+    [2, { status: 'dirty', last_error: '' }],
+    [3, { status: 'dirty', last_error: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  let afterSaveCalled = false;
+
+  sandbox.saveEntityToSheet_(fakeSheet, [2, 3], 'transactions/txn_1',
+    function() { return [2, 3]; },
+    function() { afterSaveCalled = true; }
+  );
+
+  assert.equal(afterSaveCalled, true);
+  assert.equal(rowStore.get(2).status, '');
+  assert.equal(rowStore.get(3).status, '');
+});
+
+test('saveEntityToSheet_ skips pre-call status and error writes when existingRowNumbers is null (POST)', () => {
+  const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  // POST path: existingRowNumbers=null, entityName=null
+  sandbox.saveEntityToSheet_(fakeSheet, null, null,
+    function() { return [2]; },
+    function() {}
+  );
+
+  // Row 2 untouched before doSave (no 'saving' written since existingRowNumbers is null)
+  // After success, status cleared on finalRowNumbers=[2]
+  assert.equal(rowStore.get(2).status, '');
+});
+
+test('saveEntityToSheet_ does not write error to sheet when existingRowNumbers is null (POST failure)', () => {
+  const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  assert.throws(function() {
+    sandbox.saveEntityToSheet_(fakeSheet, null, null,
+      function() { throw new Error('server error'); },
+      function() {}
+    );
+  }, /server error/);
+
+  // No sheet write should have happened for error status
+  assert.equal(rowStore.get(2).status, 'clean');
+  assert.equal(rowStore.get(2).last_error, '');
+});
+
+test('saveEntityToSheet_ aborts cleanly when doSave returns null (stale generation)', () => {
+  const rowStore = new Map([[2, { status: 'saving', last_error: '' }]]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  let afterSaveCalled = false;
+
+  const result = sandbox.saveEntityToSheet_(fakeSheet, [2], 'transactions/txn_1',
+    function() { return null; },
+    function() { afterSaveCalled = true; }
+  );
+
+  assert.equal(result, null);
+  assert.equal(afterSaveCalled, false);
+  assert.equal(rowStore.get(2).status, 'saving'); // unchanged since doSave returned null
 });

@@ -63,6 +63,54 @@ test('submitTransactionFromSidebar (add) inserts new row before a later transact
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2');
 });
 
+test('submitTransactionFromSidebar (edit) writes error status to sheet row on PATCH failure', () => {
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      source_account_name: '[A] Cash',
+      destination_account_name: '[X] Food',
+      amount: 12,
+      symbol: 'CHF',
+      status: 'dirty',
+      last_error: '',
+      split_off_amount: '',
+      issues: '',
+    }],
+  ]);
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() { return { toast() {} }; },
+      getUi() { return { alert() {}, ButtonSet: { OK: 0 } }; },
+    },
+  });
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: '[A] Cash' }];
+  };
+  sandbox.findTransactionRowNumbersFromAnchor_ = function() {
+    return { rowNumbers: [2] };
+  };
+  sandbox.apiFetchJson_ = function() {
+    throw new Error('transaction_unbalanced: not balanced');
+  };
+
+  // runUserAction_ catches and swallows errors (shows alert, returns null)
+  const result = sandbox.submitTransactionFromSidebar('transactions/txn_1', 2, {
+    transaction_date: '2026-04-19',
+    payee: 'Migros',
+    narration: 'Groceries',
+    postings: [{ account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } }],
+  });
+
+  assert.equal(result, null);
+  assert.equal(rowStore.get(2).status, 'error');
+  assert.match(rowStore.get(2).last_error, /transaction_unbalanced/);
+});
+
 test('getSidebarData (add mode) returns shortlist-filtered accounts for simple form and all accounts for advanced', () => {
   const { sandbox, documentProperties } = loadCode();
   documentProperties.set('QUICK_ADD_SOURCE_ACCOUNTS', '["accounts/cash"]');

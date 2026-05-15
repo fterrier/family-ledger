@@ -20,24 +20,6 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       const payee = String(rawPayee).trim() || null;
       const narration = String(rawNarration).trim() || null;
 
-      let apiResult;
-      if (isEdit) {
-        apiResult = apiFetchJson_('patch', '/' + transactionName, {
-          transaction: { transaction_date: transactionDate, payee: payee, narration: narration, postings: postings },
-          update_mask: 'transaction_date,payee,narration,postings',
-        });
-      } else {
-        apiResult = apiFetchJson_('post', '/transactions', {
-          transaction: {
-            transaction_date: transactionDate,
-            payee: payee,
-            narration: narration,
-            postings: postings,
-            entity_metadata: { source: 'google_sheets_quick_add' },
-          },
-        });
-      }
-
       const sheet = perf.wrap('sheet.get', function() {
         return getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
       });
@@ -46,23 +28,58 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       });
       const accountResourceToDisplayName = {};
       accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
-      const renderedRows = flattenTransactionForSheet_(apiResult, accountResourceToDisplayName);
 
-      if (!renderedRows || renderedRows.length === 0) {
-        throw new Error('Transaction could not be rendered into the Transactions sheet.');
-      }
-      if (isEdit) {
-        renderedRows.forEach(function(row) { row.status = 'saved'; });
-      }
+      const existingRowNumbers = isEdit
+        ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers
+        : null;
 
-      const rowNumbers = perf.wrap('sheet.apply_rows', function() {
-        const existingRowNumbers = isEdit
-          ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers
-          : null;
-        return applyTransactionResponseToSheet_(sheet, existingRowNumbers, null, renderedRows);
-      });
+      let newTransactionName;
+      const rowNumbers = saveEntityToSheet_(sheet, existingRowNumbers, isEdit ? transactionName : null,
+        function(saveGeneration) {
+          let apiResult;
+          if (isEdit) {
+            apiResult = apiFetchJson_('patch', '/' + transactionName, {
+              transaction: { transaction_date: transactionDate, payee: payee, narration: narration, postings: postings },
+              update_mask: 'transaction_date,payee,narration,postings',
+            });
+            if (!isCurrentSaveGeneration_(transactionName, saveGeneration)) return null;
+          } else {
+            apiResult = apiFetchJson_('post', '/transactions', {
+              transaction: {
+                transaction_date: transactionDate,
+                payee: payee,
+                narration: narration,
+                postings: postings,
+                entity_metadata: { source: 'google_sheets_quick_add' },
+              },
+            });
+            newTransactionName = apiResult.name;
+          }
+          const renderedRows = flattenTransactionForSheet_(apiResult, accountResourceToDisplayName);
+          if (!renderedRows || renderedRows.length === 0) {
+            throw new Error('Transaction could not be rendered into the Transactions sheet.');
+          }
+          renderedRows.forEach(function(row) {
+            row.split_off_amount = '';
+            row.status = 'saved';
+            row.last_error = '';
+          });
+          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, null, renderedRows);
+        },
+        function() {
+          try {
+            perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
+          } catch (error) {
+            SpreadsheetApp.getActiveSpreadsheet().toast(
+              'Saved changes, but failed to refresh ledger doctor issues: ' + (error.message || String(error)),
+              'Family Ledger',
+              5
+            );
+          }
+        }
+      );
 
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountResourceToDisplayName); });
+      if (!rowNumbers) return {};
 
       if (isEdit) {
         SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Edit Transaction', 5);
@@ -75,7 +92,7 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
           'Inserted transaction on ' + transactionDate + '.',
           'Quick Add Transaction', 5
         );
-        return { transactionName: apiResult.name, rowNumbers: rowNumbers };
+        return { transactionName: newTransactionName, rowNumbers: rowNumbers };
       }
     } finally {
       clearActivePerf_();

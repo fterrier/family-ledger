@@ -238,14 +238,12 @@ There are only two checked-in config files now:
 
 ## Docs
 
-- `docs/requirements-v0.1.md`
-- `docs/roadmap-v0.1.md`
-- `docs/compatibility-target-v0.1.md`
-- `docs/developer-guidelines-v0.1.md`
-- `docs/adr/`
-- `docs/design/` — implementation specs (API, domain model, import system, account balance, Beancount import bootstrap)
+- `docs/specs/` — canonical current product and system behavior
+- `docs/guides/` — contributor and operator guidance
+- `docs/adr/` — architectural decisions and rationale
+- `archive/docs/` — historical and superseded material
 
 ## Clients
 
 - `clients/google-sheets/README.md`: user-facing install and usage guide for the Google Sheets client
-- `clients/google-sheets/docs/`: client-specific design, permissions, and performance notes
+- `clients/google-sheets/docs/`: client-local permissions and performance notes

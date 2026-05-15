@@ -22,7 +22,7 @@ The priorities are:
 - Link and quote external sources when they materially influence the design.
 - Do not leave inspiration, dependency, or comparison claims unreferenced in the docs.
 - Prefer concise but complete documentation over informal notes.
-- Treat `docs/compatibility-target-v0.1.md` as a primary design constraint when making implementation decisions.
+- Treat `archive/docs/compatibility-target-v0.1.md` as a historical design constraint snapshot when comparing old decisions.
 - After editing any design or architecture doc, review the related requirements, domain model, API docs, ADRs, and README to make sure they remain consistent, non-contradictory, and complementary.
 - Client-specific documentation should live with the client under its own directory whenever practical.
 - Keep top-level docs focused on shared product, API, domain, and deployment concerns.
@@ -164,7 +164,7 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 - Split service modules by entity or aggregate boundary only when the resulting tests and navigation become clearer than the combined service file.
 - On read paths, avoid N+1 query patterns for related resources. Prefer bounded batched queries keyed by indexed columns, or indexed eager loading, over per-entity follow-up queries.
 - For paginated one-to-many reads, page the parent resources first and then load related rows for just that page in a bounded number of queries.
-- Do not add a plugin system unless multiple concrete plugins already exist. Exception: the importer entry point registry is an accepted plugin system for the import use case; see `docs/design/modular-import-system-v0.1.md`.
+- Do not add a plugin system unless multiple concrete plugins already exist. Exception: the importer entry point registry is an accepted plugin system for the import use case; see `archive/docs/design/modular-import-system-v0.1.md`.
 - Do not add reconciliation workflows beyond lightweight balance verification in v1.
 
 ## Anti-Goals
@@ -178,8 +178,8 @@ If Beancount validation can be called safely, use it as an oracle for selected c
 
 ## Notes for Agents
 - Read the requirements doc before changing code.
-- Read `docs/design/domain-model-v0.1.md` before changing schema or persistence behavior.
-- Read `docs/design/api-v0.1.md` before changing endpoint behavior or response shapes.
+- Read `archive/docs/design/domain-model-v0.1.md` before comparing old schema or persistence assumptions.
+- Read `archive/docs/design/api-v0.1.md` before comparing old endpoint or response-shape assumptions.
 - Read the relevant ADRs before revisiting a major architectural decision.
 - Keep changes scoped and aligned with the existing accounting model.
 - If a change affects validation, add tests first or alongside the change.

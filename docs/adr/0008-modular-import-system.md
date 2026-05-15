@@ -14,7 +14,7 @@ service that the ledger calls over HTTP via NDJSON streaming. This approach was 
 because it introduces significant operational complexity (multiple containers, health
 polling, registration loops, network security) that is disproportionate to the actual
 problem. The webhook architecture is preserved as a reference idea at
-`docs/future_ideas/modular-import-system-v0.1.md`.
+`archive/docs/future_ideas/modular-import-system-v0.1.md`.
 
 ## Decision
 

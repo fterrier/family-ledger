@@ -1,393 +1,167 @@
 # Google Sheets Client
 
-This client lets you edit supported `family-ledger` transactions from Google Sheets.
+This client exposes a constrained `family-ledger` workflow inside Google Sheets.
 
-It is intended for the common workflow of reviewing and adjusting bank or card outgoings:
-- recategorize a normal outgoing
-- split one outgoing into multiple destination rows
-- save changes back to the API automatically
+It is designed for common day-to-day operations:
+
+- sync ledger data into managed sheets
+- review and recategorize supported transactions
+- split supported transactions across multiple destinations
+- add simple manual transactions quickly
+- edit persistent importer settings and run imports
 
 The spreadsheet is a client of the API. It is not the source of truth.
-
-## What It Can Edit
-
-The Sheets workflow classifies each transaction's postings by account type, not by posting sign:
-
-- **Source** = the Assets or Liabilities posting (balance-sheet account, marker `[A]` or `[L]`).
-  If several balance-sheet accounts are present, the one with a negative amount is preferred so destination amounts appear positive.
-  If no balance-sheet account is found, the single negative posting is used as source (old rule, preserved as fallback).
-- **Destinations** = all remaining postings.
-- **Amounts** are shown as the destination posting amounts directly; they can be negative (e.g. income rows where the Income account appears as destination).
-
-Supported shapes:
-- Normal spending: `[A]Bank −X` → `[X]Expense +X` (source=Bank, amount positive)
-- Income: `[I]Salary −X` → `[A]Bank +X` (source=Bank, destination=Salary with negative amount)
-- Transfer: `[A]Checking −X` → `[A]Savings +X` (source=Checking, negative balance-sheet preferred)
-- Source-only: one balance-sheet posting, no destinations (shows with blank destination, positive amount)
-- Zero postings: renders as a placeholder row with blank financial fields
-- Multi-destination splits: one source, several destination postings
-
-One symbol across the transaction is required; cost and price data are not supported.
-
-Transactions that cannot be classified (e.g. two positive flow-account postings with no balance-sheet account) are skipped during sync and reported in the sync summary.
 
 ## Requirements
 
 You need:
+
 - a running `family-ledger` API
 - a public HTTPS URL reachable from Google Apps Script
 - an API token configured in `family-ledger`
 - a Google Sheet
 
 Recommended remote access setup:
+
 - run `family-ledger` on-prem
-- expose it through `Tailscale Funnel`
+- expose it with Tailscale Funnel
 - use the same bearer token in both the server config and Sheets client
 
-## Files
+## Current Menu Surface
 
-Runtime Apps Script files:
-- `Constants.js`: shared sheet names, registry, and layout metadata
-- `Api.js`: API and pagination helpers
-- `Perf.js`: performance timing helpers
-- `Settings.js`: settings prompts, auth properties, and connection checks
-- `SheetLayout.js`: shared sheet layout, formatting, protection, and reset helpers
-- `ManagedSheetData.js`: VLOOKUP formula helpers for issue columns
-- `AccountsSheet.js`: account sheet sync and validation helpers
-- `BalancesSheet.js`: balance assertion sheet sync helpers
-- `TransactionsSheet.js`: transaction sheet sync, row mapping, and row helpers
-- `DoctorIssues.js`: `ledger:doctor` fetch and issue-sheet syncing
-- `Filters.js`: Quick Filter backend logic
-- `ImporterDialogs.js`: import dialog and importer settings server-side actions
-- `QuickAddTransaction.js`: quick-add transaction sidebar server-side actions
-- `SheetSettings.js`: sheet settings dialog server-side actions
-- `TransactionSave.js`: transaction save lifecycle and refresh flow
-- `TransactionEdits.js`: in-sheet edit, split, delete, and rollback flow
-- `App.js`: menu wiring entrypoint
-- `FilterSidebar.html`: Quick Filter sidebar UI
-- `ImporterDialog.html`: import data and importer settings dialog UI
-- `ApiSettingsDialog.html`: API connection settings dialog UI
-- `SheetSettingsDialog.html`: sheet display settings dialog UI
-- `QuickAddTransactionSidebar.html`: quick-add transaction sidebar UI
-- `AccountSearch.html`: account search component (included by QuickAddTransactionSidebar)
-- `SearchDropdown.html`: search dropdown component (included by QuickAddTransactionSidebar)
-- `appsscript.json`: Apps Script manifest
+`Family Ledger` currently exposes:
 
-Local tooling files:
-- `package.json`: lint, tests, and `clasp`
-- `eslint.config.js`: lint configuration
-- `.clasp.json`: clasp project config, not committed, contains the script ID
+- `Quick Filter`
+- `Quick Add Transaction`
+- `Sheet Settings`
+- `Importer Settings`
+- `Import data`
+- `Developer Settings` submenu with `Sync Ledger`, `Push Active Transaction`, `Reset Sheet Layouts`, `API Settings`, and `Test Connection`
 
-## Deploying with clasp
+`Sync Ledger` manages these sheets:
 
-`clasp` is the preferred way to push changes. It is already configured in `package.json`.
+- `Accounts`
+- `Transactions`
+- `Balances`
+- `Commodities`
+- `Issues`
+
+## Deploying With `clasp`
+
+`clasp` is the preferred way to push changes.
 
 ### One-time setup
 
-1. **Enable the Apps Script API** for your Google account:
-   `https://script.google.com/home/usersettings` → turn on "Google Apps Script API".
+1. Enable the Google Apps Script API for your account.
+2. Install dependencies:
 
-2. **Install dependencies** (includes `@google/clasp`):
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
-3. **Log in**:
-   ```bash
-   npm run clasp:login
-   ```
-   This opens a browser for OAuth and writes credentials to `~/.clasprc.json`. Only needed once per machine.
+3. Log in:
 
-4. **Create `.clasp.json`** with your Apps Script project's script ID. Find it in the Apps Script editor under `Project Settings → Script ID`:
-   ```bash
-   SCRIPT_ID=<your-script-id> npx clasp create --type sheets --title "family-ledger" 2>/dev/null || \
-     echo "{\"scriptId\":\"$SCRIPT_ID\",\"rootDir\":\".\"}" > .clasp.json
-   ```
-   Or just create `.clasp.json` manually:
-   ```json
-   {"scriptId": "<your-script-id>", "rootDir": "."}
-   ```
+```bash
+npm run clasp:login
+```
 
-### Pushing changes
+4. Create `.clasp.json` with your Apps Script project ID.
+
+Example:
+
+```json
+{"scriptId": "<your-script-id>", "rootDir": "."}
+```
+
+### Push changes
 
 ```bash
 npm run push
 ```
 
-This uploads all runtime `.js` and `.html` files plus `appsscript.json` to the Apps Script project. Reload the spreadsheet after pushing to pick up menu changes.
+Reload the spreadsheet after pushing to pick up menu changes.
 
-### What is excluded
+## Manual Installation
 
-`.claspignore` prevents `node_modules/`, `tests/`, `docs/`, and local tooling/config files from being uploaded. The runtime Apps Script files and manifest are pushed.
-
-## Manual Installation (alternative)
-
-If clasp is not available:
+If `clasp` is not available:
 
 1. Create a Google Sheet.
 2. Open `Extensions -> Apps Script`.
-3. Create one Apps Script file for each runtime `.js` file in this directory:
-   - `Constants`
-   - `Api`
-   - `Perf`
-   - `Settings`
-   - `SheetLayout`
-   - `ManagedSheetData`
-   - `AccountsSheet`
-   - `BalancesSheet`
-   - `TransactionsSheet`
-   - `DoctorIssues`
-   - `Filters`
-   - `ImporterDialogs`
-   - `QuickAddTransaction`
-   - `SheetSettings`
-   - `TransactionSave`
-   - `TransactionEdits`
-   - `App`
-4. Paste the matching file contents from this directory into each Apps Script file.
-5. In the Apps Script editor, enable `Show "appsscript.json" manifest file in editor` in `Project Settings`.
-6. Replace the manifest contents with `appsscript.json` from this directory.
-7. Create HTML files for each `.html` file in this directory and paste in the matching contents:
-   `FilterSidebar`, `ImporterDialog`, `ApiSettingsDialog`, `SheetSettingsDialog`,
-   `QuickAddTransactionSidebar`, `AccountSearch`, `SearchDropdown`.
-8. Save the Apps Script project.
-9. Return to the spreadsheet and reload the page.
+3. Create one Apps Script file for each runtime `.js` file in this directory.
+4. Create one HTML file for each runtime `.html` file in this directory.
+5. Enable the manifest file in Apps Script project settings and paste in `appsscript.json`.
+6. Save the script project and reload the spreadsheet.
 
-If the permission prompt does not appear automatically:
-
-1. In the Apps Script editor, select `onOpen`.
-2. Click `Run`.
-3. Accept the permission prompt.
-4. Return to the spreadsheet and reload it.
+If the permission prompt does not appear automatically, run `onOpen` once from the Apps Script editor.
 
 ## First-Time Setup
 
 After the `Family Ledger` menu appears:
 
-1. Run `Set API Base URL` and paste your public API URL.
-2. Run `Set API Token` and paste your bearer token.
-3. Run `Test Connection`.
-4. Run `Sync Accounts`.
-5. Run `Sync Transactions`.
+1. Open `Developer Settings -> API Settings` and set the base URL and API token.
+2. Run `Developer Settings -> Test Connection`.
+3. Run `Developer Settings -> Sync Ledger`.
 
 Expected result:
-- the script creates the local `Accounts` and `Transactions` sheets if needed
-- `Test Connection` confirms both reachability and authenticated access
-- the transaction sheet is populated with editable allocation rows
 
-The first sync also installs the authorized edit trigger used for auto-save.
+- reachability and authenticated access are confirmed
+- the managed sheets are created if needed
+- the first sync installs the authorized edit trigger used for auto-save
 
-The technical `transaction_name` column is kept in the sheet but hidden from normal use.
+## Main Workflows
 
-Account names are shortened for readability in the sheet, for example:
-- `[A] Bank - Checking - Family`
-- `[L] CreditCard - Visa`
-- `[X] Food - Groceries`
+### Daily editing
 
-The marker indicates the account root:
-- `[A]` Assets
-- `[L]` Liabilities
-- `[X]` Expenses
-- `[I]` Income
-- `[Q]` Equity
+- edit supported rows directly in `Transactions`
+- watch `status` and `issues`
+- use `Push Active Transaction` if you need a manual retry path
 
-## Quick Filter
+### Quick add
 
-`Family Ledger → Quick Filter` opens a sidebar for narrowing the visible rows.
+`Quick Add Transaction` is the fast path for new manual entries.
 
-**Date section** — filter by year or custom month range:
-- Click year buttons to select one or a contiguous range of years.
-- Use the `From` / `To` month pickers for a custom range.
-- Year buttons and month pickers stay in sync.
+- simple mode covers common two-posting transactions
+- advanced mode allows explicit posting lists
+- `Sheet Settings` stores spreadsheet-local quick-add shortlists and defaults
 
-**Account section** — filter by account with cascading dropdowns:
-- The first dropdown lists account types (`Assets`, `Liabilities`, `Expenses`, `Income`, `Equity`).
-- Each subsequent dropdown narrows to the next level of the hierarchy.
-- The filter matches on both the source *and* destination account columns (OR logic), so any row touching the selected account is included.
-- Select `No account set` to show only rows with a blank destination account.
+### Importers
 
-Filter state persists: the sidebar restores the previous filter when reopened.
+- `Importer Settings` edits persistent importer config on the server
+- `Import data` uploads a file and runs the selected importer synchronously
 
-`Clear all` removes all filter criteria.
+## Local Tooling
 
-## Daily Use
+- `npm run check`
+- `npm test`
 
-Normal flow:
-1. Open the `Transactions` sheet.
-2. Edit `payee`, `narration`, or `destination_account_name` directly.
-3. For imported transactions, treat `amount` as an allocation amount inside a fixed total.
-4. Watch `status` and `issues` during normal use.
+## More Documentation
 
-Narration display:
-- normal text means the row is showing the transaction narration
-- italic text means the row has a posting-specific narration
-- if a posting has no narration, the row falls back to the transaction narration
-
-Narration editing:
-- on a non-split transaction, editing `narration` updates the transaction narration by default
-- on a split transaction, editing one row's `narration` updates that row's posting narration
-- clearing a split row's posting-specific narration falls back to the transaction narration again
-- a split transaction must keep at least one row on the shared transaction narration
-
-For splits:
-1. Either change the row `amount`, or enter a value in `split_off_amount`.
-2. The script inserts a sibling row automatically.
-3. The invariant is: the two resulting pieces must sum to the original amount. Neither piece may be zero.
-4. The new row starts with the same destination account as the original row.
-5. If the original row had posting-specific narration, the new row does not inherit it.
-6. Change the new row's `destination_account_name` if needed.
-
-Split amounts can be of any sign. A positive split amount on a negative-amount row (e.g. an income row) is allowed, and vice versa, as long as neither resulting piece is zero.
-
-To delete a split row:
-1. Enter `x` or `-` in `split_off_amount`.
-2. The row is merged back into a sibling allocation row.
-
-Manual fallback:
-- `Push Active Transaction` is available if automatic save fails and you want to retry explicitly.
-
-Read-only columns are shaded differently from editable columns.
-The `split_off_amount` column is highlighted as an action field and its header note explains the supported commands.
-
-## Status Values
-
-- `dirty`: local changes are pending
-- `saving`: the transaction is being patched to the API
-- `saved`: the transaction was saved successfully
-- `error`: the save failed; see `last_error`
-
-Derived `ledger:doctor` issues are shown in the `issues` column.
-Rows with doctor issues are highlighted in light red.
-Transient save failures still use `status=error` and `last_error` without applying the red issue highlight.
-`last_error` is kept as a hidden technical column next to `status`.
-The sheet refreshes doctor issues separately after sync and after each successful save.
-
-Imported transaction totals follow the split invariant:
-- changing an `amount` (up or down) creates a split for the difference; the two pieces must sum to the original and neither can be zero
-- if the resulting split-off amount would be zero the edit is rejected
-- invalid `split_off_amount` commands are cleared immediately
-
-Source-only transactions behave differently:
-- they render as one row with a blank destination account
-- setting `destination_account_name` creates the destination posting on save
-- deleting the last destination row with `x` or `-` returns the transaction to source-only state
-- direct `amount` edits are not allowed while the transaction is source-only
-- the split helper is not available while the transaction is source-only
-
-## Importing Data
-
-`Family Ledger → Import data` opens a modal dialog that lets you load ledger data from
-external files directly into the API.
-
-### Workflow
-
-1. **Select an importer** from the dropdown. Available importers depend on what is
-   installed on the server.
-2. **Review configuration**. If the importer has required configuration (for example, a
-   target account), fields are shown. Fields already saved on the server are read-only;
-   empty fields can be filled in for this import run only.
-3. **Choose a file** using the file picker.
-4. Click **Import**. The file is uploaded to the API and the import runs synchronously.
-5. The result table shows per-entity counts:
-   - **Created**: new entities added to the database
-   - **Duplicate**: entities already present, skipped without error
-   - **Errors**: entries that could not be imported, with example messages
-   Warnings (non-fatal notices from the importer) are listed below the table.
-6. Click **Import another file** to run a follow-up import with the same settings.
-
-### Beancount importer
-
-The server ships with the **Beancount** importer. It loads accounts, commodities,
-transactions, prices, and balance assertions from a `.beancount` file.
-
-The Beancount importer requires an **empty database**. It is a one-time bootstrap tool
-for migrating an existing Beancount ledger into family-ledger. Running it on a populated
-database returns an error.
-
-Optional Beancount importer setting:
-- `import_posting_comments_as_narration`: treat trailing posting comments such as
-  `Assets:Broker:Cash -6.32 USD ; Withholding tax` as posting narrations
-- this is off by default
-- it only works for the uploaded file itself; Beancount `include` is not supported
-
-### Persistent configuration
-
-Some importers have persistent configuration stored on the server (visible as read-only
-fields in the dialog). To update persistent config, use `PATCH /importers/{importer}`
-directly on the API. Editing persistent config from within the dialog is not yet
-supported.
-
-## Tailscale Funnel Setup
-
-Google Apps Script cannot call `localhost` or a private-only network address.
-
-Suggested setup:
-
-1. Start `family-ledger` locally.
-2. Ensure `FAMILY_LEDGER_API_TOKEN` is configured.
-3. Expose the API with Funnel:
-
-```bash
-tailscale funnel --bg --yes 8000
-```
-
-4. Verify reachability:
-
-```bash
-curl https://<your-funnel-url>/healthz
-```
-
-5. Verify authenticated access:
-
-```bash
-curl -H "Authorization: Bearer <your-token>" \
-  "https://<your-funnel-url>/accounts?page_size=1"
-```
-
-## Permissions
-
-The current manifest asks for:
-- access to the current spreadsheet only
-- outbound HTTP requests
-- script trigger management for the installable edit trigger used by auto-save
-
-See `docs/permissions.md` for the detailed rationale.
+- Canonical Sheets feature spec: `../../docs/specs/google-sheets-client.md`
+- Sheets maintenance guide: `../../docs/guides/google-sheets-client.md`
+- Permissions rationale: `docs/permissions.md`
+- Performance notes: `docs/performance.md`
 
 ## Troubleshooting
 
 If the menu does not appear:
+
 - save the Apps Script project
-- run `onOpen` once manually from the Apps Script editor
+- run `onOpen` once manually
 - reload the spreadsheet
 
-If sync succeeds but rows are missing:
-- those transactions are likely unsupported by the current Sheets workflow
-- check the sync summary dialog for skipped examples
+If connection testing fails:
+
+- verify the public HTTPS URL
+- verify the bearer token
+- verify that `GET /healthz` is reachable from Apps Script
+
+If sync succeeds but transactions are missing:
+
+- those transactions are likely outside the current supported Sheets editing model
+- check the sync summary and `Issues` sheet
 
 If a save fails:
-- look at `status`
+
+- inspect `status`
 - inspect the hidden `last_error` column if needed
-- use `Push Active Transaction` as a fallback retry
-
-If an `amount` edit is rejected:
-- the resulting split-off amount would be zero (both pieces must be non-zero)
-- or the row is source-only (amount edits are not allowed while destination is blank)
-
-If a `split_off_amount` command is rejected:
-- the helper cell is cleared immediately
-- allowed commands are a positive number, `x`, or `-`
-
-## Limits
-
-This client does not currently support:
-- arbitrary multi-leg ledger editing
-- FX/cost/price-heavy transactions
-- manual creation of accounts, commodities, prices, or balance assertions from the sheet
-- spreadsheet-as-source-of-truth workflows
-- preserving source-posting narration during Sheets edits
-
-## More Documentation
-
-- Design: `docs/design.md`
-- Permissions: `docs/permissions.md`
-- Performance: `docs/performance.md`
+- retry with `Push Active Transaction`

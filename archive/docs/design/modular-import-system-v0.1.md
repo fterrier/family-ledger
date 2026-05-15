@@ -16,7 +16,7 @@ The integration boundary (`BaseImporter`, `ImportResult`, registry) lives in
 `src/family_ledger/importers/`. There is no network hop, no external process.
 
 An earlier webhook-based architecture was considered and is preserved as a reference idea
-at `docs/future_ideas/modular-import-system-v0.1.md`.
+at `archive/docs/future_ideas/modular-import-system-v0.1.md`.
 
 ### 2. One-Step Execute
 
@@ -324,7 +324,7 @@ Executes the import synchronously and returns `ImportResult`.
 | NEW    | `importers/src/family_ledger_importers/__init__.py`           |
 | NEW    | `importers/src/family_ledger_importers/beancount.py`          |
 | MODIFY | `pyproject.toml` (add `jsonschema>=4.0,<5.0` dependency)      |
-| ARCHIVE | `docs/future_ideas/modular-import-system-v0.1.md` (webhook  |
+| ARCHIVE | `archive/docs/future_ideas/modular-import-system-v0.1.md` (webhook  |
 |        | architecture; kept as a reference idea, not the active plan)  |
 
 ---

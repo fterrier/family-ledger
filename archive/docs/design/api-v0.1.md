@@ -640,7 +640,7 @@ Purpose:
 
 ## Import API
 
-Imports in v1 are managed through a modular importer system. Each `Importer` entity binds a specific parser (like Beancount) to a persistent user configuration. See `docs/design/modular-import-system-v0.1.md` for the full design.
+Imports in v1 are managed through a modular importer system. Each `Importer` entity binds a specific parser (like Beancount) to a persistent user configuration. See `archive/docs/design/modular-import-system-v0.1.md` for the full design.
 
 ### `GET /importers`
 

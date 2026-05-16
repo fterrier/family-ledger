@@ -31,8 +31,8 @@ test('performSplitForRow_ inserts a sibling row with duplicated destination acco
     }
     return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
   };
-  sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
-    operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
+  sandbox.applyAccountValidationToSpan_ = function(_sheet, span) {
+    operations.push({ type: 'applyValidation', span: span });
   };
 
   sandbox.performSplitForRow_(fakeSheet, 2, '34.25');
@@ -70,8 +70,8 @@ test('performSplitForRow_ splits a negative-amount row using a positive split am
     }
     return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
   };
-  sandbox.applyAccountValidationToRowNumbers_ = function(_sheet, rowNumbers) {
-    operations.push({ type: 'applyValidation', rowNumbers: rowNumbers.slice() });
+  sandbox.applyAccountValidationToSpan_ = function(_sheet, span) {
+    operations.push({ type: 'applyValidation', span: span });
   };
 
   sandbox.performSplitForRow_(fakeSheet, 2, '2000');
@@ -155,19 +155,6 @@ test('insertSplitRow_ focuses the newly inserted row in the specified column', (
   assert.equal(activates[0].row, 3);
 });
 
-test('focusCell_ activates the requested sheet cell', () => {
-  const operations = [];
-  const { sandbox } = loadCode();
-  const fakeSheet = {
-    getRange(row, column) {
-      return { activate() { operations.push({ row: row, column: column }); } };
-    },
-  };
-
-  sandbox.focusCell_(fakeSheet, 9, 9);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 9, column: 9 }]);
-});
 
 test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
   const operations = [];
@@ -281,23 +268,17 @@ test('handleAmountEdit_ rejects edits for source-only transactions', () => {
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
   assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '1', '1.5'), /Amount cannot be edited/);
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)).filter((op) => op.type === 'setValue'), [
-    { type: 'setValue', row: 2, column: 10, value: 1.5 },
-  ]);
+  assert.equal(rowStore.get(2).amount, 1.5);
 });
 
 test('rollbackFailedEdit_ clears invalid split_off_amount commands', () => {
-  const operations = [];
+  const rowStore = new Map([[2, { split_off_amount: '-123', amount: 50 }]]);
   const { sandbox } = loadCode();
-  const fakeSheet = {
-    getRange(row, column) {
-      return { setValue(value) { operations.push({ row: row, column: column, value: value }); } };
-    },
-  };
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
 
   sandbox.rollbackFailedEdit_(fakeSheet, 2, 'split_off_amount', '-123');
 
-  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [{ row: 2, column: 11, value: '' }]);
+  assert.equal(rowStore.get(2).split_off_amount, '');
 });
 
 test('handleAmountEdit_ converts a decrease into a split of the difference', () => {
@@ -434,7 +415,7 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
   assert.equal(rowStore.get(2).narration_source, 'txn');
   assert.equal(rowStore.get(3).narration_source, 'post');
   assert.equal(rowStore.get(3).narration, 'Household');
-  assert.deepEqual(JSON.parse(JSON.stringify(saves[0].rowNumbers)), [2, 3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(saves[0].span)), { start: 2, count: 2 });
   assert.equal(saves[0].transactionName, 'transactions/txn_1');
 });
 

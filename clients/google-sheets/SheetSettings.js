@@ -23,14 +23,6 @@ function getDocPropJsonArray_(propKey) {
   } catch (_error) { return []; }
 }
 
-function getQuickAddSourceAccountResources_() {
-  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS);
-}
-
-function getQuickAddDestinationAccountResources_() {
-  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS);
-}
-
 function getQuickAddDefaultSourceAccount_() {
   return String(
     PropertiesService.getDocumentProperties().getProperty(
@@ -51,8 +43,9 @@ function readCommoditySheetEntries_() {
   const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
-  return sheet.getRange(2, 1, lastRow - 1, 1).getValues()
-    .map(function(row) { return { symbol: String(row[0] || '').trim() }; })
+  return managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities)
+    .getRows({ start: 2, count: lastRow - 1 }, ['symbol'])
+    .map(function(row) { return { symbol: String(row.symbol || '').trim() }; })
     .filter(function(entry) { return entry.symbol; });
 }
 
@@ -100,18 +93,14 @@ function resolveQuickAddDefaultSymbol_(selectedSymbols, defaultSymbol) {
   return allowed.indexOf(normalizedDefault) !== -1 ? normalizedDefault : '';
 }
 
-function getQuickAddSymbols_() {
-  return getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS);
-}
-
 function getSheetSettingsForDialog() {
   const commodities = listCommodityOptions_();
-  const quickAddSymbols = getQuickAddSymbols_();
+  const quickAddSymbols = getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SYMBOLS);
   return {
     accounts: loadAccountOptions_(),
     commodities: commodities,
-    quickAddSourceAccounts: getQuickAddSourceAccountResources_(),
-    quickAddDestinationAccounts: getQuickAddDestinationAccountResources_(),
+    quickAddSourceAccounts: getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_SOURCE_ACCOUNTS),
+    quickAddDestinationAccounts: getDocPropJsonArray_(FAMILY_LEDGER_DOC_PROP_QUICK_ADD_DESTINATION_ACCOUNTS),
     quickAddSymbols: quickAddSymbols,
     defaultSourceAccount: getQuickAddDefaultSourceAccount_(),
     defaultSymbol: resolveQuickAddDefaultSymbol_(quickAddSymbols, getQuickAddDefaultSymbol_()),

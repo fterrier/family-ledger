@@ -1,21 +1,16 @@
 function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {
   return balanceAssertions.map(function(assertion) {
-    const accountDisplay = accountResourceToDisplayName[assertion.account] || assertion.account;
-    return [
-      assertion.name,
-      assertion.assertion_date,
-      accountDisplay,
-      assertion.amount.amount,
-      assertion.amount.symbol,
-      '',
-    ];
+    return {
+      resource_name: assertion.name,
+      assertion_date: assertion.assertion_date,
+      account: accountResourceToDisplayName[assertion.account] || assertion.account,
+      amount: assertion.amount.amount,
+      symbol: assertion.amount.symbol,
+      issues: '',
+    };
   });
 }
 
-function ensureBalancesIssueFormulas_(sheet, rowCount) {
-  ensureManagedSheetIssueFormulas_(
-    sheet,
-    FAMILY_LEDGER_SHEET_REGISTRY.balances,
-    rowCount
-  );
+function ensureBalancesIssueFormulas_(sheet, span) {
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).setColumnFormulas(span, 'issues', buildIssueLookupFormula_);
 }

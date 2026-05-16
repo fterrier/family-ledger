@@ -17,13 +17,6 @@ test('normalizeApiToken_ trims values and rejects blank tokens', () => {
   assert.throws(() => sandbox.normalizeApiToken_(''), /API token cannot be blank/);
 });
 
-test('maskToken_ masks short and long tokens', () => {
-  const { sandbox } = loadCode();
-
-  assert.equal(sandbox.maskToken_('short'), '********');
-  assert.equal(sandbox.maskToken_('abcdefgh12345678'), 'abcd...5678');
-});
-
 test('debugLog_ is silent when FAMILY_LEDGER_DEBUG_LOGS is not enabled', () => {
   const { sandbox } = loadCode();
   const messages = [];

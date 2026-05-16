@@ -18,15 +18,16 @@ function getTransactionFilterYears() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  const dateCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'transaction_date');
-  const values = sheet.getRange(2, dateCol, sheet.getLastRow() - 1, 1).getValues();
+  const count = sheet.getLastRow() - 1;
   const seen = {};
-  values.forEach(function(row) {
-    const v = row[0];
-    if (v instanceof Date && !isNaN(v.getTime())) {
-      seen[v.getFullYear()] = true;
-    }
-  });
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
+    .getRows({ start: 2, count }, ['transaction_date'])
+    .forEach(function(row) {
+      const v = row.transaction_date;
+      if (v instanceof Date && !isNaN(v.getTime())) {
+        seen[v.getFullYear()] = true;
+      }
+    });
   return Object.keys(seen).map(Number).sort(function(a, b) { return b - a; });
 }
 
@@ -34,9 +35,10 @@ function getQuickFilterAccountNames() {
   const sheet = SpreadsheetApp.getActiveSpreadsheet()
     .getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
   if (!sheet || sheet.getLastRow() <= 1) return [];
-  const nameCol = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.accounts, 'account_name');
-  const values = sheet.getRange(2, nameCol, sheet.getLastRow() - 1, 1).getValues();
-  return values.map(function(row) { return row[0]; })
+  const count = sheet.getLastRow() - 1;
+  return managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts)
+    .getRows({ start: 2, count }, ['account_name'])
+    .map(function(row) { return row.account_name; })
     .filter(Boolean)
     .sort();
 }
@@ -51,7 +53,7 @@ function ensureTransactionSheetFilter_(sheet) {
   if (existing) {
     existing.remove();
   }
-  const filter = sheet.getRange(1, 1, lastRow, sheetConfig.headers.length).createFilter();
+  const filter = managedSheet_(sheet, sheetConfig).createFilter();
   restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader);
   reapplyPersistedQuickFilters_();
 }
@@ -61,7 +63,7 @@ function ensureBalancesSheetFilter_(sheet) {
   if (lastRow <= 1) return;
   const existing = sheet.getFilter();
   if (existing) existing.remove();
-  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length).createFilter();
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).createFilter();
 }
 
 function ensureAccountsSheetFilter_(sheet) {
@@ -69,7 +71,7 @@ function ensureAccountsSheetFilter_(sheet) {
   if (lastRow <= 1) return;
   const existing = sheet.getFilter();
   if (existing) existing.remove();
-  sheet.getRange(1, 1, lastRow, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers.length).createFilter();
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts).createFilter();
 }
 
 function snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, filter) {
@@ -79,9 +81,9 @@ function snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, filter) {
   }
 
   const filterColumnCount = getFilterColumnCount_(filter);
-  const headerRowValues = readSheetHeaderRowValues_(sheet, sheetConfig, filterColumnCount);
-  for (let index = 0; index < filterColumnCount; index += 1) {
-    const header = String(headerRowValues[index] || '').trim();
+  const headers = sheetConfig.headers.slice(0, filterColumnCount);
+  for (let index = 0; index < headers.length; index += 1) {
+    const header = headers[index];
     if (!header) {
       continue;
     }
@@ -109,14 +111,6 @@ function getFilterColumnCount_(filter) {
     return 0;
   }
   return range.getNumColumns();
-}
-
-function readSheetHeaderRowValues_(sheet, sheetConfig, columnCount) {
-  const maxColumnCount = Math.min(columnCount, sheetConfig.headers.length);
-  if (maxColumnCount <= 0) {
-    return [];
-  }
-  return sheet.getRange(1, 1, 1, maxColumnCount).getValues()[0];
 }
 
 function reapplyPersistedQuickFilters_() {
@@ -167,9 +161,8 @@ function applyQuickFilterCriteria_(sheet, sheetConfig, header, formula) {
   if (!sheet || !formula) return;
   let filter = sheet.getFilter();
   if (!filter) {
-    const lastRow = sheet.getLastRow();
-    if (lastRow <= 1) return;
-    filter = sheet.getRange(1, 1, lastRow, sheetConfig.headers.length).createFilter();
+    filter = managedSheet_(sheet, sheetConfig).createFilter();
+    if (!filter) return;
   }
   filter.setColumnFilterCriteria(
     getColumnIndex_(sheetConfig, header),

@@ -1,22 +1,22 @@
 // Orchestrates the full save lifecycle for a transaction:
-//   - sets status='saving' on existing rows before the API call
+//   - sets status='saving' on existing span before the API call
 //   - on error: writes status='error' + last_error, always rethrows
 //   - on success: flushes so 'saved' is briefly visible, refreshes doctor, then clears status to ''
 //
-// existingRowNumbers: null for POST (new), array for PATCH (edit)
+// existingSpan: null for POST (new), {start, count} for PATCH (edit)
 // transactionName: null for POST (skips generation tracking); string for PATCH
 // accountLookup: resource_name → display_name map passed to flattenTransactionForSheet_
 // doApiCall(saveGeneration): makes the API call; return null to abort (stale generation)
-// Returns finalRowNumbers, or null if aborted.
-function saveTransactionToSheet_(sheet, existingRowNumbers, transactionName, accountLookup, doApiCall) {
-  if (existingRowNumbers) {
-    setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'saving');
-    setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', '');
+// Returns finalSpan, or null if aborted.
+function saveTransactionToSheet_(sheet, existingSpan, transactionName, accountLookup, doApiCall) {
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
+  if (existingSpan) {
+    managedSheet_(sheet, txConfig).setFields(existingSpan, { status: 'saving', last_error: '' });
     SpreadsheetApp.flush();
   }
 
   const saveGeneration = transactionName ? beginSaveGeneration_(transactionName) : null;
-  let finalRowNumbers;
+  let finalSpan;
 
   try {
     const apiResult = doApiCall(saveGeneration);
@@ -33,20 +33,20 @@ function saveTransactionToSheet_(sheet, existingRowNumbers, transactionName, acc
     });
 
     const perf = getActivePerf_();
-    finalRowNumbers = perf
+    finalSpan = perf
       ? perf.wrap('sheet.apply_rows', function() {
-          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, replacementRows);
+          return applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows);
         })
-      : applyTransactionResponseToSheet_(sheet, existingRowNumbers, replacementRows);
+      : applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows);
   } catch (error) {
-    if (existingRowNumbers && (!saveGeneration || isCurrentSaveGeneration_(transactionName, saveGeneration))) {
-      setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'error');
-      setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', error.message || String(error));
+    if (existingSpan && (!saveGeneration || isCurrentSaveGeneration_(transactionName, saveGeneration))) {
+      const errorMsg = error.message || String(error);
+      managedSheet_(sheet, txConfig).setFields(existingSpan, { status: 'error', last_error: errorMsg });
     }
     throw error;
   }
 
-  if (!finalRowNumbers) return null;
+  if (!finalSpan) return null;
 
   SpreadsheetApp.flush();
   const perf = getActivePerf_();
@@ -63,8 +63,8 @@ function saveTransactionToSheet_(sheet, existingRowNumbers, transactionName, acc
       5
     );
   }
-  setFieldValuesForRowNumbers_(sheet, finalRowNumbers, 'status', '');
-  return finalRowNumbers;
+  managedSheet_(sheet, txConfig).setFields(finalSpan, { status: '' });
+  return finalSpan;
 }
 
 function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
@@ -72,7 +72,7 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const { rowNumbers, transactionName, rows } = precomputed;
+    const { span, transactionName, rows } = precomputed;
     const accountResourceToDisplayName = {};
     const accountDisplayNameToResource = {};
     (accountOptions || []).forEach(function(o) {
@@ -81,7 +81,7 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
     });
 
     try {
-      saveTransactionToSheet_(sheet, rowNumbers, transactionName, accountResourceToDisplayName,
+      saveTransactionToSheet_(sheet, span, transactionName, accountResourceToDisplayName,
         function(saveGeneration) {
           const payload = perf.wrap('data.build_payload', function() {
             return buildTransactionPatchPayload_(rows, accountDisplayNameToResource);

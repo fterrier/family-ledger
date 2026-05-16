@@ -11,7 +11,7 @@ const SOURCE_FILES = [
   'LedgerSync.js',
   'Api.js',
   'Settings.js',
-  'ManagedSheetData.js',
+  'ManagedSheet.js',
   'TransactionsSheet.js',
   'AccountsSheet.js',
   'BalancesSheet.js',
@@ -376,6 +376,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
         setWrap(value) { operations.push({ type: 'rangeListWrap', notations, value }); return this; },
         setWrapStrategy(value) { operations.push({ type: 'rangeListWrapStrategy', notations, value }); return this; },
         setNumberFormat(value) { operations.push({ type: 'rangeListNumberFormat', notations, value }); return this; },
+        clearDataValidations() { operations.push({ type: 'rangeListClearValidations', notations }); return this; },
       };
     },
     getActiveRange() {
@@ -455,10 +456,68 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
   };
 }
 
+// Minimal fake sheet for unit-testing managedSheet_ in isolation.
+// getValuesFn(row, col, numRows, numCols) controls what getValues() returns.
+function makeFakeSheet_(getValuesFn) {
+  const calls = [];
+  const rangeListCalls = [];
+
+  function makeRange(row, col, numRows, numCols) {
+    return {
+      getValues() {
+        return getValuesFn ? getValuesFn(row, col, numRows, numCols) : [];
+      },
+      setValues(values) {
+        calls.push({ method: 'setValues', row, col, numRows, numCols, values });
+        return this;
+      },
+      setFormulas(formulas) {
+        calls.push({ method: 'setFormulas', row, col, numRows, numCols, formulas });
+        return this;
+      },
+      setDataValidation(rule) {
+        calls.push({ method: 'setDataValidation', row, col, numRows, numCols, rule });
+        return this;
+      },
+      clearDataValidations() {
+        calls.push({ method: 'clearDataValidations', row, col, numRows, numCols });
+        return this;
+      },
+      createFilter() {
+        calls.push({ method: 'createFilter', row, col, numRows, numCols });
+        return { filterSentinel: true };
+      },
+      activate() {
+        calls.push({ method: 'activate', row, col });
+      },
+    };
+  }
+
+  return {
+    calls,
+    rangeListCalls,
+    getLastRow() { return 10; },
+    getMaxRows() { return 10; },
+    getRange(row, col, numRows = 1, numCols = 1) {
+      return makeRange(row, col, numRows, numCols);
+    },
+    getRangeList(notations) {
+      rangeListCalls.push({ notations });
+      return {
+        clearDataValidations() {
+          calls.push({ method: 'rangeListClearDataValidations', notations });
+          return this;
+        },
+      };
+    },
+  };
+}
+
 module.exports = {
   CLIENT_DIR,
   SOURCE_FILES,
   loadCode,
   sampleTransaction,
   makeRowStoreSheet_,
+  makeFakeSheet_,
 };

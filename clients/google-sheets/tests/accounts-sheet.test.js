@@ -41,13 +41,13 @@ test('applyAccountValidation_ clears stale source account validation and reappli
       return { row, column, numRows, numCols };
     },
   };
+  const rangeListOps = [];
   const transactionSheet = {
+    getRangeList(notations) {
+      return { clearDataValidations() { operations.push({ type: 'rangeListClear', notations }); return this; } };
+    },
     getRange(row, column, numRows = 1, numCols = 1) {
       return {
-        clearDataValidations() {
-          operations.push({ type: 'clearDataValidations', row, column, numRows, numCols });
-          return this;
-        },
         setDataValidation(rule) {
           operations.push({ type: 'setDataValidation', row, column, numRows, numCols, hasRule: Boolean(rule) });
           return this;
@@ -70,11 +70,10 @@ test('applyAccountValidation_ clears stale source account validation and reappli
     },
   });
 
-  sandbox.applyAccountValidation_(transactionSheet, 4);
+  sandbox.applyAccountValidation_(transactionSheet, { start: 2, count: 4 });
 
-  assert.deepEqual(operations, [
-    { type: 'clearDataValidations', row: 2, column: 7, numRows: 4, numCols: 1 },
-    { type: 'clearDataValidations', row: 2, column: 8, numRows: 4, numCols: 1 },
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { type: 'rangeListClear', notations: ['G2:G5', 'H2:H5'] },
     { type: 'setDataValidation', row: 2, column: 8, numRows: 4, numCols: 1, hasRule: true },
   ]);
 });
@@ -83,12 +82,11 @@ test('refreshTransactionAccountValidation_ clears stale transaction account drop
   const operations = [];
   const transactionSheet = {
     getLastRow() { return 4; },
+    getRangeList(notations) {
+      return { clearDataValidations() { operations.push({ type: 'rangeListClear', notations }); return this; } };
+    },
     getRange(row, column, numRows = 1, numCols = 1) {
       return {
-        clearDataValidations() {
-          operations.push({ type: 'clearDataValidations', row, column, numRows, numCols });
-          return this;
-        },
         setDataValidation(rule) {
           operations.push({ type: 'setDataValidation', row, column, numRows, numCols, hasRule: Boolean(rule) });
           return this;
@@ -104,8 +102,7 @@ test('refreshTransactionAccountValidation_ clears stale transaction account drop
 
   sandbox.refreshTransactionAccountValidation_(transactionSheet);
 
-  assert.deepEqual(operations, [
-    { type: 'clearDataValidations', row: 2, column: 7, numRows: 3, numCols: 1 },
-    { type: 'clearDataValidations', row: 2, column: 8, numRows: 3, numCols: 1 },
+  assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
+    { type: 'rangeListClear', notations: ['G2:G4', 'H2:H4'] },
   ]);
 });

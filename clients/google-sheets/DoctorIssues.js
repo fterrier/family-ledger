@@ -79,18 +79,20 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceTo
     if (txSheet) {
       const lastTxRow = txSheet.getLastRow();
       if (lastTxRow > 1) {
-        const txRows = txSheet.getRange(2, 1, lastTxRow - 1, 3).getValues();
+        const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
         const seen = {};
-        txRows.forEach(function(row) {
-          const name = String(row[0] || '');
-          if (name && targetSet[name] && !seen[name]) {
-            seen[name] = true;
-            const parts = ['Transaction'];
-            if (row[1]) { parts.push(row[1]); }
-            if (row[2]) { parts.push(row[2]); }
-            lookup[name] = parts.join(' ');
-          }
-        });
+        managedSheet_(txSheet, txConfig)
+          .getRows({ start: 2, count: lastTxRow - 1 }, ['resource_name', 'transaction_date', 'payee'])
+          .forEach(function(row) {
+            const name = String(row.resource_name || '');
+            if (name && targetSet[name] && !seen[name]) {
+              seen[name] = true;
+              const parts = ['Transaction'];
+              if (row.transaction_date) { parts.push(row.transaction_date); }
+              if (row.payee) { parts.push(row.payee); }
+              lookup[name] = parts.join(' ');
+            }
+          });
       }
     }
   }
@@ -106,15 +108,18 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceTo
   if (balSheet) {
     const lastBalRow = balSheet.getLastRow();
     if (lastBalRow > 1) {
-      balSheet.getRange(2, 1, lastBalRow - 1, 3).getValues().forEach(function(row) {
-        const resourceName = row[0];
-        if (resourceName && targetSet[resourceName]) {
-          const parts = ['Balance'];
-          if (row[1]) { parts.push(row[1]); }
-          if (row[2]) { parts.push(row[2]); }
-          lookup[resourceName] = parts.join(' ');
-        }
-      });
+      const balConfig = FAMILY_LEDGER_SHEET_REGISTRY.balances;
+      managedSheet_(balSheet, balConfig)
+        .getRows({ start: 2, count: lastBalRow - 1 }, ['resource_name', 'assertion_date', 'account'])
+        .forEach(function(row) {
+          const resourceName = row.resource_name;
+          if (resourceName && targetSet[resourceName]) {
+            const parts = ['Balance'];
+            if (row.assertion_date) { parts.push(row.assertion_date); }
+            if (row.account) { parts.push(row.account); }
+            lookup[resourceName] = parts.join(' ');
+          }
+        });
     }
   }
 
@@ -161,15 +166,15 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountRes
         navigate = buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber);
       }
     }
-    return [
-      target,
-      navigate,
-      formatDoctorIssueCodesForSheet_(issues),
-      formatDoctorIssuesForSheet_(issues),
-    ];
+    return {
+      target: target,
+      navigate: navigate,
+      issue_codes: formatDoctorIssueCodesForSheet_(issues),
+      issues_text: formatDoctorIssuesForSheet_(issues),
+    };
   });
 
-  writeSheet_(issueSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues.headers, dataRows);
+  writeSheet_(issueSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues, dataRows);
 
   debugLog_('writeFetchedDoctorIssueSheets', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {

@@ -37,29 +37,32 @@ function syncLedger() {
 
       const commoditiesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
       perf.wrap('sheet.write_commodities', function() {
-        writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities.headers, commodities.map(function(c) { return [c.symbol]; }));
+        writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities, commodities.map(function(c) { return { symbol: c.symbol }; }));
         commoditiesSheet.setFrozenRows(1);
       }, commodities.length + ' commodities');
 
       const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
       perf.wrap('sheet.write_accounts', function() {
         ensureSheetCapacity_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers.length, accountSyncData.accountRows.length + 1);
-        writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers, accountSyncData.accountRows);
+        writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts, accountSyncData.accountRows);
         accountsSheet.setFrozenRows(1);
-        ensureAccountIssueFormulas_(accountsSheet, accountSyncData.accountRows.length);
+        ensureAccountIssueFormulas_(accountsSheet, { start: 2, count: accountSyncData.accountRows.length });
       }, accountSyncData.accountRows.length + ' rows');
 
       const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
       perf.wrap('sheet.write_balances', function() {
         ensureSheetCapacity_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length, balanceAssertionRows.length + 1);
-        writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers, balanceAssertionRows);
+        writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances, balanceAssertionRows);
         balancesSheet.setFrozenRows(1);
-        ensureBalancesIssueFormulas_(balancesSheet, balanceAssertionRows.length);
+        ensureBalancesIssueFormulas_(balancesSheet, { start: 2, count: balanceAssertionRows.length });
       }, balanceAssertionRows.length + ' rows');
 
       const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
       perf.wrap('sheet.write_transactions', function() {
-        setTransactionSheetRows_(transactionsSheet, transactionSyncData.rows);
+        ensureSheetCapacity_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length, transactionSyncData.rows.length + 1);
+        writeSheet_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, transactionSyncData.rows);
+        transactionsSheet.setFrozenRows(1);
+        ensureTransactionIssueFormulas_(transactionsSheet, { start: 2, count: transactionSyncData.rows.length });
       }, transactionSyncData.rows.length + ' rows');
 
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
@@ -116,7 +119,7 @@ function buildAccountSyncData_(accounts) {
     return a.display_name.localeCompare(b.display_name);
   });
   const rows = displayEntries.map(function(entry) {
-    return [entry.resource_name, entry.display_name, ''];
+    return { resource_name: entry.resource_name, account_name: entry.display_name, issues: '' };
   });
   const accountResourceToDisplayName = {};
   displayEntries.forEach(function(entry) {

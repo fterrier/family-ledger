@@ -67,9 +67,8 @@ test('syncLedger fetches accounts and transactions once without resetting layout
   sandbox.ensureAccountIssueFormulas_ = function(sheet, rowCount) {
     calls.push({ type: 'accountIssues', sheet: sheet.name, rowCount });
   };
-  sandbox.setTransactionSheetRows_ = function(sheet, rows) {
-    calls.push({ type: 'writeTransactions', sheet: sheet.name, rowCount: rows.length });
-  };
+  sandbox.ensureSheetCapacity_ = function() {};
+  sandbox.ensureTransactionIssueFormulas_ = function() {};
   sandbox.refreshManagedLedgerSheetLayouts_ = function() {
     calls.push('refreshManagedLedgerSheetLayouts');
   };
@@ -86,6 +85,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     { type: 'writeSheet', sheet: 'Commodities', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
+    { type: 'writeSheet', sheet: 'Transactions', rowCount: 1 },
   ]);
   assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');
   assert.equal(calls.filter((call) => call === 'fetchLedgerDoctorIssuesByTarget').length, 1);

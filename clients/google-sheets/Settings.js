@@ -30,13 +30,6 @@ function debugLog_(eventName, fields) {
   console.log('[family-ledger] ' + eventName + ' ' + serializedFields);
 }
 
-function maskToken_(token) {
-  if (token.length <= 8) {
-    return '********';
-  }
-  return token.slice(0, 4) + '...' + token.slice(-4);
-}
-
 function normalizeBaseUrl_(value) {
   const trimmed = String(value || '').trim();
   if (!trimmed) {

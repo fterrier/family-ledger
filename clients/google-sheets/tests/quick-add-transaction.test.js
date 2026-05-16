@@ -48,7 +48,7 @@ test('submitTransactionFromSidebar (add) inserts new row before a later transact
   sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
   sandbox.loadAccountOptions_ = function() { return [{ resource_name: 'accounts/cash', display_name: '[A] Cash' }]; };
   sandbox.refreshDoctorIssueSheets_ = function() {};
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
   sandbox.focusCell_ = function() {};
 
   const result = sandbox.submitTransactionFromSidebar(null, null, {
@@ -58,7 +58,7 @@ test('submitTransactionFromSidebar (add) inserts new row before a later transact
     postings: [{ account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } }],
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result.rowNumbers)), [3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result.span)), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2');
 });
@@ -92,7 +92,7 @@ test('submitTransactionFromSidebar (edit) writes error status to sheet row on PA
     return [{ resource_name: 'accounts/cash', display_name: '[A] Cash' }];
   };
   sandbox.findTransactionRowNumbersFromAnchor_ = function() {
-    return { rowNumbers: [2] };
+    return { span: { start: 2, count: 1 } };
   };
   sandbox.apiFetchJson_ = function() {
     throw new Error('transaction_unbalanced: not balanced');

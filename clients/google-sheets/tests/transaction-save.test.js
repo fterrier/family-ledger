@@ -48,7 +48,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   };
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, []);
+  sandbox.saveTransactionByName_(fakeSheet, { span: { start: 2, count: 1 }, transactionName: 'transactions/txn_1', rows: [row2] }, {}, []);
 
   assert.equal(rowStore.get(2).issues, 'transaction_unbalanced (CHF, residual -4.25, tolerance 0.005)');
   assert.equal(rowStore.get(2).last_error, 'transaction_unbalanced: Transaction is not balanced within tolerance.');
@@ -97,15 +97,14 @@ test('saveTransactionByName_ clears status to empty after doctor refresh fails f
   sandbox.refreshDoctorIssueSheets_ = function() {
     throw new Error('doctor temporarily unavailable');
   };
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
-  sandbox.applyTransactionIssueFormulasToRowNumbers_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
 
   const row2 = { ...rowStore.get(2), __rowNumber: 2 };
   const accountOptions = [
     { resource_name: 'accounts/source', display_name: '[A] Bank - Checking' },
     { resource_name: 'accounts/food', display_name: '[X] Food' },
   ];
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
+  sandbox.saveTransactionByName_(fakeSheet, { span: { start: 2, count: 1 }, transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
   assert.equal(rowStore.get(2).status, '');
   assert.equal(rowStore.get(2).last_error, '');
@@ -149,8 +148,7 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
     if (method === 'patch') return sampleTransaction();
     throw new Error('unexpected api call');
   };
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
-  sandbox.applyTransactionIssueFormulasToRowNumbers_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
 
   let capturedLookup;
   sandbox.refreshDoctorIssueSheets_ = function(accountLookup) {
@@ -162,7 +160,7 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
     { resource_name: 'accounts/source', display_name: '[+] Checking' },
     { resource_name: 'accounts/food', display_name: '[E] Food' },
   ];
-  sandbox.saveTransactionByName_(fakeSheet, { rowNumbers: [2], transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
+  sandbox.saveTransactionByName_(fakeSheet, { span: { start: 2, count: 1 }, transactionName: 'transactions/txn_1', rows: [row2] }, {}, accountOptions);
 
   assert.deepEqual(JSON.parse(JSON.stringify(capturedLookup)), { 'accounts/source': '[+] Checking', 'accounts/food': '[E] Food' });
 });
@@ -178,8 +176,8 @@ function makeSaveTransactionSandbox(rowStore, overrides) {
   sandbox.flattenTransactionForSheet_ = function() {
     return [{ transaction_date: '2026-04-19', status: '', last_error: '', split_off_amount: '' }];
   };
-  sandbox.applyTransactionResponseToSheet_ = function(sheet, rowNumbers) {
-    return rowNumbers || [2];
+  sandbox.applyTransactionResponseToSheet_ = function(sheet, existingSpan) {
+    return existingSpan || { start: 2, count: 1 };
   };
   sandbox.refreshDoctorIssueSheets_ = function() {};
   return { sandbox, fakeSheet };
@@ -190,7 +188,7 @@ test('saveTransactionToSheet_ sets saving status before doApiCall, clears to emp
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
   const statusDuringApiCall = [];
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 1 }, 'transactions/txn_1', {},
     function() {
       statusDuringApiCall.push(rowStore.get(2).status);
       return { name: 'transactions/txn_1' };
@@ -206,7 +204,7 @@ test('saveTransactionToSheet_ writes error status and last_error on doApiCall fa
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   assert.throws(function() {
-    sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
+    sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 1 }, 'transactions/txn_1', {},
       function() { throw new Error('network error'); }
     );
   }, /network error/);
@@ -221,9 +219,9 @@ test('saveTransactionToSheet_ clears status to empty after doctor refresh', () =
     [3, { status: 'dirty', last_error: '' }],
   ]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
-  sandbox.applyTransactionResponseToSheet_ = function() { return [2, 3]; };
+  sandbox.applyTransactionResponseToSheet_ = function() { return { start: 2, count: 2 }; };
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2, 3], 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 2 }, 'transactions/txn_1', {},
     function() { return { name: 'transactions/txn_1' }; }
   );
 
@@ -231,7 +229,7 @@ test('saveTransactionToSheet_ clears status to empty after doctor refresh', () =
   assert.equal(rowStore.get(3).status, '');
 });
 
-test('saveTransactionToSheet_ skips pre-call status writes when existingRowNumbers is null (POST)', () => {
+test('saveTransactionToSheet_ skips pre-call status writes when existingSpan is null (POST)', () => {
   const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
@@ -239,12 +237,12 @@ test('saveTransactionToSheet_ skips pre-call status writes when existingRowNumbe
     function() { return { name: 'transactions/txn_new' }; }
   );
 
-  // No 'saving' written before doApiCall (existingRowNumbers is null)
-  // After success, status cleared on finalRowNumbers=[2] (from mock applyTransactionResponseToSheet_)
+  // No 'saving' written before doApiCall (existingSpan is null)
+  // After success, status cleared on finalSpan={start:2,count:1} (from mock applyTransactionResponseToSheet_)
   assert.equal(rowStore.get(2).status, '');
 });
 
-test('saveTransactionToSheet_ does not write error to sheet when existingRowNumbers is null (POST failure)', () => {
+test('saveTransactionToSheet_ does not write error to sheet when existingSpan is null (POST failure)', () => {
   const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
@@ -262,7 +260,7 @@ test('saveTransactionToSheet_ aborts cleanly when doApiCall returns null (stale 
   const rowStore = new Map([[2, { status: 'saving', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
-  const result = sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
+  const result = sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 1 }, 'transactions/txn_1', {},
     function() { return null; }
   );
 
@@ -276,7 +274,7 @@ test('saveTransactionToSheet_ throws when flattenTransactionForSheet_ returns em
   sandbox.flattenTransactionForSheet_ = function() { return []; };
 
   assert.throws(function() {
-    sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
+    sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 1 }, 'transactions/txn_1', {},
       function() { return { name: 'transactions/txn_1' }; }
     );
   }, /could not be rendered/);
@@ -296,7 +294,7 @@ test('saveTransactionToSheet_ shows failure toast and still clears status when d
   });
   sandbox.refreshDoctorIssueSheets_ = function() { throw new Error('doctor down'); };
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, { start: 2, count: 1 }, 'transactions/txn_1', {},
     function() { return { name: 'transactions/txn_1' }; }
   );
 

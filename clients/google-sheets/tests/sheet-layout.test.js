@@ -6,7 +6,7 @@ const { loadCode, makeRowStoreSheet_ } = require('./_harness');
 test('writeSheet_ clears and writes without checking sheet capacity', () => {
   const operations = [];
   const { sandbox } = loadCode();
-  const headers = sandbox.getSheetConfigByName_('Transactions').headers;
+  const sheetConfig = sandbox.getSheetConfigByName_('Transactions');
   const fakeSheet = {
     clearContents() { operations.push({ type: 'clearContents' }); },
     getRange(row, column, numRows, numCols) {
@@ -14,35 +14,31 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
     },
   };
 
-  sandbox.writeSheet_(fakeSheet, headers, []);
+  sandbox.writeSheet_(fakeSheet, sheetConfig, []);
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [headers] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [sheetConfig.headers] },
   ]);
 });
 
-test('setTransactionSheetRows_ expands undersized sheets before writing', () => {
+test('ensureSheetCapacity_ expands undersized sheets before writing', () => {
   const operations = [];
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, new Map(), operations);
   let maxRows = 1;
-  fakeSheet.getMaxRows = function() { return maxRows; };
-  fakeSheet.getMaxColumns = function() { return 26; };
-  fakeSheet.insertRowsAfter = function(row, howMany) {
-    operations.push({ type: 'insertRowsAfter', row, howMany });
-    maxRows += howMany;
+  const fakeSheet = {
+    getMaxRows() { return maxRows; },
+    getMaxColumns() { return 26; },
+    insertRowsAfter(row, howMany) {
+      operations.push({ type: 'insertRowsAfter', row, howMany });
+      maxRows += howMany;
+    },
+    insertColumnsAfter(col, howMany) {
+      operations.push({ type: 'insertColumnsAfter', col, howMany });
+    },
   };
-  fakeSheet.insertColumnsAfter = function(col, howMany) {
-    operations.push({ type: 'insertColumnsAfter', col, howMany });
-  };
-  fakeSheet.setFrozenRows = function() {};
 
-  sandbox.setTransactionSheetRows_(fakeSheet, [
-    { resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-01-01',
-      payee: '', narration: '', source_account_name: '', destination_account_name: '',
-      amount: '', split_off_amount: '', symbol: '', status: '', issues: '', last_error: '' },
-  ]);
+  sandbox.ensureSheetCapacity_(fakeSheet, 14, 2);
 
   const expandOp = operations.find(function(op) { return op.type === 'insertRowsAfter'; });
   assert.ok(expandOp, 'should insert rows when sheet is too small');

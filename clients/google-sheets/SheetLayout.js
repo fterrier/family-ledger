@@ -109,11 +109,12 @@ function getOrCreateSheet_(sheetName) {
 }
 
 
-function writeSheet_(sheet, headers, rows) {
+function writeSheet_(sheet, sheetConfig, rows) {
   sheet.clearContents();
-  sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+  const managed = managedSheet_(sheet, sheetConfig);
+  managed.setHeaders();
   if (rows.length > 0) {
-    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    managed.setRows({ start: 2, count: rows.length }, rows);
   }
 }
 
@@ -276,7 +277,7 @@ function ensureSheetConditionalFormatting_(sheet, sheetConfig) {
   sheetConfig = requireSheetConfig_(sheetConfig || sheet);
   ensureSheetCapacityForConfig_(sheet, sheetConfig);
   const totalRows = sheet.getMaxRows();
-  const fullRange = sheet.getRange(2, 1, Math.max(totalRows - 1, 1), sheetConfig.headers.length);
+  const fullRange = managedSheet_(sheet, sheetConfig).getFullDataRange();
   const existingRules = sheet.getConditionalFormatRules();
   const preservedRules = existingRules.filter(function(rule) {
     const condition = rule.getBooleanCondition && rule.getBooleanCondition();
@@ -307,11 +308,14 @@ function isManagedConditionalFormula_(formula, sheetConfig) {
 }
 
 function applyTransactionEditCheckbox_(sheet) {
-  const editColumn = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, 'edit');
   const lastRow = sheet.getMaxRows();
   if (lastRow <= 1) return;
-  sheet.getRange(2, editColumn, lastRow - 1, 1)
-    .setDataValidation(SpreadsheetApp.newDataValidation().requireCheckbox().build());
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
+  managedSheet_(sheet, txConfig).setColumnValidation(
+    { start: 2, count: lastRow - 1 },
+    'edit',
+    SpreadsheetApp.newDataValidation().requireCheckbox().build()
+  );
 }
 
 function columnNumberToLetter_(columnNumber) {

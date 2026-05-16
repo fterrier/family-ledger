@@ -422,7 +422,7 @@ test('findTransactionRowNumbersFromAnchor_ finds a single non-split row', () => 
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
-  assert.deepEqual(result.rowNumbers, [2]);
+  assert.deepEqual(result.span, { start: 2, count: 1 });
   assert.equal(result.transactionName, 'transactions/txn_a');
 });
 
@@ -436,7 +436,7 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anch
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3)));
-  assert.deepEqual(result.rowNumbers, [2, 3, 4]);
+  assert.deepEqual(result.span, { start: 2, count: 3 });
   assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
@@ -449,7 +449,7 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at top',
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
-  assert.deepEqual(result.rowNumbers, [2, 3]);
+  assert.deepEqual(result.span, { start: 2, count: 2 });
   assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
@@ -462,7 +462,7 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at botto
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 4)));
-  assert.deepEqual(result.rowNumbers, [3, 4]);
+  assert.deepEqual(result.span, { start: 3, count: 2 });
   assert.equal(result.transactionName, 'transactions/txn_1');
 });
 
@@ -474,14 +474,6 @@ test('findTransactionRowNumbersFromAnchor_ throws when anchor row has no transac
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   assert.throws(() => sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3), /does not contain a transaction/);
-});
-
-test('buildContiguousRowSpans_ groups scattered row numbers into deletion spans', () => {
-  const { sandbox } = loadCode();
-  assert.deepEqual(JSON.parse(JSON.stringify(sandbox.buildContiguousRowSpans_([9, 2, 3, 7, 8]))), [
-    { start: 2, count: 2 },
-    { start: 7, count: 3 },
-  ]);
 });
 
 test('flattenTransactionForSheet_ passes transaction_date string through unchanged', () => {
@@ -520,7 +512,7 @@ test('applyTransactionResponseToSheet_ inserts new transaction mid-sheet at date
 
   const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
 });
@@ -536,7 +528,7 @@ test('applyTransactionResponseToSheet_ appends new transaction when date is afte
 
   const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
 });
 
@@ -550,7 +542,7 @@ test('applyTransactionResponseToSheet_ writes to row 2 when sheet is empty', () 
   const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
   // sampleTransaction has 1 destination → 1 row
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
 });
 
@@ -571,9 +563,9 @@ test('applyTransactionResponseToSheet_ deletes excess rows when posting count de
   // sampleTransaction has 1 destination → flattenTransactionForSheet_ returns 1 row
   const replacementRows = makeReplacementRows_(sandbox);
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 2 }, replacementRows);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_other');
   const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
@@ -604,9 +596,9 @@ test('applyTransactionResponseToSheet_ inserts rows when posting count increases
   });
   replacementRows.forEach(function(row) { row.split_off_amount = ''; row.status = 'saved'; row.last_error = ''; });
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 1 }, replacementRows);
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), [2, 3]);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 2 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_1');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_other');
@@ -629,7 +621,7 @@ test('applyTransactionResponseToSheet_ does full setValues when same count and n
   const replacementRows = makeReplacementRows_(sandbox);
 
   let setValuesCalled = false;
-  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], replacementRows);
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 2 }, replacementRows);
 
   assert.equal(rowStore.get(2).payee, 'Migros');
   assert.equal(rowStore.get(2).status, 'saved');

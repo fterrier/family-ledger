@@ -65,7 +65,7 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
-  const { rowNumbers, transactionName, rows: groupRows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  const { transactionName, rows: groupRows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   const row = groupRows.find(function(r) { return r.__rowNumber === rowNumber; });
   if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
@@ -79,7 +79,7 @@ function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
     throw new Error('Split amount must differ from the row amount.');
   }
   const updatedRows = insertSplitRow_(sheet, rowNumber, row, groupRows, originalAmount - splitAmount, splitAmount, 'split_off_amount');
-  return { rowNumbers: updatedRows.map(function(r) { return r.__rowNumber; }), transactionName: transactionName, rows: updatedRows };
+  return { span: { start: updatedRows[0].__rowNumber, count: updatedRows.length }, transactionName: transactionName, rows: updatedRows };
 }
 
 function insertSplitRow_(sheet, rowNumber, row, groupRows, rowAmount, splitAmount, focusHeader) {
@@ -96,11 +96,12 @@ function insertSplitRow_(sheet, rowNumber, row, groupRows, rowAmount, splitAmoun
   row.status = 'dirty';
   row.last_error = '';
 
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
   sheet.insertRowsAfter(rowNumber, 1);
-  writeTransactionSheetRow_(sheet, rowNumber, row);
-  writeTransactionSheetRow_(sheet, rowNumber + 1, newRow);
-  applyAccountValidationToRowNumbers_(sheet, [rowNumber + 1]);
-  focusCell_(sheet, rowNumber + 1, getTransactionHeaderColumnIndex_(focusHeader));
+  managedSheet_(sheet, txConfig).setRow(rowNumber, row);
+  managedSheet_(sheet, txConfig).setRow(rowNumber + 1, newRow);
+  applyAccountValidationToSpan_(sheet, { start: rowNumber + 1, count: 1 });
+  managedSheet_(sheet, txConfig).activateCell(rowNumber + 1, focusHeader);
 
   return computePostInsertRows_(groupRows, rowNumber, row, newRow);
 }
@@ -128,44 +129,43 @@ function performSplitInstructionForRow_(sheet, rowNumber, instruction) {
 }
 
 function performDeleteSplitRow_(sheet, rowNumber) {
-  const { rowNumbers, transactionName, rows: groupRows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  const { span, transactionName, rows: groupRows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   const row = groupRows.find(function(r) { return r.__rowNumber === rowNumber; });
   if (!row || !row.resource_name) {
     throw new Error('The selected row does not contain a transaction.');
   }
 
-  const column = getTransactionHeaderColumnIndex_('split_off_amount');
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
 
-  if (rowNumbers.length <= 1) {
+  if (span.count <= 1) {
     row.destination_account_name = '';
     row.split_off_amount = '';
     row.status = 'dirty';
     row.last_error = '';
     row.narration_source = 'txn';
-    writeTransactionSheetRow_(sheet, rowNumber, row);
-    focusCell_(sheet, rowNumber, column);
-    return { rowNumbers: [rowNumber], transactionName: transactionName, rows: [row] };
+    managedSheet_(sheet, txConfig).setRow(rowNumber, row);
+    managedSheet_(sheet, txConfig).activateCell(rowNumber, 'split_off_amount');
+    return { span: { start: rowNumber, count: 1 }, transactionName: transactionName, rows: [row] };
   }
 
-  const currentIndex = rowNumbers.indexOf(rowNumber);
-  const mergeTargetRowNumber = currentIndex > 0 ? rowNumbers[currentIndex - 1] : rowNumbers[currentIndex + 1];
+  const mergeTargetRowNumber = rowNumber > span.start ? rowNumber - 1 : rowNumber + 1;
   const mergeTarget = groupRows.find(function(r) { return r.__rowNumber === mergeTargetRowNumber; });
   mergeTarget.amount = mergeTarget.amount + row.amount;
   mergeTarget.split_off_amount = '';
   mergeTarget.status = 'dirty';
   mergeTarget.last_error = '';
-  if (rowNumbers.length === 2) {
+  if (span.count === 2) {
     mergeTarget.narration_source = 'txn';
   }
 
   if (mergeTargetRowNumber < rowNumber) {
-    writeTransactionSheetRow_(sheet, mergeTargetRowNumber, mergeTarget);
+    managedSheet_(sheet, txConfig).setRow(mergeTargetRowNumber, mergeTarget);
     sheet.deleteRow(rowNumber);
-    focusCell_(sheet, mergeTargetRowNumber, column);
+    managedSheet_(sheet, txConfig).activateCell(mergeTargetRowNumber, 'split_off_amount');
   } else {
     sheet.deleteRow(rowNumber);
-    writeTransactionSheetRow_(sheet, mergeTargetRowNumber - 1, mergeTarget);
-    focusCell_(sheet, rowNumber, column);
+    managedSheet_(sheet, txConfig).setRow(mergeTargetRowNumber - 1, mergeTarget);
+    managedSheet_(sheet, txConfig).activateCell(rowNumber, 'split_off_amount');
   }
 
   const survivingRows = groupRows
@@ -176,19 +176,15 @@ function performDeleteSplitRow_(sheet, rowNumber) {
         : r;
     });
   return {
-    rowNumbers: survivingRows.map(function(r) { return r.__rowNumber; }),
+    span: { start: span.start, count: span.count - 1 },
     transactionName: transactionName,
     rows: survivingRows,
   };
 }
 
-function focusCell_(sheet, rowNumber, columnNumber) {
-  sheet.getRange(rowNumber, columnNumber).activate();
-}
-
 function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   const precomputed = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-  const { rowNumbers } = precomputed;
+  const { span } = precomputed;
   const groupRows = precomputed.rows;
   const row = groupRows.find(function(r) { return r.__rowNumber === rowNumber; });
 
@@ -200,7 +196,7 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   const oldAmount = parseFloat(oldRawValue);
   const newAmount = parseFloat(rawValue);
   if (isNaN(oldAmount)) {
-    return { rowNumbers: rowNumbers, transactionName: precomputed.transactionName, rows: groupRows };
+    return { span: span, transactionName: precomputed.transactionName, rows: groupRows };
   }
 
   if (isNaN(newAmount)) {
@@ -209,19 +205,19 @@ function handleAmountEdit_(sheet, rowNumber, rawValue, oldRawValue) {
   }
 
   if (newAmount === oldAmount) {
-    return { rowNumbers: rowNumbers, transactionName: precomputed.transactionName, rows: groupRows };
+    return { span: span, transactionName: precomputed.transactionName, rows: groupRows };
   }
 
   const updatedRows = insertSplitRow_(sheet, rowNumber, row, groupRows, newAmount, oldAmount - newAmount, 'amount');
   return {
-    rowNumbers: updatedRows.map(function(r) { return r.__rowNumber; }),
+    span: { start: updatedRows[0].__rowNumber, count: updatedRows.length },
     transactionName: precomputed.transactionName,
     rows: updatedRows,
   };
 }
 
 function restoreAmountCell_(sheet, rowNumber, amount) {
-  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('amount')).setValue(amount);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields({ start: rowNumber, count: 1 }, { amount: amount });
 }
 
 function rollbackFailedEdit_(sheet, rowNumber, header, oldValue) {
@@ -230,7 +226,7 @@ function rollbackFailedEdit_(sheet, rowNumber, header, oldValue) {
     return;
   }
   if (header === 'split_off_amount') {
-    sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('split_off_amount')).setValue('');
+    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields({ start: rowNumber, count: 1 }, { split_off_amount: '' });
   }
 }
 
@@ -240,27 +236,27 @@ function normalizedFallbackAmount_(amount) {
 }
 
 function propagateTransactionField_(sheet, rowNumber, header, value) {
-  const { rowNumbers, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-  setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value);
+  const { span, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields(span, { [header]: value });
   rows.forEach(function(row) { row[header] = value; });
-  return { rowNumbers: rowNumbers, transactionName: transactionName, rows: rows };
+  return { span: span, transactionName: transactionName, rows: rows };
 }
 
 function applyNarrationEdit_(sheet, rowNumber, value) {
-  const { rowNumbers, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-  if (rowNumbers.length <= 1) {
+  const { span, transactionName, rows } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+  if (span.count <= 1) {
     const row = applySingleRowTransactionNarrationEdit_(sheet, rowNumber, rows[0], value);
-    return { rowNumbers: rowNumbers, transactionName: transactionName, rows: [row] };
+    return { span: span, transactionName: transactionName, rows: [row] };
   }
 
   const groupRows = applySplitRowPostingNarrationEdit_(sheet, rowNumber, rows, value);
-  return { rowNumbers: rowNumbers, transactionName: transactionName, rows: groupRows };
+  return { span: span, transactionName: transactionName, rows: groupRows };
 }
 
 function applySingleRowTransactionNarrationEdit_(sheet, rowNumber, row, value) {
   row.narration_source = 'txn';
   row.narration = value;
-  writeTransactionSheetRow_(sheet, rowNumber, row);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRow(rowNumber, row);
   return row;
 }
 
@@ -278,7 +274,7 @@ function applySplitRowPostingNarrationEdit_(sheet, rowNumber, groupRows, value) 
     row.narration = normalizedValue;
   }
 
-  writeTransactionSheetRow_(sheet, rowNumber, row);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRow(rowNumber, row);
   return groupRows;
 }
 
@@ -306,7 +302,7 @@ function ensureSplitTransactionRetainsTransactionNarration_(groupRows, rowNumber
 }
 
 function openEditTransactionSidebar_(sheet, rowNumber) {
-  sheet.getRange(rowNumber, getTransactionHeaderColumnIndex_('edit')).setValue(false);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields({ start: rowNumber, count: 1 }, { edit: false });
   let transactionName;
   try {
     transactionName = findTransactionRowNumbersFromAnchor_(sheet, rowNumber).transactionName;
@@ -326,9 +322,9 @@ function openEditTransactionSidebar_(sheet, rowNumber) {
 
 function handleAutomaticEditError_(sheet, rowNumber, error) {
   try {
-    const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'status', 'error');
-    setFieldValuesForRowNumbers_(sheet, rowNumbers, 'last_error', error.message || String(error));
+    const { span } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
+    const errorMsg = error.message || String(error);
+    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields(span, { status: 'error', last_error: errorMsg });
   } catch (_e) {
     // Row has no transaction — status fields cannot be updated
   }

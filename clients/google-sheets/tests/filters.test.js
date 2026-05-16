@@ -66,7 +66,7 @@ test('ensureTransactionSheetFilter_ restores existing filter criteria on the new
   sandbox.ensureTransactionSheetFilter_(sheet);
 
   assert.equal(restored.length, 2);
-  assert.deepEqual(restored.map((r) => r.col).sort((a, b) => a - b), [4, 7]);
+  assert.deepEqual(restored.map((r) => r.col).sort((a, b) => a - b), [3, 6]);
 });
 
 test('ensureTransactionSheetFilter_ tolerates a legacy narrower filter range', () => {
@@ -120,7 +120,7 @@ test('ensureTransactionSheetFilter_ tolerates a legacy narrower filter range', (
   sandbox.ensureTransactionSheetFilter_(sheet);
 
   assert.deepEqual(accessedColumns, [1, 2, 3, 4, 5, 6]);
-  assert.deepEqual(restored, [{ col: 4, criteria: { formula: '=C2>0' } }]);
+  assert.deepEqual(restored, [{ col: 3, criteria: { formula: '=C2>0' } }]);
 });
 
 test('ensureTransactionSheetFilter_ restores hidden technical column criteria by header too', () => {
@@ -134,7 +134,7 @@ test('ensureTransactionSheetFilter_ restores hidden technical column criteria by
           return { getNumColumns() { return 13; } };
         },
         getColumnFilterCriteria(col) {
-          return col === 5 ? { formula: '=$E2="txn"' } : null;
+          return col === 6 ? { formula: '=$F2="txn"' } : null;
         },
         remove() {},
       };
@@ -167,7 +167,7 @@ test('ensureTransactionSheetFilter_ restores hidden technical column criteria by
 
   sandbox.ensureTransactionSheetFilter_(sheet);
 
-  assert.deepEqual(restored, [{ col: 6, criteria: { formula: '=$E2="txn"' } }]);
+  assert.deepEqual(restored, [{ col: 6, criteria: { formula: '=$F2="txn"' } }]);
 });
 
 test('ensureTransactionSheetFilter_ reapplies persisted quick filters after rebuild', () => {

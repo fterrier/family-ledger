@@ -37,12 +37,12 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       const accountResourceToDisplayName = {};
       accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
 
-      const existingRowNumbers = isEdit
-        ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).rowNumbers
+      const existingSpan = isEdit
+        ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).span
         : null;
 
       let newTransactionName;
-      const rowNumbers = saveTransactionToSheet_(sheet, existingRowNumbers,
+      const finalSpan = saveTransactionToSheet_(sheet, existingSpan,
         isEdit ? transactionName : null, accountResourceToDisplayName,
         function(saveGeneration) {
           if (isEdit) {
@@ -71,20 +71,19 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         }
       );
 
-      if (!rowNumbers) return {};
+      if (!finalSpan) return {};
 
       if (isEdit) {
         SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Family Ledger', 3);
         return {};
       } else {
-        const payeeColumn = getTransactionHeaderColumnIndex_('payee');
         SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sheet);
-        focusCell_(sheet, rowNumbers[0], payeeColumn);
+        managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).activateCell(finalSpan.start, 'payee');
         SpreadsheetApp.getActiveSpreadsheet().toast(
           'Transaction added on ' + transactionDate + '.',
           'Family Ledger', 3
         );
-        return { transactionName: newTransactionName, rowNumbers: rowNumbers };
+        return { transactionName: newTransactionName, span: finalSpan };
       }
     } finally {
       clearActivePerf_();
@@ -97,8 +96,8 @@ function deleteTransactionFromSidebar(transactionName, anchorRow) {
   return runUserAction_('Delete Transaction', function() {
     apiFetchJson_('delete', '/' + transactionName);
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    const { rowNumbers } = findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
-    replaceTransactionRowsInSheet_(sheet, rowNumbers, []);
+    const { span } = findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
+    replaceTransactionRowsInSheet_(sheet, span, []);
     const accountOptions = loadAccountOptions_();
     const accountResourceToDisplayName = {};
     accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });

@@ -34,72 +34,55 @@ function readAccountSheetEntries_() {
     throw new Error('Accounts sheet is empty. Run Sync Ledger first.');
   }
 
-  return accountsSheet.getRange(2, 1, lastRow - 1, 2).getValues().map(function(row) {
-    return {
-      resourceName: row[0] ? String(row[0]) : '',
-      displayName: row[1] ? String(row[1]) : '',
-    };
-  });
+  const accConfig = FAMILY_LEDGER_SHEET_REGISTRY.accounts;
+  return managedSheet_(accountsSheet, accConfig)
+    .getRows({ start: 2, count: lastRow - 1 }, ['resource_name', 'account_name'])
+    .map(function(row) {
+      return {
+        resourceName: row.resource_name ? String(row.resource_name) : '',
+        displayName: row.account_name ? String(row.account_name) : '',
+      };
+    });
 }
 
 
-function ensureAccountIssueFormulas_(sheet, rowCount) {
-  ensureManagedSheetIssueFormulas_(
-    sheet,
-    FAMILY_LEDGER_SHEET_REGISTRY.accounts,
-    rowCount
-  );
+function ensureAccountIssueFormulas_(sheet, span) {
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts).setColumnFormulas(span, 'issues', buildIssueLookupFormula_);
 }
 
 function buildAccountValidationRule_() {
   const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
   const lastRow = accountsSheet.getLastRow();
   if (lastRow <= 1) return null;
-  return {
-    rule: SpreadsheetApp.newDataValidation()
-      .requireValueInRange(accountsSheet.getRange(2, 2, lastRow - 1, 1), true)
-      .setAllowInvalid(false)
-      .build(),
-    destinationColumn: getTransactionHeaderColumnIndex_('destination_account_name'),
-  };
+  const accConfig = FAMILY_LEDGER_SHEET_REGISTRY.accounts;
+  return SpreadsheetApp.newDataValidation()
+    .requireValueInRange(managedSheet_(accountsSheet, accConfig).getColumnRange({ start: 2, count: lastRow - 1 }, 'account_name'), true)
+    .setAllowInvalid(false)
+    .build();
 }
 
-function applyAccountValidation_(sheet, rowCount) {
-  if (rowCount === 0) return;
-  clearTransactionAccountValidationColumns_(sheet, 2, rowCount);
+function applyAccountValidation_(sheet, span) {
+  if (span.count === 0) return;
+  applyAccountValidationToSpan_(sheet, span);
+}
+
+
+/**
+ * Applies account dropdown validation to a contiguous span of transaction rows.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {{start: number, count: number}} span - Contiguous row span.
+ */
+function applyAccountValidationToSpan_(sheet, span) {
+  if (span.count === 0) return;
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
   // TODO: Improve account UX beyond dropdown validation, especially for large account lists.
-  const validation = buildAccountValidationRule_();
-  if (!validation) return;
-  sheet.getRange(2, validation.destinationColumn, rowCount, 1).setDataValidation(validation.rule);
-}
-
-
-function applyAccountValidationToRowNumbers_(sheet, rowNumbers) {
-  if (rowNumbers.length === 0) return;
-  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
-  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
-  const spans = buildContiguousRowSpans_(rowNumbers.slice().sort(function(a, b) { return a - b; }));
-  spans.forEach(function(span) {
-    sheet.getRange(span.start, sourceColumn, span.count, 1).clearDataValidations();
-    sheet.getRange(span.start, destinationColumn, span.count, 1).clearDataValidations();
-  });
-  const validation = buildAccountValidationRule_();
-  if (!validation) return;
-  spans.forEach(function(span) {
-    sheet.getRange(span.start, validation.destinationColumn, span.count, 1).setDataValidation(validation.rule);
-  });
+  managedSheet_(sheet, txConfig).clearColumnValidations(span, ['source_account_name', 'destination_account_name']);
+  const rule = buildAccountValidationRule_();
+  if (!rule) return;
+  managedSheet_(sheet, txConfig).setColumnValidation(span, 'destination_account_name', rule);
 }
 
 function refreshTransactionAccountValidation_(sheet) {
-  applyAccountValidation_(sheet, Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0));
-}
-
-function clearTransactionAccountValidationColumns_(sheet, startRow, rowCount) {
-  if (rowCount <= 0) {
-    return;
-  }
-  const sourceColumn = getTransactionHeaderColumnIndex_('source_account_name');
-  const destinationColumn = getTransactionHeaderColumnIndex_('destination_account_name');
-  sheet.getRange(startRow, sourceColumn, rowCount, 1).clearDataValidations();
-  sheet.getRange(startRow, destinationColumn, rowCount, 1).clearDataValidations();
+  applyAccountValidation_(sheet, { start: 2, count: Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0) });
 }

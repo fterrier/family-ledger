@@ -264,25 +264,21 @@ test('flattenTransactionForSheet_ keeps positive sheet amount for source-only ne
   assert.equal(rows[0].amount, 1);
 });
 
-test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in sheet row order', () => {
+test('buildTransactionPatchPayload_ rebuilds canonical PATCH payload in sheet row order', () => {
   const { sandbox } = loadCode();
 
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
-        payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
-        destination_account_name: '[X] Household', amount: 34.25, symbol: 'CHF', __rowNumber: 4,
-      },
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
-        payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
-        destination_account_name: '[X] Food', amount: 50, symbol: 'CHF', __rowNumber: 5,
-      },
-    ],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
+      payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Household', amount: 34.25, symbol: 'CHF', __rowNumber: 4,
+    },
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19',
+      payee: 'Migros', narration: 'Groceries split', source_account_name: '[A] Bank - Checking',
+      destination_account_name: '[X] Food', amount: 50, symbol: 'CHF', __rowNumber: 5,
+    },
+  ], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
     '[X] Household': 'accounts/household',
@@ -300,17 +296,13 @@ test('buildTransactionPatchPayloadFromGroup_ rebuilds canonical PATCH payload in
   });
 });
 
-test('buildTransactionPatchPayloadFromGroup_ normalizes Sheets date objects to yyyy-mm-dd', () => {
+test('buildTransactionPatchPayload_ normalizes Sheets date objects to yyyy-mm-dd', () => {
   const { sandbox } = loadCode();
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [{
-      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
-      payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
-    }],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([{
+    resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
+    payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking',
+    destination_account_name: '[X] Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
+  }], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
   });
@@ -318,24 +310,20 @@ test('buildTransactionPatchPayloadFromGroup_ normalizes Sheets date objects to y
   assert.equal(payload.transaction_date, '2019-09-15');
 });
 
-test('buildTransactionPatchPayloadFromGroup_ keeps transaction narration separate from posting narrations', () => {
+test('buildTransactionPatchPayload_ keeps transaction narration separate from posting narrations', () => {
   const { sandbox } = loadCode();
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'post', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'A', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
-        amount: 50, symbol: 'CHF', __rowNumber: 2,
-      },
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
-        amount: 34.25, symbol: 'CHF', __rowNumber: 3,
-      },
-    ],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'post', transaction_date: '2026-04-19', payee: 'Migros',
+      narration: 'A', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+      amount: 50, symbol: 'CHF', __rowNumber: 2,
+    },
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+      narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
+      amount: 34.25, symbol: 'CHF', __rowNumber: 3,
+    },
+  ], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
     '[X] Household': 'accounts/household',
@@ -348,24 +336,20 @@ test('buildTransactionPatchPayloadFromGroup_ keeps transaction narration separat
   ]);
 });
 
-test('buildTransactionPatchPayloadFromGroup_ treats differing split row narration as posting narration even if source is txn', () => {
+test('buildTransactionPatchPayload_ treats differing split row narration as posting narration even if source is txn', () => {
   const { sandbox } = loadCode();
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
-        amount: 50, symbol: 'CHF', __rowNumber: 2,
-      },
-      {
-        resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
-        narration: 'Household', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
-        amount: 34.25, symbol: 'CHF', __rowNumber: 3,
-      },
-    ],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+      narration: 'Shared', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+      amount: 50, symbol: 'CHF', __rowNumber: 2,
+    },
+    {
+      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2026-04-19', payee: 'Migros',
+      narration: 'Household', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
+      amount: 34.25, symbol: 'CHF', __rowNumber: 3,
+    },
+  ], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
     '[X] Household': 'accounts/household',
@@ -378,17 +362,13 @@ test('buildTransactionPatchPayloadFromGroup_ treats differing split row narratio
   ]);
 });
 
-test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when destination is blank', () => {
+test('buildTransactionPatchPayload_ emits source-only transaction when destination is blank', () => {
   const { sandbox } = loadCode();
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [{
-      resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
-      narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '',
-      amount: 1.5, symbol: 'CHF', __rowNumber: 2,
-    }],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([{
+    resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
+    narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '',
+    amount: 1.5, symbol: 'CHF', __rowNumber: 2,
+  }], {
     '[A] Bank - Checking': 'accounts/source',
   });
 
@@ -400,33 +380,25 @@ test('buildTransactionPatchPayloadFromGroup_ emits source-only transaction when 
   });
 });
 
-test('buildTransactionPatchPayloadFromGroup_ rejects mixed blank and non-blank destinations', () => {
+test('buildTransactionPatchPayload_ rejects mixed blank and non-blank destinations', () => {
   const { sandbox } = loadCode();
 
-  assert.throws(() => sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: [
-      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
-      { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
-    ],
-  }, {
+  assert.throws(() => sandbox.buildTransactionPatchPayload_([
+    { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
+    { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
+  ], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
   }), /must either all have destination accounts or all leave destination_account_name blank/);
 });
 
-test('buildTransactionPatchPayloadFromGroup_ accepts negative destination amounts for income rows', () => {
+test('buildTransactionPatchPayload_ accepts negative destination amounts for income rows', () => {
   const { sandbox } = loadCode();
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_income',
-    contiguous: true,
-    rows: [{
-      resource_name: 'transactions/txn_income', narration_source: 'txn', transaction_date: '2026-01-31', payee: '',
-      narration: 'Monthly salary', source_account_name: '[A] Bank', destination_account_name: '[I] Salary',
-      amount: -5000, symbol: 'CHF', __rowNumber: 2,
-    }],
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_([{
+    resource_name: 'transactions/txn_income', narration_source: 'txn', transaction_date: '2026-01-31', payee: '',
+    narration: 'Monthly salary', source_account_name: '[A] Bank', destination_account_name: '[I] Salary',
+    amount: -5000, symbol: 'CHF', __rowNumber: 2,
+  }], {
     '[A] Bank': 'accounts/bank',
     '[I] Salary': 'accounts/salary',
   });
@@ -440,12 +412,6 @@ test('buildTransactionPatchPayloadFromGroup_ accepts negative destination amount
       { account: 'accounts/salary', narration: null, units: { amount: '-5000', symbol: 'CHF' } },
     ],
   });
-});
-
-test('isContiguousRowNumbers_ identifies split and contiguous groups', () => {
-  const { sandbox } = loadCode();
-  assert.equal(sandbox.isContiguousRowNumbers_([2, 3, 4]), true);
-  assert.equal(sandbox.isContiguousRowNumbers_([2, 4]), false);
 });
 
 test('findTransactionRowNumbersFromAnchor_ finds a single non-split row', () => {
@@ -552,7 +518,7 @@ test('applyTransactionResponseToSheet_ inserts new transaction mid-sheet at date
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-20', name: 'transactions/txn_new' } });
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
@@ -568,7 +534,7 @@ test('applyTransactionResponseToSheet_ appends new transaction when date is afte
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-25', name: 'transactions/txn_new' } });
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [3]);
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
@@ -581,7 +547,7 @@ test('applyTransactionResponseToSheet_ writes to row 2 when sheet is empty', () 
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   const replacementRows = makeReplacementRows_(sandbox);
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, null, replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
 
   // sampleTransaction has 1 destination → 1 row
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
@@ -605,7 +571,7 @@ test('applyTransactionResponseToSheet_ deletes excess rows when posting count de
   // sampleTransaction has 1 destination → flattenTransactionForSheet_ returns 1 row
   const replacementRows = makeReplacementRows_(sandbox);
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], null, replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [2]);
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
@@ -638,7 +604,7 @@ test('applyTransactionResponseToSheet_ inserts rows when posting count increases
   });
   replacementRows.forEach(function(row) { row.split_off_amount = ''; row.status = 'saved'; row.last_error = ''; });
 
-  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], null, replacementRows);
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, [2], replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), [2, 3]);
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
@@ -663,7 +629,7 @@ test('applyTransactionResponseToSheet_ does full setValues when same count and n
   const replacementRows = makeReplacementRows_(sandbox);
 
   let setValuesCalled = false;
-  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], null, replacementRows);
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, [2, 3], replacementRows);
 
   assert.equal(rowStore.get(2).payee, 'Migros');
   assert.equal(rowStore.get(2).status, 'saved');
@@ -675,11 +641,7 @@ test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API pa
     'accounts/source': '[A] Bank - Checking',
     'accounts/food': '[X] Food',
   });
-  const payload = sandbox.buildTransactionPatchPayloadFromGroup_({
-    transactionName: 'transactions/txn_1',
-    contiguous: true,
-    rows: rows,
-  }, {
+  const payload = sandbox.buildTransactionPatchPayload_(rows, {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
   });

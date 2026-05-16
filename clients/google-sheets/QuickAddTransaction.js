@@ -42,7 +42,7 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
         : null;
 
       let newTransactionName;
-      const rowNumbers = saveTransactionToSheet_(sheet, existingRowNumbers, null,
+      const rowNumbers = saveTransactionToSheet_(sheet, existingRowNumbers,
         isEdit ? transactionName : null, accountResourceToDisplayName,
         function(saveGeneration) {
           if (isEdit) {

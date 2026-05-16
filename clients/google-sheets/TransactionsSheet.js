@@ -1,3 +1,12 @@
+/**
+ * Converts a transaction API object into one or more sheet row objects, one per
+ * destination posting. Returns null for unsupported transaction shapes (multiple
+ * symbols, multiple negative legs without a balance-sheet source, etc.).
+ *
+ * @param {Object} transaction - Raw API transaction object.
+ * @param {Object} accountResourceToDisplayName - Map of resource_name → display_name.
+ * @return {Object[]|null} Row objects ready for sheet write, or null if unsupported.
+ */
 function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) {
   const shape = classifySupportedTransaction_(transaction, accountResourceToDisplayName);
   if (shape === null) {
@@ -69,6 +78,21 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
   });
 }
 
+/**
+ * Determines the source posting index and destination posting indexes for a
+ * transaction, or returns null if the shape is unsupported.
+ *
+ * Source selection heuristic: prefer a balance-sheet account ([A]/[L] prefix)
+ * with a negative amount; fall back to the first balance-sheet account; fall
+ * back to the single negative posting among all postings.
+ *
+ * Returns null for: mixed symbols, multiple negative non-balance-sheet legs,
+ * two all-positive non-balance-sheet postings.
+ *
+ * @param {Object} transaction
+ * @param {Object} [accountResourceToDisplayName]
+ * @return {{sourceIndex: number|null, destinationIndexes: number[], symbol: string|null}|null}
+ */
 function classifySupportedTransaction_(transaction, accountResourceToDisplayName) {
   if (!transaction || !Array.isArray(transaction.postings)) {
     return null;
@@ -124,32 +148,43 @@ function classifySupportedTransaction_(transaction, accountResourceToDisplayName
   return { sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, symbol: symbol };
 }
 
-function buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource) {
+/**
+ * Builds the API PATCH payload from the in-memory row data for a transaction.
+ * Validates field consistency across rows and throws a descriptive error if the
+ * transaction cannot be submitted as-is (missing/inconsistent fields, unknown
+ * account names, mixed blank/non-blank destinations).
+ *
+ * @param {Object[]} rows - In-memory row objects (from findTransactionRowNumbersFromAnchor_).
+ * @param {Object} accountDisplayNameToResource - Map of display_name → resource_name.
+ * @return {Object} Payload suitable for PATCH /transactions/{name}.
+ * @throws {Error} Joined issue list if any validation problem is found.
+ */
+function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
   const issues = [];
   const sourceAccountName = requireSingleNormalizedValue_(
-    group.rows,
+    rows,
     'source_account_name',
     'source account',
     issues
   );
-  const symbol = requireSingleNormalizedValue_(group.rows, 'symbol', 'symbol', issues);
+  const symbol = requireSingleNormalizedValue_(rows, 'symbol', 'symbol', issues);
   const transactionDate = requireSingleNormalizedValue_(
-    group.rows,
+    rows,
     'transaction_date',
     'transaction date',
     issues,
     normalizeTransactionDate_
   );
-  const payee = readOptionalNormalizedValue_(group.rows, 'payee', 'payee', issues);
-  const narration = inferTransactionNarrationFromGroupRows_(group.rows, issues);
-  const isSplitTransaction = group.rows.length > 1;
+  const payee = readOptionalNormalizedValue_(rows, 'payee', 'payee', issues);
+  const narration = inferTransactionNarrationFromGroupRows_(rows, issues);
+  const isSplitTransaction = rows.length > 1;
   const sourceAccount = accountDisplayNameToResource[sourceAccountName];
   if (!sourceAccount) throw new Error('Unknown account_name: ' + sourceAccountName);
   const destinationRows = [];
   const blankDestinationRowNumbers = [];
   const amounts = [];
 
-  group.rows.forEach(function(row, index) {
+  rows.forEach(function(row, index) {
     const displayRow = row.__rowNumber || index + 2;
     const destinationAccountName = String(row.destination_account_name || '').trim();
     if (!destinationAccountName) {
@@ -181,9 +216,6 @@ function buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResou
   }
   if (blankDestinationRowNumbers.length > 1) {
     issues.push('A source-only transaction can only have one visible row.');
-  }
-  if (!group.contiguous) {
-    issues.push('Rows for this transaction are not contiguous. You can still push, but Regroup Active Transaction is recommended.');
   }
 
   if (issues.length > 0) {
@@ -245,6 +277,19 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   return distinct.length === 0 ? null : distinct[0];
 }
 
+/**
+ * Finds the transaction that contains anchorRow and returns its row numbers,
+ * resource name, and in-memory row data.
+ *
+ * Scans a ±25-row window around the anchor, extending contiguously outward
+ * until the resource_name changes. Always returns contiguous, ascending row
+ * numbers.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number} anchorRow - Any row number belonging to the target transaction.
+ * @return {{rowNumbers: number[], transactionName: string, rows: Object[]}}
+ * @throws {Error} If anchorRow does not belong to a transaction.
+ */
 function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
   const headers = FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers;
   const resourceNameColIndex = getTransactionHeaderColumnIndex_('resource_name') - 1;
@@ -273,14 +318,17 @@ function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
   return { rowNumbers: rowNumbers, transactionName: transactionName, rows: rows };
 }
 
+/** Sets a field to a fixed value on each of the given row numbers. Binds the transactions sheet config. */
 function setFieldValuesForRowNumbers_(sheet, rowNumbers, header, value) {
   setSheetFieldValuesForRowNumbers_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumbers, header, value);
 }
 
+/** Writes a single row object to the sheet. Binds the transactions sheet config. */
 function writeTransactionSheetRow_(sheet, rowNumber, row) {
   writeSheetRow_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, rowNumber, row);
 }
 
+/** Converts a row object to a values array in transactions header order. Binds the transactions sheet config. */
 function materializeTransactionSheetRow_(row) {
   return materializeSheetRow_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, row);
 }
@@ -293,105 +341,38 @@ function setTransactionSheetRows_(sheet, rows) {
   ensureTransactionIssueFormulas_(sheet, materializedRows.length);
 }
 
+/** Returns the 1-based column index for a transactions sheet header. Binds the transactions sheet config. */
 function getTransactionHeaderColumnIndex_(header) {
   return getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.transactions, header);
 }
 
-function buildContiguousRowSpans_(rowNumbers) {
-  if (rowNumbers.length === 0) {
-    return [];
-  }
-  const sorted = rowNumbers.slice().sort(function(left, right) {
-    return left - right;
-  });
-  const spans = [];
-  let start = sorted[0];
-  let end = sorted[0];
-
-  for (let index = 1; index < sorted.length; index += 1) {
-    if (sorted[index] === end + 1) {
-      end = sorted[index];
-      continue;
-    }
-    spans.push({ start: start, count: end - start + 1 });
-    start = sorted[index];
-    end = sorted[index];
-  }
-  spans.push({ start: start, count: end - start + 1 });
-  return spans;
-}
-
-function isContiguousRowNumbers_(rowNumbers) {
-  if (rowNumbers.length <= 1) {
-    return true;
-  }
-  const sorted = rowNumbers.slice().sort(function(left, right) {
-    return left - right;
-  });
-  for (let index = 1; index < sorted.length; index += 1) {
-    if (sorted[index] !== sorted[index - 1] + 1) {
-      return false;
-    }
-  }
-  return true;
-}
-
+/**
+ * Deletes a contiguous block of transaction rows from the sheet.
+ * rowNumbers must be ascending and contiguous (guaranteed by findTransactionRowNumbersFromAnchor_).
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number[]} rowNumbers - Ascending contiguous row numbers to delete.
+ */
 function replaceTransactionRowsInSheet_(sheet, rowNumbers, replacementRows) {
-  const sortedRowNumbers = rowNumbers.slice().sort(function(left, right) {
-    return left - right;
-  });
-  const firstRowNumber = sortedRowNumbers[0];
-  const deletionSpans = buildContiguousRowSpans_(sortedRowNumbers).sort(function(left, right) {
-    return right.start - left.start;
-  });
-
-  deletionSpans.forEach(function(span) {
-    sheet.deleteRows(span.start, span.count);
-  });
-
-  if (replacementRows.length === 0) {
-    return;
-  }
-
-  const lastRow = sheet.getLastRow();
-  let insertionRow = firstRowNumber;
-  if (insertionRow > lastRow + 1) {
-    insertionRow = lastRow + 1;
-  }
-
-  if (insertionRow <= lastRow) {
-    sheet.insertRowsBefore(insertionRow, replacementRows.length);
-  } else {
-    sheet.insertRowsAfter(Math.max(lastRow, 1), replacementRows.length);
-    insertionRow = Math.max(lastRow - replacementRows.length + 1, 2);
-  }
-
-  sheet
-    .getRange(insertionRow, 1, replacementRows.length, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
+  const targetRowNumbers = resizeContiguousRows_(sheet, rowNumbers[0], rowNumbers.length, replacementRows.length);
+  if (targetRowNumbers.length === 0) return;
+  sheet.getRange(targetRowNumbers[0], 1, targetRowNumbers.length, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
     .setValues(replacementRows.map(materializeTransactionSheetRow_));
-  applyAccountValidationToRowNumbers_(sheet, buildSequentialRowNumbers_(insertionRow, replacementRows.length));
+  applyAccountValidationToRowNumbers_(sheet, targetRowNumbers);
 }
 
-function buildSequentialRowNumbers_(startRow, count) {
-  const rowNumbers = [];
-  for (let index = 0; index < count; index += 1) {
-    rowNumbers.push(startRow + index);
-  }
-  return rowNumbers;
-}
-
-
+/**
+ * Writes issue-lookup formulas into the issues column for the given row numbers.
+ * rowNumbers must be contiguous (they always come from buildSequentialRowNumbers_).
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number[]} rowNumbers
+ */
 function applyTransactionIssueFormulasToRowNumbers_(sheet, rowNumbers) {
   if (!rowNumbers || rowNumbers.length === 0) return;
   const issuesColumn = getTransactionHeaderColumnIndex_('issues');
-  const spans = buildContiguousRowSpans_(rowNumbers.slice().sort(function(a, b) { return a - b; }));
-  spans.forEach(function(span) {
-    const formulas = [];
-    for (let i = 0; i < span.count; i++) {
-      formulas.push([buildIssueLookupFormula_(span.start + i)]);
-    }
-    sheet.getRange(span.start, issuesColumn, span.count, 1).setFormulas(formulas);
-  });
+  const formulas = rowNumbers.map(function(rn) { return [buildIssueLookupFormula_(rn)]; });
+  sheet.getRange(rowNumbers[0], issuesColumn, rowNumbers.length, 1).setFormulas(formulas);
 }
 
 function ensureTransactionIssueFormulas_(sheet, rowCount) {
@@ -402,6 +383,14 @@ function ensureTransactionIssueFormulas_(sheet, rowCount) {
   );
 }
 
+/**
+ * Scans the transactions sheet and returns one anchor object per transaction,
+ * in sheet order. Used by findInsertionRowForTransactionDate_ to locate the
+ * correct insertion point for new transactions.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @return {{transactionName: string, firstRow: number, lastRow: number, transactionDate: string}[]}
+ */
 function buildTransactionGroupAnchors_(sheet) {
   const lastRow = sheet.getLastRow();
   const anchors = [];
@@ -440,8 +429,19 @@ function findInsertionRowForTransactionDate_(sheet, transactionDate) {
   return lastAnchor ? lastAnchor.lastRow + 1 : 2;
 }
 
-function applyTransactionResponseToSheet_(sheet, rowNumbers, existingRows, replacementRows) {
-  // Full write: adjust sheet rows to match replacement count, then write all
+/**
+ * Applies a flattened API response to the transactions sheet after a save.
+ * Handles three cases:
+ *   - New transaction (rowNumbers=null): inserts rows at the date-sorted position.
+ *   - Same posting count: writes replacement data in place, no structural change.
+ *   - Count changed: uses resizeContiguousRows_ to insert/delete, then writes.
+ *
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
+ * @param {number[]|null} rowNumbers - Existing row numbers for PATCH; null for POST.
+ * @param {Object[]} replacementRows - Flattened row objects with status/split_off_amount stamped.
+ * @return {number[]} Final row numbers where data was written.
+ */
+function applyTransactionResponseToSheet_(sheet, rowNumbers, replacementRows) {
   let targetRowNumbers;
   if (!rowNumbers) {
     // New transaction: insert rows at date-sorted position
@@ -462,14 +462,9 @@ function applyTransactionResponseToSheet_(sheet, rowNumbers, existingRows, repla
     // Same count: write in place without structural changes
     targetRowNumbers = rowNumbers;
   } else {
-    // Count changed: adjust rows (transactions are always contiguous)
-    const sorted = rowNumbers.slice().sort(function(a, b) { return a - b; });
-    if (replacementRows.length > rowNumbers.length) {
-      sheet.insertRowsAfter(sorted[sorted.length - 1], replacementRows.length - rowNumbers.length);
-    } else {
-      sheet.deleteRows(sorted[0] + replacementRows.length, rowNumbers.length - replacementRows.length);
-    }
-    targetRowNumbers = buildSequentialRowNumbers_(sorted[0], replacementRows.length);
+    // Count changed: adjust row count then write (transactions are always contiguous)
+    const firstRow = rowNumbers.slice().sort(function(a, b) { return a - b; })[0];
+    targetRowNumbers = resizeContiguousRows_(sheet, firstRow, rowNumbers.length, replacementRows.length);
   }
 
   sheet.getRange(targetRowNumbers[0], 1, targetRowNumbers.length, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length)
@@ -479,33 +474,11 @@ function applyTransactionResponseToSheet_(sheet, rowNumbers, existingRows, repla
   return targetRowNumbers;
 }
 
-
 function normalizeTransactionDate_(value) {
   if (Object.prototype.toString.call(value) === '[object Date]') {
     return Utilities.formatDate(value, 'UTC', 'yyyy-MM-dd');
   }
   return String(value || '').trim();
-}
-
-function uniqueNonBlankValues_(values) {
-  const unique = [];
-  values.forEach(function(value) {
-    if (!value) {
-      return;
-    }
-    if (unique.indexOf(value) === -1) {
-      unique.push(value);
-    }
-  });
-  return unique;
-}
-
-function rowToObject_(headers, rowValues) {
-  const result = {};
-  headers.forEach(function(header, index) {
-    result[header] = rowValues[index];
-  });
-  return result;
 }
 
 function effectiveSheetNarration_(transactionNarration, postingNarration) {

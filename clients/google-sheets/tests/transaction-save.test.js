@@ -37,7 +37,7 @@ test('saveTransactionByName_ keeps doctor issues and records transient PATCH err
   const { sandbox } = loadCode();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
+  sandbox.buildTransactionPatchPayload_ = function() {
     return { transaction_date: '2026-04-19', postings: [] };
   };
   sandbox.apiFetchJson_ = function(method) {
@@ -85,7 +85,7 @@ test('saveTransactionByName_ clears status to empty after doctor refresh fails f
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
+  sandbox.buildTransactionPatchPayload_ = function() {
     return { transaction_date: '2026-04-19', postings: [] };
   };
   sandbox.apiFetchJson_ = function(method) {
@@ -142,7 +142,7 @@ test('saveTransactionByName_ passes the preloaded account display lookup to the 
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.buildTransactionPatchPayloadFromGroup_ = function() {
+  sandbox.buildTransactionPatchPayload_ = function() {
     return { transaction_date: '2026-04-19', postings: [] };
   };
   sandbox.apiFetchJson_ = function(method) {
@@ -190,7 +190,7 @@ test('saveTransactionToSheet_ sets saving status before doApiCall, clears to emp
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
   const statusDuringApiCall = [];
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
     function() {
       statusDuringApiCall.push(rowStore.get(2).status);
       return { name: 'transactions/txn_1' };
@@ -206,7 +206,7 @@ test('saveTransactionToSheet_ writes error status and last_error on doApiCall fa
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   assert.throws(function() {
-    sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+    sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
       function() { throw new Error('network error'); }
     );
   }, /network error/);
@@ -223,7 +223,7 @@ test('saveTransactionToSheet_ clears status to empty after doctor refresh', () =
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
   sandbox.applyTransactionResponseToSheet_ = function() { return [2, 3]; };
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2, 3], null, 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, [2, 3], 'transactions/txn_1', {},
     function() { return { name: 'transactions/txn_1' }; }
   );
 
@@ -235,7 +235,7 @@ test('saveTransactionToSheet_ skips pre-call status writes when existingRowNumbe
   const rowStore = new Map([[2, { status: 'clean', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
-  sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
+  sandbox.saveTransactionToSheet_(fakeSheet, null, null, {},
     function() { return { name: 'transactions/txn_new' }; }
   );
 
@@ -249,7 +249,7 @@ test('saveTransactionToSheet_ does not write error to sheet when existingRowNumb
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
   assert.throws(function() {
-    sandbox.saveTransactionToSheet_(fakeSheet, null, null, null, {},
+    sandbox.saveTransactionToSheet_(fakeSheet, null, null, {},
       function() { throw new Error('server error'); }
     );
   }, /server error/);
@@ -262,7 +262,7 @@ test('saveTransactionToSheet_ aborts cleanly when doApiCall returns null (stale 
   const rowStore = new Map([[2, { status: 'saving', last_error: '' }]]);
   const { sandbox, fakeSheet } = makeSaveTransactionSandbox(rowStore);
 
-  const result = sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+  const result = sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
     function() { return null; }
   );
 
@@ -276,7 +276,7 @@ test('saveTransactionToSheet_ throws when flattenTransactionForSheet_ returns em
   sandbox.flattenTransactionForSheet_ = function() { return []; };
 
   assert.throws(function() {
-    sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+    sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
       function() { return { name: 'transactions/txn_1' }; }
     );
   }, /could not be rendered/);
@@ -296,7 +296,7 @@ test('saveTransactionToSheet_ shows failure toast and still clears status when d
   });
   sandbox.refreshDoctorIssueSheets_ = function() { throw new Error('doctor down'); };
 
-  sandbox.saveTransactionToSheet_(fakeSheet, [2], null, 'transactions/txn_1', {},
+  sandbox.saveTransactionToSheet_(fakeSheet, [2], 'transactions/txn_1', {},
     function() { return { name: 'transactions/txn_1' }; }
   );
 

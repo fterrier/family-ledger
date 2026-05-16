@@ -1,24 +1,14 @@
-function pushActiveTransaction() {
-  runUserAction_('Push Active Transaction', function() {
-    const sheet = requireTransactionSheet_();
-    const group = getActiveTransactionGroupFromSheet_(sheet);
-    const accountOptions = loadAccountOptions_();
-    saveTransactionByName_(sheet, group, { showSuccessAlert: true }, accountOptions);
-  });
-}
-
 // Orchestrates the full save lifecycle for a transaction:
 //   - sets status='saving' on existing rows before the API call
 //   - on error: writes status='error' + last_error, always rethrows
 //   - on success: flushes so 'saved' is briefly visible, refreshes doctor, then clears status to ''
 //
 // existingRowNumbers: null for POST (new), array for PATCH (edit)
-// existingRows: preloaded row data for optimization; null = always full write
 // transactionName: null for POST (skips generation tracking); string for PATCH
 // accountLookup: resource_name → display_name map passed to flattenTransactionForSheet_
 // doApiCall(saveGeneration): makes the API call; return null to abort (stale generation)
 // Returns finalRowNumbers, or null if aborted.
-function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transactionName, accountLookup, doApiCall) {
+function saveTransactionToSheet_(sheet, existingRowNumbers, transactionName, accountLookup, doApiCall) {
   if (existingRowNumbers) {
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'saving');
     setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'last_error', '');
@@ -45,9 +35,9 @@ function saveTransactionToSheet_(sheet, existingRowNumbers, existingRows, transa
     const perf = getActivePerf_();
     finalRowNumbers = perf
       ? perf.wrap('sheet.apply_rows', function() {
-          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, existingRows, replacementRows);
+          return applyTransactionResponseToSheet_(sheet, existingRowNumbers, replacementRows);
         })
-      : applyTransactionResponseToSheet_(sheet, existingRowNumbers, existingRows, replacementRows);
+      : applyTransactionResponseToSheet_(sheet, existingRowNumbers, replacementRows);
   } catch (error) {
     if (existingRowNumbers && (!saveGeneration || isCurrentSaveGeneration_(transactionName, saveGeneration))) {
       setFieldValuesForRowNumbers_(sheet, existingRowNumbers, 'status', 'error');
@@ -83,13 +73,6 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
   setActivePerf_(perf);
   try {
     const { rowNumbers, transactionName, rows } = precomputed;
-    const group = {
-      transactionName: transactionName,
-      activeIndex: 0,
-      rowNumbers: rowNumbers,
-      rows: rows,
-      contiguous: isContiguousRowNumbers_(rowNumbers),
-    };
     const accountResourceToDisplayName = {};
     const accountDisplayNameToResource = {};
     (accountOptions || []).forEach(function(o) {
@@ -98,10 +81,10 @@ function saveTransactionByName_(sheet, precomputed, options, accountOptions) {
     });
 
     try {
-      saveTransactionToSheet_(sheet, rowNumbers, rows, transactionName, accountResourceToDisplayName,
+      saveTransactionToSheet_(sheet, rowNumbers, transactionName, accountResourceToDisplayName,
         function(saveGeneration) {
           const payload = perf.wrap('data.build_payload', function() {
-            return buildTransactionPatchPayloadFromGroup_(group, accountDisplayNameToResource);
+            return buildTransactionPatchPayload_(rows, accountDisplayNameToResource);
           });
           const refreshed = perf.wrap('api.patch', function() {
             return apiFetchJson_('patch', '/' + transactionName, {

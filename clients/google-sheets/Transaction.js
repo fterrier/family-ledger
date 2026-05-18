@@ -219,6 +219,8 @@ class Transaction extends Entity {
   }
 }
 
+// Phase 3: delete this function — sidebar opening will be made generic in handleEditAction_,
+// with the entity class passed as a parameter so the sidebar can serve any entity type.
 function openEditTransactionSidebar_(sheet, rowNumber) {
   managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
     .setFields({ start: rowNumber, count: 1 }, { edit: false });

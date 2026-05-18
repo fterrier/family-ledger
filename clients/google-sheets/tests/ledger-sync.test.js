@@ -10,7 +10,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     Accounts: { name: 'Accounts', setFrozenRows() {} },
     Balances: { name: 'Balances', setFrozenRows() {} },
     Commodities: { name: 'Commodities', setFrozenRows() {} },
-    Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; } },
+    Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; }, getRange() { return { setFormulas() {} }; } },
   };
   const { sandbox } = loadCode({
     SpreadsheetApp: {
@@ -68,7 +68,6 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     calls.push({ type: 'accountIssues', sheet: sheet.name, rowCount });
   };
   sandbox.ensureSheetCapacity_ = function() {};
-  sandbox.ensureTransactionIssueFormulas_ = function() {};
   sandbox.refreshManagedLedgerSheetLayouts_ = function() {
     calls.push('refreshManagedLedgerSheetLayouts');
   };

@@ -14,7 +14,6 @@ const SOURCE_FILES = [
   'Api.js',
   'Settings.js',
   'ManagedSheet.js',
-  'TransactionsSheet.js',
   'AccountsSheet.js',
   'BalancesSheet.js',
   'DoctorIssues.js',

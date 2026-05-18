@@ -214,9 +214,6 @@ class Transaction extends Entity {
   // Quick Add field schema — Phase 3.
   static quickAddFields() { return []; }
 
-  // Determine target span, write stamped rows, apply post-write ops (account
-  // validation, issue formulas). Returns final span.
-  // Delegates to applyTransactionResponseToSheet_ in TransactionsSheet.js.
   static writeToSheet_(sheet, existingSpan, rows) {
     return applyTransactionResponseToSheet_(sheet, existingSpan, rows);
   }
@@ -513,6 +510,57 @@ function effectiveSheetNarration_(transactionNarration, postingNarration) {
     return explicitPostingNarration;
   }
   return String(transactionNarration || '');
+}
+
+function buildTransactionGroupAnchors_(sheet) {
+  const lastRow = sheet.getLastRow();
+  const anchors = [];
+  if (lastRow <= 1) return anchors;
+  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
+  const rows = managedSheet_(sheet, txConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', 'transaction_date']);
+  let current = null;
+  rows.forEach(function(row, index) {
+    const transactionName = String(row.resource_name || '').trim();
+    if (!transactionName) return;
+    const rowNumber = index + 2;
+    const transactionDate = normalizeTransactionDate_(row.transaction_date);
+    if (!current || current.transactionName !== transactionName) {
+      if (current) anchors.push(current);
+      current = { transactionName: transactionName, span: { start: rowNumber, count: 1 }, transactionDate: transactionDate };
+      return;
+    }
+    current.span.count = rowNumber - current.span.start + 1;
+  });
+  if (current) anchors.push(current);
+  return anchors;
+}
+
+function findInsertionRowForTransactionDate_(sheet, transactionDate) {
+  const normalizedDate = normalizeTransactionDate_(transactionDate);
+  const anchors = buildTransactionGroupAnchors_(sheet);
+  for (let index = 0; index < anchors.length; index += 1) {
+    if (anchors[index].transactionDate > normalizedDate) {
+      return anchors[index].span.start;
+    }
+  }
+  const lastAnchor = anchors[anchors.length - 1];
+  return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
+}
+
+function applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows) {
+  let targetSpan;
+  if (!existingSpan) {
+    const insertionRow = findInsertionRowForTransactionDate_(sheet, replacementRows[0].transaction_date);
+    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, replacementRows.length);
+  } else if (existingSpan.count === replacementRows.length) {
+    targetSpan = existingSpan;
+  } else {
+    targetSpan = resizeContiguousRows_(sheet, existingSpan, replacementRows.length);
+  }
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRows(targetSpan, replacementRows);
+  applyAccountValidationToSpan_(sheet, targetSpan);
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setColumnFormulas(targetSpan, 'issues', buildIssueLookupFormula_);
+  return targetSpan;
 }
 
 function normalizeOptionalSheetText_(value) {

@@ -92,6 +92,15 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
   });
 }
 
+// Phase 3: delete this function — it's a subset of applyTransactionResponseToSheet_,
+// which will handle the deletion case (empty replacementRows) directly.
+function replaceTransactionRowsInSheet_(sheet, span, replacementRows) {
+  const targetSpan = resizeContiguousRows_(sheet, span, replacementRows.length);
+  if (targetSpan.count === 0) return;
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRows(targetSpan, replacementRows);
+  applyAccountValidationToSpan_(sheet, targetSpan);
+}
+
 function deleteTransactionFromSidebar(transactionName, anchorRow) {
   return runUserAction_('Delete Transaction', function() {
     apiFetchJson_('delete', '/' + transactionName);

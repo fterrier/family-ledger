@@ -286,14 +286,12 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
       amount: '',
       split_off_amount: '',
       symbol: '',
-      issues: '',
     }];
   }
 
   const sourcePosting = transaction.postings[shape.sourceIndex];
   const sourceAccountName = accountResourceToDisplayName[sourcePosting.account] || sourcePosting.account;
   const sourcePostingNarration = String(sourcePosting.narration || '');
-  const issues = '';
 
   if (shape.destinationIndexes.length === 0) {
     const postingNarration = sourcePostingNarration;
@@ -308,7 +306,6 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
       amount: -parseFloat(sourcePosting.units.amount),
       split_off_amount: '',
       symbol: sourcePosting.units.symbol,
-      issues: issues,
     }];
   }
 
@@ -326,7 +323,6 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
       amount: parseFloat(posting.units.amount),
       split_off_amount: '',
       symbol: posting.units.symbol,
-      issues: issues,
     };
   });
 }

@@ -76,6 +76,20 @@ test('setRows with span.count=0 makes no getRange call', () => {
   assert.equal(sheet.calls.length, 0);
 });
 
+test('setRows skips the issueHeader column when issueHeader is the last header', () => {
+  const { sandbox } = loadCode();
+  // Config with issues as the last column — formula-managed, must not be written by setRows.
+  const config = sandbox.buildSheetConfig_('test', 'Test', { alpha: {}, beta: {}, issues: {} });
+  const sheet = makeFakeSheet_();
+  sandbox.managedSheet_(sheet, config).setRows({ start: 2, count: 1 }, [
+    { alpha: 'a', beta: 'b', issues: 'should-be-ignored' },
+  ]);
+  assert.equal(sheet.calls.length, 1);
+  const call = sheet.calls[0];
+  assert.equal(call.numCols, 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(call.values)), [['a', 'b']]);
+});
+
 // ---------------------------------------------------------------------------
 // setFields
 // ---------------------------------------------------------------------------

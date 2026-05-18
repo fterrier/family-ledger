@@ -11,9 +11,16 @@ function managedSheet_(sheet, sheetConfig) {
 
     setRows: function(span, rows) {
       if (span.count === 0) return;
-      sheet.getRange(span.start, 1, span.count, sheetConfig.headers.length)
+      // issueHeader is formula-managed — never written by setRows.
+      // Assumption: issueHeader is always the last column when present.
+      const issueIdx = sheetConfig.issueHeader != null
+        ? sheetConfig.headers.indexOf(sheetConfig.issueHeader)
+        : -1;
+      const numCols = issueIdx !== -1 ? issueIdx : sheetConfig.headers.length;
+      if (numCols === 0) return;
+      sheet.getRange(span.start, 1, span.count, numCols)
         .setValues(rows.map(function(row) {
-          return sheetConfig.headers.map(function(h) {
+          return sheetConfig.headers.slice(0, numCols).map(function(h) {
             return (h in row) ? row[h] : '';
           });
         }));

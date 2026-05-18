@@ -3,20 +3,22 @@ const assert = require('node:assert/strict');
 
 const { loadCode, sampleTransaction, makeRowStoreSheet_ } = require('./_harness');
 
-test('findTransactionRowNumbersFromAnchor_ finds a single non-split row', () => {
+test('scanEntityRows_(Transaction) finds a single non-split row', () => {
   const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_a' }],
     [3, { resource_name: 'transactions/txn_b' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 2)));
   assert.deepEqual(result.span, { start: 2, count: 1 });
-  assert.equal(result.transactionName, 'transactions/txn_a');
+  assert.equal(result.entityName, 'transactions/txn_a');
 });
 
-test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anchor', () => {
+test('scanEntityRows_(Transaction) finds split rows above and below anchor', () => {
   const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1' }],
     [3, { resource_name: 'transactions/txn_1' }],
@@ -24,45 +26,48 @@ test('findTransactionRowNumbersFromAnchor_ finds split rows above and below anch
     [5, { resource_name: 'transactions/txn_2' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3)));
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 3)));
   assert.deepEqual(result.span, { start: 2, count: 3 });
-  assert.equal(result.transactionName, 'transactions/txn_1');
+  assert.equal(result.entityName, 'transactions/txn_1');
 });
 
-test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at top', () => {
+test('scanEntityRows_(Transaction) finds split rows with anchor at top', () => {
   const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1' }],
     [3, { resource_name: 'transactions/txn_1' }],
     [4, { resource_name: 'transactions/txn_2' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 2)));
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 2)));
   assert.deepEqual(result.span, { start: 2, count: 2 });
-  assert.equal(result.transactionName, 'transactions/txn_1');
+  assert.equal(result.entityName, 'transactions/txn_1');
 });
 
-test('findTransactionRowNumbersFromAnchor_ finds split rows with anchor at bottom', () => {
+test('scanEntityRows_(Transaction) finds split rows with anchor at bottom', () => {
   const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_0' }],
     [3, { resource_name: 'transactions/txn_1' }],
     [4, { resource_name: 'transactions/txn_1' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  const result = JSON.parse(JSON.stringify(sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 4)));
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 4)));
   assert.deepEqual(result.span, { start: 3, count: 2 });
-  assert.equal(result.transactionName, 'transactions/txn_1');
+  assert.equal(result.entityName, 'transactions/txn_1');
 });
 
-test('findTransactionRowNumbersFromAnchor_ throws when anchor row has no transaction', () => {
+test('scanEntityRows_(Transaction) throws when anchor row has no transaction', () => {
   const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1' }],
     [3, { resource_name: '' }],
   ]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  assert.throws(() => sandbox.findTransactionRowNumbersFromAnchor_(fakeSheet, 3), /does not contain a transaction/);
+  assert.throws(() => sandbox.scanEntityRows_(Transaction, fakeSheet, 3), /does not contain a transaction/);
 });
 
 // --- applyTransactionResponseToSheet_ ---

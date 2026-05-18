@@ -3,734 +3,424 @@ const assert = require('node:assert/strict');
 
 const { loadCode, makeRowStoreSheet_ } = require('./_harness');
 
-test('performSplitForRow_ inserts a sibling row with duplicated destination account', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 84.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 3; }, getColumn() { return 9; } };
-  };
-  fakeSheet.getRange = function(row, column, numRows, numCols) {
-    if (numRows === undefined) {
-      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
-    }
-    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
-  };
-  sandbox.applyAccountValidationToSpan_ = function(_sheet, span) {
-    operations.push({ type: 'applyValidation', span: span });
-  };
+function getTransaction(sandbox) {
+  return sandbox.ENTITY_REGISTRY['Transactions'];
+}
 
-  sandbox.performSplitForRow_(fakeSheet, 2, '34.25');
+// Build a Transaction for applyEdit unit tests without touching the sheet.
+function makeTx(sandbox, api, span) {
+  const Transaction = getTransaction(sandbox);
+  const tx = new Transaction(api, {
+    accountResourceToDisplayName: {
+      'accounts/checking': '[A] Checking',
+      'accounts/food': '[X] Food',
+      'accounts/household': '[X] Household',
+    },
+    accountDisplayNameToResource: {
+      '[A] Checking': 'accounts/checking',
+      '[X] Food': 'accounts/food',
+      '[X] Household': 'accounts/household',
+    },
+  });
+  tx._span = span || { start: 2, count: 1 };
+  return tx;
+}
 
-  assert.equal(rowStore.get(2).amount, 50);
-  assert.equal(rowStore.get(3).amount, 34.25);
-  assert.equal(rowStore.get(3).destination_account_name, '[X] Food');
-});
-
-test('performSplitForRow_ splits a negative-amount row using a positive split amount', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      transaction_date: '2026-04-19',
-      payee: 'Employer',
-      narration: 'Salary',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[I] Salary',
-      amount: -5000,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 3; }, getColumn() { return 9; } };
-  };
-  fakeSheet.getRange = function(row, column, numRows, numCols) {
-    if (numRows === undefined) {
-      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
-    }
-    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
-  };
-  sandbox.applyAccountValidationToSpan_ = function(_sheet, span) {
-    operations.push({ type: 'applyValidation', span: span });
-  };
-
-  sandbox.performSplitForRow_(fakeSheet, 2, '2000');
-
-  assert.equal(rowStore.get(2).amount, -7000);
-  assert.equal(rowStore.get(3).amount, 2000);
-  assert.equal(rowStore.get(3).destination_account_name, '[I] Salary');
-});
-
-test('performSplitForRow_ writes 0 amount to sheet without coercing to blank', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 84.25,
-      split_off_amount: '0',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 3; }, getColumn() { return 9; } };
-  };
-  fakeSheet.getRange = function(row, column, numRows, numCols) {
-    if (numRows === undefined) {
-      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
-    }
-    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
-  };
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
-
-  sandbox.performSplitForRow_(fakeSheet, 2, '0');
-
-  assert.equal(rowStore.get(2).amount, 84.25);
-  assert.equal(rowStore.get(3).amount, 0);
-});
-
-
-
-test('insertSplitRow_ focuses the newly inserted row in the specified column', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getRange = function(row, column, numRows, numCols) {
-    if (numRows === undefined) {
-      return { activate() { operations.push({ type: 'activate', row: row, column: column }); } };
-    }
-    return makeRowStoreSheet_(sandbox, rowStore, operations).getRange(row, column, numRows, numCols);
-  };
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
-  const groupRows = [{ ...rowStore.get(2), __rowNumber: 2 }];
-
-  sandbox.insertSplitRow_(fakeSheet, 2, groupRows[0], groupRows, 30, 20, 'split_off_amount');
-
-  const activates = operations.filter(function(op) { return op.type === 'activate'; });
-  assert.equal(activates.length, 1);
-  assert.equal(activates[0].row, 3);
-});
-
-
-test('performDeleteSplitRow_ merges deleted amount into previous sibling row', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-  ]);
-
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 3; }, getColumn() { return 9; } };
-  };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 3);
-
-  assert.equal(rowStore.get(2).amount, 84.25);
-  assert.match(JSON.stringify(operations), /deleteRow/);
-});
-
-test('performDeleteSplitRow_ resets the last destination row to source-only state', () => {
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 84.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-  ]);
-
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 2; }, getColumn() { return 9; } };
-  };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 2);
-
-  assert.equal(rowStore.get(2).destination_account_name, '');
-  assert.equal(rowStore.get(2).amount, 84.25);
-});
-
-test('performDeleteSplitRow_ focuses the merge target row when deleting the lower row', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 3; }, getColumn() { return 10; } };
-  };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 3);
-
-  const activates = operations.filter(function(op) { return op.type === 'activate'; });
-  assert.equal(activates.length, 1);
-  assert.equal(activates[0].row, 2);
-});
-
-test('performDeleteSplitRow_ focuses rowNumber when deleting the upper row (surviving row shifts up)', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 50, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household', amount: 34.25, split_off_amount: '', symbol: 'CHF', status: '', last_error: '' }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-  fakeSheet.getActiveRange = function() {
-    return { getRow() { return 2; }, getColumn() { return 10; } };
-  };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 2);
-
-  const activates = operations.filter(function(op) { return op.type === 'activate'; });
-  assert.equal(activates.length, 1);
-  assert.equal(activates[0].row, 2);
-});
-
-test('handleAmountEdit_ delegates direct increases to insertSplitRow_', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  const rowStore = new Map([[2, {
-    resource_name: 'transactions/txn_1',
-    destination_account_name: '[X] Food',
-    amount: 84.25,
-    narration_source: 'txn',
-    narration: 'Groceries',
-    source_account_name: '[A] Bank',
+function singleDestApi(overrides) {
+  return Object.assign({
+    name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
-    payee: '',
-    split_off_amount: '',
-    symbol: 'CHF',
-    status: '',
-    last_error: '',
-  }]]);
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.insertSplitRow_ = function(_sheet, rowNumber, _row, _groupRows, rowAmount, splitAmount) {
-    calls.push({ rowNumber: rowNumber, rowAmount: rowAmount, splitAmount: splitAmount });
-    return [{ __rowNumber: rowNumber }];
-  };
-
-  sandbox.handleAmountEdit_(fakeSheet, 2, '90', '84.25');
-
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, rowAmount: 90, splitAmount: -5.75 }]);
-});
-
-test('handleAmountEdit_ rejects edits for source-only transactions', () => {
-  const operations = [];
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
-  ]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
-
-  assert.throws(() => sandbox.handleAmountEdit_(fakeSheet, 2, '1', '1.5'), /Amount cannot be edited/);
-  assert.equal(rowStore.get(2).amount, 1.5);
-});
-
-test('rollbackFailedEdit_ clears invalid split_off_amount commands', () => {
-  const rowStore = new Map([[2, { split_off_amount: '-123', amount: 50 }]]);
-  const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-
-  sandbox.rollbackFailedEdit_(fakeSheet, 2, 'split_off_amount', '-123');
-
-  assert.equal(rowStore.get(2).split_off_amount, '');
-});
-
-test('handleAmountEdit_ converts a decrease into a split of the difference', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  const rowStore = new Map([[2, {
-    resource_name: 'transactions/txn_1',
-    destination_account_name: '[X] Food',
-    amount: 84.25,
-    narration_source: 'txn',
+    payee: 'Migros',
     narration: 'Groceries',
-    source_account_name: '[A] Bank',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' }, narration: null },
+    ],
+  }, overrides);
+}
+
+function splitApi() {
+  return {
+    name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
-    payee: '',
-    split_off_amount: '',
-    symbol: 'CHF',
-    status: '',
-    last_error: '',
-  }]]);
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.insertSplitRow_ = function(_sheet, rowNumber, _row, _groupRows, rowAmount, splitAmount) {
-    calls.push({ rowNumber: rowNumber, rowAmount: rowAmount, splitAmount: splitAmount });
-    return [{ __rowNumber: rowNumber }];
-  };
-
-  sandbox.handleAmountEdit_(fakeSheet, 2, '50', '84.25');
-
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, rowAmount: 50, splitAmount: 34.25 }]);
-});
-
-test('applyTransactionEdit_ treats numeric 0 as a valid new amount for amount column', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.handleAmountEdit_ = function(_sheet, rowNumber, rawValue, oldRawValue) {
-    calls.push({ rowNumber: rowNumber, rawValue: rawValue, oldRawValue: oldRawValue });
-  };
-  sandbox.saveTransactionByName_ = function() {};
-
-  sandbox.applyTransactionEdit_({}, 2, 'amount', 0, '84.25', {});
-
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 2, rawValue: 0, oldRawValue: '84.25' }]);
-});
-
-test('performSplitInstructionForRow_ treats x and - as delete instructions', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  sandbox.performDeleteSplitRow_ = function(_sheet, rowNumber) {
-    calls.push({ type: 'delete', rowNumber: rowNumber });
-  };
-  sandbox.performSplitForRow_ = function(_sheet, rowNumber, amount) {
-    calls.push({ type: 'split', rowNumber: rowNumber, amount: amount });
-  };
-
-  sandbox.performSplitInstructionForRow_({}, 3, 'x');
-  sandbox.performSplitInstructionForRow_({}, 4, '-');
-  sandbox.performSplitInstructionForRow_({}, 5, '12.5');
-
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
-    { type: 'delete', rowNumber: 3 },
-    { type: 'delete', rowNumber: 4 },
-    { type: 'split', rowNumber: 5, amount: '12.5' },
-  ]);
-});
-
-test('applyTransactionEdit_ treats numeric 0 as a valid split amount for split_off_amount column', () => {
-  const calls = [];
-  const { sandbox } = loadCode();
-  const rowStore = new Map([[5, {
-    resource_name: 'transactions/txn_1',
-    destination_account_name: '[X] Food',
-    amount: 84.25,
-    narration_source: 'txn',
+    payee: 'Migros',
     narration: 'Groceries',
-    source_account_name: '[A] Bank',
-    transaction_date: '2026-04-19',
-    payee: '',
-    split_off_amount: '',
-    symbol: 'CHF',
-    status: '',
-    last_error: '',
-  }]]);
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.performSplitInstructionForRow_ = function(_sheet, rowNumber, instruction) {
-    calls.push({ rowNumber: rowNumber, instruction: instruction });
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, narration: null },
+      { account: 'accounts/household', units: { amount: '34.25', symbol: 'CHF' }, narration: null },
+    ],
   };
-  sandbox.saveTransactionByName_ = function() {};
+}
 
-  sandbox.applyTransactionEdit_(fakeSheet, 5, 'split_off_amount', 0, '', {});
+// --- payee ---
 
-  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [{ rowNumber: 5, instruction: '0' }]);
-});
-
-test('applyTransactionEdit_ edits split row narration as posting narration only', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.parseTransactionRowsToApi_ = function(rows) {
-    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
-  };
-  const savedEntities = [];
-  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() { savedEntities.push(this); return this._span; };
-
-  sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
-
-  assert.equal(rowStore.get(2).narration_source, 'txn');
-  assert.equal(rowStore.get(3).narration_source, 'post');
-  assert.equal(rowStore.get(3).narration, 'Household');
-  assert.deepEqual(JSON.parse(JSON.stringify(savedEntities[0]._span)), { start: 2, count: 2 });
-  assert.equal(savedEntities[0].getName(), 'transactions/txn_1');
-});
-
-test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Household',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.parseTransactionRowsToApi_ = function(rows) {
-    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
-  };
-  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
-
-  sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
-
-  assert.equal(rowStore.get(3).narration_source, 'post');
-  assert.equal(rowStore.get(3).narration, 'Household');
-});
-
-test('applyTransactionEdit_ keeps split row as txn when narration value is unchanged', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.parseTransactionRowsToApi_ = function(rows) {
-    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
-  };
-  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
-
-  sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Groceries', 'Groceries', {});
-
-  assert.equal(rowStore.get(3).narration_source, 'txn');
-  assert.equal(rowStore.get(3).narration, 'Groceries');
-});
-
-test('applyTransactionEdit_ clears split posting narration back to transaction fallback', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'post',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Produce',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 84.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 10,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
-  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.parseTransactionRowsToApi_ = function(rows) {
-    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
-  };
-  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
-
-  sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', '', 'Produce', {});
-
-  assert.equal(rowStore.get(2).narration_source, 'txn');
-  assert.equal(rowStore.get(2).narration, 'Groceries');
-});
-
-test('applyTransactionEdit_ rejects converting the last transaction narration row into posting narration', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'post',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Household',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
+test("Transaction.applyEdit('payee') updates api.payee", () => {
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  sandbox.loadAccountOptions_ = function() { return []; };
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('payee', 'Coop', '', 2);
+  assert.equal(tx._api.payee, 'Coop');
+});
 
+test("Transaction.applyEdit('payee') converts empty to null", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('payee', '', '', 2);
+  assert.equal(tx._api.payee, null);
+});
+
+// --- narration ---
+
+test("Transaction.applyEdit('narration') single-row sets api.narration", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('narration', 'Updated', 'Groceries', 2);
+  assert.equal(tx._api.narration, 'Updated');
+});
+
+test("Transaction.applyEdit('narration') single-row converts empty to null", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('narration', '', 'Groceries', 2);
+  assert.equal(tx._api.narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row sets posting narration", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Household', 'Groceries', 3); // row 3 = offset 1
+  assert.equal(tx._api.postings[2].narration, 'Household');
+  assert.equal(tx._api.postings[1].narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row reverts posting narration when value equals txn narration", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Groceries', 'Household goods', 3);
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row reverts to null on empty value", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', '', 'Household goods', 3);
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('narration') throws when converting last null posting to custom narration", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods'; // postings[1] is the only null
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
   assert.throws(
-    () => sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', 'Produce', 'Groceries', {}),
+    () => tx.applyEdit('narration', 'Produce', 'Groceries', 2),
     /At least one split row must keep the transaction narration/
   );
-  assert.equal(rowStore.get(2).narration_source, 'txn');
-  assert.equal(rowStore.get(2).narration, 'Groceries');
+  assert.equal(tx._api.postings[1].narration, null);
 });
 
-test('performSplitForRow_ does not inherit explicit posting narration onto the new row', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'post',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Produce',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 84.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 10,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
+test("Transaction.applyEdit('narration') does not throw when other posting already has null", () => {
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  fakeSheet.getActiveRange = function() { return { getRow() { return 3; }, getColumn() { return 10; } }; };
-  sandbox.applyAccountValidationToRowNumbers_ = function() {};
-
-  sandbox.performSplitForRow_(fakeSheet, 2, '34.25');
-
-  assert.equal(rowStore.get(2).narration_source, 'post');
-  assert.equal(rowStore.get(3).narration_source, 'txn');
-  assert.equal(rowStore.get(3).narration, 'Groceries');
+  const api = splitApi(); // both postings[1] and [2] have narration: null
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Produce', 'Groceries', 2);
+  assert.equal(tx._api.postings[1].narration, 'Produce');
+  assert.equal(tx._api.postings[2].narration, null);
 });
 
-test('performDeleteSplitRow_ keeps surviving row narration ownership when removing posting narration row', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'post',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Household',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
+// --- destination_account_name ---
+
+test("Transaction.applyEdit('destination_account_name') updates posting account", () => {
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  fakeSheet.getActiveRange = function() { return { getRow() { return 3; }, getColumn() { return 10; } }; };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 3);
-
-  assert.equal(rowStore.get(2).amount, 84.25);
-  assert.equal(rowStore.get(2).narration_source, 'txn');
-  assert.equal(rowStore.get(2).narration, 'Groceries');
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('destination_account_name', '[X] Household', '', 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/household');
 });
 
-test('performDeleteSplitRow_ normalizes surviving row back to txn when unsplitting to one row', () => {
-  const rowStore = new Map([
-    [2, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'txn',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Groceries',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Food',
-      amount: 50,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-    [3, {
-      resource_name: 'transactions/txn_1',
-      narration_source: 'post',
-      transaction_date: '2026-04-19',
-      payee: 'Migros',
-      narration: 'Household',
-      source_account_name: '[A] Bank - Checking',
-      destination_account_name: '[X] Household',
-      amount: 34.25,
-      split_off_amount: '',
-      symbol: 'CHF',
-      status: '',
-      last_error: '',
-    }],
-  ]);
+test("Transaction.applyEdit('destination_account_name') throws on unknown account", () => {
   const { sandbox } = loadCode();
-  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  fakeSheet.getActiveRange = function() { return { getRow() { return 2; }, getColumn() { return 10; } }; };
-
-  sandbox.performDeleteSplitRow_(fakeSheet, 2);
-
-  assert.equal(rowStore.get(2).narration_source, 'txn');
-  assert.equal(rowStore.get(2).narration, 'Household');
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('destination_account_name', 'Unknown', '', 2),
+    /Unknown account_name/
+  );
 });
 
-test('performSplitInstructionForRow_ rejects splits for source-only transactions', () => {
-  const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2025-12-31', payee: '', narration: 'Guthabenzins: Guthabenzins', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 1.5, split_off_amount: '', symbol: 'CHF', status: '', issues: '', last_error: '' }],
-  ]);
+// --- amount ---
+
+test("Transaction.applyEdit('amount') inserts split posting with leftover amount", () => {
   const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '50', '84.25', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '50');
+  assert.equal(tx._api.postings[2].units.amount, '34.25');
+  assert.equal(tx._api.postings[0].units.amount, '-84.25');
+});
+
+test("Transaction.applyEdit('amount') no-op when amounts are equal", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '84.25', '84.25', 2);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+test("Transaction.applyEdit('amount') treats numeric 0 as valid new amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', 0, '84.25', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '0');
+  assert.equal(tx._api.postings[2].units.amount, '84.25');
+});
+
+test("Transaction.applyEdit('amount') throws for source-only transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
+    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
+  });
+  assert.throws(
+    () => tx.applyEdit('amount', '1', '1.5', 2),
+    /Amount cannot be edited until a destination account is set/
+  );
+});
+
+test("Transaction.applyEdit('amount') throws for invalid (NaN) new amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('amount', 'bad', '84.25', 2),
+    /Invalid amount/
+  );
+});
+
+test("Transaction.applyEdit('amount') no-op when old amount is NaN (blank cell)", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '50', '', 2); // oldValue blank → NaN → no-op
+  assert.equal(tx._api.postings.length, 2); // no split
+});
+
+// --- split_off_amount ---
+
+test("Transaction.applyEdit('split_off_amount') numeric creates split posting", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', '34.25', '', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '50');
+  assert.equal(tx._api.postings[2].units.amount, '34.25');
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('split_off_amount') 0 is a valid split amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', 0, '', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '84.25');
+  assert.equal(tx._api.postings[2].units.amount, '0');
+});
+
+test("Transaction.applyEdit('split_off_amount') throws when split equals original", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('split_off_amount', '84.25', '', 2),
+    /Split amount must differ from the row amount/
+  );
+});
+
+test("Transaction.applyEdit('split_off_amount') numeric throws for source-only transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
+    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
+  });
+  assert.throws(
+    () => tx.applyEdit('split_off_amount', '0.5', '', 2),
+    /Split is unavailable until a destination account is set/
+  );
+});
+
+test("Transaction.applyEdit('split_off_amount') empty instruction is a no-op", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', '', '', 2);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on single destination makes source-only", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', 'x', '', 2);
+  assert.equal(tx._api.postings.length, 1);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on lower of two rows merges into upper", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3); // delete row 3 (offset 1)
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/food');
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on upper of two rows merges into lower", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 2); // delete row 2 (offset 0)
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/household');
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
+});
+
+test("Transaction.applyEdit('split_off_amount') x reduces to 1 and resets surviving posting narration to null", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].narration, null);
+});
+
+test("Transaction.applyEdit('split_off_amount') - is treated as delete like x", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', '-', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+// --- handleEntitySheetEdit_ ---
+
+function makeHandleEditSandbox(toasts) {
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+      },
+    },
+  });
+  const Transaction = getTransaction(sandbox);
+  const fakeEntity = new Transaction(singleDestApi(), {
+    accountResourceToDisplayName: {},
+    accountDisplayNameToResource: {},
+  });
+  fakeEntity._span = { start: 2, count: 1 };
+  sandbox.findEntityRowsFromAnchor_ = function() { return fakeEntity; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  return { sandbox, fakeEntity };
+}
+
+function makeEditEvent(sandbox, sheet, row, header, value, oldValue) {
+  const col = sandbox.getSheetConfigByName_('Transactions').headers.indexOf(header) + 1;
+  return {
+    range: {
+      getSheet() { return sheet; },
+      getRow() { return row; },
+      getColumn() { return col; },
+      getValue() { return value; },
+    },
+    value: value,
+    oldValue: oldValue,
+  };
+}
+
+test('handleEntitySheetEdit_ calls applyEdit, shows saving toast, and saves entity', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  const savedEntities = [];
+  fakeEntity.save = function() { savedEntities.push(this); return this._span; };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
 
-  assert.throws(() => sandbox.performSplitInstructionForRow_(fakeSheet, 2, '0.5'), /Split is unavailable/);
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'payee', 'Coop', 'Migros'));
+
+  assert.equal(fakeEntity._api.payee, 'Coop');
+  assert.equal(savedEntities.length, 1);
+  assert.ok(toasts.some(t => /Saving/i.test(t.msg)));
+  assert.ok(toasts.some(t => /saved/.test(t.msg)));
+});
+
+test('handleEntitySheetEdit_ restores old cell value and toasts on applyEdit validation error', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  fakeEntity.save = function() { throw new Error('should not be called'); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1', amount: 99 }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  const col = sandbox.getSheetConfigByName_('Transactions').headers.indexOf('amount') + 1;
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return fakeSheet; },
+      getRow() { return 2; },
+      getColumn() { return col; },
+      getValue() { return 'notanumber'; },
+    },
+    value: 'notanumber',
+    oldValue: 84.25,  // number, as GAS provides it
+  });
+
+  assert.equal(rowStore.get(2).amount, 84.25);  // restored to original numeric value
+  assert.ok(toasts.some(t => /Invalid amount/.test(t.msg)));
+});
+
+test('handleEntitySheetEdit_ ignores edits on non-entity sheets', () => {
+  const { sandbox } = loadCode();
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return { getName() { return 'Issues'; } }; },
+      getRow() { return 2; },
+      getColumn() { return 1; },
+    },
+    value: 'x',
+  });
+  // must not throw
+});
+
+test('handleEntitySheetEdit_ ignores edits on header row', () => {
+  const { sandbox } = loadCode();
+  const called = [];
+  sandbox.findEntityRowsFromAnchor_ = function() { called.push(1); };
+  const rowStore = new Map();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return fakeSheet; },
+      getRow() { return 1; }, // header row
+      getColumn() { return 1; },
+    },
+    value: 'x',
+  });
+  assert.equal(called.length, 0);
+});
+
+test('handleEntitySheetEdit_ ignores non-editable headers', () => {
+  const { sandbox } = loadCode();
+  const called = [];
+  sandbox.findEntityRowsFromAnchor_ = function() { called.push(1); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  // 'transaction_date' is not editable
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'transaction_date', '2026-04-19', ''));
+  assert.equal(called.length, 0);
+});
+
+test('handleEntitySheetEdit_ toasts save failure without rethrowing', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  fakeEntity.save = function() { throw new Error('API error'); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'payee', 'Coop', 'Migros'));
+
+  assert.ok(toasts.some(t => /API error/.test(t.msg)));
+  assert.ok(!toasts.some(t => /saved/.test(t.msg)));
 });

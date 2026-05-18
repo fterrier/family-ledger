@@ -21,7 +21,6 @@ const SOURCE_FILES = [
   'Filters.js',
   'ImporterDialogs.js',
   'TransactionSave.js',
-  'TransactionEdits.js',
   'App.js',
   'SheetSettings.js',
   'QuickAddTransaction.js',

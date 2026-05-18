@@ -84,13 +84,13 @@ function ensureEditTriggerInstalled_() {
   const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
   const existing = ScriptApp.getProjectTriggers().some(function(trigger) {
     return (
-      trigger.getHandlerFunction() === 'handleTransactionEdit' &&
+      trigger.getHandlerFunction() === 'handleEntitySheetEdit_' &&
       trigger.getTriggerSourceId &&
       trigger.getTriggerSourceId() === spreadsheetId
     );
   });
   if (!existing) {
-    ScriptApp.newTrigger('handleTransactionEdit')
+    ScriptApp.newTrigger('handleEntitySheetEdit_')
       .forSpreadsheet(spreadsheetId)
       .onEdit()
       .create();

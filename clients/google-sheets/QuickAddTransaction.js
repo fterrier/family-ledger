@@ -38,7 +38,7 @@ function submitTransactionFromSidebar(transactionName, anchorRow, input) {
       accountOptions.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
 
       const existingSpan = isEdit
-        ? findTransactionRowNumbersFromAnchor_(sheet, anchorRow).span
+        ? scanEntityRows_(Transaction, sheet, anchorRow).span
         : null;
 
       let newTransactionName;
@@ -96,7 +96,7 @@ function deleteTransactionFromSidebar(transactionName, anchorRow) {
   return runUserAction_('Delete Transaction', function() {
     apiFetchJson_('delete', '/' + transactionName);
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    const { span } = findTransactionRowNumbersFromAnchor_(sheet, anchorRow);
+    const { span } = scanEntityRows_(Transaction, sheet, anchorRow);
     replaceTransactionRowsInSheet_(sheet, span, []);
     const accountOptions = loadAccountOptions_();
     const accountResourceToDisplayName = {};

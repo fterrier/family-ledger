@@ -62,6 +62,59 @@ class Entity {
 
 var ENTITY_REGISTRY = {};
 
+function handleEntitySheetEdit_(e) {
+  if (!e || !e.range) return;
+  const sheet = e.range.getSheet();
+  const EntityClass = ENTITY_REGISTRY[sheet.getName()];
+  if (!EntityClass) return;
+  const row = e.range.getRow();
+  const column = e.range.getColumn();
+  if (row <= 1) return;
+  const header = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY].headers[column - 1];
+  if (!EntityClass.isEditableHeader(header)) return;
+
+  if (EntityClass.isActionHeader && EntityClass.isActionHeader(header)) {
+    EntityClass.handleEditAction_(sheet, row, header, e.value);
+    return;
+  }
+
+  const rawValue = header === 'amount' ? (e.range.getValue() ?? '') : (e.value ?? '');
+  const rawOldValue = e.oldValue ?? '';  // preserve original type (number for amount cells)
+  const oldRawValue = String(rawOldValue);
+
+  let entity;
+  try {
+    entity = findEntityRowsFromAnchor_(EntityClass, sheet, row);
+    entity.applyEdit(header, rawValue, oldRawValue, row);
+  } catch (error) {
+    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY])
+      .setFields({ start: row, count: 1 }, { [header]: rawOldValue });
+    SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
+    return;
+  }
+
+  SpreadsheetApp.getActiveSpreadsheet().toast('Saving ' + EntityClass.ENTITY_LABEL + '…', 'Family Ledger', 60);
+
+  try {
+    entity.save(sheet);
+  } catch (error) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
+    return;
+  }
+
+  try {
+    refreshDoctorIssueSheets_(entity._context.accountResourceToDisplayName || {});
+  } catch (error) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (error.message || String(error)),
+      'Family Ledger', 5
+    );
+    return;
+  }
+
+  SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
+}
+
 // Raw row scan — ±25-row window, returns { span, entityName, rows } with __rowNumber annotations.
 // Used by findEntityRowsFromAnchor_ and findTransactionRowNumbersFromAnchor_ (Phase 1 only).
 function scanEntityRows_(EntityClass, sheet, anchorRow) {

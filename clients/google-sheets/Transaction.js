@@ -47,12 +47,113 @@ class Transaction extends Entity {
     // (these map to postings[] on the API representation)
   }
 
-  // Inline sheet edit — field-specific mutations with side effects.
-  // Note: applyEdit('amount', ...) triggers a posting split (different from
-  // setFields({ amount }) which is a simple Quick Add scalar assignment).
-  applyEdit(header, value, oldValue) {
-    // Phase 2: implement — move field-specific logic from TransactionEdits.js here.
-    throw new Error('Transaction.applyEdit() not yet implemented (Phase 2).');
+  // Inline sheet edit — mutates this._api only, no sheet ops.
+  // anchorRow: the sheet row number the user edited (used to locate the posting).
+  applyEdit(header, value, oldValue, anchorRow) {
+    if (header === 'payee') {
+      this._api.payee = String(value || '').trim() || null;
+      return;
+    }
+
+    if (header === 'narration') {
+      if (this._span === null || this._span.count <= 1) {
+        this._api.narration = String(value || '').trim() || null;
+        return;
+      }
+      const destOffset = anchorRow - this._span.start;
+      const posting = this._api.postings[1 + destOffset];
+      const normalizedValue = String(value ?? '').trim();
+      const transactionNarration = this._api.narration || '';
+      if (!normalizedValue || normalizedValue === transactionNarration) {
+        posting.narration = null;
+      } else {
+        const isLastNull = posting.narration === null && this._api.postings.slice(1).every(function(p, i) {
+          return i === destOffset || p.narration !== null;
+        });
+        if (isLastNull) {
+          throw new Error('At least one split row must keep the transaction narration.');
+        }
+        posting.narration = normalizedValue;
+      }
+      return;
+    }
+
+    if (header === 'destination_account_name') {
+      const account = this._context.accountDisplayNameToResource[String(value || '').trim()];
+      if (!account) throw new Error('Unknown account_name: ' + value);
+      const destOffset = anchorRow - this._span.start;
+      this._api.postings[1 + destOffset].account = account;
+      return;
+    }
+
+    if (header === 'amount') {
+      const destinations = this._api.postings.slice(1);
+      if (destinations.length === 0) {
+        throw new Error('Amount cannot be edited until a destination account is set.');
+      }
+      const newAmount = parseFloat(value);
+      const oldAmount = parseFloat(oldValue);
+      if (isNaN(oldAmount)) return;
+      if (isNaN(newAmount)) throw new Error('Invalid amount — enter a valid number.');
+      if (newAmount === oldAmount) return;
+
+      const destOffset = anchorRow - this._span.start;
+      const postingIndex = 1 + destOffset;
+      const posting = this._api.postings[postingIndex];
+      posting.units.amount = String(newAmount);
+      this._api.postings.splice(postingIndex + 1, 0, {
+        account: posting.account,
+        units: { amount: String(oldAmount - newAmount), symbol: posting.units.symbol },
+        narration: null,
+      });
+      const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
+      this._api.postings[0].units.amount = String(-total);
+      return;
+    }
+
+    if (header === 'split_off_amount') {
+      const instruction = String(value ?? '').trim();
+      if (!instruction) return;
+
+      const destinations = this._api.postings.slice(1);
+      const destOffset = anchorRow - this._span.start;
+      const postingIndex = 1 + destOffset;
+
+      if (instruction === 'x' || instruction === 'X' || instruction === '-') {
+        if (destinations.length === 0) return;
+        if (destinations.length === 1) {
+          this._api.postings = [this._api.postings[0]];
+          return;
+        }
+        const adjacentIndex = postingIndex > 1 ? postingIndex - 1 : postingIndex + 1;
+        const adjacent = this._api.postings[adjacentIndex];
+        adjacent.units.amount = String(
+          parseFloat(adjacent.units.amount) + parseFloat(this._api.postings[postingIndex].units.amount)
+        );
+        if (destinations.length === 2) adjacent.narration = null;
+        this._api.postings.splice(postingIndex, 1);
+        return;
+      }
+
+      if (destinations.length === 0) {
+        throw new Error('Split is unavailable until a destination account is set.');
+      }
+      const splitAmount = parseFloat(instruction);
+      const posting = this._api.postings[postingIndex];
+      const originalAmount = parseFloat(posting.units.amount);
+      if (splitAmount === originalAmount) {
+        throw new Error('Split amount must differ from the row amount.');
+      }
+      posting.units.amount = String(originalAmount - splitAmount);
+      this._api.postings.splice(postingIndex + 1, 0, {
+        account: posting.account,
+        units: { amount: String(splitAmount), symbol: posting.units.symbol },
+        narration: null,
+      });
+      const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
+      this._api.postings[0].units.amount = String(-total);
+      return;
+    }
   }
 
   // — Static config —
@@ -66,6 +167,18 @@ class Transaction extends Entity {
 
   static isEditableHeader(h) {
     return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
+  }
+
+  static isActionHeader(h) { return h === 'edit'; }
+
+  // Phase 3: make generic — entity class passed as parameter to the sidebar so
+  // the sidebar can be shared across entity types (accounts, balances, etc.).
+  static handleEditAction_(sheet, anchorRow, header, value) {
+    if (header === 'edit' && (value === true || value === 'TRUE')) {
+      managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
+        .setFields({ start: anchorRow, count: 1 }, { edit: false });
+      openEditTransactionSidebar_(sheet, anchorRow);
+    }
   }
 
   static loadContext_() {
@@ -107,6 +220,26 @@ class Transaction extends Entity {
   static writeToSheet_(sheet, existingSpan, rows) {
     return applyTransactionResponseToSheet_(sheet, existingSpan, rows);
   }
+}
+
+function openEditTransactionSidebar_(sheet, rowNumber) {
+  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
+    .setFields({ start: rowNumber, count: 1 }, { edit: false });
+  let transactionName;
+  try {
+    transactionName = findEntityRowsFromAnchor_(Transaction, sheet, rowNumber).getName();
+  } catch (_e) {
+    SpreadsheetApp.getUi().alert(
+      'Edit Transaction',
+      'The selected row does not contain a transaction.',
+      SpreadsheetApp.getUi().ButtonSet.OK
+    );
+    return;
+  }
+  const template = HtmlService.createTemplateFromFile('QuickAddTransactionSidebar');
+  template.transactionName = transactionName;
+  template.anchorRow = rowNumber;
+  SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle('Edit Transaction'));
 }
 
 // Populate the entity registry after class is defined.

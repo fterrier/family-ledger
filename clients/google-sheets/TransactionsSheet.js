@@ -1,11 +1,3 @@
-// Thin wrapper — delegates to scanEntityRows_ in Entity.js.
-// Renames entityName → transactionName for backward compatibility with callers
-// in TransactionEdits.js that have not yet been migrated to Phase 2.
-function findTransactionRowNumbersFromAnchor_(sheet, anchorRow) {
-  const { span, entityName, rows } = scanEntityRows_(Transaction, sheet, anchorRow);
-  return { span: span, transactionName: entityName, rows: rows };
-}
-
 /**
  * Replaces a contiguous block of transaction rows with new content.
  * span must be contiguous (guaranteed by findTransactionRowNumbersFromAnchor_).

@@ -51,7 +51,7 @@ function managedSheet_(sheet, sheetConfig) {
       if (span.count === 0) return;
       const col = getColumnIndex_(sheetConfig, header);
       const formulas = [];
-      for (let r = 0; r < span.count; r++) formulas.push([fn(span.start + r)]);
+      for (let r = 0; r < span.count; r++) formulas.push([fn(span.start + r, sheetConfig)]);
       sheet.getRange(span.start, col, span.count, 1).setFormulas(formulas);
     },
 
@@ -133,8 +133,14 @@ function resizeContiguousRows_(sheet, existingSpan, newCount) {
   return { start: existingSpan.start, count: newCount };
 }
 
-function buildIssueLookupFormula_(rowNumber) {
-  return '=IFERROR(VLOOKUP($A' + rowNumber + ',Issues!$A:$D,4,FALSE),"")';
+function buildIssueLookupFormula_(rowNumber, sheetConfig) {
+  const lookupCol = getColumnLetter_(sheetConfig, 'resource_name');
+  const issuesConfig = FAMILY_LEDGER_SHEET_REGISTRY.issues;
+  const issuesName = FAMILY_LEDGER_SHEET_NAMES.issues;
+  const targetCol = getColumnLetter_(issuesConfig, 'target');
+  const returnCol = getColumnLetter_(issuesConfig, 'issues_text');
+  const returnIndex = getColumnIndex_(issuesConfig, 'issues_text') - getColumnIndex_(issuesConfig, 'target') + 1;
+  return '=IFERROR(VLOOKUP($' + lookupCol + rowNumber + ',' + issuesName + '!$' + targetCol + ':$' + returnCol + ',' + returnIndex + ',FALSE),"")';
 }
 
 function uniqueNonBlankValues_(values) {

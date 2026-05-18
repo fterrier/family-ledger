@@ -8,6 +8,8 @@ const SOURCE_FILES = [
   'Constants.js',
   'Perf.js',
   'SheetLayout.js',
+  'Entity.js',
+  'Transaction.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',

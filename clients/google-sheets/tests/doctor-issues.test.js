@@ -72,11 +72,12 @@ test('formatDoctorIssuesForSheet_ includes generic issue details for all codes',
   );
 });
 
-test('buildIssueLookupFormula_ generates VLOOKUP referencing Issues sheet column 4', () => {
+test('buildIssueLookupFormula_ derives lookup column from sheet config resource_name position', () => {
   const { sandbox } = loadCode();
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
   assert.equal(
-    sandbox.buildIssueLookupFormula_(5),
-    '=IFERROR(VLOOKUP($A5,Issues!$A:$D,4,FALSE),"")'
+    sandbox.buildIssueLookupFormula_(5, txConfig),
+    '=IFERROR(VLOOKUP($B5,Issues!$A:$D,4,FALSE),"")'
   );
 });
 

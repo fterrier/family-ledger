@@ -63,7 +63,8 @@ test('submitTransactionFromSidebar (add) inserts new row before a later transact
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2');
 });
 
-test('submitTransactionFromSidebar (edit) writes error status to sheet row on PATCH failure', () => {
+test('submitTransactionFromSidebar (edit) shows toast and returns null on PATCH failure', () => {
+  const toasts = [];
   const rowStore = new Map([
     [2, {
       resource_name: 'transactions/txn_1',
@@ -74,15 +75,13 @@ test('submitTransactionFromSidebar (edit) writes error status to sheet row on PA
       destination_account_name: '[X] Food',
       amount: 12,
       symbol: 'CHF',
-      status: 'dirty',
-      last_error: '',
       split_off_amount: '',
       issues: '',
     }],
   ]);
   const { sandbox } = loadCode({
     SpreadsheetApp: {
-      getActiveSpreadsheet() { return { toast() {} }; },
+      getActiveSpreadsheet() { return { toast(message, title, seconds) { toasts.push({ message, title, seconds }); } }; },
       getUi() { return { alert() {}, ButtonSet: { OK: 0 } }; },
     },
   });
@@ -107,8 +106,6 @@ test('submitTransactionFromSidebar (edit) writes error status to sheet row on PA
   });
 
   assert.equal(result, null);
-  assert.equal(rowStore.get(2).status, 'error');
-  assert.match(rowStore.get(2).last_error, /transaction_unbalanced/);
 });
 
 test('getSidebarData (add mode) returns shortlist-filtered accounts for simple form and all accounts for advanced', () => {

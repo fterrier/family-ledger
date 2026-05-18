@@ -190,7 +190,6 @@ test('performDeleteSplitRow_ resets the last destination row to source-only stat
 
   assert.equal(rowStore.get(2).destination_account_name, '');
   assert.equal(rowStore.get(2).amount, 84.25);
-  assert.equal(rowStore.get(2).status, 'dirty');
 });
 
 test('performDeleteSplitRow_ focuses the merge target row when deleting the lower row', () => {
@@ -404,19 +403,22 @@ test('applyTransactionEdit_ edits split row narration as posting narration only'
       last_error: '',
     }],
   ]);
-  const { sandbox } = loadCode();
+  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.loadAccountOptions_ = function() { return []; };
-  const saves = [];
-  sandbox.saveTransactionByName_ = function(_sheet, precomputed) { saves.push(precomputed); };
+  sandbox.parseTransactionRowsToApi_ = function(rows) {
+    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
+  };
+  const savedEntities = [];
+  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() { savedEntities.push(this); return this._span; };
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
 
   assert.equal(rowStore.get(2).narration_source, 'txn');
   assert.equal(rowStore.get(3).narration_source, 'post');
   assert.equal(rowStore.get(3).narration, 'Household');
-  assert.deepEqual(JSON.parse(JSON.stringify(saves[0].span)), { start: 2, count: 2 });
-  assert.equal(saves[0].transactionName, 'transactions/txn_1');
+  assert.deepEqual(JSON.parse(JSON.stringify(savedEntities[0]._span)), { start: 2, count: 2 });
+  assert.equal(savedEntities[0].getName(), 'transactions/txn_1');
 });
 
 test('applyTransactionEdit_ flips split row to post even when the edited value is already in the sheet row', () => {
@@ -450,10 +452,13 @@ test('applyTransactionEdit_ flips split row to post even when the edited value i
       last_error: '',
     }],
   ]);
-  const { sandbox } = loadCode();
+  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.saveTransactionByName_ = function() {};
+  sandbox.parseTransactionRowsToApi_ = function(rows) {
+    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
+  };
+  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Household', 'Groceries', {});
 
@@ -492,10 +497,13 @@ test('applyTransactionEdit_ keeps split row as txn when narration value is uncha
       last_error: '',
     }],
   ]);
-  const { sandbox } = loadCode();
+  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.saveTransactionByName_ = function() {};
+  sandbox.parseTransactionRowsToApi_ = function(rows) {
+    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
+  };
+  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 3, 'narration', 'Groceries', 'Groceries', {});
 
@@ -534,10 +542,13 @@ test('applyTransactionEdit_ clears split posting narration back to transaction f
       last_error: '',
     }],
   ]);
-  const { sandbox } = loadCode();
+  const { sandbox } = loadCode({ SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {} }; } } });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.saveTransactionByName_ = function() {};
+  sandbox.parseTransactionRowsToApi_ = function(rows) {
+    return { name: String((rows[0] || {}).resource_name || ''), transaction_date: '2026-04-19', postings: [] };
+  };
+  sandbox.ENTITY_REGISTRY['Transactions'].prototype.save = function() {};
 
   sandbox.applyTransactionEdit_(fakeSheet, 2, 'narration', '', 'Produce', {});
 

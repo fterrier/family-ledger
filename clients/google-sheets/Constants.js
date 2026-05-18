@@ -130,19 +130,6 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
       alignment: 'right',
     },
-    status: {
-      width: 90,
-      role: 'system',
-      note: 'dirty / saving / saved / error',
-      alignment: 'center',
-    },
-    last_error: {
-      width: 260,
-      role: 'system',
-      note: 'Most recent validation or save error.',
-      alignment: 'left',
-      wrap: true,
-    },
     issues: {
       width: 600,
       role: 'system',
@@ -153,7 +140,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       formulaManaged: true,
     },
   }, {
-    hiddenHeaders: ['resource_name', 'narration_source', 'last_error'],
+    hiddenHeaders: ['resource_name', 'narration_source'],
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {

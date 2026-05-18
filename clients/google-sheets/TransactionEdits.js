@@ -61,7 +61,20 @@ function applyTransactionEdit_(sheet, rowNumber, header, rawValue, oldRawValue, 
     precomputed = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
   }
 
-  saveTransactionByName_(sheet, precomputed, saveOptions || {}, accountOptions);
+  if (!precomputed) return;
+  const context = buildTransactionContext_(accountOptions);
+  const entity = Transaction.fromRows(precomputed.rows, context, precomputed.span);
+  SpreadsheetApp.getActiveSpreadsheet().toast('Saving transaction…', 'Family Ledger', 60);
+  try {
+    entity.save(sheet);
+  } catch (error) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
+    return;
+  }
+  try {
+    refreshDoctorIssueSheets_(context.accountResourceToDisplayName || {});
+  } catch (_e) {}
+  SpreadsheetApp.getActiveSpreadsheet().toast('Transaction saved.', 'Family Ledger', 3);
 }
 
 function performSplitForRow_(sheet, rowNumber, rawSplitAmount) {
@@ -86,15 +99,11 @@ function insertSplitRow_(sheet, rowNumber, row, groupRows, rowAmount, splitAmoun
   const newRow = Object.assign({}, row);
   newRow.amount = splitAmount;
   newRow.split_off_amount = '';
-  newRow.status = 'dirty';
-  newRow.last_error = '';
   newRow.narration_source = 'txn';
   newRow.narration = String(inferTransactionNarrationFromSiblingRows_(groupRows, rowNumber, row) || '');
 
   row.amount = rowAmount;
   row.split_off_amount = '';
-  row.status = 'dirty';
-  row.last_error = '';
 
   const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
   sheet.insertRowsAfter(rowNumber, 1);
@@ -140,8 +149,6 @@ function performDeleteSplitRow_(sheet, rowNumber) {
   if (span.count <= 1) {
     row.destination_account_name = '';
     row.split_off_amount = '';
-    row.status = 'dirty';
-    row.last_error = '';
     row.narration_source = 'txn';
     managedSheet_(sheet, txConfig).setRow(rowNumber, row);
     managedSheet_(sheet, txConfig).activateCell(rowNumber, 'split_off_amount');
@@ -152,8 +159,6 @@ function performDeleteSplitRow_(sheet, rowNumber) {
   const mergeTarget = groupRows.find(function(r) { return r.__rowNumber === mergeTargetRowNumber; });
   mergeTarget.amount = mergeTarget.amount + row.amount;
   mergeTarget.split_off_amount = '';
-  mergeTarget.status = 'dirty';
-  mergeTarget.last_error = '';
   if (span.count === 2) {
     mergeTarget.narration_source = 'txn';
   }
@@ -321,12 +326,5 @@ function openEditTransactionSidebar_(sheet, rowNumber) {
 }
 
 function handleAutomaticEditError_(sheet, rowNumber, error) {
-  try {
-    const { span } = findTransactionRowNumbersFromAnchor_(sheet, rowNumber);
-    const errorMsg = error.message || String(error);
-    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setFields(span, { status: 'error', last_error: errorMsg });
-  } catch (_e) {
-    // Row has no transaction — status fields cannot be updated
-  }
   SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
 }

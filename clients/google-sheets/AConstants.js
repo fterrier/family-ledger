@@ -65,6 +65,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'action',
       note: 'Click to open the Edit/Delete Transaction sidebar.',
       alignment: 'center',
+      checkbox: true,
     },
     resource_name: {
       width: 180,
@@ -79,6 +80,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
       quickFilter: 'date',
+      insertionOrder: true,
     },
     payee: {
       width: 280,
@@ -153,6 +155,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'action',
       note: 'Check to open the edit sidebar.',
       alignment: 'center',
+      checkbox: true,
     },
     resource_name: {
       width: 220,
@@ -167,6 +170,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
       quickFilter: 'date',
+      insertionOrder: true,
     },
     account: {
       width: 320,

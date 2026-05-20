@@ -40,7 +40,7 @@ class Transaction extends Entity {
   // triggers a posting split on inline sheet edits.
   setFields(fields) {
     if ('transaction_date' in fields)
-      this._api.transaction_date = normalizeTransactionDate_(fields.transaction_date);
+      this._api.transaction_date = normalizeEntityDate_(fields.transaction_date);
     if ('payee' in fields) this._api.payee = fields.payee || null;
     if ('narration' in fields) this._api.narration = fields.narration || null;
     if ('postings' in fields) {
@@ -299,9 +299,6 @@ class Transaction extends Entity {
     managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).activateCell(span.start, 'payee');
   }
 
-  static writeToSheet_(sheet, existingSpan, rows) {
-    return applyTransactionResponseToSheet_(sheet, existingSpan, rows);
-  }
 }
 
 // Populate the entity registries after class is defined.
@@ -459,7 +456,7 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
     'transaction_date',
     'transaction date',
     issues,
-    normalizeTransactionDate_
+    normalizeEntityDate_
   );
   const payee = readOptionalNormalizedValue_(rows, 'payee', 'payee', issues);
   const narration = inferTransactionNarrationFromGroupRows_(rows, issues);
@@ -563,71 +560,12 @@ function readOptionalNormalizedValue_(rows, fieldName, label, issues) {
   return distinct.length === 0 ? null : distinct[0];
 }
 
-function normalizeTransactionDate_(value) {
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    return Utilities.formatDate(value, 'UTC', 'yyyy-MM-dd');
-  }
-  return String(value || '').trim();
-}
-
 function effectiveSheetNarration_(transactionNarration, postingNarration) {
   const explicitPostingNarration = String(postingNarration || '');
   if (explicitPostingNarration) {
     return explicitPostingNarration;
   }
   return String(transactionNarration || '');
-}
-
-function buildTransactionGroupAnchors_(sheet) {
-  const lastRow = sheet.getLastRow();
-  const anchors = [];
-  if (lastRow <= 1) return anchors;
-  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
-  const rows = managedSheet_(sheet, txConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', 'transaction_date']);
-  let current = null;
-  rows.forEach(function(row, index) {
-    const transactionName = String(row.resource_name || '').trim();
-    if (!transactionName) return;
-    const rowNumber = index + 2;
-    const transactionDate = normalizeTransactionDate_(row.transaction_date);
-    if (!current || current.transactionName !== transactionName) {
-      if (current) anchors.push(current);
-      current = { transactionName: transactionName, span: { start: rowNumber, count: 1 }, transactionDate: transactionDate };
-      return;
-    }
-    current.span.count = rowNumber - current.span.start + 1;
-  });
-  if (current) anchors.push(current);
-  return anchors;
-}
-
-function findInsertionRowForTransactionDate_(sheet, transactionDate) {
-  const normalizedDate = normalizeTransactionDate_(transactionDate);
-  const anchors = buildTransactionGroupAnchors_(sheet);
-  for (let index = 0; index < anchors.length; index += 1) {
-    if (anchors[index].transactionDate > normalizedDate) {
-      return anchors[index].span.start;
-    }
-  }
-  const lastAnchor = anchors[anchors.length - 1];
-  return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
-}
-
-// TODO: unify with applyBalanceResponseToSheet_ under Entity.js once patterns stabilize.
-function applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows) {
-  let targetSpan;
-  if (!existingSpan) {
-    const insertionRow = findInsertionRowForTransactionDate_(sheet, replacementRows[0].transaction_date);
-    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, replacementRows.length);
-  } else if (existingSpan.count === replacementRows.length) {
-    targetSpan = existingSpan;
-  } else {
-    targetSpan = resizeContiguousRows_(sheet, existingSpan, replacementRows.length);
-  }
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRows(targetSpan, replacementRows);
-  refreshAccountValidation_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, targetSpan);
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setColumnFormulas(targetSpan, 'issues', buildIssueLookupFormula_);
-  return targetSpan;
 }
 
 function normalizeOptionalSheetText_(value) {

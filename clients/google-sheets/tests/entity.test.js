@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { loadCode, makeRowStoreSheet_ } = require('./_harness');
+const { loadCode, sampleTransaction, makeRowStoreSheet_ } = require('./_harness');
 
 function getTransaction(sandbox) {
   return sandbox.ENTITY_REGISTRY['Transactions'];
@@ -312,4 +312,175 @@ test('findEntityRowsFromAnchor_ returns entity with _span set and correct name',
 
   assert.deepEqual(JSON.parse(JSON.stringify(entity._span)), { start: 2, count: 1 });
   assert.equal(entity.getName(), 'transactions/txn_1');
+});
+
+// --- findEntityInsertionRow_ ---
+
+test('findEntityInsertionRow_ inserts before first greater date and after same-date block', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19' }],
+    [4, { resource_name: 'transactions/txn_3', transaction_date: '2026-04-19' }],
+    [5, { resource_name: 'transactions/txn_4', transaction_date: '2026-04-21' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-17'), 2);
+  assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-19'), 5);
+  assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-20'), 5);
+  assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-22'), 6);
+});
+
+// --- applyEntityResponseToSheet_ ---
+
+function makeReplacementRows_(sandbox, overrides) {
+  overrides = overrides || {};
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(overrides.txn || {}), {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+  });
+  rows.forEach(function(row) { row.split_off_amount = ''; });
+  return rows;
+}
+
+test('applyEntityResponseToSheet_ inserts new entity mid-sheet at date-sorted position', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+    [3, { resource_name: 'transactions/txn_b', transaction_date: '2026-04-21', payee: 'B' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-20', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
+});
+
+test('applyEntityResponseToSheet_ appends new entity when date is after all existing', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-25', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+});
+
+test('applyEntityResponseToSheet_ writes to row 2 when sheet is empty', () => {
+  const operations = [];
+  const rowStore = new Map();
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+});
+
+test('applyEntityResponseToSheet_ deletes excess rows when posting count decreases', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 50, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
+          amount: 34.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [4, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 2 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_other');
+  const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
+  assert.equal(deleteOps.length, 1);
+});
+
+test('applyEntityResponseToSheet_ inserts rows when posting count increases', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const splitTxn = sampleTransaction({ postings: [
+    { account: 'accounts/source', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+    { account: 'accounts/household', units: { amount: '34.25', symbol: 'CHF' } },
+  ]});
+  const replacementRows = sandbox.flattenTransactionForSheet_(splitTxn, {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+    'accounts/household': '[X] Household',
+  });
+  replacementRows.forEach(function(row) { row.split_off_amount = ''; });
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 2 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_other');
+  const insertOps = operations.filter(function(op) { return op.type === 'insertRowsAfter'; });
+  assert.equal(insertOps.length, 1);
+});
+
+test('applyEntityResponseToSheet_ updates rows in-place when span count matches', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+
+  assert.equal(rowStore.get(2).payee, 'Migros');
+});
+
+test('applyEntityResponseToSheet_ deletes existing span when rows are empty', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'balanceAssertions/bal_1', assertion_date: '2026-04-19' }],
+    [3, { resource_name: 'balanceAssertions/bal_2', assertion_date: '2026-04-25' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations, 'Balances');
+  const balConfig = sandbox.getSheetConfigByName_('Balances');
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, balConfig, { start: 2, count: 1 }, []);
+
+  assert.equal(result, null);
+  const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
+  assert.equal(deleteOps.length, 1);
 });

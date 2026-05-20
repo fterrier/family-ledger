@@ -1,3 +1,71 @@
+function normalizeEntityDate_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return Utilities.formatDate(value, 'UTC', 'yyyy-MM-dd');
+  }
+  return String(value || '').trim();
+}
+
+function buildEntityAnchors_(sheet, sheetConfig) {
+  const lastRow = sheet.getLastRow();
+  const anchors = [];
+  if (lastRow <= 1) return anchors;
+  const dateHeader = sheetConfig.headers.find(function(h) {
+    return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
+  });
+  if (!dateHeader) return anchors;
+  const rows = managedSheet_(sheet, sheetConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', dateHeader]);
+  let current = null;
+  rows.forEach(function(row, index) {
+    const entityName = String(row.resource_name || '').trim();
+    if (!entityName) return;
+    const rowNumber = index + 2;
+    const entityDate = normalizeEntityDate_(row[dateHeader]);
+    if (!current || current.entityName !== entityName) {
+      if (current) anchors.push(current);
+      current = { entityName: entityName, span: { start: rowNumber, count: 1 }, entityDate: entityDate };
+      return;
+    }
+    current.span.count = rowNumber - current.span.start + 1;
+  });
+  if (current) anchors.push(current);
+  return anchors;
+}
+
+function findEntityInsertionRow_(sheet, sheetConfig, date) {
+  const normalizedDate = normalizeEntityDate_(date);
+  const anchors = buildEntityAnchors_(sheet, sheetConfig);
+  for (let index = 0; index < anchors.length; index += 1) {
+    if (anchors[index].entityDate > normalizedDate) return anchors[index].span.start;
+  }
+  const lastAnchor = anchors[anchors.length - 1];
+  return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
+}
+
+function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
+  if (!rows || rows.length === 0) {
+    if (existingSpan) resizeContiguousRows_(sheet, existingSpan, 0);
+    return null;
+  }
+  const dateHeader = sheetConfig.headers.find(function(h) {
+    return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
+  });
+  let targetSpan;
+  if (!existingSpan) {
+    const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
+    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
+  } else if (existingSpan.count === rows.length) {
+    targetSpan = existingSpan;
+  } else {
+    targetSpan = resizeContiguousRows_(sheet, existingSpan, rows.length);
+  }
+  managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
+  refreshAccountValidation_(sheet, sheetConfig, targetSpan);
+  if (sheetConfig.issueHeader) {
+    managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
+  }
+  return targetSpan;
+}
+
 class Entity {
   getName() { return (this._api && this._api.name) || null; }
   validate() {}
@@ -83,6 +151,10 @@ class Entity {
   //   fromRows(rows, context) → Entity
   //   fromApi(apiEntity, context) → Entity
   //   isEditableHeader(header) → boolean
+
+  static writeToSheet_(sheet, existingSpan, rows) {
+    return applyEntityResponseToSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[this.SHEET_KEY], existingSpan, rows);
+  }
 
   // Default: 'edit' checkbox opens the generic edit sidebar.
   // Subclasses may override for custom action headers.

@@ -128,10 +128,6 @@ class Balance extends Entity {
     };
   }
 
-  static writeToSheet_(sheet, existingSpan, rows) {
-    return applyBalanceResponseToSheet_(sheet, existingSpan, rows);
-  }
-
   static activateAfterCreate_(sheet, span) {
     managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).activateCell(span.start, 'account');
   }
@@ -139,36 +135,3 @@ class Balance extends Entity {
 
 ENTITY_REGISTRY[FAMILY_LEDGER_SHEET_NAMES.balances] = Balance;
 ENTITY_CLASS_REGISTRY[Balance.SHEET_KEY] = Balance;
-
-// Scan all rows in the balances sheet; return the first row number where
-// assertion_date strictly exceeds the given date, or the row after the last row.
-function findInsertionRowForBalanceDate_(sheet, assertionDate) {
-  const normalizedDate = String(assertionDate || '').trim();
-  const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return 2;
-  const rows = managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances)
-    .getRows({ start: 2, count: lastRow - 1 }, ['assertion_date']);
-  for (let i = 0; i < rows.length; i += 1) {
-    const rowDate = String(rows[i].assertion_date || '').trim();
-    if (rowDate && rowDate > normalizedDate) return i + 2;
-  }
-  return lastRow + 1;
-}
-
-// TODO: unify with applyTransactionResponseToSheet_ under Entity.js once patterns stabilize.
-function applyBalanceResponseToSheet_(sheet, existingSpan, rows) {
-  if (!rows || rows.length === 0) {
-    if (existingSpan) resizeContiguousRows_(sheet, existingSpan, 0);
-    return null;
-  }
-  let targetSpan;
-  if (!existingSpan) {
-    const insertionRow = findInsertionRowForBalanceDate_(sheet, rows[0].assertion_date);
-    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, 1);
-  } else {
-    targetSpan = existingSpan;
-  }
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).setRows(targetSpan, rows);
-  ensureBalancesIssueFormulas_(sheet, targetSpan);
-  return targetSpan;
-}

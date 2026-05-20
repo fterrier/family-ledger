@@ -55,15 +55,17 @@ function ensureTransactionSheetFilter_(sheet) {
   }
   const filter = managedSheet_(sheet, sheetConfig).createFilter();
   restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader);
-  reapplyPersistedQuickFilters_();
 }
 
 function ensureBalancesSheetFilter_(sheet) {
+  const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY.balances;
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return;
   const existing = sheet.getFilter();
+  const savedCriteriaByHeader = snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, existing);
   if (existing) existing.remove();
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).createFilter();
+  const filter = managedSheet_(sheet, sheetConfig).createFilter();
+  restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader);
 }
 
 function ensureAccountsSheetFilter_(sheet) {

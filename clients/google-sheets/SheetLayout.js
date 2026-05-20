@@ -60,6 +60,8 @@ function refreshManagedLedgerSheetLayouts_() {
     applyManagedSheetLayout_(issuesSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues);
     if (perf) perf.end('sheet.layout_issues');
   }
+
+  reapplyPersistedQuickFilters_();
 }
 
 function getSheetConfigByName_(sheetName) {

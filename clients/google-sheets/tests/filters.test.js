@@ -170,12 +170,10 @@ test('ensureTransactionSheetFilter_ restores hidden technical column criteria by
   assert.deepEqual(restored, [{ col: 6, criteria: { formula: '=$F2="txn"' } }]);
 });
 
-test('ensureTransactionSheetFilter_ reapplies persisted quick filters after rebuild', () => {
-  const filterCriteria = [];
-  const { sandbox, documentProperties } = loadCode();
-  documentProperties.set('QUICK_FILTER_FROM', '2026-01');
-  documentProperties.set('QUICK_FILTER_TO', '2026-12');
-  documentProperties.set('QUICK_FILTER_ACCOUNT_PREFIX', '[X]');
+test('ensureTransactionSheetFilter_ does not call reapplyPersistedQuickFilters_ (caller responsibility)', () => {
+  let reapplyCalled = false;
+  const { sandbox } = loadCode();
+  sandbox.reapplyPersistedQuickFilters_ = function() { reapplyCalled = true; };
   let activeFilter = {
     getRange() { return { getNumColumns() { return 13; } }; },
     getColumnFilterCriteria() { return null; },
@@ -183,52 +181,21 @@ test('ensureTransactionSheetFilter_ reapplies persisted quick filters after rebu
   };
   const sheet = {
     getLastRow() { return 3; },
-    getFilter() {
-      return activeFilter;
-    },
-    getRange(_row, _column, _numRows, numCols) {
+    getFilter() { return activeFilter; },
+    getRange(_row, _column, _numRows, _numCols) {
       return {
-        getValues() {
-          return [[
-            'resource_name',
-            'transaction_date',
-            'payee',
-            'narration',
-            'narration_source',
-            'source_account_name',
-            'destination_account_name',
-            'symbol',
-            'amount',
-            'split_off_amount',
-            'status',
-            'last_error',
-            'issues',
-          ].slice(0, numCols)];
-        },
+        getValues() { return [[]]; },
         createFilter() {
-          activeFilter = {
-            setColumnFilterCriteria(col, criteria) { filterCriteria.push({ col, criteria }); },
-            removeColumnFilterCriteria() {},
-          };
+          activeFilter = { setColumnFilterCriteria() {}, removeColumnFilterCriteria() {} };
           return activeFilter;
         },
       };
     },
   };
 
-  sandbox.SpreadsheetApp.getActiveSpreadsheet = function() {
-    return {
-      getSheetByName(name) {
-        return name === 'Transactions' ? sheet : null;
-      },
-    };
-  };
-
   sandbox.ensureTransactionSheetFilter_(sheet);
 
-  assert.equal(filterCriteria.length, 2);
-  assert.equal(filterCriteria[0].col, 3);
-  assert.equal(filterCriteria[1].col, 7);
+  assert.equal(reapplyCalled, false);
 });
 
 test('getTransactionFilterYears returns unique years from transaction dates in descending order', () => {

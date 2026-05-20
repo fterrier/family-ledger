@@ -155,6 +155,7 @@ function findInsertionRowForBalanceDate_(sheet, assertionDate) {
   return lastRow + 1;
 }
 
+// TODO: unify with applyTransactionResponseToSheet_ under Entity.js once patterns stabilize.
 function applyBalanceResponseToSheet_(sheet, existingSpan, rows) {
   if (!rows || rows.length === 0) {
     if (existingSpan) resizeContiguousRows_(sheet, existingSpan, 0);

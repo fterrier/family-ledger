@@ -5,12 +5,12 @@ const vm = require('node:vm');
 const CLIENT_DIR = path.join(__dirname, '..');
 
 const SOURCE_FILES = [
-  'Constants.js',
+  'AConstants.js',
   'Perf.js',
   'SheetLayout.js',
-  'Entity.js',
+  'AEntity.js',
   'Transaction.js',
-  'EntityBalance.js',
+  'Balance.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',

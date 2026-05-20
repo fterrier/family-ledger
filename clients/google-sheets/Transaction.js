@@ -613,6 +613,7 @@ function findInsertionRowForTransactionDate_(sheet, transactionDate) {
   return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
 }
 
+// TODO: unify with applyBalanceResponseToSheet_ under Entity.js once patterns stabilize.
 function applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows) {
   let targetSpan;
   if (!existingSpan) {

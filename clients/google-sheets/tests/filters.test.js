@@ -498,7 +498,7 @@ test('applyQuickDateFilter also filters Balances assertion_date column', () => {
   assert.equal(txCriteria.length, 1);
   assert.equal(txCriteria[0].col, 3); // transaction_date
   assert.equal(balCriteria.length, 1);
-  assert.equal(balCriteria[0].col, 2); // assertion_date
+  assert.equal(balCriteria[0].col, 3); // assertion_date
   assert.ok(balCriteria[0].c.formula.includes('202601'));
 });
 
@@ -521,7 +521,7 @@ test('clearQuickDateFilter removes date filter from Balances', () => {
   sandbox.clearQuickDateFilter();
 
   assert.deepEqual(txRemoved, [3]); // transaction_date
-  assert.deepEqual(balRemoved, [2]); // assertion_date
+  assert.deepEqual(balRemoved, [3]); // assertion_date
 });
 
 test('applyQuickAccountFilter also filters Balances account column', () => {
@@ -546,7 +546,7 @@ test('applyQuickAccountFilter also filters Balances account column', () => {
   sandbox.applyQuickAccountFilter('[X]');
 
   assert.equal(balCriteria.length, 1);
-  assert.equal(balCriteria[0].col, 3); // account
+  assert.equal(balCriteria[0].col, 4); // account
   assert.ok(balCriteria[0].c.formula.includes('"[X] "'));
 });
 
@@ -624,7 +624,7 @@ test('clearQuickAccountFilter removes filter from Balances and Accounts', () => 
 
   sandbox.clearQuickAccountFilter();
 
-  assert.deepEqual(balRemoved, [3]); // account
+  assert.deepEqual(balRemoved, [4]); // account
   assert.deepEqual(accRemoved, [2]); // account_name
 });
 
@@ -650,7 +650,7 @@ test('clearQuickFilter removes date and account criteria from all sheets', () =>
   sandbox.clearQuickFilter();
 
   assert.deepEqual(removed.Transactions.sort((a, b) => a - b), [3, 7, 8]); // date, source, destination
-  assert.deepEqual(removed.Balances.sort((a, b) => a - b), [2, 3]); // assertion_date, account
+  assert.deepEqual(removed.Balances.sort((a, b) => a - b), [3, 4]); // assertion_date, account
   assert.deepEqual(removed.Accounts, [2]); // account_name
 });
 

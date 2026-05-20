@@ -144,6 +144,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
+    edit: {
+      width: 50,
+      role: 'action',
+      note: 'Check to open the edit sidebar.',
+      alignment: 'center',
+    },
     resource_name: {
       width: 220,
       role: 'system',
@@ -174,12 +180,6 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       width: 55,
       role: 'readonly',
       note: 'Read-only commodity symbol.',
-      alignment: 'center',
-    },
-    edit: {
-      width: 50,
-      role: 'action',
-      note: 'Check to open the edit sidebar.',
       alignment: 'center',
     },
     issues: {

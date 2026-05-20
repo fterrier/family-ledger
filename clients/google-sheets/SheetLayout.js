@@ -25,7 +25,7 @@ function refreshManagedLedgerSheetLayouts_() {
     if (perf) perf.start('sheet.layout_transactions');
     applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
     refreshTransactionAccountValidation_(txSheet);
-    applyTransactionEditCheckbox_(txSheet);
+    applyActionColumnCheckboxes_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
     ensureTransactionSheetFilter_(txSheet);
     if (perf) perf.end('sheet.layout_transactions');
   }
@@ -42,6 +42,7 @@ function refreshManagedLedgerSheetLayouts_() {
   if (balSheet) {
     if (perf) perf.start('sheet.layout_balances');
     applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
+    applyActionColumnCheckboxes_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
     ensureBalancesSheetFilter_(balSheet);
     if (perf) perf.end('sheet.layout_balances');
   }
@@ -309,15 +310,16 @@ function isManagedConditionalFormula_(formula, sheetConfig) {
   return /^=\$[A-Z]+2<>""$/.test(formula);
 }
 
-function applyTransactionEditCheckbox_(sheet) {
+function applyActionColumnCheckboxes_(sheet, sheetConfig) {
   const lastRow = sheet.getMaxRows();
   if (lastRow <= 1) return;
-  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
-  managedSheet_(sheet, txConfig).setColumnValidation(
-    { start: 2, count: lastRow - 1 },
-    'edit',
-    SpreadsheetApp.newDataValidation().requireCheckbox().build()
-  );
+  const ms = managedSheet_(sheet, sheetConfig);
+  const validation = SpreadsheetApp.newDataValidation().requireCheckbox().build();
+  sheetConfig.headers.forEach(function(header) {
+    if ((sheetConfig.columns[header] || {}).role === 'action') {
+      ms.setColumnValidation({ start: 2, count: lastRow - 1 }, header, validation);
+    }
+  });
 }
 
 function columnNumberToLetter_(columnNumber) {

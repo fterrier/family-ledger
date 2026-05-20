@@ -258,7 +258,7 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   sandbox.refreshTransactionAccountValidation_ = function(sheet) {
     calls.push({ type: 'validation', sheet: sheet.name });
   };
-  sandbox.applyTransactionEditCheckbox_ = function(sheet) {
+  sandbox.applyActionColumnCheckboxes_ = function(sheet) {
     calls.push({ type: 'editCheckbox', sheet: sheet.name });
   };
   sandbox.ensureTransactionSheetFilter_ = function(sheet) {

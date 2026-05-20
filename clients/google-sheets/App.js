@@ -9,6 +9,7 @@ function onOpen() {
   ui.createMenu('Family Ledger')
     .addItem('Quick Filter', 'showQuickFilter')
     .addItem('Add Transaction', 'showAddTransaction')
+    .addItem('Add Balance Assertion', 'showAddBalanceAssertion')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Importer Settings', 'showImporterSettings')

@@ -10,6 +10,7 @@ const SOURCE_FILES = [
   'SheetLayout.js',
   'Entity.js',
   'Transaction.js',
+  'Balance.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',
@@ -294,8 +295,8 @@ function sampleTransaction(overrides = {}) {
   };
 }
 
-function makeRowStoreSheet_(sandbox, rowStore, operations) {
-  const headers = sandbox.getSheetConfigByName_('Transactions').headers;
+function makeRowStoreSheet_(sandbox, rowStore, operations, sheetName = 'Transactions') {
+  const headers = sandbox.getSheetConfigByName_(sheetName).headers;
   let filterCriteriaByColumn = null;
   return {
     getLastRow() {
@@ -425,7 +426,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations) {
     },
     clearContents() { operations.push({ type: 'clearContents' }); },
     setFrozenRows() {},
-    getName() { return 'Transactions'; },
+    getName() { return sheetName; },
     setColumnWidth() {},
     getFilter() {
       if (!filterCriteriaByColumn) {

@@ -45,8 +45,12 @@ class Entity {
   // Subclasses may override CREATE_EXTRA_FIELDS to inject extra top-level fields into POST bodies.
   static get CREATE_EXTRA_FIELDS() { return { entity_metadata: { source: 'google_sheets_quick_add' } }; }
 
+  // Default collection path is API_RESOURCE_KEY + 's'. Subclasses may override
+  // API_COLLECTION_PATH when the plural form doesn't follow this pattern (e.g. hyphens).
+  static get API_COLLECTION_PATH() { return this.API_RESOURCE_KEY + 's'; }
+
   static createViaApi_(payload) {
-    return apiFetchJson_('post', '/' + this.API_RESOURCE_KEY + 's', {
+    return apiFetchJson_('post', '/' + this.API_COLLECTION_PATH, {
       [this.API_RESOURCE_KEY]: Object.assign({}, this.CREATE_EXTRA_FIELDS, payload),
     });
   }

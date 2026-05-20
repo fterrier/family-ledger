@@ -1368,6 +1368,76 @@ def test_create_balance_assertion_rejects_unknown_account() -> None:
     assert response.json()["detail"]["code"] == "account_not_found"
 
 
+def test_update_balance_assertion() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    savings = create_account(client, "Assets:Bank:Savings:Family")
+    create_commodity(client, "CHF")
+
+    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
+
+    response = client.patch(
+        f"/balance-assertions/{created['name']}",
+        json={
+            "balance_assertion": {
+                "assertion_date": "2026-04-20",
+                "account": savings["name"],
+                "amount": {"amount": "1500.00", "symbol": "CHF"},
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == created["name"]
+    assert body["assertion_date"] == "2026-04-20"
+    assert body["account"] == savings["name"]
+    assert Decimal(body["amount"]["amount"]) == Decimal("1500.00")
+
+
+def test_update_balance_assertion_not_found() -> None:
+    client = make_client()
+
+    response = client.patch(
+        "/balance-assertions/balanceAssertions/bal_missing",
+        json={
+            "balance_assertion": {
+                "assertion_date": "2026-04-19",
+                "account": "accounts/acc_missing",
+                "amount": {"amount": "100.00", "symbol": "CHF"},
+            }
+        },
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "balance_assertion_not_found"
+
+
+def test_delete_balance_assertion() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    create_commodity(client, "CHF")
+
+    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
+
+    delete_response = client.delete(f"/balance-assertions/{created['name']}")
+    assert delete_response.status_code == 204
+
+    get_response = client.get(f"/balance-assertions/{created['name']}")
+    assert get_response.status_code == 404
+
+
+def test_delete_balance_assertion_not_found() -> None:
+    client = make_client()
+
+    response = client.delete("/balance-assertions/balanceAssertions/bal_missing")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "balance_assertion_not_found"
+
+
 # ---------------------------------------------------------------------------
 # Pad endpoint — HTTP-level tests only; computation logic is in
 # tests/test_services_account_balance.py

@@ -231,6 +231,11 @@ class CreateBalanceAssertionRequest(BaseModel):
     balance_assertion: BalanceAssertionCreate
 
 
+class UpdateBalanceAssertionRequest(BaseModel):
+    balance_assertion: BalanceAssertionCreate
+    update_mask: str | None = None
+
+
 class PadEntry(BaseModel):
     balance_assertion: str
     assertion_date: date

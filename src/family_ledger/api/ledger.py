@@ -13,6 +13,7 @@ from family_ledger.api.schemas import (
     CommodityResource,
     CreateAccountRequest,
     CreateBalanceAssertionRequest,
+    UpdateBalanceAssertionRequest,
     CreateCommodityRequest,
     CreatePriceRequest,
     CreateTransactionRequest,
@@ -263,3 +264,25 @@ def get_balance_assertion(
     session: DbSession,
 ) -> BalanceAssertionResource:
     return _call_service(ledger_service.get_balance_assertion_by_name, session, balance_assertion)
+
+
+@router.patch(
+    "/balance-assertions/{balance_assertion:path}",
+    response_model=BalanceAssertionResource,
+)
+def update_balance_assertion(
+    balance_assertion: str,
+    request: UpdateBalanceAssertionRequest,
+    session: DbSession,
+) -> BalanceAssertionResource:
+    return _call_service(
+        ledger_service.update_balance_assertion,
+        session,
+        balance_assertion,
+        request.balance_assertion,
+    )
+
+
+@router.delete("/balance-assertions/{balance_assertion:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_balance_assertion(balance_assertion: str, session: DbSession) -> None:
+    _call_service(ledger_service.delete_balance_assertion, session, balance_assertion)

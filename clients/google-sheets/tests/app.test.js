@@ -58,6 +58,7 @@ test('onOpen adds Importer Settings to the Family Ledger menu', () => {
   assert.deepEqual(labels, [
     'Quick Filter',
     'Add Transaction',
+    'Add Balance Assertion',
     'Sheet Settings',
     'Importer Settings',
     'Import data',

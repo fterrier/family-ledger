@@ -463,6 +463,38 @@ def create_balance_assertion(
     return serialize_balance_assertion(persisted)
 
 
+def update_balance_assertion(
+    session: Session, balance_assertion: str, payload: BalanceAssertionCreate
+) -> BalanceAssertionResource:
+    resource = resource_name("balanceAssertions", balance_assertion)
+    assertion = session.scalar(
+        select(BalanceAssertion)
+        .options(selectinload(BalanceAssertion.account))
+        .where(BalanceAssertion.name == resource)
+    )
+    if assertion is None:
+        raise NotFoundError(code="balance_assertion_not_found", message="Balance assertion not found")
+    account = resolve_account(session, payload.account)
+    validate_symbols_exist(session, {payload.amount.symbol})
+    assertion.assertion_date = payload.assertion_date
+    assertion.account = account
+    assertion.amount = payload.amount.amount
+    assertion.symbol = payload.amount.symbol
+    assertion.entity_metadata = payload.entity_metadata
+    commit_or_raise(session)
+    session.refresh(assertion)
+    return serialize_balance_assertion(assertion)
+
+
+def delete_balance_assertion(session: Session, balance_assertion: str) -> None:
+    resource = resource_name("balanceAssertions", balance_assertion)
+    assertion = session.scalar(select(BalanceAssertion).where(BalanceAssertion.name == resource))
+    if assertion is None:
+        raise NotFoundError(code="balance_assertion_not_found", message="Balance assertion not found")
+    session.delete(assertion)
+    commit_or_raise(session)
+
+
 def get_balance_assertion_by_name(
     session: Session, balance_assertion: str
 ) -> BalanceAssertionResource:

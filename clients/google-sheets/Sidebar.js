@@ -7,6 +7,11 @@ function showAddTransaction() {
   showEditSidebar_('transactions', null, null);
 }
 
+// Menu entry point — opens the Add Balance Assertion sidebar.
+function showAddBalanceAssertion() {
+  showEditSidebar_('balances', null, null);
+}
+
 function showEditSidebar_(entityClassKey, entityName, span, context) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entityClassKey];
   const template = HtmlService.createTemplateFromFile('EditSidebar');

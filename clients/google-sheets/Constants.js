@@ -176,6 +176,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only commodity symbol.',
       alignment: 'center',
     },
+    edit: {
+      width: 50,
+      role: 'action',
+      note: 'Check to open the edit sidebar.',
+      alignment: 'center',
+    },
     issues: {
       width: 600,
       role: 'system',

@@ -188,15 +188,22 @@ def test_process_pending_attachment_marks_stored_from_duplicate_of(
     session.add(attachment)
     session.commit()
 
+    settings = make_settings().model_copy(update={"paperless_tag_ids": [12]})
     monkeypatch.setattr(
         paperless,
         "get_task_result",
         lambda settings, task_id: paperless.PaperlessTaskResult(status="success", duplicate_of=84),
     )
+    captured: list[tuple[int, list[int]]] = []
+    monkeypatch.setattr(
+        paperless,
+        "add_tags_to_document",
+        lambda settings, document_id, tag_ids: captured.append((document_id, list(tag_ids))),
+    )
 
     attachments.process_pending_attachments(
         session,
-        make_settings(),
+        settings,
         now=datetime(2026, 5, 19, 12, 0, 0),
     )
 
@@ -204,6 +211,50 @@ def test_process_pending_attachment_marks_stored_from_duplicate_of(
     assert attachment.status == attachments.ATTACHMENT_STORED_STATUS
     assert attachment.document_url == "https://paperless.example.com/api/documents/84/"
     assert attachment.storage_metadata["duplicate_of"] == 84
+    assert captured == [(84, [12])]
+
+
+def test_process_pending_attachment_marks_failed_when_duplicate_tagging_fails(
+    monkeypatch: pytest.MonkeyPatch, session: Session
+) -> None:
+    account = seed_account(session)
+    attachment = Attachment(
+        name="attachments/att_one",
+        account=account,
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        status=attachments.ATTACHMENT_PENDING_STATUS,
+        document_url=None,
+        storage_backend="paperless",
+        storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
+        entity_metadata={},
+        storage_metadata={"task_id": "task-123"},
+    )
+    session.add(attachment)
+    session.commit()
+
+    settings = make_settings().model_copy(update={"paperless_tag_ids": [12]})
+    monkeypatch.setattr(
+        paperless,
+        "get_task_result",
+        lambda settings, task_id: paperless.PaperlessTaskResult(status="success", duplicate_of=84),
+    )
+
+    def raise_tagging(*args, **kwargs):
+        raise UnavailableError(code="paperless_tagging_failed", message="Tagging failed")
+
+    monkeypatch.setattr(paperless, "add_tags_to_document", raise_tagging)
+
+    with pytest.raises(UnavailableError):
+        attachments.process_pending_attachments(
+            session,
+            settings,
+            now=datetime(2026, 5, 19, 12, 0, 0),
+        )
+
+    session.refresh(attachment)
+    assert attachment.status == attachments.ATTACHMENT_PENDING_STATUS
 
 
 def test_process_pending_attachment_marks_failed_on_terminal_error(

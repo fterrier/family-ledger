@@ -207,6 +207,11 @@ def process_pending_attachments(
             attachment.document_url = paperless.build_document_url(settings, result.document_id)
             attachment.status = ATTACHMENT_STORED_STATUS
         elif result.duplicate_of is not None:
+            paperless.add_tags_to_document(
+                settings,
+                result.duplicate_of,
+                settings.paperless_tag_ids,
+            )
             metadata["document_id"] = result.duplicate_of
             metadata["duplicate_of"] = result.duplicate_of
             attachment.document_url = paperless.build_document_url(settings, result.duplicate_of)

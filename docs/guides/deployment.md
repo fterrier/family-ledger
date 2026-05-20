@@ -21,7 +21,8 @@ If you want attachment uploads, configure Paperless-ngx access:
 
 Optional tuning:
 
-- `FAMILY_LEDGER_PAPERLESS_API_VERSION` defaults to `10`
+- `FAMILY_LEDGER_PAPERLESS_TAG_IDS` — comma-separated Paperless tag IDs applied to every uploaded attachment
+- `FAMILY_LEDGER_PAPERLESS_API_VERSION` defaults to `10`; set to `9` if your Paperless instance does not support version 10
 - `FAMILY_LEDGER_PAPERLESS_POLL_INTERVAL_SECONDS` defaults to `30`
 - `FAMILY_LEDGER_PAPERLESS_INGESTION_TIMEOUT_SECONDS` defaults to `900`
 - `FAMILY_LEDGER_ATTACHMENT_POLLER_ENABLED` defaults to `true`

@@ -11,6 +11,7 @@ from family_ledger.services.errors import UnavailableError
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 TERMINAL_TASK_STATUSES = {"success", "failure", "revoked"}
+LEGACY_TERMINAL_TASK_STATUSES = {"SUCCESS", "FAILURE", "REVOKED"}
 
 
 @dataclass(frozen=True)
@@ -61,22 +62,26 @@ def upload_document(
     title: str | None,
 ) -> str:
     base_url, _token = _require_paperless_settings(settings)
-    files = {
-        "document": (
-            filename,
-            file_data,
-            content_type or "application/octet-stream",
-        )
-    }
-    data = {"created": created.isoformat()}
+    files: list[tuple[str, tuple[str | None, bytes | str, str | None] | tuple[None, str]]] = [
+        (
+            "document",
+            (
+                filename,
+                file_data,
+                content_type or "application/octet-stream",
+            ),
+        ),
+        ("created", (None, created.isoformat())),
+    ]
     if title is not None:
-        data["title"] = title
+        files.append(("title", (None, title)))
+    for tag_id in settings.paperless_tag_ids:
+        files.append(("tags", (None, str(tag_id))))
 
     try:
         response = httpx.post(
             f"{base_url}/api/documents/post_document/",
             headers=_build_headers(settings),
-            data=data,
             files=files,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
@@ -98,6 +103,36 @@ def upload_document(
             message="Paperless returned an invalid task identifier",
         )
     return task_id
+
+
+def add_tags_to_document(settings: Settings, document_id: int, tag_ids: list[int]) -> None:
+    if not tag_ids:
+        return
+
+    base_url, _token = _require_paperless_settings(settings)
+    try:
+        for tag_id in tag_ids:
+            response = httpx.post(
+                f"{base_url}/api/documents/bulk_edit/",
+                headers=_build_headers(settings),
+                json={
+                    "documents": [document_id],
+                    "method": "add_tag",
+                    "parameters": {"tag": tag_id},
+                },
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise UnavailableError(
+            code="paperless_tagging_failed",
+            message=f"Paperless document tagging failed with status {exc.response.status_code}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise UnavailableError(
+            code="paperless_unreachable",
+            message="Paperless is unreachable",
+        ) from exc
 
 
 def get_task_result(settings: Settings, task_id: str) -> PaperlessTaskResult | None:
@@ -122,15 +157,19 @@ def get_task_result(settings: Settings, task_id: str) -> PaperlessTaskResult | N
             message="Paperless is unreachable",
         ) from exc
 
-    if not isinstance(body, dict):
+    if isinstance(body, dict):
+        results = body.get("results")
+        if not isinstance(results, list) or not results:
+            return None
+    elif isinstance(body, list):
+        results = body
+        if not results:
+            return None
+    else:
         raise UnavailableError(
             code="paperless_invalid_response",
             message="Paperless returned an invalid task response",
         )
-
-    results = body.get("results")
-    if not isinstance(results, list) or not results:
-        return None
 
     task = results[0]
     if not isinstance(task, dict):
@@ -152,14 +191,24 @@ def get_task_result(settings: Settings, task_id: str) -> PaperlessTaskResult | N
 
     document_id = result_data.get("document_id")
     duplicate_of = result_data.get("duplicate_of")
+    legacy_related_document = task.get("related_document")
+    if (
+        document_id is None
+        and isinstance(legacy_related_document, str)
+        and legacy_related_document.isdigit()
+    ):
+        document_id = int(legacy_related_document)
     error_message = result_data.get("reason")
     if not isinstance(error_message, str):
-        error_message = None
+        legacy_result = task.get("result")
+        error_message = legacy_result if isinstance(legacy_result, str) else None
+
+    normalized_status = status.lower() if status in LEGACY_TERMINAL_TASK_STATUSES else status
 
     return PaperlessTaskResult(
-        status=status,
+        status=normalized_status,
         document_id=document_id if isinstance(document_id, int) else None,
         duplicate_of=duplicate_of if isinstance(duplicate_of, int) else None,
-        error_code=status if status in TERMINAL_TASK_STATUSES else None,
+        error_code=normalized_status if normalized_status in TERMINAL_TASK_STATUSES else None,
         error_message=error_message,
     )

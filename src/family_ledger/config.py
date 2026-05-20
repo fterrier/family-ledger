@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -39,10 +39,26 @@ class Settings(BaseSettings):
     ledger_config_path: Path = Path("config/ledger.yaml")
     paperless_base_url: str | None = None
     paperless_token: str | None = None
+    paperless_tag_ids: list[int] = Field(default_factory=list)
     paperless_api_version: int = 10
     paperless_poll_interval_seconds: int = 30
     paperless_ingestion_timeout_seconds: int = 900
     attachment_poller_enabled: bool = True
+
+    @field_validator("paperless_tag_ids", mode="before")
+    @classmethod
+    def parse_paperless_tag_ids(cls, value: object) -> object:
+        if value is None or value == "":
+            return []
+        if isinstance(value, str):
+            parts = [part.strip() for part in value.split(",") if part.strip()]
+            try:
+                return [int(part) for part in parts]
+            except ValueError as exc:
+                raise ValueError(
+                    "paperless_tag_ids must be a comma-separated list of integers"
+                ) from exc
+        return value
 
     def get_database_url(self) -> str:
         if self.database_url is not None:

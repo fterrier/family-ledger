@@ -30,6 +30,7 @@ cp docker/compose/.env.example docker/compose/.env
 
    - `FAMILY_LEDGER_PAPERLESS_BASE_URL`
    - `FAMILY_LEDGER_PAPERLESS_TOKEN`
+   - `FAMILY_LEDGER_PAPERLESS_TAG_IDS` if you want every uploaded document tagged in Paperless
 
     `docker/compose/.env.example` is the checked-in template.
     `docker/compose/.env` is your local deployment file and should not be committed.
@@ -137,6 +138,7 @@ For application development, prefer the local Docker workflow rather than settin
 | `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to the mounted ledger config inside the container |
 | `FAMILY_LEDGER_PAPERLESS_BASE_URL` | - | Base URL of the Paperless-ngx instance used for attachment storage |
 | `FAMILY_LEDGER_PAPERLESS_TOKEN` | - | API token used to upload and poll Paperless ingestion tasks |
+| `FAMILY_LEDGER_PAPERLESS_TAG_IDS` | - | Comma-separated Paperless tag IDs applied to every uploaded attachment |
 | `FAMILY_LEDGER_PAPERLESS_API_VERSION` | `10` | Paperless API version sent in the `Accept` header |
 | `FAMILY_LEDGER_PAPERLESS_POLL_INTERVAL_SECONDS` | `30` | Poll interval for pending attachment ingestion tasks |
 | `FAMILY_LEDGER_PAPERLESS_INGESTION_TIMEOUT_SECONDS` | `900` | Deadline before a pending attachment is marked `timed_out` |

@@ -19,48 +19,17 @@ function resetSheetLayouts() {
 function refreshManagedLedgerSheetLayouts_() {
   const perf = getActivePerf_();
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-
-  const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-  if (txSheet) {
-    if (perf) perf.start('sheet.layout_transactions');
-    applyManagedSheetLayout_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
-    refreshTransactionAccountValidation_(txSheet);
-    applyActionColumnCheckboxes_(txSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions);
-    ensureTransactionSheetFilter_(txSheet);
-    if (perf) perf.end('sheet.layout_transactions');
-  }
-
-  const accSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.accounts);
-  if (accSheet) {
-    if (perf) perf.start('sheet.layout_accounts');
-    applyManagedSheetLayout_(accSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts);
-    ensureAccountsSheetFilter_(accSheet);
-    if (perf) perf.end('sheet.layout_accounts');
-  }
-
-  const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
-  if (balSheet) {
-    if (perf) perf.start('sheet.layout_balances');
-    applyManagedSheetLayout_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
-    applyActionColumnCheckboxes_(balSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances);
-    ensureBalancesSheetFilter_(balSheet);
-    if (perf) perf.end('sheet.layout_balances');
-  }
-
-  const cmdSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.commodities);
-  if (cmdSheet) {
-    if (perf) perf.start('sheet.layout_commodities');
-    applyManagedSheetLayout_(cmdSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities);
-    if (perf) perf.end('sheet.layout_commodities');
-  }
-
-  const issuesSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.issues);
-  if (issuesSheet) {
-    if (perf) perf.start('sheet.layout_issues');
-    applyManagedSheetLayout_(issuesSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues);
-    if (perf) perf.end('sheet.layout_issues');
-  }
-
+  Object.keys(FAMILY_LEDGER_SHEET_REGISTRY).forEach(function(key) {
+    const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[key];
+    const sheet = spreadsheet.getSheetByName(sheetConfig.name);
+    if (!sheet) return;
+    if (perf) perf.start('sheet.layout_' + key);
+    applyManagedSheetLayout_(sheet, sheetConfig);
+    refreshAccountValidation_(sheet, sheetConfig);
+    applyActionColumnCheckboxes_(sheet, sheetConfig);
+    ensureSheetFilter_(sheet, sheetConfig);
+    if (perf) perf.end('sheet.layout_' + key);
+  });
   reapplyPersistedQuickFilters_();
 }
 

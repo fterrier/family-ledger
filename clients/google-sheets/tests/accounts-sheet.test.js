@@ -33,32 +33,25 @@ test('buildAccountDisplayEntries_ produces display labels for account resources'
   ]);
 });
 
-test('applyAccountValidation_ clears stale source account validation and reapplies destination dropdown only', () => {
+test('refreshAccountValidation_ applies account dropdown to validation:account columns', () => {
   const operations = [];
   const accountsSheet = {
     getLastRow() { return 3; },
-    getRange(row, column, numRows, numCols) {
-      return { row, column, numRows, numCols };
-    },
+    getRange(row, column, numRows, numCols) { return { row, column, numRows, numCols }; },
   };
-  const rangeListOps = [];
   const transactionSheet = {
-    getRangeList(notations) {
-      return { clearDataValidations() { operations.push({ type: 'rangeListClear', notations }); return this; } };
-    },
+    getLastRow() { return 5; },
     getRange(row, column, numRows = 1, numCols = 1) {
       return {
         setDataValidation(rule) {
-          operations.push({ type: 'setDataValidation', row, column, numRows, numCols, hasRule: Boolean(rule) });
+          operations.push({ type: 'setDataValidation', column, numRows, hasRule: Boolean(rule) });
           return this;
         },
       };
     },
   };
   const { sandbox } = loadCode({
-    sheetsByName: {
-      Accounts: accountsSheet,
-    },
+    sheetsByName: { Accounts: accountsSheet },
     SpreadsheetApp: {
       newDataValidation() {
         return {
@@ -70,39 +63,42 @@ test('applyAccountValidation_ clears stale source account validation and reappli
     },
   });
 
-  sandbox.applyAccountValidation_(transactionSheet, { start: 2, count: 4 });
+  sandbox.refreshAccountValidation_(transactionSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'rangeListClear', notations: ['G2:G5', 'H2:H5'] },
-    { type: 'setDataValidation', row: 2, column: 8, numRows: 4, numCols: 1, hasRule: true },
+    { type: 'setDataValidation', column: 8, numRows: 4, hasRule: true },
   ]);
 });
 
-test('refreshTransactionAccountValidation_ clears stale transaction account dropdowns during layout reset', () => {
+test('refreshAccountValidation_ is a no-op for sheets with no validation:account columns', () => {
+  const operations = [];
+  const sheet = {
+    getLastRow() { return 5; },
+    getRange() { operations.push('getRange'); return {}; },
+  };
+  const { sandbox } = loadCode();
+
+  sandbox.refreshAccountValidation_(sheet, sandbox.getSheetConfigByName_('Balances'));
+
+  assert.deepEqual(operations, []);
+});
+
+test('refreshAccountValidation_ clears validation when no accounts exist', () => {
   const operations = [];
   const transactionSheet = {
-    getLastRow() { return 4; },
+    getLastRow() { return 3; },
     getRangeList(notations) {
       return { clearDataValidations() { operations.push({ type: 'rangeListClear', notations }); return this; } };
     },
-    getRange(row, column, numRows = 1, numCols = 1) {
-      return {
-        setDataValidation(rule) {
-          operations.push({ type: 'setDataValidation', row, column, numRows, numCols, hasRule: Boolean(rule) });
-          return this;
-        },
-      };
-    },
+    getRange() { return {}; },
   };
   const { sandbox } = loadCode({
-    sheetsByName: {
-      Accounts: { getLastRow() { return 1; } },
-    },
+    sheetsByName: { Accounts: { getLastRow() { return 1; } } },
   });
 
-  sandbox.refreshTransactionAccountValidation_(transactionSheet);
+  sandbox.refreshAccountValidation_(transactionSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'rangeListClear', notations: ['G2:G4', 'H2:H4'] },
+    { type: 'rangeListClear', notations: ['H2:H3'] },
   ]);
 });

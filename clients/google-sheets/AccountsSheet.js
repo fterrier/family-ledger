@@ -61,28 +61,21 @@ function buildAccountValidationRule_() {
     .build();
 }
 
-function applyAccountValidation_(sheet, span) {
-  if (span.count === 0) return;
-  applyAccountValidationToSpan_(sheet, span);
-}
-
-
-/**
- * Applies account dropdown validation to a contiguous span of transaction rows.
- *
- * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet
- * @param {{start: number, count: number}} span - Contiguous row span.
- */
-function applyAccountValidationToSpan_(sheet, span) {
-  if (span.count === 0) return;
-  const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
+function refreshAccountValidation_(sheet, sheetConfig, span) {
+  const resolvedSpan = span || { start: 2, count: Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0) };
+  if (resolvedSpan.count === 0) return;
+  const accountHeaders = sheetConfig.headers.filter(function(h) {
+    return (sheetConfig.columnLayout[h] || {}).validation === 'account';
+  });
+  if (accountHeaders.length === 0) return;
   // TODO: Improve account UX beyond dropdown validation, especially for large account lists.
-  managedSheet_(sheet, txConfig).clearColumnValidations(span, ['source_account_name', 'destination_account_name']);
   const rule = buildAccountValidationRule_();
-  if (!rule) return;
-  managedSheet_(sheet, txConfig).setColumnValidation(span, 'destination_account_name', rule);
-}
-
-function refreshTransactionAccountValidation_(sheet) {
-  applyAccountValidation_(sheet, { start: 2, count: Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0) });
+  const ms = managedSheet_(sheet, sheetConfig);
+  accountHeaders.forEach(function(h) {
+    if (rule) {
+      ms.setColumnValidation(resolvedSpan, h, rule);
+    } else {
+      ms.clearColumnValidations(resolvedSpan, [h]);
+    }
+  });
 }

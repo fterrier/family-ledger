@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 
 const { loadCode, makeRowStoreSheet_ } = require('./_harness');
 
-test('ensureTransactionSheetFilter_ creates a filter covering all transaction columns', () => {
+test('ensureSheetFilter_ creates a filter covering all transaction columns', () => {
   const operations = [];
   const rowStore = new Map([[2, {
     resource_name: 'transactions/txn_1', transaction_date: new Date('2026-04-19T00:00:00.000Z'),
@@ -14,7 +14,7 @@ test('ensureTransactionSheetFilter_ creates a filter covering all transaction co
   const { sandbox } = loadCode();
   const sheet = makeRowStoreSheet_(sandbox, rowStore, operations);
 
-  sandbox.ensureTransactionSheetFilter_(sheet);
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Transactions'));
 
   const filterOp = operations.find((op) => op.type === 'createFilter');
   assert.ok(filterOp, 'createFilter should have been called');
@@ -22,7 +22,7 @@ test('ensureTransactionSheetFilter_ creates a filter covering all transaction co
   assert.equal(filterOp.numRows, 2);
 });
 
-test('ensureTransactionSheetFilter_ restores existing filter criteria on the new filter', () => {
+test('ensureSheetFilter_ restores existing filter criteria on the new filter', () => {
   const { sandbox } = loadCode();
   const criteriaByCol = { 3: { formula: '=C2>0' }, 6: { formula: '=F2="x"' } };
   const restored = [];
@@ -63,13 +63,13 @@ test('ensureTransactionSheetFilter_ restores existing filter criteria on the new
     },
   };
 
-  sandbox.ensureTransactionSheetFilter_(sheet);
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.equal(restored.length, 2);
   assert.deepEqual(restored.map((r) => r.col).sort((a, b) => a - b), [3, 6]);
 });
 
-test('ensureTransactionSheetFilter_ tolerates a legacy narrower filter range', () => {
+test('ensureSheetFilter_ tolerates a legacy narrower filter range', () => {
   const { sandbox } = loadCode();
   const restored = [];
   const accessedColumns = [];
@@ -117,13 +117,13 @@ test('ensureTransactionSheetFilter_ tolerates a legacy narrower filter range', (
     },
   };
 
-  sandbox.ensureTransactionSheetFilter_(sheet);
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(accessedColumns, [1, 2, 3, 4, 5, 6]);
   assert.deepEqual(restored, [{ col: 3, criteria: { formula: '=C2>0' } }]);
 });
 
-test('ensureTransactionSheetFilter_ restores hidden technical column criteria by header too', () => {
+test('ensureSheetFilter_ restores hidden technical column criteria by header too', () => {
   const { sandbox } = loadCode();
   const restored = [];
   const sheet = {
@@ -165,12 +165,12 @@ test('ensureTransactionSheetFilter_ restores hidden technical column criteria by
     },
   };
 
-  sandbox.ensureTransactionSheetFilter_(sheet);
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(restored, [{ col: 6, criteria: { formula: '=$F2="txn"' } }]);
 });
 
-test('ensureTransactionSheetFilter_ does not call reapplyPersistedQuickFilters_ (caller responsibility)', () => {
+test('ensureSheetFilter_ does not call reapplyPersistedQuickFilters_ (caller responsibility)', () => {
   let reapplyCalled = false;
   const { sandbox } = loadCode();
   sandbox.reapplyPersistedQuickFilters_ = function() { reapplyCalled = true; };
@@ -193,9 +193,37 @@ test('ensureTransactionSheetFilter_ does not call reapplyPersistedQuickFilters_ 
     },
   };
 
-  sandbox.ensureTransactionSheetFilter_(sheet);
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.equal(reapplyCalled, false);
+});
+
+test('ensureSheetFilter_ (accounts) snapshots and restores existing criteria uniformly', () => {
+  const { sandbox } = loadCode();
+  const criteriaByCol = { 2: { formula: '=B2<>""' } };
+  const restored = [];
+  const sheet = {
+    getLastRow() { return 3; },
+    getFilter() {
+      return {
+        getRange() { return { getNumColumns() { return 3; } }; },
+        getColumnFilterCriteria(col) { return criteriaByCol[col] || null; },
+        remove() {},
+      };
+    },
+    getRange(_row, _column, _numRows, numCols) {
+      return {
+        getValues() { return [['resource_name', 'account_name', 'issues'].slice(0, numCols)]; },
+        createFilter() {
+          return { setColumnFilterCriteria(col, criteria) { restored.push({ col, criteria }); } };
+        },
+      };
+    },
+  };
+
+  sandbox.ensureSheetFilter_(sheet, sandbox.getSheetConfigByName_('Accounts'));
+
+  assert.deepEqual(restored, [{ col: 2, criteria: { formula: '=B2<>""' } }]);
 });
 
 test('getTransactionFilterYears returns unique years from transaction dates in descending order', () => {
@@ -389,7 +417,7 @@ test('applyTransactionAccountFilter persists prefix in document properties', () 
   assert.equal(documentProperties.get('QUICK_FILTER_ACCOUNT_PREFIX'), '[X]');
 });
 
-test('clearTransactionAccountFilter removes source_account_name filter criteria', () => {
+test('clearTransactionAccountFilter removes criteria from all quickFilter:account columns', () => {
   const removed = [];
   const { sandbox } = loadCode({
     sheetsByName: {
@@ -404,7 +432,7 @@ test('clearTransactionAccountFilter removes source_account_name filter criteria'
 
   sandbox.clearQuickAccountFilter();
 
-  assert.deepEqual(removed, [7]);
+  assert.deepEqual(removed, [7, 8]);
 });
 
 test('applyTransactionQuickFilter persists from/to in document properties', () => {

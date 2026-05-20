@@ -255,16 +255,13 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   sandbox.applyManagedSheetLayout_ = function(sheet) {
     calls.push({ type: 'layout', sheet: sheet.name });
   };
-  sandbox.refreshTransactionAccountValidation_ = function(sheet) {
+  sandbox.refreshAccountValidation_ = function(sheet) {
     calls.push({ type: 'validation', sheet: sheet.name });
   };
   sandbox.applyActionColumnCheckboxes_ = function(sheet) {
     calls.push({ type: 'editCheckbox', sheet: sheet.name });
   };
-  sandbox.ensureTransactionSheetFilter_ = function(sheet) {
-    calls.push({ type: 'filter', sheet: sheet.name });
-  };
-  sandbox.ensureAccountsSheetFilter_ = function(sheet) {
+  sandbox.ensureSheetFilter_ = function(sheet) {
     calls.push({ type: 'filter', sheet: sheet.name });
   };
   sandbox.reapplyPersistedQuickFilters_ = function() {
@@ -279,6 +276,8 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
     { type: 'editCheckbox', sheet: 'Transactions' },
     { type: 'filter', sheet: 'Transactions' },
     { type: 'layout', sheet: 'Accounts' },
+    { type: 'validation', sheet: 'Accounts' },
+    { type: 'editCheckbox', sheet: 'Accounts' },
     { type: 'filter', sheet: 'Accounts' },
     { type: 'reapplyFilters' },
   ]);

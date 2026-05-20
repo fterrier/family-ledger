@@ -78,6 +78,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only transaction date.',
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
+      quickFilter: 'date',
     },
     payee: {
       width: 280,
@@ -104,6 +105,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only source account.',
       alignment: 'left',
       wrap: false,
+      quickFilter: 'account',
     },
     destination_account_name: {
       width: 280,
@@ -111,6 +113,8 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Editable destination allocation account.',
       alignment: 'left',
       wrap: false,
+      quickFilter: 'account',
+      validation: 'account',
     },
     symbol: {
       width: 55,
@@ -162,6 +166,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only assertion date.',
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
+      quickFilter: 'date',
     },
     account: {
       width: 320,
@@ -169,6 +174,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only account.',
       alignment: 'left',
       wrap: false,
+      quickFilter: 'account',
     },
     amount: {
       width: 110,
@@ -208,6 +214,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Visible account label used in the Transactions sheet.',
       alignment: 'left',
       wrap: false,
+      quickFilter: 'account',
     },
     issues: {
       width: 600,

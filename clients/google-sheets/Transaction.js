@@ -625,7 +625,7 @@ function applyTransactionResponseToSheet_(sheet, existingSpan, replacementRows) 
     targetSpan = resizeContiguousRows_(sheet, existingSpan, replacementRows.length);
   }
   managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setRows(targetSpan, replacementRows);
-  applyAccountValidationToSpan_(sheet, targetSpan);
+  refreshAccountValidation_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, targetSpan);
   managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setColumnFormulas(targetSpan, 'issues', buildIssueLookupFormula_);
   return targetSpan;
 }

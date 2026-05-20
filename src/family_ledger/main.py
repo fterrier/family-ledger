@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
+from family_ledger.api.attachment import router as attachment_router
 from family_ledger.api.health import router as health_router
 from family_ledger.api.importer import router as importer_router
 from family_ledger.api.ledger import router as ledger_router
 from family_ledger.config import get_ledger_config, get_settings
 from family_ledger.db import ping_database
+from family_ledger.services import attachment_poller
 
 
 def create_app() -> FastAPI:
@@ -14,11 +18,22 @@ def create_app() -> FastAPI:
     get_ledger_config()
     ping_database()
 
-    app = FastAPI(title="family-ledger", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        del app
+        poller = attachment_poller.start_attachment_poller(settings)
+        try:
+            yield
+        finally:
+            if poller is not None:
+                attachment_poller.stop_attachment_poller(*poller)
+
+    app = FastAPI(title="family-ledger", version="0.1.0", lifespan=lifespan)
     app.state.settings = settings
     app.include_router(health_router)
     app.include_router(ledger_router)
     app.include_router(importer_router)
+    app.include_router(attachment_router)
     return app
 
 

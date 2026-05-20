@@ -12,6 +12,7 @@ Current implementation includes:
 - derived ledger diagnostics through `POST /ledger:doctor`
 - on-demand pad computation via `GET /accounts/{account}:pad`
 - importer registry and synchronous import execution with idempotent Beancount importer
+- account-linked attachments with asynchronous document storage via Paperless-ngx
 - `export-beancount` CLI script for full-ledger Beancount export
 - Google Sheets client workflow for transaction categorization and editing via the API
 
@@ -25,8 +26,13 @@ cp docker/compose/.env.example docker/compose/.env
 
 2. Edit `docker/compose/.env` and set a real `FAMILY_LEDGER_API_TOKEN`.
 
-   `docker/compose/.env.example` is the checked-in template.
-   `docker/compose/.env` is your local deployment file and should not be committed.
+   If you want attachment uploads, uncomment and set:
+
+   - `FAMILY_LEDGER_PAPERLESS_BASE_URL`
+   - `FAMILY_LEDGER_PAPERLESS_TOKEN`
+
+    `docker/compose/.env.example` is the checked-in template.
+    `docker/compose/.env` is your local deployment file and should not be committed.
 
 3. Start the stack:
 
@@ -129,9 +135,15 @@ For application development, prefer the local Docker workflow rather than settin
 | `FAMILY_LEDGER_IMAGE` | `ghcr.io/fterrier/family-ledger:latest` | Container image to run |
 | `FAMILY_LEDGER_DB_HOST` | `postgres` | PostgreSQL hostname (docker service name) |
 | `FAMILY_LEDGER_LEDGER_CONFIG_PATH` | `/app/config/ledger.yaml` | Path to the mounted ledger config inside the container |
+| `FAMILY_LEDGER_PAPERLESS_BASE_URL` | - | Base URL of the Paperless-ngx instance used for attachment storage |
+| `FAMILY_LEDGER_PAPERLESS_TOKEN` | - | API token used to upload and poll Paperless ingestion tasks |
+| `FAMILY_LEDGER_PAPERLESS_API_VERSION` | `10` | Paperless API version sent in the `Accept` header |
+| `FAMILY_LEDGER_PAPERLESS_POLL_INTERVAL_SECONDS` | `30` | Poll interval for pending attachment ingestion tasks |
+| `FAMILY_LEDGER_PAPERLESS_INGESTION_TIMEOUT_SECONDS` | `900` | Deadline before a pending attachment is marked `timed_out` |
+| `FAMILY_LEDGER_ATTACHMENT_POLLER_ENABLED` | `true` | Enables the in-process attachment poller started with the API |
 
 `docker/compose/.env.example` is the checked-in example. Copy it to `docker/compose/.env`
-for a real deployment.
+for a real deployment, then uncomment any optional Paperless settings you want to use.
 
 ## Tests
 

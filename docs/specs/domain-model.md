@@ -10,6 +10,7 @@ The current canonical model consists of:
 - postings
 - prices
 - balance assertions
+- attachments
 - importer config rows
 
 ## Accounts
@@ -68,6 +69,30 @@ Balance assertions store:
 
 They are canonical stored rows. Validation of whether they currently hold is derived separately through doctor and pad logic.
 
+## Attachments
+
+Attachments are canonical records that associate an uploaded document with a ledger account and date while delegating binary storage to an external document backend.
+
+Attachment fields:
+
+- stable resource name `attachments/...`
+- referenced account
+- `attachment_date`
+- `original_filename`
+- optional `media_type`
+- `status`
+- optional `document_url`
+- `entity_metadata`
+
+The canonical attachment contract is intentionally narrow.
+
+- the attachment record belongs to the ledger domain
+- the binary file is stored by an external backend such as Paperless-ngx
+- backend-specific ingestion state is internal implementation detail rather than public API contract
+- `document_url` is the canonical external reference once storage succeeds
+
+Current required linkage is account-level. Transaction-level linkage is not part of the current contract.
+
 ## Importer Config
 
 Importer persistence is intentionally small.
@@ -83,7 +108,3 @@ The following are derived outputs rather than canonical entities:
 - doctor issues
 - normalized transaction candidates returned by `POST /transactions:normalize`
 - pad computations returned by `GET /accounts/{account}:pad`
-
-## Explicit Deferral
-
-Attachments or document records are not part of the current canonical model.

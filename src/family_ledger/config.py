@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     db_user: str = "family_ledger"
     db_password: str | None = None
     ledger_config_path: Path = Path("config/ledger.yaml")
+    paperless_base_url: str | None = None
+    paperless_token: str | None = None
+    paperless_api_version: int = 10
+    paperless_poll_interval_seconds: int = 30
+    paperless_ingestion_timeout_seconds: int = 900
+    attachment_poller_enabled: bool = True
 
     def get_database_url(self) -> str:
         if self.database_url is not None:
@@ -46,6 +52,9 @@ class Settings(BaseSettings):
 
             return f"postgresql+psycopg://{self.db_user}:{quote_plus(self.db_password)}@{self.db_host}:{self.db_port}/{self.db_name}"
         return f"postgresql+psycopg://{self.db_user}:@{self.db_host}:{self.db_port}/{self.db_name}"
+
+    def paperless_is_configured(self) -> bool:
+        return self.paperless_base_url is not None and self.paperless_token is not None
 
 
 def _load_yaml_config(path: Path) -> dict[str, Any]:

@@ -33,4 +33,4 @@
 - the API is canonical
 - Google Sheets is a constrained client, not source of truth
 - importer config is sparse and schema-validated
-- attachments are deferred, not current scope
+- attachment records are canonical ledger state, but binary storage is delegated to an external document backend

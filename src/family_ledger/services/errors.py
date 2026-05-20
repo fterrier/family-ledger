@@ -18,3 +18,7 @@ class NotFoundError(ServiceError):
 
 class ConflictError(ServiceError):
     pass
+
+
+class UnavailableError(ServiceError):
+    pass

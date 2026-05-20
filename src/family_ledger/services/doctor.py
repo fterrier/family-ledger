@@ -13,6 +13,7 @@ from family_ledger.api.schemas import (
     DoctorLedgerResponse,
 )
 from family_ledger.models import BalanceAssertion, Posting, Transaction
+from family_ledger.services import attachments as attachment_service
 from family_ledger.services.account_balance import compute_balance_assertion_diffs
 from family_ledger.services.booking import BookingMethod, BookingReplay, LotKey, TransactionLotDelta
 from family_ledger.services.transaction_balancing import (
@@ -134,5 +135,6 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
             for diff in balance_assertion_diffs
             if abs(diff.diff) > resolve_tolerance(diff.symbol)
         ],
+        *attachment_service.build_attachment_doctor_issues(session),
     ]
     return DoctorLedgerResponse(issues=issues)

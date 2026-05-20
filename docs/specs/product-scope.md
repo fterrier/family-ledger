@@ -9,6 +9,7 @@
 The current implementation provides:
 
 - canonical storage for accounts, commodities, prices, transactions, postings, balance assertions, and importer configuration
+- canonical storage for account-linked attachments whose binaries are stored through an external document backend
 - authenticated FastAPI routes for ledger reads, writes, normalization, diagnostics, and imports
 - derived ledger diagnostics through `POST /ledger:doctor`
 - on-demand pad computation through `GET /accounts/{account}:pad`
@@ -53,7 +54,6 @@ The current project does not aim to provide:
 
 These areas are explicitly deferred rather than part of the current contract:
 
-- attachments or document records in the canonical data model
 - automatic pad write-back into the ledger
 - richer booking methods beyond FIFO diagnostics in doctor
 - HTTP export endpoints; export is currently CLI-driven

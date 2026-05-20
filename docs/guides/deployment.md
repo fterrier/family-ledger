@@ -12,6 +12,22 @@ Migrations run automatically on startup.
 - provide a ledger config file
 - keep PostgreSQL data persistent across restarts
 
+## Attachment Storage
+
+If you want attachment uploads, configure Paperless-ngx access:
+
+- `FAMILY_LEDGER_PAPERLESS_BASE_URL`
+- `FAMILY_LEDGER_PAPERLESS_TOKEN`
+
+Optional tuning:
+
+- `FAMILY_LEDGER_PAPERLESS_API_VERSION` defaults to `10`
+- `FAMILY_LEDGER_PAPERLESS_POLL_INTERVAL_SECONDS` defaults to `30`
+- `FAMILY_LEDGER_PAPERLESS_INGESTION_TIMEOUT_SECONDS` defaults to `900`
+- `FAMILY_LEDGER_ATTACHMENT_POLLER_ENABLED` defaults to `true`
+
+The API service starts a simple in-process poller that watches pending attachment ingestion tasks and marks them as `stored`, `failed`, or `timed_out` based on persisted backend state.
+
 ## Google Sheets Requirement
 
 Google Apps Script cannot call `localhost` or a private-only address.

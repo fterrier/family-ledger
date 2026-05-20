@@ -110,6 +110,27 @@ class ListBalanceAssertionsResponse(BaseModel):
     next_page_token: str | None = None
 
 
+class AttachmentData(BaseModel):
+    account: str
+    attachment_date: date
+    original_filename: str
+    media_type: str | None = None
+    status: str
+    document_url: str | None = None
+    entity_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class AttachmentResource(AttachmentData):
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+
+
+class ListAttachmentsResponse(BaseModel):
+    attachments: list[AttachmentResource]
+    next_page_token: str | None = None
+
+
 class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None

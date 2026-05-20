@@ -80,6 +80,42 @@ There is currently no `GET /prices` list endpoint.
 - `POST /balance-assertions`
 - `GET /balance-assertions/{balance_assertion}`
 
+## Attachments
+
+- `GET /attachments`
+- `POST /attachments`
+- `GET /attachments/{attachment}`
+
+Attachments are canonical ledger records that reference documents stored by an external backend.
+
+`POST /attachments` accepts `multipart/form-data` with:
+
+- `file`: uploaded file
+- `account`: required account resource name
+- `attachment_date`: required date
+- `title`: optional user-facing title hint for the storage backend
+- `entity_metadata`: optional JSON object encoded as a string
+
+The backend uploads the file to the configured document backend and returns `202 Accepted` once the external ingestion task has been started successfully.
+
+The public attachment resource exposes only canonical fields:
+
+- `name`
+- `account`
+- `attachment_date`
+- `original_filename`
+- `media_type`
+- `status`
+- `document_url`
+- `entity_metadata`
+
+Attachment status values are currently:
+
+- `pending_storage`
+- `stored`
+- `failed`
+- `timed_out`
+
 ## Diagnostics
 
 - `POST /ledger:doctor`
@@ -89,6 +125,8 @@ Doctor returns derived issues, not canonical stored records. Current issue famil
 - transaction balancing issues
 - FIFO lot replay failures for cost-tracked reductions
 - balance assertion failures
+- attachment storage failures
+- attachment storage timeouts
 
 ## Importers
 
@@ -111,7 +149,6 @@ The service merges stored config with the one-off override, validates the merged
 
 The current backend does not expose:
 
-- attachment endpoints
 - an HTTP Beancount export endpoint
 - account patch/update routes
 - commodity or price update/delete routes

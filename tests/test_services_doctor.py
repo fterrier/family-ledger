@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -14,7 +14,7 @@ from family_ledger.api.schemas import (
     PostingPayload,
     TransactionCreate,
 )
-from family_ledger.models import Account, Base, Commodity
+from family_ledger.models import Account, Attachment, Base, Commodity
 from family_ledger.services import doctor, ledger
 
 
@@ -211,3 +211,34 @@ def test_doctor_no_issue_when_balance_assertion_satisfied(session: Session) -> N
     diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
 
     assert not any(i.code == "balance_assertion_failed" for i in diagnosed.issues)
+
+
+def test_doctor_reports_attachment_storage_failures(session: Session) -> None:
+    account = Account(
+        name="accounts/acc_one",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    session.add(account)
+    session.add(
+        Attachment(
+            name="attachments/att_failed",
+            account=account,
+            attachment_date=date(2026, 5, 19),
+            original_filename="failed.pdf",
+            media_type="application/pdf",
+            status="failed",
+            document_url=None,
+            storage_backend="paperless",
+            storage_deadline_at=datetime(2026, 5, 20, 0, 0, 0),
+            entity_metadata={},
+            storage_metadata={},
+        )
+    )
+    session.commit()
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    attachment_issues = [i for i in diagnosed.issues if i.code == "attachment_storage_failed"]
+    assert len(attachment_issues) == 1
+    assert attachment_issues[0].target == "attachments/att_failed"

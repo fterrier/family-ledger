@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -9,6 +9,7 @@ from sqlalchemy import (
     BigInteger,
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -42,6 +43,7 @@ class Account(Base):
 
     postings: Mapped[list[Posting]] = relationship(back_populates="account")
     balance_assertions: Mapped[list[BalanceAssertion]] = relationship(back_populates="account")
+    attachments: Mapped[list[Attachment]] = relationship(back_populates="account")
 
 
 class Commodity(Base):
@@ -137,3 +139,34 @@ class BalanceAssertion(Base):
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
 
     account: Mapped[Account] = relationship(back_populates="balance_assertions")
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending_storage', 'stored', 'failed', 'timed_out')",
+            name="attachments_status_check",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(Text, unique=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))
+    attachment_date: Mapped[date] = mapped_column(Date)
+    original_filename: Mapped[str] = mapped_column(Text)
+    media_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text)
+    document_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    storage_backend: Mapped[str] = mapped_column(Text)
+    storage_deadline_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+    entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
+    storage_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
+
+    account: Mapped[Account] = relationship(back_populates="attachments")

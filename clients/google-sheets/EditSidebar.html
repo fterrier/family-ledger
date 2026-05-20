@@ -169,13 +169,15 @@
 <div id="errorBox"></div>
 <div id="setupBox">No quick-add source accounts or symbols are configured. Open <strong>Family Ledger → Sheet Settings</strong> first.</div>
 
+<div id="loadingBox" style="color:#5f6368;font-size:13px;padding:8px 0;">Loading…</div>
+
 <div id="dynamicFields"></div>
 
 <div id="toggleMode" style="text-align:right;margin-top:-8px;margin-bottom:14px;font-size:12px;display:none">
   <a href="#" id="toggleModeLink" onclick="onToggleMode(); return false;" style="color:#1a73e8"></a>
 </div>
 
-<div class="actions" id="addActions">
+<div class="actions" id="addActions" style="display:none">
   <button class="btn-primary" id="insertBtn" onclick="onSubmit()">Insert</button>
   <button class="btn-secondary" onclick="resetForm()">Reset</button>
 </div>
@@ -197,11 +199,6 @@
   var currentFields = null;
   var currentMode = 'simple';
   var dropdownsByKey = {};
-
-  if (IS_EDIT) {
-    document.getElementById('addActions').style.display = 'none';
-    document.getElementById('editActions').style.display = 'flex';
-  }
 
   google.script.run
     .withSuccessHandler(initForm)
@@ -226,7 +223,21 @@
     el.dispatchEvent(ev);
   }
 
+  function setFormBusy_(busy, busyBtnId, busyLabel) {
+    var buttons = document.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = busy; }
+    var inputs = document.querySelectorAll('input, select, textarea');
+    for (var j = 0; j < inputs.length; j++) { inputs[j].disabled = busy; }
+    if (busyBtnId) {
+      var btn = document.getElementById(busyBtnId);
+      if (btn) btn.textContent = busy ? busyLabel : btn.dataset.originalLabel;
+    }
+  }
+
   function initForm(data) {
+    document.getElementById('loadingBox').style.display = 'none';
+    document.getElementById(IS_EDIT ? 'editActions' : 'addActions').style.display = 'flex';
+
     currentFields = data.fields;
     currentMode = data.mode;
 
@@ -377,20 +388,22 @@
       fieldValues.postings = postings;
     }
 
-    var btn = document.getElementById(IS_EDIT ? 'saveBtn' : 'insertBtn');
-    btn.disabled = true;
+    var btnId = IS_EDIT ? 'saveBtn' : 'insertBtn';
+    var btn = document.getElementById(btnId);
+    btn.dataset.originalLabel = btn.textContent;
+    setFormBusy_(true, btnId, 'Saving…');
     google.script.run
       .withSuccessHandler(function() {
-        btn.disabled = false;
         if (IS_EDIT) {
           google.script.host.close();
         } else {
+          setFormBusy_(false, btnId);
           resetForm();
         }
       })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
-        btn.disabled = false;
+        setFormBusy_(false, btnId);
       })
       .submitEntity(ENTITY, fieldValues);
   }
@@ -420,14 +433,16 @@
       return;
     }
     document.getElementById('errorBox').style.display = 'none';
-    document.getElementById('deleteBtn').disabled = true;
+    var btn = document.getElementById('deleteBtn');
+    btn.dataset.originalLabel = btn.textContent;
+    setFormBusy_(true, 'deleteBtn', 'Deleting…');
     google.script.run
       .withSuccessHandler(function() {
         google.script.host.close();
       })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
-        document.getElementById('deleteBtn').disabled = false;
+        setFormBusy_(false, 'deleteBtn');
       })
       .deleteEntity(ENTITY);
   }

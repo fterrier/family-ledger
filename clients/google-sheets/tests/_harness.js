@@ -10,7 +10,7 @@ const SOURCE_FILES = [
   'SheetLayout.js',
   'Entity.js',
   'Transaction.js',
-  'Balance.js',
+  'EntityBalance.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',

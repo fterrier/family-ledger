@@ -108,7 +108,7 @@ class Balance extends Entity {
 
     let defaults = {};
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', '/' + entityName);
+      const apiEntity = apiFetchJson_('get', Balance.apiPath_(entityName));
       defaults = {
         assertion_date: apiEntity.assertion_date || null,
         account: apiEntity.account || null,

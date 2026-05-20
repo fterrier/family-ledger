@@ -238,7 +238,7 @@ test('getSidebarData (edit mode) fetches entity from API and populates defaults'
   const data = sandbox.getSidebarData({ classKey: 'balances', name: 'balanceAssertions/bal_1' });
 
   assert.equal(data.mode, 'advanced');
-  assert.ok(apiCalls.some(function(c) { return c.path === '/balanceAssertions/bal_1'; }));
+  assert.ok(apiCalls.some(function(c) { return c.path === '/balance-assertions/bal_1'; }));
 
   const dateField = data.fields.find(function(f) { return f.key === 'assertion_date'; });
   assert.equal(dateField.default, '2026-04-19');
@@ -334,7 +334,7 @@ test('submitEntity (edit) PATCHes correct payload and updates row in place', () 
 
   const patchCall = apiCalls.find(function(c) { return c.method === 'patch'; });
   assert.ok(patchCall, 'expected PATCH call');
-  assert.equal(patchCall.path, '/balanceAssertions/bal_1');
+  assert.equal(patchCall.path, '/balance-assertions/bal_1');
   assert.equal(patchCall.payload.update_mask, 'assertion_date,account,amount');
   assert.equal(patchCall.payload.balance_assertion.amount.amount, '1500.00');
 
@@ -393,7 +393,7 @@ test('deleteEntity calls DELETE and removes row from sheet', () => {
 
   const deleteCall = apiCalls.find(function(c) { return c.method === 'delete'; });
   assert.ok(deleteCall, 'expected DELETE call');
-  assert.equal(deleteCall.path, '/balanceAssertions/bal_1');
+  assert.equal(deleteCall.path, '/balance-assertions/bal_1');
 
   assert.equal(rowStore.size, 1);
   assert.equal(rowStore.get(2).resource_name, 'balanceAssertions/bal_2');

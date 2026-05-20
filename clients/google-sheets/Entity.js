@@ -55,8 +55,16 @@ class Entity {
     });
   }
 
+  // Returns the API path for a given entity resource name, derived from API_COLLECTION_PATH.
+  // e.g. 'transactions/txn_x' → '/transactions/txn_x'
+  //      'balanceAssertions/bal_x' → '/balance-assertions/bal_x'
+  static apiPath_(entityName) {
+    const id = entityName.split('/').slice(1).join('/');
+    return '/' + this.API_COLLECTION_PATH + '/' + id;
+  }
+
   static updateViaApi_(entityName, payload) {
-    return apiFetchJson_('patch', '/' + entityName, {
+    return apiFetchJson_('patch', this.apiPath_(entityName), {
       [this.API_RESOURCE_KEY]: payload,
       update_mask: this.UPDATE_MASK,
     });

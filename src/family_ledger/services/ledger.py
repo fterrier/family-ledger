@@ -473,7 +473,9 @@ def update_balance_assertion(
         .where(BalanceAssertion.name == resource)
     )
     if assertion is None:
-        raise NotFoundError(code="balance_assertion_not_found", message="Balance assertion not found")
+        raise NotFoundError(
+            code="balance_assertion_not_found", message="Balance assertion not found"
+        )
     account = resolve_account(session, payload.account)
     validate_symbols_exist(session, {payload.amount.symbol})
     assertion.assertion_date = payload.assertion_date
@@ -490,7 +492,9 @@ def delete_balance_assertion(session: Session, balance_assertion: str) -> None:
     resource = resource_name("balanceAssertions", balance_assertion)
     assertion = session.scalar(select(BalanceAssertion).where(BalanceAssertion.name == resource))
     if assertion is None:
-        raise NotFoundError(code="balance_assertion_not_found", message="Balance assertion not found")
+        raise NotFoundError(
+            code="balance_assertion_not_found", message="Balance assertion not found"
+        )
     session.delete(assertion)
     commit_or_raise(session)
 

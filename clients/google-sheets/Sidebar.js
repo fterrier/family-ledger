@@ -84,7 +84,7 @@ function submitEntity(entity, fieldValues) {
 function deleteEntity(entity) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entity.classKey];
   return runUserAction_('Delete ' + EntityClass.ENTITY_LABEL, function() {
-    apiFetchJson_('delete', '/' + entity.name);
+    apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
     EntityClass.writeToSheet_(sheet, entity.span, []);
     const context = entity.context || EntityClass.loadContext_();

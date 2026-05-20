@@ -306,7 +306,7 @@ function appendIssueConditionalFormatting_(sheet, sheetConfig, rules, fullRange)
 function isManagedConditionalFormula_(formula, sheetConfig) {
   // Matches any issue-state formula regardless of column, so stale rules from old
   // column positions are cleaned up when columns are added or removed.
-  return /^\=\$[A-Z]+2<>""$/.test(formula);
+  return /^=\$[A-Z]+2<>""$/.test(formula);
 }
 
 function applyTransactionEditCheckbox_(sheet) {

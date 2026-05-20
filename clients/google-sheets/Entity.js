@@ -18,29 +18,25 @@ class Entity {
     const existingSpan = this._span;
     const saveGeneration = entityName ? beginSaveGeneration_(entityName) : null;
 
-    try {
-      const apiResult = existingSpan
-        ? this.constructor.updateViaApi_(entityName, this.toApiPayload_())
-        : this.constructor.createViaApi_(this.toApiPayload_());
+    const apiResult = existingSpan
+      ? this.constructor.updateViaApi_(entityName, this.toApiPayload_())
+      : this.constructor.createViaApi_(this.toApiPayload_());
 
-      if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
+    if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
 
-      this.updateFromApi_(apiResult);
+    this.updateFromApi_(apiResult);
 
-      const rows = this.toRows_();
-      if (!rows || rows.length === 0) {
-        throw new Error('Entity could not be rendered into the sheet.');
-      }
-
-      const resetFields = this.constructor.RESET_ON_SAVE_FIELDS || [];
-      rows.forEach(function(row) {
-        resetFields.forEach(function(f) { row[f] = ''; });
-      });
-
-      this._span = this.constructor.writeToSheet_(sheet, existingSpan, rows);
-    } catch (error) {
-      throw error;
+    const rows = this.toRows_();
+    if (!rows || rows.length === 0) {
+      throw new Error('Entity could not be rendered into the sheet.');
     }
+
+    const resetFields = this.constructor.RESET_ON_SAVE_FIELDS || [];
+    rows.forEach(function(row) {
+      resetFields.forEach(function(f) { row[f] = ''; });
+    });
+
+    this._span = this.constructor.writeToSheet_(sheet, existingSpan, rows);
 
     return this._span || null;
   }

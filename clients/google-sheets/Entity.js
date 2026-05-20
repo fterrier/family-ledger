@@ -45,22 +45,66 @@ class Entity {
     return this._span || null;
   }
 
+  // Base API methods — use API_RESOURCE_KEY, UPDATE_MASK, and CREATE_EXTRA_FIELDS.
+  // Subclasses may override CREATE_EXTRA_FIELDS to inject extra top-level fields into POST bodies.
+  static get CREATE_EXTRA_FIELDS() { return { entity_metadata: { source: 'google_sheets_quick_add' } }; }
+
+  static createViaApi_(payload) {
+    return apiFetchJson_('post', '/' + this.API_RESOURCE_KEY + 's', {
+      [this.API_RESOURCE_KEY]: Object.assign({}, this.CREATE_EXTRA_FIELDS, payload),
+    });
+  }
+
+  static updateViaApi_(entityName, payload) {
+    return apiFetchJson_('patch', '/' + entityName, {
+      [this.API_RESOURCE_KEY]: payload,
+      update_mask: this.UPDATE_MASK,
+    });
+  }
+
   // Subclass must define as static:
   //   SHEET_KEY: string                           — registry key
   //   ENTITY_LABEL: string                        — for error messages
+  //   API_RESOURCE_KEY: string                    — JSON body key and collection name stem
+  //   UPDATE_MASK: string                         — comma-separated fields for PATCH
   //   RESOURCE_IDENTITY: { header, multiRow }     — identity column + grouping
   //   RESET_ON_SAVE_FIELDS: string[]              — action columns cleared on save
   //   writeToSheet_(sheet, existingSpan, rows)    — positions + writes stamped rows
-  //   createViaApi_(payload)                      — POST; returns API result
-  //   updateViaApi_(entityName, payload)          — PATCH; returns API result
   //   loadContext_()                              — loads context for fromRows/save
+  //   buildSidebarFields_(entityName, mode, currentPostings?) → { mode, fields }
   //   fromRows(rows, context) → Entity
   //   fromApi(apiEntity, context) → Entity
-  //   quickAddFields() → FieldDescriptor[]        — Phase 3
-  //   isEditableHeader(header) → boolean          — Phase 2
+  //   isEditableHeader(header) → boolean
+
+  // Default: 'edit' checkbox opens the generic edit sidebar.
+  // Subclasses may override for custom action headers.
+  static isActionHeader(h) { return h === 'edit'; }
+
+  // Reconstruct an entity instance from the JSON object serialized into the sidebar template.
+  // Falls back to loadContext_() when record.context is absent (e.g., add mode).
+  static fromJson_(record) {
+    const context = record.context || this.loadContext_();
+    const instance = this.fromApi({ name: record.name || null }, context);
+    instance._span = record.span || null;
+    return instance;
+  }
+
+  static handleEditAction_(sheet, anchorRow, header, value) {
+    if (header === 'edit' && (value === true || value === 'TRUE')) {
+      managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[this.SHEET_KEY])
+        .setFields({ start: anchorRow, count: 1 }, { edit: false });
+      const entity = findEntityRowsFromAnchor_(this, sheet, anchorRow);
+      showEditSidebar_(this.SHEET_KEY, entity.getName(), entity._span, entity._context);
+    }
+  }
+
+  // Called after a new entity is created from the sidebar.
+  // Override to focus a specific cell; default is no-op.
+  static activateAfterCreate_(sheet, span) {}
 }
 
 var ENTITY_REGISTRY = {};
+var ENTITY_CLASS_REGISTRY = {};  // keyed by SHEET_KEY (e.g. 'transactions')
 
 function handleEntitySheetEdit_(e) {
   if (!e || !e.range) return;
@@ -82,9 +126,16 @@ function handleEntitySheetEdit_(e) {
   const rawOldValue = e.oldValue ?? '';  // preserve original type (number for amount cells)
   const oldRawValue = String(rawOldValue);
 
+  // GAS writes the new cell value before onEdit fires. For narration edits on multi-row
+  // entities, inferTransactionNarrationFromGroupRows_ would pick the already-edited first
+  // row's new value as the transaction narration, causing applyEdit to misclassify it.
+  // Pass the old value as an in-memory override so entity reconstruction sees the pre-edit
+  // state without writing back to the sheet (which would cause a visible flicker).
+  const anchorRowOverrides = header === 'narration' ? { narration: oldRawValue } : null;
+
   let entity;
   try {
-    entity = findEntityRowsFromAnchor_(EntityClass, sheet, row);
+    entity = findEntityRowsFromAnchor_(EntityClass, sheet, row, anchorRowOverrides);
     entity.applyEdit(header, rawValue, oldRawValue, row);
   } catch (error) {
     managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY])
@@ -117,7 +168,9 @@ function handleEntitySheetEdit_(e) {
 
 // Raw row scan — ±25-row window, returns { span, entityName, rows } with __rowNumber annotations.
 // Used by findEntityRowsFromAnchor_ and findTransactionRowNumbersFromAnchor_ (Phase 1 only).
-function scanEntityRows_(EntityClass, sheet, anchorRow) {
+// anchorRowOverrides: optional { field: value } map applied to the anchor row in-memory,
+// so callers can substitute pre-edit values without writing back to the sheet.
+function scanEntityRows_(EntityClass, sheet, anchorRow, anchorRowOverrides) {
   const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
   const ms = managedSheet_(sheet, sheetConfig);
   const identity = EntityClass.RESOURCE_IDENTITY;
@@ -127,6 +180,10 @@ function scanEntityRows_(EntityClass, sheet, anchorRow) {
   const windowEnd = anchorRow + 25;
   const windowRows = ms.getRows({ start: windowStart, count: windowEnd - windowStart + 1 });
   const anchorIndex = anchorRow - windowStart;
+
+  if (anchorRowOverrides) {
+    windowRows[anchorIndex] = Object.assign({}, windowRows[anchorIndex], anchorRowOverrides);
+  }
 
   const entityName = String(windowRows[anchorIndex][header] || '').trim();
   if (!entityName) {
@@ -161,8 +218,9 @@ function scanEntityRows_(EntityClass, sheet, anchorRow) {
 }
 
 // Returns a fully constructed Entity with _span set and context loaded via EntityClass.loadContext_().
-function findEntityRowsFromAnchor_(EntityClass, sheet, anchorRow) {
-  const { span, rows } = scanEntityRows_(EntityClass, sheet, anchorRow);
+// anchorRowOverrides: optional { field: value } map passed through to scanEntityRows_ (see above).
+function findEntityRowsFromAnchor_(EntityClass, sheet, anchorRow, anchorRowOverrides) {
+  const { span, rows } = scanEntityRows_(EntityClass, sheet, anchorRow, anchorRowOverrides);
   const context = EntityClass.loadContext_();
   return EntityClass.fromRows(rows, context, span);
 }

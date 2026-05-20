@@ -8,7 +8,7 @@ function onOpen() {
     .addItem('Test Connection', 'testFamilyLedgerConnection');
   ui.createMenu('Family Ledger')
     .addItem('Quick Filter', 'showQuickFilter')
-    .addItem('Quick Add Transaction', 'showQuickAddTransaction')
+    .addItem('Add Transaction', 'showAddTransaction')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Importer Settings', 'showImporterSettings')

@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { loadCode, sampleTransaction } = require('./_harness');
+const { loadCode, sampleTransaction, makeRowStoreSheet_ } = require('./_harness');
 
 function getTransaction(sandbox) {
   return sandbox.ENTITY_REGISTRY['Transactions'];
@@ -724,10 +724,11 @@ test('Transaction.fromRows() throws on invalid (NaN) amount', () => {
   }], ACCOUNT_LOOKUP, { start: 2, count: 1 }), /invalid amount/);
 });
 
-test('Transaction.fromRows() throws when all rows are narration_source post', () => {
+test('Transaction.fromRows() accepts all narration_source=post rows with null transaction narration', () => {
+  // Valid state after user edits the last txn-narration row: all postings carry their own narration.
   const { Transaction } = loadT_();
 
-  assert.throws(() => Transaction.fromRows([
+  const tx = Transaction.fromRows([
     {
       resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Test', narration: 'A',
       narration_source: 'post', source_account_name: '[A] Checking', destination_account_name: '[X] Food',
@@ -738,7 +739,11 @@ test('Transaction.fromRows() throws when all rows are narration_source post', ()
       narration_source: 'post', source_account_name: '[A] Checking', destination_account_name: '[X] Household',
       amount: 34.25, symbol: 'CHF', __rowNumber: 3,
     },
-  ], ACCOUNT_LOOKUP, { start: 2, count: 2 }), /At least one split row must keep the transaction narration/);
+  ], ACCOUNT_LOOKUP, { start: 2, count: 2 });
+
+  assert.equal(tx._api.narration, null, 'transaction narration is null when all rows are posting-specific');
+  assert.equal(tx._api.postings[1].narration, 'A');
+  assert.equal(tx._api.postings[2].narration, 'B');
 });
 
 // --- Transaction.fromApi() ---
@@ -899,7 +904,7 @@ test('Transaction static config has correct values', () => {
   assert.equal(Transaction.RESOURCE_IDENTITY.header, 'resource_name');
   assert.equal(Transaction.RESOURCE_IDENTITY.multiRow, true);
   assert.deepEqual(JSON.parse(JSON.stringify(Transaction.RESET_ON_SAVE_FIELDS)), ['split_off_amount']);
-  assert.equal(Transaction.UPDATE_MASK, 'payee,narration,postings');
+  assert.equal(Transaction.UPDATE_MASK, 'transaction_date,payee,narration,postings');
 });
 
 // --- flattenTransactionForSheet_ date round-trip ---
@@ -916,4 +921,819 @@ test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API pa
   });
 
   assert.equal(payload.transaction_date, '2026-04-19');
+});
+
+// --- findInsertionRowForTransactionDate_ ---
+
+test('findInsertionRowForTransactionDate_ inserts before first greater date and after same-date block', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19' }],
+    [4, { resource_name: 'transactions/txn_3', transaction_date: '2026-04-19' }],
+    [5, { resource_name: 'transactions/txn_4', transaction_date: '2026-04-21' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  assert.equal(sandbox.findInsertionRowForTransactionDate_(fakeSheet, '2026-04-17'), 2);
+  assert.equal(sandbox.findInsertionRowForTransactionDate_(fakeSheet, '2026-04-19'), 5);
+  assert.equal(sandbox.findInsertionRowForTransactionDate_(fakeSheet, '2026-04-20'), 5);
+  assert.equal(sandbox.findInsertionRowForTransactionDate_(fakeSheet, '2026-04-22'), 6);
+});
+
+// --- scanEntityRows_(Transaction) ---
+
+test('scanEntityRows_(Transaction) finds a single non-split row', () => {
+  const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a' }],
+    [3, { resource_name: 'transactions/txn_b' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 2)));
+  assert.deepEqual(result.span, { start: 2, count: 1 });
+  assert.equal(result.entityName, 'transactions/txn_a');
+});
+
+test('scanEntityRows_(Transaction) finds split rows above and below anchor', () => {
+  const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_1' }],
+    [5, { resource_name: 'transactions/txn_2' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 3)));
+  assert.deepEqual(result.span, { start: 2, count: 3 });
+  assert.equal(result.entityName, 'transactions/txn_1');
+});
+
+test('scanEntityRows_(Transaction) finds split rows with anchor at top', () => {
+  const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_2' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 2)));
+  assert.deepEqual(result.span, { start: 2, count: 2 });
+  assert.equal(result.entityName, 'transactions/txn_1');
+});
+
+test('scanEntityRows_(Transaction) finds split rows with anchor at bottom', () => {
+  const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_0' }],
+    [3, { resource_name: 'transactions/txn_1' }],
+    [4, { resource_name: 'transactions/txn_1' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const result = JSON.parse(JSON.stringify(sandbox.scanEntityRows_(Transaction, fakeSheet, 4)));
+  assert.deepEqual(result.span, { start: 3, count: 2 });
+  assert.equal(result.entityName, 'transactions/txn_1');
+});
+
+test('scanEntityRows_(Transaction) throws when anchor row has no transaction', () => {
+  const { sandbox } = loadCode();
+  const Transaction = sandbox.ENTITY_REGISTRY['Transactions'];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1' }],
+    [3, { resource_name: '' }],
+  ]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  assert.throws(() => sandbox.scanEntityRows_(Transaction, fakeSheet, 3), /does not contain a transaction/);
+});
+
+// --- applyTransactionResponseToSheet_ ---
+
+function makeReplacementRows_(sandbox, overrides) {
+  overrides = overrides || {};
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(overrides.txn || {}), {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+  });
+  rows.forEach(function(row) {
+    row.split_off_amount = '';
+  });
+  return rows;
+}
+
+test('applyTransactionResponseToSheet_ inserts new transaction mid-sheet at date-sorted position', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+    [3, { resource_name: 'transactions/txn_b', transaction_date: '2026-04-21', payee: 'B' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-20', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
+});
+
+test('applyTransactionResponseToSheet_ appends new transaction when date is after all existing', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-25', name: 'transactions/txn_new' } });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
+});
+
+test('applyTransactionResponseToSheet_ writes to row 2 when sheet is empty', () => {
+  const operations = [];
+  const rowStore = new Map();
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, null, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+});
+
+test('applyTransactionResponseToSheet_ deletes excess rows when posting count decreases', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 50, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Household',
+          amount: 34.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [4, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 2 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_other');
+  const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
+  assert.equal(deleteOps.length, 1);
+});
+
+test('applyTransactionResponseToSheet_ inserts rows when posting count increases', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-21', payee: 'Other' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const splitTxn = sampleTransaction({ postings: [
+    { account: 'accounts/source', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+    { account: 'accounts/household', units: { amount: '34.25', symbol: 'CHF' } },
+  ]});
+  const replacementRows = sandbox.flattenTransactionForSheet_(splitTxn, {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+    'accounts/household': '[X] Household',
+  });
+  replacementRows.forEach(function(row) { row.split_off_amount = ''; });
+
+  const result = sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 1 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 2 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_other');
+  const insertOps = operations.filter(function(op) { return op.type === 'insertRowsAfter'; });
+  assert.equal(insertOps.length, 1);
+});
+
+test('applyTransactionResponseToSheet_ does full setValues when same count and no existingRows', () => {
+  const operations = [];
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food',
+          amount: 84.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
+          narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '',
+          amount: -84.25, symbol: 'CHF', split_off_amount: '', issues: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const replacementRows = makeReplacementRows_(sandbox);
+
+  sandbox.applyTransactionResponseToSheet_(fakeSheet, { start: 2, count: 2 }, replacementRows);
+
+  assert.equal(rowStore.get(2).payee, 'Migros');
+});
+
+// --- Transaction.applyEdit ---
+
+function makeTx(sandbox, api, span) {
+  const Transaction = getTransaction(sandbox);
+  const tx = new Transaction(api, {
+    accountResourceToDisplayName: {
+      'accounts/checking': '[A] Checking',
+      'accounts/food': '[X] Food',
+      'accounts/household': '[X] Household',
+    },
+    accountDisplayNameToResource: {
+      '[A] Checking': 'accounts/checking',
+      '[X] Food': 'accounts/food',
+      '[X] Household': 'accounts/household',
+    },
+  });
+  tx._span = span || { start: 2, count: 1 };
+  return tx;
+}
+
+function singleDestApi(overrides) {
+  return Object.assign({
+    name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Migros',
+    narration: 'Groceries',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' }, narration: null },
+    ],
+  }, overrides);
+}
+
+function splitApi() {
+  return {
+    name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Migros',
+    narration: 'Groceries',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, narration: null },
+      { account: 'accounts/household', units: { amount: '34.25', symbol: 'CHF' }, narration: null },
+    ],
+  };
+}
+
+// payee
+
+test("Transaction.applyEdit('payee') updates api.payee", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('payee', 'Coop', '', 2);
+  assert.equal(tx._api.payee, 'Coop');
+});
+
+test("Transaction.applyEdit('payee') converts empty to null", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('payee', '', '', 2);
+  assert.equal(tx._api.payee, null);
+});
+
+// narration
+
+test("Transaction.applyEdit('narration') single-row sets api.narration", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('narration', 'Updated', 'Groceries', 2);
+  assert.equal(tx._api.narration, 'Updated');
+});
+
+test("Transaction.applyEdit('narration') single-row converts empty to null", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('narration', '', 'Groceries', 2);
+  assert.equal(tx._api.narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row sets posting narration", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Household', 'Groceries', 3);
+  assert.equal(tx._api.postings[2].narration, 'Household');
+  assert.equal(tx._api.postings[1].narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row reverts posting narration when value equals txn narration", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Groceries', 'Household goods', 3);
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('narration') split row reverts to null on empty value", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', '', 'Household goods', 3);
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('narration') blanks txn narration when editing last null posting to a different value", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Produce', 'Groceries', 2);
+  assert.equal(tx._api.narration, null, 'transaction narration must be blanked');
+  assert.equal(tx._api.postings[1].narration, 'Produce', 'edited posting gets its own narration');
+  assert.equal(tx._api.postings[2].narration, 'Household goods', 'other posting unchanged');
+});
+
+test("Transaction.applyEdit('narration') does not throw when other posting already has null", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('narration', 'Produce', 'Groceries', 2);
+  assert.equal(tx._api.postings[1].narration, 'Produce');
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+// destination_account_name
+
+test("Transaction.applyEdit('destination_account_name') updates posting account", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('destination_account_name', '[X] Household', '', 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/household');
+});
+
+test("Transaction.applyEdit('destination_account_name') throws on unknown account", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('destination_account_name', 'Unknown', '', 2),
+    /Unknown account_name/
+  );
+});
+
+// amount
+
+test("Transaction.applyEdit('amount') inserts split posting with leftover amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '50', '84.25', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '50');
+  assert.equal(tx._api.postings[2].units.amount, '34.25');
+  assert.equal(tx._api.postings[0].units.amount, '-84.25');
+});
+
+test("Transaction.applyEdit('amount') no-op when amounts are equal", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '84.25', '84.25', 2);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+test("Transaction.applyEdit('amount') treats numeric 0 as valid new amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', 0, '84.25', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '0');
+  assert.equal(tx._api.postings[2].units.amount, '84.25');
+});
+
+test("Transaction.applyEdit('amount') throws for source-only transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
+    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
+  });
+  assert.throws(
+    () => tx.applyEdit('amount', '1', '1.5', 2),
+    /Amount cannot be edited until a destination account is set/
+  );
+});
+
+test("Transaction.applyEdit('amount') throws for invalid (NaN) new amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('amount', 'bad', '84.25', 2),
+    /Invalid amount/
+  );
+});
+
+test("Transaction.applyEdit('amount') no-op when old amount is NaN (blank cell)", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('amount', '50', '', 2);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+// split_off_amount
+
+test("Transaction.applyEdit('split_off_amount') numeric creates split posting", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', '34.25', '', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '50');
+  assert.equal(tx._api.postings[2].units.amount, '34.25');
+  assert.equal(tx._api.postings[2].narration, null);
+});
+
+test("Transaction.applyEdit('split_off_amount') 0 is a valid split amount", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', 0, '', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].units.amount, '84.25');
+  assert.equal(tx._api.postings[2].units.amount, '0');
+});
+
+test("Transaction.applyEdit('split_off_amount') throws when split equals original", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  assert.throws(
+    () => tx.applyEdit('split_off_amount', '84.25', '', 2),
+    /Split amount must differ from the row amount/
+  );
+});
+
+test("Transaction.applyEdit('split_off_amount') numeric throws for source-only transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
+    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
+  });
+  assert.throws(
+    () => tx.applyEdit('split_off_amount', '0.5', '', 2),
+    /Split is unavailable until a destination account is set/
+  );
+});
+
+test("Transaction.applyEdit('split_off_amount') empty instruction is a no-op", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', '', '', 2);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on single destination makes source-only", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', 'x', '', 2);
+  assert.equal(tx._api.postings.length, 1);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on lower of two rows merges into upper", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/food');
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
+});
+
+test("Transaction.applyEdit('split_off_amount') x on upper of two rows merges into lower", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 2);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].account, 'accounts/household');
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
+});
+
+test("Transaction.applyEdit('split_off_amount') x reduces to 1 and resets surviving posting narration to null", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].narration, null);
+});
+
+test("Transaction.applyEdit('split_off_amount') - is treated as delete like x", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', '-', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+});
+
+test("Transaction.applyEdit('split_off_amount') x promotes surviving posting narration to txn when reducing to single row", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.narration = null;
+  api.postings[1].narration = 'Coffee';
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.narration, 'Coffee', 'surviving posting narration promoted to txn narration');
+  assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration cleared after promotion');
+});
+
+test("Transaction.applyEdit('split_off_amount') x keeps txn narration when surviving posting has null narration", () => {
+  const { sandbox } = loadCode();
+  const api = splitApi();
+  api.postings[2].narration = 'Household goods';
+  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', 'x', '', 3);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.narration, 'Groceries', 'txn narration unchanged');
+  assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration stays null');
+});
+
+// --- handleEntitySheetEdit_ ---
+
+function makeHandleEditSandbox(toasts) {
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+      },
+    },
+  });
+  const Transaction = getTransaction(sandbox);
+  const fakeEntity = new Transaction(singleDestApi(), {
+    accountResourceToDisplayName: {},
+    accountDisplayNameToResource: {},
+  });
+  fakeEntity._span = { start: 2, count: 1 };
+  sandbox.findEntityRowsFromAnchor_ = function() { return fakeEntity; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  return { sandbox, fakeEntity };
+}
+
+function makeEditEvent(sandbox, sheet, row, header, value, oldValue) {
+  const col = sandbox.getSheetConfigByName_('Transactions').headers.indexOf(header) + 1;
+  return {
+    range: {
+      getSheet() { return sheet; },
+      getRow() { return row; },
+      getColumn() { return col; },
+      getValue() { return value; },
+    },
+    value: value,
+    oldValue: oldValue,
+  };
+}
+
+test('handleEntitySheetEdit_ calls applyEdit, shows saving toast, and saves entity', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  const savedEntities = [];
+  fakeEntity.save = function() { savedEntities.push(this); return this._span; };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'payee', 'Coop', 'Migros'));
+
+  assert.equal(fakeEntity._api.payee, 'Coop');
+  assert.equal(savedEntities.length, 1);
+  assert.ok(toasts.some(t => /Saving/i.test(t.msg)));
+  assert.ok(toasts.some(t => /saved/.test(t.msg)));
+});
+
+test('handleEntitySheetEdit_ restores old cell value and toasts on applyEdit validation error', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  fakeEntity.save = function() { throw new Error('should not be called'); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1', amount: 99 }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  const col = sandbox.getSheetConfigByName_('Transactions').headers.indexOf('amount') + 1;
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return fakeSheet; },
+      getRow() { return 2; },
+      getColumn() { return col; },
+      getValue() { return 'notanumber'; },
+    },
+    value: 'notanumber',
+    oldValue: 84.25,
+  });
+
+  assert.equal(rowStore.get(2).amount, 84.25);
+  assert.ok(toasts.some(t => /Invalid amount/.test(t.msg)));
+});
+
+test('handleEntitySheetEdit_ ignores edits on non-entity sheets', () => {
+  const { sandbox } = loadCode();
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return { getName() { return 'Issues'; } }; },
+      getRow() { return 2; },
+      getColumn() { return 1; },
+    },
+    value: 'x',
+  });
+});
+
+test('handleEntitySheetEdit_ ignores edits on header row', () => {
+  const { sandbox } = loadCode();
+  const called = [];
+  sandbox.findEntityRowsFromAnchor_ = function() { called.push(1); };
+  const rowStore = new Map();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.handleEntitySheetEdit_({
+    range: {
+      getSheet() { return fakeSheet; },
+      getRow() { return 1; },
+      getColumn() { return 1; },
+    },
+    value: 'x',
+  });
+  assert.equal(called.length, 0);
+});
+
+test('handleEntitySheetEdit_ ignores non-editable headers', () => {
+  const { sandbox } = loadCode();
+  const called = [];
+  sandbox.findEntityRowsFromAnchor_ = function() { called.push(1); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'transaction_date', '2026-04-19', ''));
+  assert.equal(called.length, 0);
+});
+
+test('handleEntitySheetEdit_ toasts save failure without rethrowing', () => {
+  const toasts = [];
+  const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
+  fakeEntity.save = function() { throw new Error('API error'); };
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1' }]]);
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'payee', 'Coop', 'Migros'));
+
+  assert.ok(toasts.some(t => /API error/.test(t.msg)));
+  assert.ok(!toasts.some(t => /saved/.test(t.msg)));
+});
+
+test('handleEntitySheetEdit_ sets posting narration for first row of split transaction narration edit', () => {
+  const toasts = [];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+      },
+    },
+  });
+
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Coffee time',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '', last_error: '', issues: '', edit: '',
+    }],
+    [3, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Coffee',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '', last_error: '', issues: '', edit: '',
+    }],
+  ]);
+
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/checking', display_name: '[A] Checking' },
+      { resource_name: 'accounts/food', display_name: '[X] Food' },
+      { resource_name: 'accounts/coffee', display_name: '[X] Coffee' },
+    ];
+  };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
+  let patchPayload = null;
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    if (method === 'patch') {
+      patchPayload = payload;
+      const posted = payload.transaction;
+      return {
+        name: 'transactions/txn_1',
+        transaction_date: posted.transaction_date,
+        payee: posted.payee,
+        narration: posted.narration || null,
+        postings: posted.postings,
+      };
+    }
+    return {};
+  };
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'narration', 'Coffee time', 'Groceries'));
+
+  assert.ok(!toasts.some(t => /error/i.test(t.msg)), 'no error toast: ' + JSON.stringify(toasts));
+  assert.ok(patchPayload, 'expected a PATCH call');
+  assert.equal(patchPayload.transaction.narration, 'Groceries', 'txn narration must remain Groceries in PATCH');
+  assert.equal(patchPayload.transaction.postings[1].narration, 'Coffee time', 'food posting must carry narration Coffee time');
+  assert.equal(patchPayload.transaction.postings[2].narration, null, 'coffee posting must keep narration null');
+  assert.equal(rowStore.get(2).narration_source, 'post', 'row 2 should be narration_source=post');
+  assert.equal(rowStore.get(2).narration, 'Coffee time');
+  assert.equal(rowStore.get(3).narration_source, 'txn', 'row 3 should keep narration_source=txn');
+  assert.equal(rowStore.get(3).narration, 'Groceries');
+});
+
+test('handleEntitySheetEdit_ sets posting narration for split row narration edit', () => {
+  const toasts = [];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+      },
+    },
+  });
+
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '', last_error: '', issues: '', edit: '',
+    }],
+    [3, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Coffee time',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Coffee',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      status: '', last_error: '', issues: '', edit: '',
+    }],
+  ]);
+
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/checking', display_name: '[A] Checking' },
+      { resource_name: 'accounts/food', display_name: '[X] Food' },
+      { resource_name: 'accounts/coffee', display_name: '[X] Coffee' },
+    ];
+  };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
+  sandbox.apiFetchJson_ = function(method) {
+    if (method === 'patch') {
+      return {
+        name: 'transactions/txn_1',
+        transaction_date: '2026-04-19',
+        payee: 'Migros',
+        narration: 'Groceries',
+        postings: [
+          { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+          { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, narration: null },
+          { account: 'accounts/coffee', units: { amount: '34.25', symbol: 'CHF' }, narration: 'Coffee time' },
+        ],
+      };
+    }
+    return {};
+  };
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 3, 'narration', 'Coffee time', 'Groceries'));
+
+  assert.ok(!toasts.some(t => /error/i.test(t.msg)), 'no error toast: ' + JSON.stringify(toasts));
+  assert.equal(rowStore.get(3).narration_source, 'post', 'row 3 should be narration_source=post');
+  assert.equal(rowStore.get(3).narration, 'Coffee time');
+  assert.equal(rowStore.get(2).narration_source, 'txn', 'row 2 should keep narration_source=txn');
+  assert.equal(rowStore.get(2).narration, 'Groceries');
 });

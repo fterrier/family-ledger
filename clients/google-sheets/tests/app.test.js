@@ -57,7 +57,7 @@ test('onOpen adds Importer Settings to the Family Ledger menu', () => {
     .map((entry) => entry.label);
   assert.deepEqual(labels, [
     'Quick Filter',
-    'Quick Add Transaction',
+    'Add Transaction',
     'Sheet Settings',
     'Importer Settings',
     'Import data',

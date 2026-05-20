@@ -35,16 +35,24 @@ class Transaction extends Entity {
     this._api = apiResponse;
   }
 
-  // Quick Add / sidebar: set top-level fields on the internal API representation.
-  // Note: setting 'amount' here is a simple scalar assignment (total amount for the
-  // transaction). This is different from applyEdit('amount', ...) which is an inline
-  // sheet edit that triggers a posting split — handled via the edit trigger path.
+  // Sidebar: set fields from either simple-mode keys (source_account, destination_account,
+  // amount, symbol) or a raw postings array. applyEdit('amount') is a different path that
+  // triggers a posting split on inline sheet edits.
   setFields(fields) {
-    if ('transaction_date' in fields) this._api.transaction_date = fields.transaction_date;
+    if ('transaction_date' in fields)
+      this._api.transaction_date = normalizeTransactionDate_(fields.transaction_date);
     if ('payee' in fields) this._api.payee = fields.payee || null;
     if ('narration' in fields) this._api.narration = fields.narration || null;
-    // Phase 3: implement source_account, destination_account, amount, symbol
-    // (these map to postings[] on the API representation)
+    if ('postings' in fields) {
+      this._api.postings = fields.postings;
+    } else if ('source_account' in fields) {
+      const amount = parseFloat(fields.amount);
+      const symbol = fields.symbol;
+      this._api.postings = [{ account: fields.source_account, units: { amount: String(-amount), symbol: symbol } }];
+      if (fields.destination_account) {
+        this._api.postings.push({ account: fields.destination_account, units: { amount: String(amount), symbol: symbol } });
+      }
+    }
   }
 
   // Inline sheet edit — mutates this._api only, no sheet ops.
@@ -71,7 +79,9 @@ class Transaction extends Entity {
           return i === destOffset || p.narration !== null;
         });
         if (isLastNull) {
-          throw new Error('At least one split row must keep the transaction narration.');
+          // No shared narration row will remain — blank the transaction narration so the
+          // edited posting can carry its own without violating the invariant.
+          this._api.narration = null;
         }
         posting.narration = normalizedValue;
       }
@@ -130,7 +140,12 @@ class Transaction extends Entity {
         adjacent.units.amount = String(
           parseFloat(adjacent.units.amount) + parseFloat(this._api.postings[postingIndex].units.amount)
         );
-        if (destinations.length === 2) adjacent.narration = null;
+        if (destinations.length === 2) {
+          // Going from 2 destinations → 1: promote a posting-specific narration to the
+          // transaction level so the single remaining row shows the right narration.
+          if (adjacent.narration) this._api.narration = adjacent.narration;
+          adjacent.narration = null;
+        }
         this._api.postings.splice(postingIndex, 1);
         return;
       }
@@ -162,38 +177,15 @@ class Transaction extends Entity {
   static get RESOURCE_IDENTITY() { return { header: 'resource_name', multiRow: true }; }
   static get RESET_ON_SAVE_FIELDS() { return ['split_off_amount']; }
   static get API_RESOURCE_KEY() { return 'transaction'; }
-  static get UPDATE_MASK() { return 'payee,narration,postings'; }
+  static get UPDATE_MASK() { return 'transaction_date,payee,narration,postings'; }
   static get ENTITY_LABEL() { return 'transaction'; }
 
   static isEditableHeader(h) {
     return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
   }
 
-  static isActionHeader(h) { return h === 'edit'; }
-
-  // Phase 3: make generic — entity class passed as parameter to the sidebar so
-  // the sidebar can be shared across entity types (accounts, balances, etc.).
-  static handleEditAction_(sheet, anchorRow, header, value) {
-    if (header === 'edit' && (value === true || value === 'TRUE')) {
-      managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
-        .setFields({ start: anchorRow, count: 1 }, { edit: false });
-      openEditTransactionSidebar_(sheet, anchorRow);
-    }
-  }
-
   static loadContext_() {
     return buildTransactionContext_(loadAccountOptions_());
-  }
-
-  static createViaApi_(payload) {
-    return apiFetchJson_('post', '/transactions', { transaction: payload });
-  }
-
-  static updateViaApi_(entityName, payload) {
-    return apiFetchJson_('patch', '/' + entityName, {
-      transaction: payload,
-      update_mask: Transaction.UPDATE_MASK,
-    });
   }
 
   // Construct from API entity (primary path after an API call).
@@ -211,38 +203,110 @@ class Transaction extends Entity {
     return tx;
   }
 
-  // Quick Add field schema — Phase 3.
-  static quickAddFields() { return []; }
+  // Returns { mode, fields } where each field is self-contained with type, label, hint,
+  // default, and selection-options. mode: 'simple' | 'advanced'. The server may return
+  // 'advanced' even when 'simple' is requested (unclassifiable or multi-destination txn).
+  // currentPostings: postings array passed by the client when toggling modes.
+  static buildSidebarFields_(entityName, mode, currentPostings) {
+    const allRaw = loadAccountOptions_();
+    const toOpts = function(list) {
+      return list.map(function(o) { return { value: o.resource_name, label: o.display_name }; });
+    };
+    const allAccountOpts   = toOpts(allRaw);
+    const allCommodityOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
+
+    const postingsField = function(postings) {
+      return {
+        key: 'postings', label: '', type: 'postings', required: true,
+        default: postings,
+        'account-options':   allAccountOpts,
+        'commodity-options': allCommodityOpts,
+      };
+    };
+
+    const baseTextFields = [
+      { key: 'transaction_date', label: 'Date',      type: 'date',     required: true, hint: 'Required.' },
+      { key: 'payee',            label: 'Payee',     type: 'text',                     hint: 'Optional.' },
+      { key: 'narration',        label: 'Narration', type: 'textarea',                 hint: 'Optional.' },
+    ];
+
+    let postings = currentPostings || null;
+    let transactionDefaults = {};
+    if (entityName) {
+      const transaction = apiFetchJson_('get', '/' + entityName);
+      if (!currentPostings) postings = transaction.postings || [];
+      transactionDefaults = {
+        transaction_date: transaction.transaction_date || '',
+        payee:    transaction.payee    || '',
+        narration: transaction.narration || '',
+      };
+    }
+
+    const textFields = baseTextFields.map(function(f) {
+      return Object.assign({}, f, { default: transactionDefaults[f.key] || null });
+    });
+
+    if (mode === 'advanced') {
+      return { mode: 'advanced', fields: textFields.concat([postingsField(postings || [])]) };
+    }
+
+    if (postings !== null) {
+      const accountResourceToDisplayName = {};
+      allRaw.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
+      const shape = classifySupportedTransaction_({ postings: postings }, accountResourceToDisplayName);
+
+      if (!shape || shape.sourceIndex === null || shape.destinationIndexes.length > 1) {
+        return { mode: 'advanced', fields: textFields.concat([postingsField(postings)]) };
+      }
+
+      const src = postings[shape.sourceIndex];
+      const dst = shape.destinationIndexes.length > 0 ? postings[shape.destinationIndexes[0]] : null;
+      return { mode: 'simple', fields: textFields.concat([
+        { key: 'source_account',      label: 'Source account',      type: 'account-search', required: true,
+          hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account },
+        { key: 'destination_account', label: 'Destination account', type: 'account-search',
+          hint: 'Optional. Leave blank for a source-only transaction.', 'selection-options': allAccountOpts,
+          default: dst ? dst.account : null },
+        { key: 'amount', label: 'Amount', type: 'number', required: true,
+          hint: 'Positive for expenses; negative for incoming money. Same sign convention as the sheet.',
+          default: dst ? parseFloat(dst.units.amount) : Math.abs(parseFloat(src.units.amount)) },
+        { key: 'symbol', label: 'Symbol', type: 'select', required: true,
+          'selection-options': allCommodityOpts, default: src.units.symbol },
+      ]) };
+    }
+
+    // Add mode: simple form with configured shortlists
+    const settings = getAllQuickAddSettings_();
+    const sourceOpts = toOpts(allRaw.filter(function(o) { return settings.sourceAccounts.indexOf(o.resource_name) !== -1; }));
+    const destOpts   = toOpts(allRaw.filter(function(o) { return settings.destinationAccounts.indexOf(o.resource_name) !== -1; }));
+    const symOpts    = buildQuickAddSymbolOptions_(listCommodityOptions_(), settings.symbols)
+                         .map(function(o) { return { value: o.symbol, label: o.symbol }; });
+    return { mode: 'simple', fields: textFields.concat([
+      { key: 'source_account',      label: 'Source account',      type: 'account-search', required: true,
+        hint: 'Required. Only the configured quick-add source account shortlist is shown.',
+        'selection-options': sourceOpts, default: settings.defaultSourceAccount || null },
+      { key: 'destination_account', label: 'Destination account', type: 'account-search',
+        hint: 'Optional. Leave blank to create a source-only transaction.',
+        'selection-options': destOpts, default: null },
+      { key: 'amount', label: 'Amount', type: 'number', required: true,
+        hint: 'Required. Positive for expenses; negative for incoming money. Same sign convention as the sheet.' },
+      { key: 'symbol', label: 'Symbol', type: 'select', required: true, hint: 'Required.',
+        'selection-options': symOpts, default: settings.defaultSymbol || null },
+    ]) };
+  }
+
+  static activateAfterCreate_(sheet, span) {
+    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).activateCell(span.start, 'payee');
+  }
 
   static writeToSheet_(sheet, existingSpan, rows) {
     return applyTransactionResponseToSheet_(sheet, existingSpan, rows);
   }
 }
 
-// Phase 3: delete this function — sidebar opening will be made generic in handleEditAction_,
-// with the entity class passed as a parameter so the sidebar can serve any entity type.
-function openEditTransactionSidebar_(sheet, rowNumber) {
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
-    .setFields({ start: rowNumber, count: 1 }, { edit: false });
-  let transactionName;
-  try {
-    transactionName = findEntityRowsFromAnchor_(Transaction, sheet, rowNumber).getName();
-  } catch (_e) {
-    SpreadsheetApp.getUi().alert(
-      'Edit Transaction',
-      'The selected row does not contain a transaction.',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-    return;
-  }
-  const template = HtmlService.createTemplateFromFile('QuickAddTransactionSidebar');
-  template.transactionName = transactionName;
-  template.anchorRow = rowNumber;
-  SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle('Edit Transaction'));
-}
-
-// Populate the entity registry after class is defined.
+// Populate the entity registries after class is defined.
 ENTITY_REGISTRY[FAMILY_LEDGER_SHEET_NAMES.transactions] = Transaction;
+ENTITY_CLASS_REGISTRY[Transaction.SHEET_KEY] = Transaction;
 
 // Build the context maps needed for row ↔ API conversion from an account option list.
 function buildTransactionContext_(accountOptions) {
@@ -575,8 +639,7 @@ function inferTransactionNarrationFromGroupRows_(rows, issues) {
     return String(row.narration_source || 'txn').trim() !== 'post';
   });
   if (transactionRows.length === 0) {
-    issues.push('At least one split row must keep the transaction narration.');
-    return null;
+    return null;  // all rows carry posting-specific narrations; transaction narration is blank
   }
   return normalizeOptionalSheetText_(transactionRows[0].narration);
 }

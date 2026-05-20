@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+    padding: 16px;
+  }
+  .field { margin-bottom: 14px; }
+  label { display: block; font-weight: bold; margin-bottom: 4px; }
+  input, select, textarea {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  .hint { margin-top: 4px; color: #5f6368; font-size: 12px; }
+  .search-dropdown-host {
+    position: relative;
+  }
+  .search-dropdown-value {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    min-height: 32px;
+    user-select: none;
+  }
+  .search-dropdown-value-text {
+    flex: 1;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-dropdown-value-text.placeholder { color: #80868b; }
+  .search-dropdown-trigger {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid #5f6368;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+  .search-dropdown-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    margin-top: 2px;
+  }
+  .search-dropdown-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid #dadce0;
+    border-radius: 4px 4px 0 0;
+    font-size: 13px;
+    outline: none;
+  }
+  .search-dropdown-select {
+    display: block;
+    width: 100%;
+    border: none;
+    border-radius: 0 0 4px 4px;
+    font-size: 13px;
+    min-height: 160px;
+  }
+  .posting-row {
+    display: grid;
+    grid-template-columns: 1fr 70px 28px;
+    gap: 4px;
+    margin-bottom: 8px;
+  }
+  .posting-account {
+    grid-column: 1 / -1;
+  }
+  .posting-row select, .posting-row input {
+    width: 100%;
+    padding: 4px 6px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+  .btn-icon {
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    background: none;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #5f6368;
+    font-size: 14px;
+    line-height: 1;
+  }
+  .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
+  .btn-primary {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-primary:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-danger {
+    padding: 8px 16px;
+    background: #d93025;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-danger:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  #setupBox {
+    display: none;
+    padding: 10px 12px;
+    background: #fef7e0;
+    border: 1px solid #fdd663;
+    border-radius: 4px;
+    color: #5f4316;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="errorBox"></div>
+<div id="setupBox">No quick-add source accounts or symbols are configured. Open <strong>Family Ledger → Sheet Settings</strong> first.</div>
+
+<div id="dynamicFields"></div>
+
+<div id="toggleMode" style="text-align:right;margin-top:-8px;margin-bottom:14px;font-size:12px;display:none">
+  <a href="#" id="toggleModeLink" onclick="onToggleMode(); return false;" style="color:#1a73e8"></a>
+</div>
+
+<div class="actions" id="addActions">
+  <button class="btn-primary" id="insertBtn" onclick="onSubmit()">Insert</button>
+  <button class="btn-secondary" onclick="resetForm()">Reset</button>
+</div>
+
+<div class="actions" id="editActions" style="display:none">
+  <button class="btn-primary" id="saveBtn" onclick="onSubmit()">Save</button>
+  <button class="btn-danger" id="deleteBtn" onclick="onDelete()">Delete</button>
+  <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
+</div>
+
+<script>
+  <?!= includeHtml_('AccountSearch'); ?>
+  <?!= includeHtml_('SearchDropdown'); ?>
+  <?!= includeHtml_('PostingsEditor'); ?>
+
+  var ENTITY = <?!= entityJson ?>;
+  var IS_EDIT = Boolean(ENTITY.name);
+
+  var currentFields = null;
+  var currentMode = 'simple';
+  var dropdownsByKey = {};
+
+  if (IS_EDIT) {
+    document.getElementById('addActions').style.display = 'none';
+    document.getElementById('editActions').style.display = 'flex';
+  }
+
+  google.script.run
+    .withSuccessHandler(initForm)
+    .withFailureHandler(function(err) { showError(err.message || String(err)); })
+    .getSidebarData(ENTITY);
+
+  function makeAccountSearchFn_(query, options) {
+    return searchAccountEntries_(
+      buildAccountSearchEntries_(options.map(function(option) {
+        return { resource_name: option.value, display_name: option.label };
+      })),
+      query
+    ).map(function(entry) {
+      return { value: entry.resource_name, label: entry.display_name };
+    });
+  }
+
+  function setFieldValue_(el, value) {
+    el.value = value || '';
+    var ev = document.createEvent('Event');
+    ev.initEvent('change', true, true);
+    el.dispatchEvent(ev);
+  }
+
+  function initForm(data) {
+    currentFields = data.fields;
+    currentMode = data.mode;
+
+    var notConfigured = (data.fields || []).some(function(f) {
+      return f.required
+        && ['account-search', 'account-select', 'select'].indexOf(f.type) !== -1
+        && (!f['selection-options'] || f['selection-options'].length === 0);
+    });
+    if (notConfigured) {
+      document.getElementById('setupBox').style.display = 'block';
+      var insertBtn = document.getElementById('insertBtn');
+      if (insertBtn) insertBtn.disabled = true;
+      return;
+    }
+
+    renderDynamicFields(data.fields);
+
+    var toggleBtn = document.getElementById('toggleMode');
+    var toggleLink = document.getElementById('toggleModeLink');
+    toggleBtn.style.display = '';
+    toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';
+  }
+
+  function renderDynamicFields(fields) {
+    var container = document.getElementById('dynamicFields');
+    container.innerHTML = '';
+    dropdownsByKey = {};
+
+    (fields || []).forEach(function(field) {
+      var wrapper = document.createElement('div');
+      wrapper.className = 'field';
+
+      if (field.type === 'postings') {
+        PostingsEditor.init(wrapper, field['account-options'] || [], field['commodity-options'] || [], field.default || []);
+        container.appendChild(wrapper);
+        return;
+      }
+
+      if (field.label) {
+        var lbl = document.createElement('label');
+        lbl.htmlFor = 'field_' + field.key;
+        lbl.textContent = field.label;
+        wrapper.appendChild(lbl);
+      }
+
+      var input;
+      if (field.type === 'textarea') {
+        input = document.createElement('textarea');
+        input.id = 'field_' + field.key;
+      } else if (field.type === 'select' || field.type === 'account-select' || field.type === 'account-search') {
+        input = document.createElement('select');
+        input.id = 'field_' + field.key;
+        var blank = document.createElement('option');
+        blank.value = '';
+        blank.textContent = field.type === 'select' ? 'Select...' : 'Select account';
+        input.appendChild(blank);
+        (field['selection-options'] || []).forEach(function(opt) {
+          var el = document.createElement('option');
+          el.value = opt.value; el.textContent = opt.label;
+          input.appendChild(el);
+        });
+      } else {
+        input = document.createElement('input');
+        input.type = field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text';
+        if (field.type === 'number') input.step = '0.01';
+        input.id = 'field_' + field.key;
+      }
+
+      if (field.default != null) {
+        input.value = field.default;
+      } else if (field.type === 'date' && !IS_EDIT) {
+        input.value = new Date().toISOString().slice(0, 10);
+      }
+
+      wrapper.appendChild(input);
+
+      if (field.hint) {
+        var hint = document.createElement('div');
+        hint.className = 'hint';
+        hint.textContent = field.hint;
+        wrapper.appendChild(hint);
+      }
+
+      container.appendChild(wrapper);
+
+      if (field.type === 'account-search') {
+        var dd = attachSearchDropdown_(input, makeAccountSearchFn_);
+        dropdownsByKey[field.key] = dd;
+        setFieldValue_(input, field.default);
+      }
+    });
+  }
+
+  function collectSimpleAsPostings_() {
+    var srcEl = document.getElementById('field_source_account');
+    var dstEl = document.getElementById('field_destination_account');
+    var amtEl = document.getElementById('field_amount');
+    var symEl = document.getElementById('field_symbol');
+    var src = srcEl ? srcEl.value : '';
+    var dst = dstEl ? dstEl.value : '';
+    var amt = amtEl ? parseFloat(amtEl.value) : NaN;
+    var sym = symEl ? symEl.value : '';
+    if (!src || isNaN(amt) || !sym) return [];
+    var postings = [{ account: src, units: { amount: String(-amt), symbol: sym } }];
+    if (dst) postings.push({ account: dst, units: { amount: String(amt), symbol: sym } });
+    return postings;
+  }
+
+  function onToggleMode() {
+    var newMode = currentMode === 'simple' ? 'advanced' : 'simple';
+    var currentPostings;
+    if (currentMode === 'advanced') {
+      currentPostings = PostingsEditor.collect();
+      if (currentPostings === null) return;
+    } else {
+      currentPostings = collectSimpleAsPostings_();
+    }
+    var toggleLink = document.getElementById('toggleModeLink');
+    if (toggleLink) toggleLink.textContent = 'Loading…';
+    document.getElementById('errorBox').style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function(data) { initForm(data); })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        if (toggleLink) toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';
+      })
+      .getSidebarData(ENTITY, newMode, currentPostings);
+  }
+
+  function collectFieldValues() {
+    var values = {};
+    (currentFields || []).forEach(function(field) {
+      if (field.type === 'postings') return;
+      var el = document.getElementById('field_' + field.key);
+      values[field.key] = el ? el.value : '';
+    });
+    return values;
+  }
+
+  function onSubmit() {
+    document.getElementById('errorBox').style.display = 'none';
+    var fieldValues = collectFieldValues();
+
+    var hasPostings = (currentFields || []).some(function(f) { return f.type === 'postings'; });
+    if (hasPostings) {
+      var postings = PostingsEditor.collect();
+      if (postings === null) return;
+      fieldValues.postings = postings;
+    }
+
+    var btn = document.getElementById(IS_EDIT ? 'saveBtn' : 'insertBtn');
+    btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        btn.disabled = false;
+        if (IS_EDIT) {
+          google.script.host.close();
+        } else {
+          resetForm();
+        }
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        btn.disabled = false;
+      })
+      .submitEntity(ENTITY, fieldValues);
+  }
+
+  function resetForm() {
+    if (!currentFields) return;
+    document.getElementById('errorBox').style.display = 'none';
+    currentFields.forEach(function(field) {
+      if (field.type === 'postings') {
+        PostingsEditor.clear();
+        return;
+      }
+      var el = document.getElementById('field_' + field.key);
+      if (!el) return;
+      if (field.type === 'date') {
+        el.value = new Date().toISOString().slice(0, 10);
+      } else if (field.type === 'account-search') {
+        setFieldValue_(el, field.default);
+      } else {
+        el.value = field.default != null ? field.default : '';
+      }
+    });
+  }
+
+  function onDelete() {
+    if (!confirm('Delete this ' + ENTITY.classKey.replace(/s$/, '') + '? This cannot be undone.')) {
+      return;
+    }
+    document.getElementById('errorBox').style.display = 'none';
+    document.getElementById('deleteBtn').disabled = true;
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function(err) {
+        showError(err.message || String(err));
+        document.getElementById('deleteBtn').disabled = false;
+      })
+      .deleteEntity(ENTITY);
+  }
+
+  function showError(message) {
+    var errorBox = document.getElementById('errorBox');
+    errorBox.textContent = message;
+    errorBox.style.display = 'block';
+  }
+</script>
+
+</body>
+</html>

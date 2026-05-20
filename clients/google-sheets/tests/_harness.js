@@ -19,10 +19,9 @@ const SOURCE_FILES = [
   'DoctorIssues.js',
   'Filters.js',
   'ImporterDialogs.js',
-  'TransactionSave.js',
   'App.js',
   'SheetSettings.js',
-  'QuickAddTransaction.js',
+  'Sidebar.js',
   'AccountSearch.html',
   'SearchDropdown.html',
 ];

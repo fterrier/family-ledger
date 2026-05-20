@@ -1,0 +1,89 @@
+var PostingsEditor = (function() {
+  var _container = null;
+  var _accountOptions = [];
+  var _commodityOptions = [];
+
+  function init(container, accountOptions, commodityOptions, initialPostings) {
+    _container = container;
+    _accountOptions = accountOptions || [];
+    _commodityOptions = commodityOptions || [];
+    _container.innerHTML = '';
+
+    var listEl = document.createElement('div');
+    listEl.className = 'postings-list';
+    _container.appendChild(listEl);
+
+    var addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'btn-secondary';
+    addBtn.style.cssText = 'width:auto;padding:4px 10px;font-size:12px;margin-top:6px';
+    addBtn.textContent = '+ Add posting';
+    addBtn.onclick = function() { addRow(null); };
+    _container.appendChild(addBtn);
+
+    (initialPostings || []).forEach(function(p) { addRow(p); });
+  }
+
+  function addRow(posting) {
+    var listEl = _container && _container.querySelector('.postings-list');
+    if (!listEl) return;
+
+    var row = document.createElement('div');
+    row.className = 'posting-row';
+
+    var acctSel = document.createElement('select');
+    acctSel.className = 'posting-account';
+    [{ value: '', label: 'Account' }].concat(_accountOptions).forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label;
+      acctSel.appendChild(opt);
+    });
+    if (posting && posting.account) acctSel.value = posting.account;
+
+    var amtInput = document.createElement('input');
+    amtInput.type = 'number'; amtInput.step = '0.01'; amtInput.placeholder = '0.00';
+    amtInput.className = 'posting-amount';
+    if (posting && posting.units) amtInput.value = posting.units.amount || '';
+
+    var symSel = document.createElement('select');
+    symSel.className = 'posting-symbol';
+    [{ value: '', label: '—' }].concat(_commodityOptions).forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label || o.value || '—';
+      symSel.appendChild(opt);
+    });
+    if (posting && posting.units) symSel.value = posting.units.symbol || '';
+
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'btn-icon'; removeBtn.textContent = '×';
+    removeBtn.onclick = function() { row.remove(); };
+
+    row.appendChild(acctSel); row.appendChild(amtInput); row.appendChild(symSel); row.appendChild(removeBtn);
+    listEl.appendChild(row);
+  }
+
+  function collect() {
+    var listEl = _container && _container.querySelector('.postings-list');
+    if (!listEl) { showError('Postings editor not initialized.'); return null; }
+    var rows = listEl.querySelectorAll('.posting-row');
+    if (!rows.length) { showError('At least one posting is required.'); return null; }
+    var postings = [];
+    var valid = true;
+    rows.forEach(function(row) {
+      var acct = row.querySelector('.posting-account').value;
+      var amt = row.querySelector('.posting-amount').value;
+      var sym = row.querySelector('.posting-symbol').value;
+      if (!acct || amt === '' || !sym) { valid = false; return; }
+      postings.push({ account: acct, units: { amount: amt, symbol: sym } });
+    });
+    if (!valid) { showError('All posting fields (account, amount, symbol) are required.'); return null; }
+    return postings;
+  }
+
+  function clear() {
+    var listEl = _container && _container.querySelector('.postings-list');
+    if (listEl) listEl.innerHTML = '';
+  }
+
+  return { init: init, collect: collect, clear: clear, addRow: addRow };
+})();

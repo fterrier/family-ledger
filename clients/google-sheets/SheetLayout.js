@@ -316,7 +316,7 @@ function applyActionColumnCheckboxes_(sheet, sheetConfig) {
   const ms = managedSheet_(sheet, sheetConfig);
   const validation = SpreadsheetApp.newDataValidation().requireCheckbox().build();
   sheetConfig.headers.forEach(function(header) {
-    if ((sheetConfig.columns[header] || {}).role === 'action') {
+    if ((sheetConfig.columnLayout[header] || {}).role === 'action') {
       ms.setColumnValidation({ start: 2, count: lastRow - 1 }, header, validation);
     }
   });

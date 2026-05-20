@@ -136,6 +136,59 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
   assert.equal(dataCall.values[1][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
 });
 
+test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column of target sheet', () => {
+  const setValuesCalls = [];
+  const issueSheet = {
+    getLastRow() { return 1; },
+    getMaxColumns() { return 4; },
+    getMaxRows() { return 10; },
+    clearContents() {},
+    getRange(row, col, numRows = 1, numCols = 1) {
+      return { setValues(values) { setValuesCalls.push({ row, values }); return this; } };
+    },
+  };
+  const txSheet = { getSheetId() { return 42; }, getLastRow() { return 1; } };
+  const balSheet = { getSheetId() { return 43; }, getLastRow() { return 1; } };
+
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getSheetByName(name) {
+            if (name === 'Transactions') return txSheet;
+            if (name === 'Balances') return balSheet;
+            return null;
+          },
+        };
+      },
+    },
+  });
+
+  sandbox.writeFetchedDoctorIssueSheets_(
+    {
+      'transactions/txn_1': [{ target: 'transactions/txn_1', code: 'x', message: 'msg', details: {} }],
+      'balanceAssertions/bal_1': [{ target: 'balanceAssertions/bal_1', code: 'x', message: 'msg', details: {} }],
+    },
+    function() { return issueSheet; },
+    {}
+  );
+
+  const dataCall = setValuesCalls.find(function(c) { return c.row === 2; });
+  // rows sorted: balanceAssertions/bal_1, then transactions/txn_1
+  const balNavigate = dataCall.values[0][1]; // column B (navigate)
+  const txNavigate = dataCall.values[1][1];
+
+  // Balances: resource_name is column B ($B:$B), first visible is column A (edit)
+  assert.ok(balNavigate.includes('$B:$B'), 'balance MATCH should search resource_name column B');
+  assert.ok(balNavigate.includes('range=A'), 'balance link should navigate to first visible column A');
+  assert.ok(balNavigate.includes('gid=43'), 'balance link should use balances sheet gid');
+
+  // Transactions: resource_name is column B ($B:$B), first visible is column A (edit)
+  assert.ok(txNavigate.includes('$B:$B'), 'transaction MATCH should search resource_name column B');
+  assert.ok(txNavigate.includes('range=A'), 'transaction link should navigate to first visible column A');
+  assert.ok(txNavigate.includes('gid=42'), 'transaction link should use transactions sheet gid');
+});
+
 test('refreshDoctorIssueSheets_ groups fetched issues by target and passes them to write', () => {
   const writeCalls = [];
   const { sandbox } = loadCode({

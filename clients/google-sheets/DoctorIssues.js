@@ -88,7 +88,7 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceTo
             if (name && targetSet[name] && !seen[name]) {
               seen[name] = true;
               const parts = ['Transaction'];
-              if (row.transaction_date) { parts.push(row.transaction_date); }
+              if (row.transaction_date) { parts.push(normalizeEntityDate_(row.transaction_date)); }
               if (row.payee) { parts.push(row.payee); }
               lookup[name] = parts.join(' ');
             }
@@ -115,7 +115,7 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceTo
           const resourceName = row.resource_name;
           if (resourceName && targetSet[resourceName]) {
             const parts = ['Balance'];
-            if (row.assertion_date) { parts.push(row.assertion_date); }
+            if (row.assertion_date) { parts.push(normalizeEntityDate_(row.assertion_date)); }
             if (row.account) { parts.push(row.account); }
             lookup[resourceName] = parts.join(' ');
           }
@@ -126,10 +126,10 @@ function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceTo
   return lookup;
 }
 
-function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, rowNumber) {
+function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, rowNumber, resourceNameCol, navigateCol) {
   const escaped = String(labelText).replace(/"/g, '""');
-  const matchPart = 'MATCH(A' + rowNumber + ',' + visibleSheetName + '!$A:$A,0)';
-  const urlPart = '"#gid=' + visibleSheetGid + '&range=B"&' + matchPart;
+  const matchPart = 'MATCH(A' + rowNumber + ',' + visibleSheetName + '!$' + resourceNameCol + ':$' + resourceNameCol + ',0)';
+  const urlPart = '"#gid=' + visibleSheetGid + '&range=' + navigateCol + '"&' + matchPart;
   return '=IFERROR(HYPERLINK(' + urlPart + ',"' + escaped + '"),"' + escaped + '")';
 }
 
@@ -163,7 +163,13 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountRes
       }
       const visibleSheet = sheetByName[name];
       if (visibleSheet) {
-        navigate = buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber);
+        const targetSheetConfig = getSheetConfigByName_(name);
+        const resourceNameCol = getColumnLetter_(targetSheetConfig, 'resource_name');
+        const firstVisibleHeader = targetSheetConfig.headers.find(function(h) {
+          return targetSheetConfig.hiddenHeaders.indexOf(h) === -1;
+        });
+        const navigateCol = getColumnLetter_(targetSheetConfig, firstVisibleHeader);
+        navigate = buildNavigateFormula_(labelText, name, String(visibleSheet.getSheetId()), rowNumber, resourceNameCol, navigateCol);
       }
     }
     return {

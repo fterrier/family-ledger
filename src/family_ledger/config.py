@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     def parse_paperless_tag_ids(cls, value: object) -> object:
         if value is None or value == "":
             return []
+        if isinstance(value, int):
+            return [value]
         if isinstance(value, str):
             parts = [part.strip() for part in value.split(",") if part.strip()]
             try:

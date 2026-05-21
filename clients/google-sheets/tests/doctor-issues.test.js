@@ -94,7 +94,6 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
           setValuesCalls.push({ row, col, numRows, numCols, values });
           return this;
         },
-        setFormulas() { return this; },
       };
     },
     getSheetId() { return 99; },
@@ -139,17 +138,13 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
 
 test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column of target sheet', () => {
   const setValuesCalls = [];
-  const setFormulasCalls = [];
   const issueSheet = {
     getLastRow() { return 1; },
     getMaxColumns() { return 4; },
     getMaxRows() { return 10; },
     clearContents() {},
     getRange(row, col, numRows = 1, numCols = 1) {
-      return {
-        setValues(values) { setValuesCalls.push({ row, col, values }); return this; },
-        setFormulas(formulas) { setFormulasCalls.push({ row, col, formulas }); return this; },
-      };
+      return { setValues(values) { setValuesCalls.push({ row, values }); return this; } };
     },
   };
   const txSheet = { getSheetId() { return 42; }, getLastRow() { return 1; } };
@@ -178,12 +173,10 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
     {}
   );
 
-  // navigate formulas are written via setFormulas (not setValues), one column wide
-  const navigateCall = setFormulasCalls.find(function(c) { return c.col === 2 && c.row === 2; });
-  assert.ok(navigateCall, 'navigate formulas must be written via setFormulas starting at row 2, col 2');
+  const dataCall = setValuesCalls.find(function(c) { return c.row === 2; });
   // rows sorted: balanceAssertions/bal_1, then transactions/txn_1
-  const balNavigate = navigateCall.formulas[0][0];
-  const txNavigate = navigateCall.formulas[1][0];
+  const balNavigate = dataCall.values[0][1]; // column B (navigate)
+  const txNavigate = dataCall.values[1][1];
 
   // Balances: resource_name is column B ($B:$B), first visible is column A (edit)
   assert.ok(balNavigate.includes('$B:$B'), 'balance MATCH should search resource_name column B');

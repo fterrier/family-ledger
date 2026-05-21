@@ -46,7 +46,11 @@ function syncLedger() {
         ensureSheetCapacity_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts.headers.length, accountSyncData.accountRows.length + 1);
         writeSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts, accountSyncData.accountRows);
         accountsSheet.setFrozenRows(1);
-        ensureAccountIssueFormulas_(accountsSheet, { start: 2, count: accountSyncData.accountRows.length });
+        managedSheet_(accountsSheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts).setColumnFormulas(
+          { start: 2, count: accountSyncData.accountRows.length },
+          'issues',
+          buildIssueLookupFormula_
+        );
       }, accountSyncData.accountRows.length + ' rows');
 
       const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
@@ -54,13 +58,11 @@ function syncLedger() {
         ensureSheetCapacity_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length, balanceAssertionRows.length + 1);
         writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances, balanceAssertionRows);
         balancesSheet.setFrozenRows(1);
-        if (balanceAssertionRows.length > 0) {
-          managedSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).setColumnFormulas(
-            { start: 2, count: balanceAssertionRows.length },
-            'issues',
-            buildIssueLookupFormula_
-          );
-        }
+        managedSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).setColumnFormulas(
+          { start: 2, count: balanceAssertionRows.length },
+          'issues',
+          buildIssueLookupFormula_
+        );
       }, balanceAssertionRows.length + ' rows');
 
       const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);

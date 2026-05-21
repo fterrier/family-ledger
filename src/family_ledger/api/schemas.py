@@ -179,6 +179,11 @@ class CreateAccountRequest(BaseModel):
     account: AccountCreate
 
 
+class UpdateAccountRequest(BaseModel):
+    account: AccountCreate
+    update_mask: str | None = None
+
+
 class ListAccountsResponse(BaseModel):
     accounts: list[AccountResource]
     next_page_token: str | None = None

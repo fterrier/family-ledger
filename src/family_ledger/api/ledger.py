@@ -27,6 +27,7 @@ from family_ledger.api.schemas import (
     PadResponse,
     PriceResource,
     TransactionResource,
+    UpdateAccountRequest,
     UpdateBalanceAssertionRequest,
     UpdateTransactionRequest,
 )
@@ -104,6 +105,15 @@ def pad_account(account: str, date: date, session: DbSession) -> PadResponse:
 @router.get("/accounts/{account:path}", response_model=AccountResource)
 def get_account(account: str, session: DbSession) -> AccountResource:
     return _call_service(ledger_service.get_account_by_name, session, account)
+
+
+@router.patch("/accounts/{account:path}", response_model=AccountResource)
+def update_account(
+    account: str,
+    request: UpdateAccountRequest,
+    session: DbSession,
+) -> AccountResource:
+    return _call_service(ledger_service.update_account, session, account, request.account)
 
 
 @router.get("/commodities", response_model=ListCommoditiesResponse)

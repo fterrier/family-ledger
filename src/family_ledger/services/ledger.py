@@ -248,6 +248,20 @@ def get_account_by_name(session: Session, account: str) -> AccountResource:
     return serialize_account(account_row)
 
 
+def update_account(session: Session, account: str, payload: AccountCreate) -> AccountResource:
+    resource = resource_name("accounts", account)
+    account_row = session.scalar(select(Account).where(Account.name == resource))
+    if account_row is None:
+        raise NotFoundError(code="account_not_found", message="Account not found")
+    account_row.account_name = payload.account_name
+    account_row.effective_start_date = payload.effective_start_date
+    account_row.effective_end_date = payload.effective_end_date
+    account_row.entity_metadata = payload.entity_metadata
+    commit_or_raise(session)
+    session.refresh(account_row)
+    return serialize_account(account_row)
+
+
 def create_account(session: Session, payload: AccountCreate) -> AccountResource:
     account = Account(
         name=generate_resource_name("accounts", "acc"),

@@ -6,7 +6,6 @@ import json
 import mimetypes
 import os
 import re
-import tarfile
 import zipfile
 from collections import Counter
 from collections.abc import Sequence
@@ -53,51 +52,18 @@ POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 _BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
 
 
-def _is_archive(data: bytes) -> bool:
-    if data[:4] == b"PK\x03\x04":
-        return True
-    if data[:2] == b"\x1f\x8b":
-        return True
-    if len(data) > 262 and data[257:262] == b"ustar":
-        return True
-    return False
-
-
-def _extract_archive(data: bytes) -> tuple[bytes, dict[str, bytes]]:
+def _extract_zip_flat(data: bytes) -> dict[str, bytes]:
+    """Extract a zip into a basename→bytes map, skipping macOS metadata entries."""
     file_map: dict[str, bytes] = {}
-
-    if data[:4] == b"PK\x03\x04":
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            for name in zf.namelist():
-                basename = os.path.basename(name)
-                if basename:
-                    file_map[basename] = zf.read(name)
-    else:
-        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
-            for member in tf.getmembers():
-                if not member.isfile():
-                    continue
-                basename = os.path.basename(member.name)
-                if basename:
-                    f = tf.extractfile(member)
-                    if f is not None:
-                        file_map[basename] = f.read()
-
-    beancount_files = [name for name in file_map if name.endswith(".beancount")]
-    if len(beancount_files) == 0:
-        raise ConflictError(
-            code="no_beancount_file",
-            message="No .beancount file found in archive",
-        )
-    if len(beancount_files) > 1:
-        names = ", ".join(sorted(beancount_files))
-        raise ConflictError(
-            code="ambiguous_beancount_file",
-            message=f"Multiple .beancount files found in archive: {names}",
-        )
-
-    beancount_bytes = file_map.pop(beancount_files[0])
-    return beancount_bytes, file_map
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        for name in zf.namelist():
+            parts = name.split("/")
+            if "__MACOSX" in parts or any(p.startswith("._") for p in parts if p):
+                continue
+            basename = os.path.basename(name)
+            if basename:
+                file_map[basename] = zf.read(name)
+    return file_map
 
 
 def _import_documents(
@@ -124,7 +90,7 @@ def _import_documents(
             att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1
             if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                att_errors.examples.append(f"{filename}: not found in archive")
+                att_errors.examples.append(f"{filename}: not found in documents archive")
             continue
 
         account_row = session.scalar(select(Account).where(Account.account_name == entry.account))
@@ -315,28 +281,46 @@ class BeancountImporter(BaseImporter):
                     "default": False,
                     "description": (
                         "Import trailing Beancount posting comments ('; ...') as posting "
-                        "narrations. Only supported for directly uploaded files; "
-                        "Beancount include directives are not supported."
+                        "narrations. Beancount include directives are not supported."
                     ),
                 }
             },
             "additionalProperties": False,
         }
 
+    def get_file_descriptors(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "ledger_file",
+                "label": "Ledger file",
+                "description": "Plain text .beancount ledger",
+                "accept": [".beancount"],
+                "required": True,
+            },
+            {
+                "name": "documents_file",
+                "label": "Documents archive",
+                "description": (
+                    "ZIP archive containing the document files referenced by "
+                    "Document directives (optional)"
+                ),
+                "accept": [".zip"],
+                "required": False,
+            },
+        ]
+
     def execute(
         self,
         session: Session,
-        file_data: bytes,
+        files: dict[str, bytes],
         config: dict[str, Any],
         settings: Settings | None = None,
     ) -> ImportResult:
-        is_archive = _is_archive(file_data)
-        if is_archive:
-            beancount_bytes, file_map = _extract_archive(file_data)
-        else:
-            beancount_bytes, file_map = file_data, {}
+        ledger_bytes = files.get("ledger_file") or files.get("file", b"")
+        documents_zip = files.get("documents_file")
+        file_map = _extract_zip_flat(documents_zip) if documents_zip else {}
 
-        text = beancount_bytes.decode("utf-8")
+        text = ledger_bytes.decode("utf-8")
         entries, errors, _options_map = _load_beancount_string(text)
         posting_comments = (
             _posting_comment_by_line(text) if config.get(POSTING_COMMENT_CONFIG_KEY) else {}
@@ -352,9 +336,9 @@ class BeancountImporter(BaseImporter):
         result = ImportResult()
 
         # Warn about unrecognized entry types.
-        # Document entries are handled separately when an archive is provided.
+        # Document entries are handled separately when documents_file is provided.
         handled_entry_types = (
-            SUPPORTED_ENTRY_TYPES + (Document,) if is_archive else SUPPORTED_ENTRY_TYPES
+            SUPPORTED_ENTRY_TYPES + (Document,) if documents_zip else SUPPORTED_ENTRY_TYPES
         )
         unrecognized: Counter[str] = Counter()
         for entry in entries:
@@ -571,8 +555,8 @@ class BeancountImporter(BaseImporter):
                 except ConflictError:
                     result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
 
-        # Documents — only processed when an archive was supplied
-        if is_archive:
+        # Documents — only processed when a documents archive was supplied
+        if documents_zip:
             _import_documents(session, settings, entries, file_map, result)
 
         return result

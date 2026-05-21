@@ -15,7 +15,7 @@ class _FakeImporter(BaseImporter):
     display_name = "Fake Importer"
 
     def execute(
-        self, session: Session, file_data: bytes, config: dict, settings: object = None
+        self, session: Session, files: dict[str, bytes], config: dict, settings: object = None
     ) -> ImportResult:  # type: ignore[override]
         return ImportResult()
 
@@ -33,7 +33,7 @@ class _SchemaImporter(BaseImporter):
         }
 
     def execute(
-        self, session: Session, file_data: bytes, config: dict, settings: object = None
+        self, session: Session, files: dict[str, bytes], config: dict, settings: object = None
     ) -> ImportResult:  # type: ignore[override]
         return ImportResult()
 
@@ -42,7 +42,7 @@ class _CapturingSchemaImporter(_SchemaImporter):
     last_config: dict[str, Any] | None = None
 
     def execute(
-        self, session: Session, file_data: bytes, config: dict, settings: object = None
+        self, session: Session, files: dict[str, bytes], config: dict, settings: object = None
     ) -> ImportResult:  # type: ignore[override]
         _CapturingSchemaImporter.last_config = dict(config)
         return ImportResult()
@@ -74,6 +74,9 @@ def test_list_importers_returns_registered_importers(monkeypatch: pytest.MonkeyP
     assert body["importers"][0]["display_name"] == "Fake Importer"
     assert body["importers"][0]["config"] == {}
     assert body["importers"][0]["schema"] == {}
+    assert body["importers"][0]["file_descriptors"] == [
+        {"name": "file", "label": "File", "description": "", "accept": [], "required": True}
+    ]
 
 
 def test_list_importers_returns_empty_when_none_registered(

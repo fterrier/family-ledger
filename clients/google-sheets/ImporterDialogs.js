@@ -41,19 +41,21 @@ function getAccountsForDialog() {
   });
 }
 
-function runImportFromDialog(importerName, base64Content, mimeType, fileName, configOverride) {
+function runImportFromDialog(importerName, filesMap, configOverride) {
   const perf = createPerf_();
   setActivePerf_(perf);
   try {
-    const bytes = Utilities.base64Decode(base64Content);
-    const blob = Utilities.newBlob(bytes, mimeType || 'application/octet-stream', fileName);
-    const result = apiFetchMultipartJson_('post', importerName + ':import', {
-      file: blob,
+    const parts = {
       config_override: configOverride ? JSON.stringify(configOverride) : '',
-    }, {
+    };
+    Object.keys(filesMap).forEach(function(fieldName) {
+      const f = filesMap[fieldName];
+      const bytes = Utilities.base64Decode(f.base64);
+      parts[fieldName] = Utilities.newBlob(bytes, f.mimeType || 'application/octet-stream', f.name);
+    });
+    const result = apiFetchMultipartJson_('post', importerName + ':import', parts, {
       metadata: {
-        fileName: fileName,
-        mimeType: mimeType || 'application/octet-stream',
+        filesMap: filesMap,
         configOverride: configOverride || null,
       },
     });

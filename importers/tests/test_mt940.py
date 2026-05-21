@@ -228,7 +228,9 @@ def _create_account(session: Session, account_name: str) -> str:
 
 
 def _run(session: Session, config: dict[str, object] | None = None) -> None:
-    mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config or {})
+    mt940_importer.Mt940Importer().execute(
+        session, {"file": MT940_FIXTURE.encode("utf-8")}, config or {}
+    )
 
 
 def _normalized_transactions(session: Session) -> list[dict[str, object]]:
@@ -551,7 +553,7 @@ def test_format_payee_supports_einkauf_ordering() -> None:
 
 
 def _run_fixture(session: Session, fixture: str, config: dict[str, Any]) -> None:
-    mt940_importer.Mt940Importer().execute(session, fixture.encode("utf-8"), config)
+    mt940_importer.Mt940Importer().execute(session, {"file": fixture.encode("utf-8")}, config)
 
 
 def test_mt940_importer_duplicate_entries_get_different_source_native_ids(
@@ -621,8 +623,12 @@ def test_mt940_importer_deduplicates_on_reimport(session: Session) -> None:
         "balance_assertion_frequency": "daily",
     }
 
-    result1 = mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config)
-    result2 = mt940_importer.Mt940Importer().execute(session, MT940_FIXTURE.encode("utf-8"), config)
+    result1 = mt940_importer.Mt940Importer().execute(
+        session, {"file": MT940_FIXTURE.encode("utf-8")}, config
+    )
+    result2 = mt940_importer.Mt940Importer().execute(
+        session, {"file": MT940_FIXTURE.encode("utf-8")}, config
+    )
 
     created = result1.entities["transaction"].created
     assert created > 0
@@ -665,7 +671,7 @@ def test_mt940_importer_balance_assertion_frequency_weekly(session: Session) -> 
     account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
     mt940_importer.Mt940Importer().execute(
         session,
-        BALANCE_FREQUENCY_FIXTURE.encode("utf-8"),
+        {"file": BALANCE_FREQUENCY_FIXTURE.encode("utf-8")},
         {
             "account_mappings": {"CH5612300000000100111": account_resource},
             "balance_assertion_frequency": "weekly",
@@ -684,7 +690,7 @@ def test_mt940_importer_balance_assertion_frequency_monthly(session: Session) ->
     account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
     mt940_importer.Mt940Importer().execute(
         session,
-        BALANCE_FREQUENCY_FIXTURE.encode("utf-8"),
+        {"file": BALANCE_FREQUENCY_FIXTURE.encode("utf-8")},
         {
             "account_mappings": {"CH5612300000000100111": account_resource},
             "balance_assertion_frequency": "monthly",

@@ -503,14 +503,25 @@ class Mt940Importer(BaseImporter):
             "additionalProperties": False,
         }
 
+    def get_file_descriptors(self) -> list[dict[str, Any]]:
+        return [
+            {
+                "name": "file",
+                "label": "MT940 file",
+                "description": "MT940 bank statement file",
+                "accept": [".sta", ".txt"],
+                "required": True,
+            }
+        ]
+
     def execute(
         self,
         session: Session,
-        file_data: bytes,
+        files: dict[str, bytes],
         config: dict[str, Any],
         settings: object = None,
     ) -> ImportResult:
-        text = file_data.decode("utf-8")
+        text = files.get("file", b"").decode("utf-8")
         entries, balances = _parse_mt940_text(text)
         if not entries:
             raise ValidationError(code="invalid_mt940", message="No MT940 statements found")

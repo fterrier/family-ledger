@@ -261,6 +261,7 @@ class ImporterResource(BaseModel):
     display_name: str
     config: dict[str, Any] = Field(default_factory=dict)
     importer_schema: dict[str, Any] = Field(default_factory=dict, alias="schema")
+    file_descriptors: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ListImportersResponse(BaseModel):

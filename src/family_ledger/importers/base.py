@@ -32,11 +32,16 @@ class BaseImporter(ABC):
     def get_schema(self) -> dict[str, Any]:
         return {}
 
+    def get_file_descriptors(self) -> list[dict[str, Any]]:
+        return [
+            {"name": "file", "label": "File", "description": "", "accept": [], "required": True}
+        ]
+
     @abstractmethod
     def execute(
         self,
         session: Session,
-        file_data: bytes,
+        files: dict[str, bytes],
         config: dict[str, Any],
         settings: Settings | None = None,
     ) -> ImportResult: ...

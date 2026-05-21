@@ -279,14 +279,7 @@
   </div>
 
   <? if (isImportMode) { ?>
-    <div class="section">
-      <label>File</label>
-      <div class="file-row">
-        <label class="file-label-btn" for="fileInput">Choose file</label>
-        <input type="file" id="fileInput">
-        <span id="fileName">No file chosen</span>
-      </div>
-    </div>
+    <div class="section" id="fileInputsSection"></div>
   <? } ?>
 
   <div class="actions">
@@ -330,7 +323,7 @@
   var importers = [];
   var currentImporter = null;
   var accountsCache = null;
-  var pendingFile = null;
+  var pendingFiles = {};
 
   function isImportMode_() {
     return IMPORTER_DIALOG_MODE === 'import';
@@ -730,9 +723,9 @@
     document.getElementById('importerSelect').value = importer.name;
     hideError();
     if (isImportMode_()) {
-      pendingFile = null;
-      document.getElementById('fileName').textContent = 'No file chosen';
-      document.getElementById('submitBtn').disabled = true;
+      pendingFiles = {};
+      renderFileInputs(importer);
+      updateSubmitButton();
     }
     renderConfigForm(importer);
   }
@@ -799,38 +792,102 @@
   }
 
   <? if (isImportMode) { ?>
-  document.getElementById('fileInput').addEventListener('change', function() {
-    var file = this.files[0];
-    if (!file) {
-      return;
+  function getFileDescriptors_() {
+    var descriptors = (currentImporter && currentImporter.file_descriptors) || [];
+    if (!descriptors.length) {
+      return [{ name: 'file', label: 'File', description: '', accept: [], required: true }];
     }
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var dataUrl = e.target.result;
-      pendingFile = {
-        base64: dataUrl.split(',')[1],
-        mimeType: file.type || 'application/octet-stream',
-        name: file.name,
-      };
-      document.getElementById('fileName').textContent = file.name;
-      document.getElementById('submitBtn').disabled = false;
-      hideError();
-    };
-    reader.readAsDataURL(file);
-  });
+    return descriptors;
+  }
+
+  function updateSubmitButton() {
+    var descriptors = getFileDescriptors_();
+    var allRequired = descriptors.every(function(d) {
+      return !d.required || pendingFiles[d.name];
+    });
+    document.getElementById('submitBtn').disabled = !allRequired;
+  }
+
+  function renderFileInputs(importer) {
+    var section = document.getElementById('fileInputsSection');
+    section.innerHTML = '';
+    var descriptors = getFileDescriptors_();
+    descriptors.forEach(function(descriptor) {
+      var fieldName = descriptor.name;
+      var label = descriptor.label || fieldName;
+      var description = descriptor.description || '';
+      var accept = (descriptor.accept || []).join(',');
+
+      var labelEl = document.createElement('label');
+      labelEl.textContent = label + (descriptor.required ? '' : ' (optional)');
+      section.appendChild(labelEl);
+
+      var fileRow = document.createElement('div');
+      fileRow.className = 'file-row';
+
+      var inputId = 'fileInput_' + fieldName;
+      var chooseBtn = document.createElement('label');
+      chooseBtn.className = 'file-label-btn';
+      chooseBtn.setAttribute('for', inputId);
+      chooseBtn.textContent = 'Choose file';
+      fileRow.appendChild(chooseBtn);
+
+      var fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.id = inputId;
+      if (accept) fileInput.accept = accept;
+      fileRow.appendChild(fileInput);
+
+      var fileNameEl = document.createElement('span');
+      fileNameEl.id = 'fileName_' + fieldName;
+      fileNameEl.textContent = 'No file chosen';
+      fileRow.appendChild(fileNameEl);
+
+      section.appendChild(fileRow);
+
+      if (description) {
+        var hint = document.createElement('p');
+        hint.className = 'config-description';
+        hint.textContent = description;
+        section.appendChild(hint);
+      }
+
+      (function(fn, nameEl) {
+        fileInput.addEventListener('change', function() {
+          var file = this.files[0];
+          if (!file) return;
+          var reader = new FileReader();
+          reader.onload = function(e) {
+            var dataUrl = e.target.result;
+            pendingFiles[fn] = {
+              base64: dataUrl.split(',')[1],
+              mimeType: file.type || 'application/octet-stream',
+              name: file.name,
+            };
+            nameEl.textContent = file.name;
+            updateSubmitButton();
+            hideError();
+          };
+          reader.readAsDataURL(file);
+        });
+      })(fieldName, fileNameEl);
+    });
+  }
 
   function onImport() {
-    if (!pendingFile) {
-      return;
-    }
+    var descriptors = getFileDescriptors_();
+    var hasRequired = descriptors.every(function(d) {
+      return !d.required || pendingFiles[d.name];
+    });
+    if (!hasRequired) return;
 
     var submitBtn = document.getElementById('submitBtn');
-    var fileInput = document.getElementById('fileInput');
     var importerSelect = document.getElementById('importerSelect');
     var statusEl = document.getElementById('submitStatus');
+    var allInputs = document.getElementById('fileInputsSection').querySelectorAll('input[type=file]');
 
     submitBtn.disabled = true;
-    fileInput.disabled = true;
+    allInputs.forEach(function(el) { el.disabled = true; });
     importerSelect.disabled = true;
     statusEl.textContent = 'Importing file...';
     statusEl.style.display = '';
@@ -854,15 +911,13 @@
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
         submitBtn.disabled = false;
-        fileInput.disabled = false;
+        allInputs.forEach(function(el) { el.disabled = false; });
         importerSelect.disabled = false;
         statusEl.style.display = 'none';
       })
       .runImportFromDialog(
         currentImporter.name,
-        pendingFile.base64,
-        pendingFile.mimeType,
-        pendingFile.name,
+        pendingFiles,
         buildImporterDialogSubmitConfig_()
       );
   }
@@ -940,15 +995,12 @@
   function onImportAnother() {
     document.getElementById('phaseResult').style.display = 'none';
     document.getElementById('phaseForm').style.display = 'block';
-    pendingFile = null;
-    var fileInput = document.getElementById('fileInput');
-    fileInput.value = '';
-    fileInput.disabled = false;
+    pendingFiles = {};
     document.getElementById('importerSelect').disabled = false;
-    document.getElementById('fileName').textContent = 'No file chosen';
     document.getElementById('submitBtn').disabled = true;
     document.getElementById('submitStatus').style.display = 'none';
     hideError();
+    if (currentImporter) renderFileInputs(currentImporter);
   }
   <? } else { ?>
   function onSaveImporterSettings() {

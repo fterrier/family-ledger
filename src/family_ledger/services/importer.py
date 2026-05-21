@@ -24,9 +24,11 @@ def _serialize_importer(
         importer = importer_cls()
         display_name = importer.display_name
         importer_schema = importer.get_schema()
+        file_descriptors = importer.get_file_descriptors()
     else:
         display_name = plugin_name
         importer_schema = {}
+        file_descriptors = []
     return ImporterResource.model_validate(
         {
             "name": "importers/" + plugin_name,
@@ -34,6 +36,7 @@ def _serialize_importer(
             "display_name": display_name,
             "config": config,
             "schema": importer_schema,
+            "file_descriptors": file_descriptors,
         }
     )
 
@@ -104,7 +107,7 @@ def update_importer_config(
 def execute_import(
     session: Session,
     plugin_name: str,
-    file_data: bytes,
+    files: dict[str, bytes],
     config_override: dict[str, Any] | None,
     settings: Settings | None = None,
 ) -> ImportResult:
@@ -117,4 +120,4 @@ def execute_import(
     stored_config = _load_stored_config(session, plugin_name)
     schema = importer_cls().get_schema()
     merged = _resolve_importer_config(stored_config, config_override, schema)
-    return importer_cls().execute(session, file_data, merged, settings)
+    return importer_cls().execute(session, files, merged, settings)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from sqlalchemy.orm import Session
 
 from family_ledger.api.auth import require_api_token
@@ -72,18 +72,20 @@ def update_importer(
 
 
 @router.post("/importers/{importer:path}:import", response_model=ImportResponse)
-def run_import(
+async def run_import(
     importer: str,
     session: DbSession,
     settings: AppSettings,
-    file: UploadFile,
-    config_override: Annotated[str | None, Form()] = None,
+    request: Request,
 ) -> ImportResponse:
     plugin_name = importer.removeprefix("importers/")
+    form = await request.form()
+
+    config_override_raw = form.get("config_override")
     override: dict | None = None
-    if config_override is not None:
+    if config_override_raw is not None:
         try:
-            parsed = json.loads(config_override)
+            parsed = json.loads(str(config_override_raw))
         except json.JSONDecodeError as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -102,8 +104,12 @@ def run_import(
             )
         override = parsed
 
-    file_data = file.file.read()
+    files: dict[str, bytes] = {}
+    for key, value in form.multi_items():
+        if isinstance(value, UploadFile):
+            files[key] = await value.read()
+
     result = _call_service(
-        importer_service.execute_import, session, plugin_name, file_data, override, settings
+        importer_service.execute_import, session, plugin_name, files, override, settings
     )
     return ImportResponse(result=result)

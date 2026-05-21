@@ -12,6 +12,11 @@ function showAddBalanceAssertion() {
   showEditSidebar_('balances', null, null);
 }
 
+// Menu entry point — opens the Add Account sidebar.
+function showAddAccount() {
+  showEditSidebar_('accounts', null, null);
+}
+
 function showEditSidebar_(entityClassKey, entityName, span, context) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entityClassKey];
   const template = HtmlService.createTemplateFromFile('EditSidebar');

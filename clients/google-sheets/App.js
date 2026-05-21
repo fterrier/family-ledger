@@ -10,6 +10,7 @@ function onOpen() {
     .addItem('Quick Filter', 'showQuickFilter')
     .addItem('Add Transaction', 'showAddTransaction')
     .addItem('Add Balance Assertion', 'showAddBalanceAssertion')
+    .addItem('Add Account', 'showAddAccount')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Importer Settings', 'showImporterSettings')

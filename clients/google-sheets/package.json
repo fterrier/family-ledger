@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Google Sheets client tooling for family-ledger",
   "scripts": {
-    "check": "eslint AConstants.js AEntity.js AccountsSheet.js Api.js App.js Balance.js BalancesSheet.js DoctorIssues.js Filters.js ImporterDialogs.js LedgerSync.js ManagedSheet.js Perf.js Settings.js SheetLayout.js SheetSettings.js Sidebar.js Transaction.js",
+    "check": "eslint A_Constants.js A_Entity.js Account.js AccountsSheet.js Api.js App.js Balance.js DoctorIssues.js Filters.js ImporterDialogs.js LedgerSync.js ManagedSheet.js Perf.js Settings.js SheetLayout.js SheetSettings.js Sidebar.js Transaction.js",
     "test": "node --test tests/*.test.js",
     "clasp:login": "clasp login",
     "push": "for f in .clasp.local.json .clasp.syniukas.json; do if [ -f \"$f\" ]; then clasp push --force --project \"$f\"; fi; done"

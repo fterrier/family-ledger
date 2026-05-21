@@ -45,11 +45,6 @@ function readAccountSheetEntries_() {
     });
 }
 
-
-function ensureAccountIssueFormulas_(sheet, span) {
-  managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts).setColumnFormulas(span, 'issues', buildIssueLookupFormula_);
-}
-
 function buildAccountValidationRule_() {
   const accountsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.accounts);
   const lastRow = accountsSheet.getLastRow();

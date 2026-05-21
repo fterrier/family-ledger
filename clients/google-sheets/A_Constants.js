@@ -206,6 +206,13 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     protectedHeaders: ['resource_name'],
   }),
   accounts: buildSheetConfig_('accounts', FAMILY_LEDGER_SHEET_NAMES.accounts, {
+    edit: {
+      width: 40,
+      role: 'action',
+      note: 'Click to open the Edit/Delete Account sidebar.',
+      alignment: 'center',
+      checkbox: true,
+    },
     resource_name: {
       width: 180,
       role: 'system',

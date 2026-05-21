@@ -58,8 +58,8 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
     {
       sheetName: 'Accounts',
       initialColumns: 2,
-      expectedInsert: { column: 2, howMany: 1 },
-      expectedHide: [1],
+      expectedInsert: { column: 2, howMany: 2 },
+      expectedHide: [2],
     },
   ];
 
@@ -185,7 +185,7 @@ test('ensureSheetConditionalFormatting_ keeps only issue-state background rules 
   const { sandbox } = loadCode();
   const accountsSheet = {
     getName() { return 'Accounts'; },
-    getMaxColumns() { return 3; },
+    getMaxColumns() { return 4; },
     getLastRow() { return 3; },
     getMaxRows() { return 3; },
     getRange() { return { setNote() { return this; }, setBackground() { return this; }, setFontWeight() { return this; }, setHorizontalAlignment() { return this; }, setWrap() { return this; }, setWrapStrategy() { return this; }, setNumberFormat() { return this; }, protect() { return { setDescription() {}, setWarningOnly() {} }; } }; },
@@ -202,7 +202,7 @@ test('ensureSheetConditionalFormatting_ keeps only issue-state background rules 
   const rules = operations.find((op) => op.type === 'setConditionalFormatRules').rules;
   const backgroundRules = rules.filter((rule) => rule.background);
   assert.deepEqual(JSON.parse(JSON.stringify(backgroundRules.map((rule) => ({ formula: rule.formula, background: rule.background })))), [
-    { formula: '=$C2<>""', background: '#fee2e2' },
+    { formula: '=$D2<>""', background: '#fee2e2' },
   ]);
 });
 

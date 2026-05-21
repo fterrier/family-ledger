@@ -567,7 +567,7 @@ test('applyQuickAccountFilter also filters Accounts account_name column', () => 
   sandbox.applyQuickAccountFilter('[X] Food');
 
   assert.equal(accCriteria.length, 1);
-  assert.equal(accCriteria[0].col, 2); // account_name
+  assert.equal(accCriteria[0].col, 3); // account_name
   assert.ok(accCriteria[0].c.formula.includes('"[X] Food"'));
 });
 
@@ -620,7 +620,7 @@ test('clearQuickAccountFilter removes filter from Balances and Accounts', () => 
   sandbox.clearQuickAccountFilter();
 
   assert.deepEqual(balRemoved, [4]); // account
-  assert.deepEqual(accRemoved, [2]); // account_name
+  assert.deepEqual(accRemoved, [3]); // account_name
 });
 
 test('clearQuickFilter removes date and account criteria from all sheets', () => {
@@ -646,7 +646,7 @@ test('clearQuickFilter removes date and account criteria from all sheets', () =>
 
   assert.deepEqual(removed.Transactions.sort((a, b) => a - b), [3, 7, 8]); // date, source, destination
   assert.deepEqual(removed.Balances.sort((a, b) => a - b), [3, 4]); // assertion_date, account
-  assert.deepEqual(removed.Accounts, [2]); // account_name
+  assert.deepEqual(removed.Accounts, [3]); // account_name
 });
 
 test('getQuickFilterSidebarData returns combined years, account names, and persisted filter state', () => {

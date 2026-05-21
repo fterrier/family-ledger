@@ -54,7 +54,13 @@ function syncLedger() {
         ensureSheetCapacity_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances.headers.length, balanceAssertionRows.length + 1);
         writeSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances, balanceAssertionRows);
         balancesSheet.setFrozenRows(1);
-        ensureBalancesIssueFormulas_(balancesSheet, { start: 2, count: balanceAssertionRows.length });
+        if (balanceAssertionRows.length > 0) {
+          managedSheet_(balancesSheet, FAMILY_LEDGER_SHEET_REGISTRY.balances).setColumnFormulas(
+            { start: 2, count: balanceAssertionRows.length },
+            'issues',
+            buildIssueLookupFormula_
+          );
+        }
       }, balanceAssertionRows.length + ' rows');
 
       const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
@@ -160,6 +166,19 @@ function buildTransactionSyncData_(transactions, accountResourceToDisplayName) {
     skippedExamples: skippedExamples,
     skippedCount: skippedCount,
   };
+}
+
+function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {
+  return balanceAssertions.map(function(assertion) {
+    return {
+      resource_name: assertion.name,
+      assertion_date: assertion.assertion_date,
+      account: accountResourceToDisplayName[assertion.account] || assertion.account,
+      amount: assertion.amount.amount,
+      symbol: assertion.amount.symbol,
+      issues: '',
+    };
+  });
 }
 
 function describeTransactionForSyncSkip_(transaction) {

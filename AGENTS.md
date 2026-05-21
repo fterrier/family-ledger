@@ -5,7 +5,7 @@ This file is intended to optimize the context window for AI agents assisting wit
 ## Project Overview
 `family-ledger` is a DB-backed, API-first family accounting platform with Beancount-compatible export capabilities. It uses a modern Python stack: **FastAPI**, **Pydantic**, **SQLAlchemy 2.0**, and **PostgreSQL**.
 
-Dependency management is standard Python, but **local development should be done using Docker**.
+Dependency management uses `uv`. **The stack must only be run locally via Docker** (`docker compose`). Do not start the application or its dependencies outside of Docker.
 
 *(Note for AI Agents: If a file named `AGENTS_local.md` exists in the repository root, read it for local workspace overrides.)*
 
@@ -64,14 +64,14 @@ To ensure smooth "vibe coding" and high-quality contributions, follow these rule
   3. Write/update unit tests in `tests/services/`.
 
 ### 4. Running Tools & Tests
-- **Running the Project**: Prefer using local Docker via `docker compose`.
-- **Testing**: Run `pytest`.
-- **Linting & Formatting**: Run `ruff check` and `ruff format`.
-- **Type Checking**: Run `basedpyright`.
-- **Local Dev Server**: Handled via `uvicorn` (check `main.py`).
-- **Importers Package**: The `importers/` package must be installed separately. Run
-  `pip install -e ./importers` (or the local equivalent) before running tests or the dev
-  server if importer functionality is needed.
+- **Running the Stack**: **Always use Docker.** Never start the application or its
+  dependencies (database, Paperless, etc.) directly via `uvicorn`, `python`, or any
+  other non-Docker method. Use `docker compose` from the `docker/` directory.
+- **Testing**: Run `uv run pytest` (unit/integration tests only — no live stack needed).
+- **Linting & Formatting**: Run `uv run ruff check` and `uv run ruff format`.
+- **Type Checking**: Run `uv run basedpyright`.
+- **Alembic Migrations**: Run `alembic` commands inside the running Docker container,
+  not locally.
 
 ## Key Constraints & Conventions
 - **Authentication**: All ledger API routes except `GET /healthz` require Bearer token authentication (`Authorization: Bearer <token>`).

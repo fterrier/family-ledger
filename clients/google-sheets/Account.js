@@ -13,12 +13,18 @@ class Account extends Entity {
       edit: false,
       resource_name: this._api.name || '',
       account_name: formatAccountDisplayName_(this._api.account_name || ''),
+      effective_start_date: this._api.effective_start_date || '',
+      effective_end_date: this._api.effective_end_date || '',
       issues: '',
     }];
   }
 
   toApiPayload_() {
-    return { account_name: this._api.account_name };
+    return {
+      account_name: this._api.account_name,
+      effective_start_date: this._api.effective_start_date || null,
+      effective_end_date: this._api.effective_end_date || null,
+    };
   }
 
   validate() {
@@ -31,13 +37,19 @@ class Account extends Entity {
     if ('account_name' in fields) {
       this._api.account_name = String(fields.account_name || '').trim() || null;
     }
+    if ('effective_start_date' in fields) {
+      this._api.effective_start_date = String(fields.effective_start_date || '').trim() || null;
+    }
+    if ('effective_end_date' in fields) {
+      this._api.effective_end_date = String(fields.effective_end_date || '').trim() || null;
+    }
   }
 
   static get SHEET_KEY() { return 'accounts'; }
   static get RESOURCE_IDENTITY() { return { header: 'resource_name', multiRow: false }; }
   static get API_RESOURCE_KEY() { return 'account'; }
   static get API_COLLECTION_PATH() { return 'accounts'; }
-  static get UPDATE_MASK() { return 'account_name'; }
+  static get UPDATE_MASK() { return 'account_name,effective_start_date,effective_end_date'; }
   static get ENTITY_LABEL() { return 'account'; }
 
   static isEditableHeader(h) { return h === 'edit'; }
@@ -63,18 +75,40 @@ class Account extends Entity {
     let defaults = {};
     if (entityName) {
       const apiEntity = apiFetchJson_('get', Account.apiPath_(entityName));
-      defaults = { account_name: apiEntity.account_name || null };
+      defaults = {
+        account_name: apiEntity.account_name || null,
+        effective_start_date: apiEntity.effective_start_date || null,
+        effective_end_date: apiEntity.effective_end_date || null,
+      };
     }
     return {
       mode: 'advanced',
-      fields: [{
-        key: 'account_name',
-        label: 'Account name',
-        type: 'text',
-        required: true,
-        hint: 'Canonical account name, e.g. Assets:Family:ZKB:Checking.',
-        default: defaults.account_name || null,
-      }],
+      fields: [
+        {
+          key: 'account_name',
+          label: 'Account name',
+          type: 'text',
+          required: true,
+          hint: 'Canonical account name, e.g. Assets:Family:ZKB:Checking.',
+          default: defaults.account_name || null,
+        },
+        {
+          key: 'effective_start_date',
+          label: 'Opening date',
+          type: 'date',
+          required: false,
+          hint: 'Date when the account was opened.',
+          default: defaults.effective_start_date || null,
+        },
+        {
+          key: 'effective_end_date',
+          label: 'Closing date',
+          type: 'date',
+          required: false,
+          hint: 'Date when the account was closed (optional).',
+          default: defaults.effective_end_date || null,
+        },
+      ],
     };
   }
 }

@@ -227,6 +227,20 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       quickFilter: 'account',
     },
+    effective_start_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only account opening date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+    },
+    effective_end_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only account closing date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+    },
     issues: {
       width: 600,
       role: 'system',
@@ -238,7 +252,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     },
   }, {
     hiddenHeaders: ['resource_name'],
-    protectedHeaders: ['resource_name'],
+    protectedHeaders: ['resource_name', 'effective_start_date', 'effective_end_date'],
   }),
   commodities: buildSheetConfig_('commodities', FAMILY_LEDGER_SHEET_NAMES.commodities, {
     symbol: {

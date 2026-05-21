@@ -85,10 +85,14 @@ test('Account.buildSidebarFields_ returns mode:advanced and empty default for ad
   const result = getAccount(sandbox).buildSidebarFields_(null, 'simple');
 
   assert.equal(result.mode, 'advanced');
-  assert.equal(result.fields.length, 1);
+  assert.equal(result.fields.length, 3);
   assert.equal(result.fields[0].key, 'account_name');
   assert.equal(result.fields[0].type, 'text');
   assert.equal(result.fields[0].default, null);
+  assert.equal(result.fields[1].key, 'effective_start_date');
+  assert.equal(result.fields[1].type, 'date');
+  assert.equal(result.fields[2].key, 'effective_end_date');
+  assert.equal(result.fields[2].type, 'date');
 });
 
 test('Account.buildSidebarFields_ fetches canonical name from API for edit mode', () => {
@@ -194,7 +198,7 @@ test('submitEntity edits existing account via PATCH', () => {
   );
 
   assert.equal(patchBody.account.account_name, 'Assets:Family:ZKB:Savings');
-  assert.equal(patchBody.update_mask, 'account_name');
+  assert.equal(patchBody.update_mask, 'account_name,effective_start_date,effective_end_date');
   const updated = rowStore.get(2);
   assert.ok(updated.account_name.startsWith('[A]'), 'should store display name after edit');
 });

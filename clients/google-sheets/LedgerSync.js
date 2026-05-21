@@ -128,8 +128,17 @@ function buildAccountSyncData_(accounts) {
   const displayEntries = buildAccountDisplayEntries_(accounts).sort(function(a, b) {
     return a.display_name.localeCompare(b.display_name);
   });
+  const apiDataByName = {};
+  accounts.forEach(function(account) { apiDataByName[account.name] = account; });
   const rows = displayEntries.map(function(entry) {
-    return { resource_name: entry.resource_name, account_name: entry.display_name, issues: '' };
+    const apiData = apiDataByName[entry.resource_name] || {};
+    return {
+      resource_name: entry.resource_name,
+      account_name: entry.display_name,
+      effective_start_date: apiData.effective_start_date || '',
+      effective_end_date: apiData.effective_end_date || '',
+      issues: '',
+    };
   });
   const accountResourceToDisplayName = {};
   displayEntries.forEach(function(entry) {

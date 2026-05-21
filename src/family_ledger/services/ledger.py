@@ -48,6 +48,7 @@ from family_ledger.services.validation import (
     resolve_account,
     resolve_accounts,
     resource_name,
+    validate_account_effective_dates,
     validate_symbols_exist,
 )
 
@@ -253,6 +254,7 @@ def update_account(session: Session, account: str, payload: AccountCreate) -> Ac
     account_row = session.scalar(select(Account).where(Account.name == resource))
     if account_row is None:
         raise NotFoundError(code="account_not_found", message="Account not found")
+    validate_account_effective_dates(payload.effective_start_date, payload.effective_end_date)
     account_row.account_name = payload.account_name
     account_row.effective_start_date = payload.effective_start_date
     account_row.effective_end_date = payload.effective_end_date
@@ -263,6 +265,7 @@ def update_account(session: Session, account: str, payload: AccountCreate) -> Ac
 
 
 def create_account(session: Session, payload: AccountCreate) -> AccountResource:
+    validate_account_effective_dates(payload.effective_start_date, payload.effective_end_date)
     account = Account(
         name=generate_resource_name("accounts", "acc"),
         account_name=payload.account_name,

@@ -78,19 +78,19 @@ def test_resolve_accounts_raises_for_missing_account(session: Session) -> None:
     assert exc_info.value.code == "account_not_found"
 
 
-def test_validate_account_dates_rejects_out_of_range_account() -> None:
-    accounts = {
-        "accounts/acc_one": Account(
-            name="accounts/acc_one",
-            account_name="Assets:Bank:Checking:Family",
-            effective_start_date=date(2027, 1, 1),
-        )
-    }
-
+def test_validate_account_effective_dates_rejects_end_before_start() -> None:
     with pytest.raises(ValidationError) as exc_info:
-        validation.validate_account_dates(date(2026, 4, 19), accounts)
+        validation.validate_account_effective_dates(date(2026, 1, 1), date(2025, 12, 31))
 
-    assert exc_info.value.code == "account_not_effective"
+    assert exc_info.value.code == "invalid_effective_date_range"
+
+
+def test_validate_account_effective_dates_accepts_end_equal_to_start() -> None:
+    validation.validate_account_effective_dates(date(2026, 1, 1), date(2026, 1, 1))
+
+
+def test_validate_account_effective_dates_accepts_none_end_date() -> None:
+    validation.validate_account_effective_dates(date(2026, 1, 1), None)
 
 
 def test_validate_symbols_exist_rejects_missing_symbol(session: Session) -> None:

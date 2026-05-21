@@ -12,7 +12,7 @@ from family_ledger.api.schemas import (
     DoctorLedgerRequest,
     DoctorLedgerResponse,
 )
-from family_ledger.models import BalanceAssertion, Posting, Transaction
+from family_ledger.models import Account, BalanceAssertion, Posting, Transaction
 from family_ledger.services import attachments as attachment_service
 from family_ledger.services.account_balance import compute_balance_assertion_diffs
 from family_ledger.services.booking import BookingMethod, BookingReplay, LotKey, TransactionLotDelta
@@ -56,6 +56,36 @@ def transaction_lot_deltas(
                 TransactionLotDelta(transaction_name=transaction.name, amount=amount)
             )
     return lot_deltas
+
+
+def build_account_not_effective_issues(
+    transactions: Sequence[Transaction],
+) -> list[DoctorIssue]:
+    issues = []
+    for transaction in transactions:
+        accounts_by_id: dict[int, Account] = {
+            posting.account.id: posting.account for posting in transaction.postings
+        }
+        inactive = [
+            account.name
+            for account in accounts_by_id.values()
+            if transaction.transaction_date < account.effective_start_date
+            or (
+                account.effective_end_date is not None
+                and transaction.transaction_date > account.effective_end_date
+            )
+        ]
+        if inactive:
+            issues.append(
+                DoctorIssue(
+                    target=transaction.name,
+                    code="account_not_effective",
+                    severity="error",
+                    message="Transaction references accounts not effective on its date.",
+                    details={"accounts": ", ".join(sorted(inactive))},
+                )
+            )
+    return issues
 
 
 def build_lot_match_missing_issues(
@@ -117,6 +147,7 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
             for transaction in transactions
             for issue in build_transaction_unbalanced_issues(transaction)
         ],
+        *build_account_not_effective_issues(transactions),
         *build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
         *[
             DoctorIssue(

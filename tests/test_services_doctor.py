@@ -213,6 +213,135 @@ def test_doctor_no_issue_when_balance_assertion_satisfied(session: Session) -> N
     assert not any(i.code == "balance_assertion_failed" for i in diagnosed.issues)
 
 
+def test_doctor_reports_account_not_effective_when_transaction_predates_account_open(
+    session: Session,
+) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2026, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2025, 12, 31),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "account_not_effective"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert "accounts/acc_one" in issues[0].details["accounts"]
+
+
+def test_doctor_reports_account_not_effective_when_transaction_postdates_account_close(
+    session: Session,
+) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+                effective_end_date=date(2025, 12, 31),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 1, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "account_not_effective"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert "accounts/acc_one" in issues[0].details["accounts"]
+
+
+def test_doctor_no_account_not_effective_issue_when_within_range(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+                effective_end_date=date(2030, 12, 31),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+    ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 1, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    assert not any(i.code == "account_not_effective" for i in diagnosed.issues)
+
+
 def test_doctor_reports_attachment_storage_failures(session: Session) -> None:
     account = Account(
         name="accounts/acc_one",

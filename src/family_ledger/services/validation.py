@@ -36,19 +36,13 @@ def resolve_account(session: Session, account_name: str) -> Account:
     return account
 
 
-def validate_account_dates(transaction_date: date, accounts: dict[str, Account]) -> None:
-    invalid = []
-    for account in accounts.values():
-        if transaction_date < account.effective_start_date:
-            invalid.append(account.name)
-        elif (
-            account.effective_end_date is not None and transaction_date > account.effective_end_date
-        ):
-            invalid.append(account.name)
-    if invalid:
+def validate_account_effective_dates(
+    effective_start_date: date, effective_end_date: date | None
+) -> None:
+    if effective_end_date is not None and effective_end_date < effective_start_date:
         raise ValidationError(
-            code="account_not_effective",
-            message=f"Accounts not effective on transaction date: {', '.join(sorted(invalid))}",
+            code="invalid_effective_date_range",
+            message="effective_end_date must not be before effective_start_date",
         )
 
 
@@ -74,6 +68,5 @@ def validate_transaction_symbols(session: Session, payload: TransactionData) -> 
 
 
 def validate_transaction_payload(session: Session, payload: TransactionData) -> None:
-    account_map = resolve_accounts(session, payload.postings)
-    validate_account_dates(payload.transaction_date, account_map)
+    resolve_accounts(session, payload.postings)
     validate_transaction_symbols(session, payload)

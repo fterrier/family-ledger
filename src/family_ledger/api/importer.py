@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+from starlette.datastructures import UploadFile
 
 from family_ledger.api.auth import require_api_token
 from family_ledger.api.schemas import (

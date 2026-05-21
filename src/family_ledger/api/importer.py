@@ -84,7 +84,7 @@ async def run_import(
 
     config_override_raw = form.get("config_override")
     override: dict | None = None
-    if config_override_raw is not None:
+    if config_override_raw is not None and str(config_override_raw) != "":
         try:
             parsed = json.loads(str(config_override_raw))
         except json.JSONDecodeError as exc:

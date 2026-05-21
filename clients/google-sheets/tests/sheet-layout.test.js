@@ -9,6 +9,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
   const sheetConfig = sandbox.getSheetConfigByName_('Transactions');
   const fakeSheet = {
     clearContents() { operations.push({ type: 'clearContents' }); },
+    getMaxRows() { return 1; },
     getRange(row, column, numRows, numCols) {
       return { setValues(values) { operations.push({ type: 'setValues', row, column, numRows, numCols, values }); } };
     },
@@ -20,6 +21,35 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
     { type: 'clearContents' },
     { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 12, values: [sheetConfig.headers] },
   ]);
+});
+
+test('writeSheet_ clears account-column validations before writing to prevent strict-rule errors', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const sheetConfig = sandbox.getSheetConfigByName_('Transactions');
+  const fakeSheet = {
+    clearContents() { operations.push({ type: 'clearContents' }); },
+    getMaxRows() { return 10; },
+    getRange(row, column, numRows, numCols) {
+      return { setValues(values) { operations.push({ type: 'setValues', row, column, numRows, numCols }); } };
+    },
+    getRangeList(notations) {
+      return { clearDataValidations() { operations.push({ type: 'clearDataValidations', notations }); } };
+    },
+  };
+
+  sandbox.writeSheet_(fakeSheet, sheetConfig, []);
+
+  const clearValidations = operations.find(function(op) { return op.type === 'clearDataValidations'; });
+  assert.ok(clearValidations, 'should clear data validations before writing');
+  // destination_account_name is column H (col 8) — notations must cover rows 2..9
+  assert.ok(
+    clearValidations.notations.some(function(n) { return /^H/.test(n); }),
+    'should clear the destination_account_name column (H)'
+  );
+  const clearIdx = operations.indexOf(clearValidations);
+  const setValuesIdx = operations.findIndex(function(op) { return op.type === 'setValues' && op.row === 1; });
+  assert.ok(clearIdx < setValuesIdx, 'clearDataValidations must happen before setValues');
 });
 
 test('ensureSheetCapacity_ expands undersized sheets before writing', () => {

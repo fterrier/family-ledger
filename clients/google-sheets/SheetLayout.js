@@ -84,6 +84,18 @@ function getOrCreateSheet_(sheetName) {
 function writeSheet_(sheet, sheetConfig, rows) {
   sheet.clearContents();
   const managed = managedSheet_(sheet, sheetConfig);
+  // Clear existing account-column validations before writing. clearContents() does not remove
+  // data validation rules, so a strict rule (setAllowInvalid(false)) left from a previous sync
+  // or layout reset would cause setValues to throw when writing rows with blank account cells.
+  const accountHeaders = sheetConfig.headers.filter(function(h) {
+    return (sheetConfig.columnLayout[h] || {}).validation === 'account';
+  });
+  if (accountHeaders.length > 0) {
+    const maxRows = sheet.getMaxRows ? sheet.getMaxRows() : 0;
+    if (maxRows > 1) {
+      managed.clearColumnValidations({ start: 2, count: maxRows - 1 }, accountHeaders);
+    }
+  }
   managed.setHeaders();
   if (rows.length > 0) {
     managed.setRows({ start: 2, count: rows.length }, rows);

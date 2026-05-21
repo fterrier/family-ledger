@@ -94,6 +94,8 @@ function writeSheet_(sheet, sheetConfig, rows) {
     const maxRows = sheet.getMaxRows ? sheet.getMaxRows() : 0;
     if (maxRows > 1) {
       managed.clearColumnValidations({ start: 2, count: maxRows - 1 }, accountHeaders);
+      // Flush so the cleared rules are committed before setValues runs the validation check.
+      if (SpreadsheetApp.flush) SpreadsheetApp.flush();
     }
   }
   managed.setHeaders();

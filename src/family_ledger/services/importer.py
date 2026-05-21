@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import ImporterResource, ListImportersResponse
+from family_ledger.config import Settings
 from family_ledger.importers.base import ImportResult
 from family_ledger.importers.registry import get_importer, get_importers
 from family_ledger.models.importer import Importer
@@ -105,6 +106,7 @@ def execute_import(
     plugin_name: str,
     file_data: bytes,
     config_override: dict[str, Any] | None,
+    settings: Settings | None = None,
 ) -> ImportResult:
     importer_cls = get_importer(plugin_name)
     if importer_cls is None:
@@ -115,4 +117,4 @@ def execute_import(
     stored_config = _load_stored_config(session, plugin_name)
     schema = importer_cls().get_schema()
     merged = _resolve_importer_config(stored_config, config_override, schema)
-    return importer_cls().execute(session, file_data, merged)
+    return importer_cls().execute(session, file_data, merged, settings)

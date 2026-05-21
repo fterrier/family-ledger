@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
+import mimetypes
+import os
 import re
+import tarfile
+import zipfile
 from collections import Counter
 from collections.abc import Sequence
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
 from beancount.core.amount import Amount
-from beancount.core.data import Balance, Close, Open, Pad, Posting, Price, Transaction
+from beancount.core.data import Balance, Close, Document, Open, Pad, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
 from sqlalchemy import select
@@ -27,18 +32,128 @@ from family_ledger.api.schemas import (
     PriceCreate,
     TransactionNormalizeData,
 )
+from family_ledger.config import Settings
 from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
 from family_ledger.models import Account
 from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import account_balance as account_balance_service
+from family_ledger.services import attachments as attachments_service
 from family_ledger.services import ledger as ledger_service
-from family_ledger.services.errors import ConflictError
+from family_ledger.services.errors import (
+    ConflictError,
+    NotFoundError,
+    UnavailableError,
+    ValidationError,
+)
 
 SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balance, Pad)
 MAX_SKIPPED_EXAMPLES_PER_REASON = 10
 POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
 POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 _BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
+
+
+def _is_archive(data: bytes) -> bool:
+    if data[:4] == b"PK\x03\x04":
+        return True
+    if data[:2] == b"\x1f\x8b":
+        return True
+    if len(data) > 262 and data[257:262] == b"ustar":
+        return True
+    return False
+
+
+def _extract_archive(data: bytes) -> tuple[bytes, dict[str, bytes]]:
+    file_map: dict[str, bytes] = {}
+
+    if data[:4] == b"PK\x03\x04":
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            for name in zf.namelist():
+                basename = os.path.basename(name)
+                if basename:
+                    file_map[basename] = zf.read(name)
+    else:
+        with tarfile.open(fileobj=io.BytesIO(data)) as tf:
+            for member in tf.getmembers():
+                if not member.isfile():
+                    continue
+                basename = os.path.basename(member.name)
+                if basename:
+                    f = tf.extractfile(member)
+                    if f is not None:
+                        file_map[basename] = f.read()
+
+    beancount_files = [name for name in file_map if name.endswith(".beancount")]
+    if len(beancount_files) == 0:
+        raise ConflictError(
+            code="no_beancount_file",
+            message="No .beancount file found in archive",
+        )
+    if len(beancount_files) > 1:
+        names = ", ".join(sorted(beancount_files))
+        raise ConflictError(
+            code="ambiguous_beancount_file",
+            message=f"Multiple .beancount files found in archive: {names}",
+        )
+
+    beancount_bytes = file_map.pop(beancount_files[0])
+    return beancount_bytes, file_map
+
+
+def _import_documents(
+    session: Session,
+    settings: Settings | None,
+    entries: Sequence[object],
+    file_map: dict[str, bytes],
+    result: ImportResult,
+) -> None:
+    document_entries = [e for e in entries if isinstance(e, Document)]
+    if not document_entries:
+        return
+
+    if settings is None or not settings.paperless_is_configured():
+        result.warnings.append(
+            f"Paperless not configured; {len(document_entries)} document(s) skipped"
+        )
+        return
+
+    for entry in document_entries:
+        filename = os.path.basename(entry.filename)
+        doc_bytes = file_map.get(filename)
+        if doc_bytes is None:
+            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors.count += 1
+            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                att_errors.examples.append(f"{filename}: not found in archive")
+            continue
+
+        account_row = session.scalar(select(Account).where(Account.account_name == entry.account))
+        if account_row is None:
+            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors.count += 1
+            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                att_errors.examples.append(f"{entry.account}: account not in ledger")
+            continue
+
+        media_type, _ = mimetypes.guess_type(filename)
+        try:
+            attachments_service.create_attachment(
+                session,
+                settings,
+                account=account_row.name,
+                attachment_date=entry.date,
+                original_filename=filename,
+                media_type=media_type,
+                file_data=doc_bytes,
+                title=None,
+                entity_metadata={},
+            )
+            result.entities.setdefault("attachment", EntityCounts()).created += 1
+        except (UnavailableError, ValidationError, NotFoundError) as exc:
+            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors.count += 1
+            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                att_errors.examples.append(f"{filename}: {exc.message}")
 
 
 def _load_beancount_string(text: str):  # type: ignore[no-untyped-def]
@@ -213,8 +328,15 @@ class BeancountImporter(BaseImporter):
         session: Session,
         file_data: bytes,
         config: dict[str, Any],
+        settings: Settings | None = None,
     ) -> ImportResult:
-        text = file_data.decode("utf-8")
+        is_archive = _is_archive(file_data)
+        if is_archive:
+            beancount_bytes, file_map = _extract_archive(file_data)
+        else:
+            beancount_bytes, file_map = file_data, {}
+
+        text = beancount_bytes.decode("utf-8")
         entries, errors, _options_map = _load_beancount_string(text)
         posting_comments = (
             _posting_comment_by_line(text) if config.get(POSTING_COMMENT_CONFIG_KEY) else {}
@@ -229,10 +351,14 @@ class BeancountImporter(BaseImporter):
 
         result = ImportResult()
 
-        # Warn about unrecognized entry types
+        # Warn about unrecognized entry types.
+        # Document entries are handled separately when an archive is provided.
+        handled_entry_types = (
+            SUPPORTED_ENTRY_TYPES + (Document,) if is_archive else SUPPORTED_ENTRY_TYPES
+        )
         unrecognized: Counter[str] = Counter()
         for entry in entries:
-            if not isinstance(entry, SUPPORTED_ENTRY_TYPES):
+            if not isinstance(entry, handled_entry_types):
                 unrecognized[type(entry).__name__] += 1
         for type_name, count in sorted(unrecognized.items()):
             result.warnings.append(f"Unrecognized entry type: {type_name} ({count} occurrences)")
@@ -444,5 +570,9 @@ class BeancountImporter(BaseImporter):
                     result.entities.setdefault("pad_transaction", EntityCounts()).created += 1
                 except ConflictError:
                     result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
+
+        # Documents — only processed when an archive was supplied
+        if is_archive:
+            _import_documents(session, settings, entries, file_map, result)
 
         return result

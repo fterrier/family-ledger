@@ -1,16 +1,22 @@
 from __future__ import annotations
 
+import io
+import tarfile
+import zipfile
 from collections.abc import Generator
 from decimal import Decimal
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session
 
+from family_ledger.config import Settings
 from family_ledger.importers.base import ImportResult
 from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Price, Transaction
 from family_ledger.models import Posting as PostingModel
-from family_ledger.services.errors import ConflictError
+from family_ledger.services.errors import ConflictError, UnavailableError
 
 FIXTURE = """
 option "operating_currency" "CHF"
@@ -478,3 +484,193 @@ def test_beancount_importer_pad_multi_currency_is_idempotent(session: Session) -
         .where(Transaction.narration == "Padding entry")
     )
     assert pad_count == 2
+
+
+# ---------------------------------------------------------------------------
+# Archive (ZIP / TAR) import tests
+# ---------------------------------------------------------------------------
+
+ARCHIVE_BEANCOUNT = """
+2020-01-01 open Assets:Bank:Checking
+2020-01-01 commodity CHF
+
+2019-02-25 document Assets:Bank:Checking "/old/path/on/disk/payslip.pdf"
+
+2026-04-01 * "Migros" "Groceries"
+  Assets:Bank:Checking  -10 CHF
+  Expenses:Food          10 CHF
+
+2020-01-01 open Expenses:Food
+"""
+
+
+def _make_zip(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _make_tar_gz(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for name, data in files.items():
+            info = tarfile.TarInfo(name=name)
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _paperless_settings() -> Settings:
+    return Settings(
+        api_token="test",
+        paperless_base_url="https://paperless.example.com",
+        paperless_token="paperless-token",
+    )
+
+
+def _run_archive(
+    session: Session,
+    archive_bytes: bytes,
+    settings: Settings | None = None,
+) -> ImportResult:
+    from family_ledger_importers.beancount import BeancountImporter
+
+    return BeancountImporter().execute(session, archive_bytes, {}, settings)
+
+
+def test_beancount_importer_imports_zip_transactions(session: Session) -> None:
+    archive = _make_zip({"ledger.beancount": ARCHIVE_BEANCOUNT.encode()})
+    result = _run_archive(session, archive)
+
+    assert result.entities["transaction"].created == 1
+    assert result.entities["account"].created == 2
+
+
+def test_beancount_importer_imports_tar_gz_transactions(session: Session) -> None:
+    archive = _make_tar_gz({"ledger.beancount": ARCHIVE_BEANCOUNT.encode()})
+    result = _run_archive(session, archive)
+
+    assert result.entities["transaction"].created == 1
+
+
+def test_beancount_importer_raises_when_no_beancount_in_archive(session: Session) -> None:
+    archive = _make_zip({"payslip.pdf": b"pdf-data"})
+    with pytest.raises(ConflictError) as exc_info:
+        _run_archive(session, archive)
+    assert exc_info.value.code == "no_beancount_file"
+
+
+def test_beancount_importer_raises_when_ambiguous_beancount_in_archive(session: Session) -> None:
+    archive = _make_zip(
+        {
+            "a.beancount": ARCHIVE_BEANCOUNT.encode(),
+            "b.beancount": ARCHIVE_BEANCOUNT.encode(),
+        }
+    )
+    with pytest.raises(ConflictError) as exc_info:
+        _run_archive(session, archive)
+    assert exc_info.value.code == "ambiguous_beancount_file"
+
+
+def test_beancount_importer_document_skipped_when_paperless_not_configured(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    archive = _make_zip(
+        {
+            "ledger.beancount": ARCHIVE_BEANCOUNT.encode(),
+            "payslip.pdf": b"pdf-data",
+        }
+    )
+    result = _run_archive(session, archive, settings=None)
+
+    assert "attachment" not in result.entities
+    assert any("Paperless not configured" in w for w in result.warnings)
+
+
+def test_beancount_importer_document_uploaded_from_zip(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    archive = _make_zip(
+        {
+            "ledger.beancount": ARCHIVE_BEANCOUNT.encode(),
+            "payslip.pdf": b"pdf-data",
+        }
+    )
+    settings = _paperless_settings()
+    captured: list[dict[str, Any]] = []
+
+    def fake_create(s, cfg, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+        return MagicMock(name="attachments/att_test")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+
+    result = _run_archive(session, archive, settings=settings)
+
+    assert result.entities["attachment"].created == 1
+    assert result.entities["attachment"].errors.count == 0
+    assert len(captured) == 1
+    assert captured[0]["original_filename"] == "payslip.pdf"
+    assert captured[0]["media_type"] == "application/pdf"
+    assert captured[0]["attachment_date"].isoformat() == "2019-02-25"
+    assert captured[0]["title"] is None
+
+
+def test_beancount_importer_document_not_in_archive_counts_as_error(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    # Archive has the beancount file but NOT payslip.pdf
+    archive = _make_zip({"ledger.beancount": ARCHIVE_BEANCOUNT.encode()})
+    settings = _paperless_settings()
+    monkeypatch.setattr(attachments_service, "create_attachment", lambda *a, **kw: None)
+
+    result = _run_archive(session, archive, settings=settings)
+
+    assert result.entities["attachment"].errors.count == 1
+    assert "payslip.pdf" in result.entities["attachment"].errors.examples[0]
+
+
+def test_beancount_importer_document_upload_failure_counts_as_error(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    archive = _make_zip(
+        {
+            "ledger.beancount": ARCHIVE_BEANCOUNT.encode(),
+            "payslip.pdf": b"pdf-data",
+        }
+    )
+    settings = _paperless_settings()
+
+    def raise_unavailable(*a, **kw):  # type: ignore[no-untyped-def]
+        raise UnavailableError(code="paperless_unreachable", message="Paperless is unreachable")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", raise_unavailable)
+
+    result = _run_archive(session, archive, settings=settings)
+
+    assert result.entities["attachment"].errors.count == 1
+    assert "payslip.pdf" in result.entities["attachment"].errors.examples[0]
+
+
+def test_beancount_importer_plain_file_document_still_warns(session: Session) -> None:
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2019-02-25 document Assets:Bank "/path/to/doc.pdf"
+"""
+    result = _run(session, text)
+
+    assert "attachment" not in result.entities
+    assert any("Document" in w for w in result.warnings)

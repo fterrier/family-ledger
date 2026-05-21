@@ -14,7 +14,9 @@ class _FakeImporter(BaseImporter):
     name = "fake"
     display_name = "Fake Importer"
 
-    def execute(self, session: Session, file_data: bytes, config: dict) -> ImportResult:  # type: ignore[override]
+    def execute(
+        self, session: Session, file_data: bytes, config: dict, settings: object = None
+    ) -> ImportResult:  # type: ignore[override]
         return ImportResult()
 
 
@@ -30,14 +32,18 @@ class _SchemaImporter(BaseImporter):
             "additionalProperties": False,
         }
 
-    def execute(self, session: Session, file_data: bytes, config: dict) -> ImportResult:  # type: ignore[override]
+    def execute(
+        self, session: Session, file_data: bytes, config: dict, settings: object = None
+    ) -> ImportResult:  # type: ignore[override]
         return ImportResult()
 
 
 class _CapturingSchemaImporter(_SchemaImporter):
     last_config: dict[str, Any] | None = None
 
-    def execute(self, session: Session, file_data: bytes, config: dict) -> ImportResult:  # type: ignore[override]
+    def execute(
+        self, session: Session, file_data: bytes, config: dict, settings: object = None
+    ) -> ImportResult:  # type: ignore[override]
         _CapturingSchemaImporter.last_config = dict(config)
         return ImportResult()
 

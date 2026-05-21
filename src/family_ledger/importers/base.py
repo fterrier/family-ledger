@@ -6,6 +6,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from family_ledger.config import Settings
+
 
 class EntityErrors(BaseModel):
     count: int = 0
@@ -36,4 +38,5 @@ class BaseImporter(ABC):
         session: Session,
         file_data: bytes,
         config: dict[str, Any],
+        settings: Settings | None = None,
     ) -> ImportResult: ...

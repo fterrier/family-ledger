@@ -13,6 +13,7 @@ from family_ledger.api.schemas import (
     ListImportersResponse,
     UpdateImporterRequest,
 )
+from family_ledger.config import Settings, get_settings
 from family_ledger.db import get_db_session
 from family_ledger.services import importer as importer_service
 from family_ledger.services.errors import (
@@ -25,6 +26,7 @@ from family_ledger.services.errors import (
 router = APIRouter(dependencies=[Depends(require_api_token)])
 
 DbSession = Annotated[Session, Depends(get_db_session)]
+AppSettings = Annotated[Settings, Depends(get_settings)]
 
 
 def _translate_service_error(error: ServiceError) -> HTTPException:
@@ -73,6 +75,7 @@ def update_importer(
 def run_import(
     importer: str,
     session: DbSession,
+    settings: AppSettings,
     file: UploadFile,
     config_override: Annotated[str | None, Form()] = None,
 ) -> ImportResponse:
@@ -101,6 +104,6 @@ def run_import(
 
     file_data = file.file.read()
     result = _call_service(
-        importer_service.execute_import, session, plugin_name, file_data, override
+        importer_service.execute_import, session, plugin_name, file_data, override, settings
     )
     return ImportResponse(result=result)

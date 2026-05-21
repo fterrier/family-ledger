@@ -180,7 +180,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.14,<2.0" },
     { name = "basedpyright", marker = "extra == 'dev'", specifier = ">=1.39,<2.0" },
-    { name = "family-ledger-importers", marker = "extra == 'dev'", directory = "importers" },
+    { name = "family-ledger-importers", marker = "extra == 'dev'", editable = "importers" },
     { name = "fastapi", specifier = ">=0.115,<1.0" },
     { name = "httpx", specifier = ">=0.27,<1.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27,<1.0" },
@@ -208,7 +208,7 @@ dev = [
 [[package]]
 name = "family-ledger-importers"
 version = "0.1.0"
-source = { directory = "importers" }
+source = { editable = "importers" }
 dependencies = [
     { name = "beancount" },
     { name = "family-ledger" },

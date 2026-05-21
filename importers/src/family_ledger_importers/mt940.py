@@ -503,7 +503,13 @@ class Mt940Importer(BaseImporter):
             "additionalProperties": False,
         }
 
-    def execute(self, session: Session, file_data: bytes, config: dict[str, Any]) -> ImportResult:
+    def execute(
+        self,
+        session: Session,
+        file_data: bytes,
+        config: dict[str, Any],
+        settings: object = None,
+    ) -> ImportResult:
         text = file_data.decode("utf-8")
         entries, balances = _parse_mt940_text(text)
         if not entries:

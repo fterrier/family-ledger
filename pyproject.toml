@@ -61,4 +61,4 @@ dev = [
 ]
 
 [tool.uv.sources]
-family-ledger-importers = { path = "importers" }
+family-ledger-importers = { path = "importers", editable = true }

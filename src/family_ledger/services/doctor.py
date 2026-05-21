@@ -67,7 +67,7 @@ def build_account_not_effective_issues(
             posting.account.id: posting.account for posting in transaction.postings
         }
         inactive = [
-            account.name
+            account.account_name
             for account in accounts_by_id.values()
             if transaction.transaction_date < account.effective_start_date
             or (

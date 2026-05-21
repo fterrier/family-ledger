@@ -181,6 +181,12 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountRes
   });
 
   writeSheet_(issueSheet, FAMILY_LEDGER_SHEET_REGISTRY.issues, dataRows);
+  // navigate values are HYPERLINK formulas — setValues stores them as literal text, so write separately.
+  if (dataRows.length > 0) {
+    const navigateColIdx = getColumnIndex_(FAMILY_LEDGER_SHEET_REGISTRY.issues, 'navigate');
+    issueSheet.getRange(2, navigateColIdx, dataRows.length, 1)
+      .setFormulas(dataRows.map(function(row) { return [row.navigate || '']; }));
+  }
 
   debugLog_('writeFetchedDoctorIssueSheets', {
     issueCount: Object.values(issuesByTarget).reduce(function(total, issues) {

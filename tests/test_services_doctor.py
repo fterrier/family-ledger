@@ -254,7 +254,7 @@ def test_doctor_reports_account_not_effective_when_transaction_predates_account_
     issues = [i for i in diagnosed.issues if i.code == "account_not_effective"]
     assert len(issues) == 1
     assert issues[0].target == tx.name
-    assert "accounts/acc_one" in issues[0].details["accounts"]
+    assert "Assets:Bank:Checking:Family" in issues[0].details["accounts"]
 
 
 def test_doctor_reports_account_not_effective_when_transaction_postdates_account_close(
@@ -299,7 +299,7 @@ def test_doctor_reports_account_not_effective_when_transaction_postdates_account
     issues = [i for i in diagnosed.issues if i.code == "account_not_effective"]
     assert len(issues) == 1
     assert issues[0].target == tx.name
-    assert "accounts/acc_one" in issues[0].details["accounts"]
+    assert "Assets:Bank:Checking:Family" in issues[0].details["accounts"]
 
 
 def test_doctor_no_account_not_effective_issue_when_within_range(session: Session) -> None:

@@ -11,6 +11,7 @@ function onOpen() {
     .addItem('Add Transaction', 'showAddTransaction')
     .addItem('Add Balance Assertion', 'showAddBalanceAssertion')
     .addItem('Add Account', 'showAddAccount')
+    .addItem('Add Commodity', 'showAddCommodity')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Importer Settings', 'showImporterSettings')

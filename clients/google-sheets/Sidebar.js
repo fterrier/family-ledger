@@ -17,6 +17,11 @@ function showAddAccount() {
   showEditSidebar_('accounts', null, null);
 }
 
+// Menu entry point — opens the Add Commodity sidebar.
+function showAddCommodity() {
+  showEditSidebar_('commodities', null, null);
+}
+
 function showEditSidebar_(entityClassKey, entityName, span, context) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entityClassKey];
   const template = HtmlService.createTemplateFromFile('EditSidebar');

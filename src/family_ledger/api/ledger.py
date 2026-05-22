@@ -29,6 +29,7 @@ from family_ledger.api.schemas import (
     TransactionResource,
     UpdateAccountRequest,
     UpdateBalanceAssertionRequest,
+    UpdateCommodityRequest,
     UpdateTransactionRequest,
 )
 from family_ledger.db import get_db_session, read_only_transaction
@@ -142,6 +143,15 @@ def create_commodity(request: CreateCommodityRequest, session: DbSession) -> Com
 @router.get("/commodities/{commodity:path}", response_model=CommodityResource)
 def get_commodity(commodity: str, session: DbSession) -> CommodityResource:
     return _call_service(ledger_service.get_commodity_by_name, session, commodity)
+
+
+@router.patch("/commodities/{commodity:path}", response_model=CommodityResource)
+def update_commodity(
+    commodity: str,
+    request: UpdateCommodityRequest,
+    session: DbSession,
+) -> CommodityResource:
+    return _call_service(ledger_service.update_commodity, session, commodity, request.commodity)
 
 
 @router.get("/transactions", response_model=ListTransactionsResponse)

@@ -255,13 +255,24 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     protectedHeaders: ['resource_name', 'effective_start_date', 'effective_end_date'],
   }),
   commodities: buildSheetConfig_('commodities', FAMILY_LEDGER_SHEET_NAMES.commodities, {
+    edit: {
+      width: 40,
+      role: 'action',
+      note: 'Click to open the Edit sidebar.',
+      alignment: 'center',
+      checkbox: true,
+    },
+    resource_name: {
+      width: 180,
+      role: 'system',
+    },
     symbol: {
       width: 80,
       role: 'readonly',
       note: 'Commodity symbol.',
       alignment: 'left',
     },
-  }, { issueHeader: null }),
+  }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
   issues: buildSheetConfig_('issues', FAMILY_LEDGER_SHEET_NAMES.issues, {
     target: {
       width: 220,

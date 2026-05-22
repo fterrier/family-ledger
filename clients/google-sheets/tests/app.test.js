@@ -60,6 +60,7 @@ test('onOpen adds Importer Settings to the Family Ledger menu', () => {
     'Add Transaction',
     'Add Balance Assertion',
     'Add Account',
+    'Add Commodity',
     'Sheet Settings',
     'Importer Settings',
     'Import data',

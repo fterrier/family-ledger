@@ -152,6 +152,12 @@ class Attachment(Base):
             "status IN ('pending_storage', 'stored', 'failed', 'timed_out')",
             name="attachments_status_check",
         ),
+        UniqueConstraint(
+            "account_id",
+            "original_filename",
+            "attachment_date",
+            name="attachments_account_filename_date_key",
+        ),
     )
 
     id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)

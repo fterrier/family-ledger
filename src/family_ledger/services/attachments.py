@@ -60,6 +60,43 @@ def create_attachment(
     entity_metadata: dict[str, Any],
 ) -> AttachmentResource:
     account_row = resolve_account(session, account)
+
+    existing = session.scalar(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(
+            Attachment.account_id == account_row.id,
+            Attachment.original_filename == original_filename,
+            Attachment.attachment_date == attachment_date,
+        )
+    )
+    if existing is not None:
+        if existing.status in (ATTACHMENT_PENDING_STATUS, ATTACHMENT_STORED_STATUS):
+            return serialize_attachment(existing)
+        # timed_out or failed: re-submit to Paperless and reset
+        task_id = paperless.upload_document(
+            settings,
+            filename=original_filename,
+            content_type=media_type,
+            file_data=file_data,
+            created=attachment_date,
+            title=title,
+        )
+        now = utcnow()
+        existing.status = ATTACHMENT_PENDING_STATUS
+        existing.document_url = None
+        existing.storage_deadline_at = now + timedelta(
+            seconds=settings.paperless_ingestion_timeout_seconds
+        )
+        existing.storage_metadata = {
+            "task_id": task_id,
+            "task_url": paperless.build_task_url(settings, task_id),
+            "submitted_at": _storage_metadata_timestamp(now),
+        }
+        session.commit()
+        session.refresh(existing)
+        return serialize_attachment(existing)
+
     task_id = paperless.upload_document(
         settings,
         filename=original_filename,

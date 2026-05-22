@@ -5,10 +5,12 @@ from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy import select as sa_select
 from sqlalchemy.orm import Session
 
 from family_ledger.config import Settings
 from family_ledger.models import Account, Attachment, Base
+from family_ledger.models import Attachment as AttModel
 from family_ledger.services import attachments, paperless
 from family_ledger.services.errors import UnavailableError, ValidationError
 
@@ -491,3 +493,151 @@ def test_build_attachment_doctor_issues_reports_all_actionable_statuses(
         ("attachments/att_failed", "attachment_storage_failed"),
         ("attachments/att_timed_out", "attachment_storage_timed_out"),
     ]
+
+
+def test_update_attachment_changes_fields(session: Session) -> None:
+    seed_account(session)
+    account2 = Account(
+        name="accounts/acc_two",
+        account_name="Assets:Bank:Savings",
+        effective_start_date=date(2020, 1, 1),
+    )
+    session.add(account2)
+    session.commit()
+
+    att = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="old.pdf",
+        media_type="application/pdf",
+        document_url=None,
+        entity_metadata={},
+    )
+
+    updated = attachments.update_attachment(
+        session,
+        att.name,
+        account="accounts/acc_two",
+        attachment_date=date(2026, 6, 1),
+        original_filename="new.pdf",
+        media_type="text/plain",
+        document_url=None,
+        entity_metadata={"source": "corrected"},
+    )
+
+    assert updated.account == "accounts/acc_two"
+    assert updated.attachment_date == date(2026, 6, 1)
+    assert updated.original_filename == "new.pdf"
+    assert updated.media_type == "text/plain"
+    assert updated.entity_metadata == {"source": "corrected"}
+    assert updated.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+
+
+def test_update_attachment_with_document_url_sets_stored_status(session: Session) -> None:
+    seed_account(session)
+
+    att = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url=None,
+        entity_metadata={},
+    )
+    assert att.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+
+    updated = attachments.update_attachment(
+        session,
+        att.name,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url="https://paperless.example.com/api/documents/42/",
+        entity_metadata={},
+    )
+
+    assert updated.status == attachments.ATTACHMENT_STORED_STATUS
+    assert updated.document_url == "https://paperless.example.com/api/documents/42/"
+
+
+def test_update_attachment_raises_not_found(session: Session) -> None:
+    from family_ledger.services.errors import NotFoundError
+
+    seed_account(session)
+    with pytest.raises(NotFoundError):
+        attachments.update_attachment(
+            session,
+            "attachments/att_missing",
+            account="accounts/acc_one",
+            attachment_date=date(2026, 5, 19),
+            original_filename="x.pdf",
+            media_type=None,
+            document_url=None,
+            entity_metadata={},
+        )
+
+
+def test_update_attachment_raises_conflict_on_duplicate_key(session: Session) -> None:
+    from family_ledger.services.errors import ConflictError
+
+    seed_account(session)
+
+    attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="a.pdf",
+        media_type=None,
+        document_url=None,
+        entity_metadata={},
+    )
+    att_b = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="b.pdf",
+        media_type=None,
+        document_url=None,
+        entity_metadata={},
+    )
+
+    with pytest.raises(ConflictError):
+        attachments.update_attachment(
+            session,
+            att_b.name,
+            account="accounts/acc_one",
+            attachment_date=date(2026, 5, 19),
+            original_filename="a.pdf",
+            media_type=None,
+            document_url=None,
+            entity_metadata={},
+        )
+
+
+def test_delete_attachment_removes_record(session: Session) -> None:
+    seed_account(session)
+
+    att = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url=None,
+        entity_metadata={},
+    )
+
+    attachments.delete_attachment(session, att.name)
+
+    assert session.scalar(sa_select(AttModel).where(AttModel.name == att.name)) is None
+
+
+def test_delete_attachment_raises_not_found(session: Session) -> None:
+    from family_ledger.services.errors import NotFoundError
+
+    seed_account(session)
+    with pytest.raises(NotFoundError):
+        attachments.delete_attachment(session, "attachments/att_missing")

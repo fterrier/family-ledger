@@ -144,6 +144,11 @@ class CreateAttachmentRequest(BaseModel):
     attachment: AttachmentCreate
 
 
+class UpdateAttachmentRequest(BaseModel):
+    attachment: AttachmentCreate
+    update_mask: str | None = None
+
+
 class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None

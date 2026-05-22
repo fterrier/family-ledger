@@ -242,6 +242,126 @@ def test_get_and_list_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
     }
 
 
+def test_patch_attachment_updates_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    create_resp = client.post(
+        "/attachments",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "old.pdf",
+            }
+        },
+    )
+    assert create_resp.status_code == 201
+    name = create_resp.json()["name"]
+
+    patch_resp = client.patch(
+        f"/{name}",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-06-01",
+                "original_filename": "new.pdf",
+                "entity_metadata": {"k": "v"},
+            }
+        },
+    )
+
+    assert patch_resp.status_code == 200
+    body = patch_resp.json()
+    assert body["attachment_date"] == "2026-06-01"
+    assert body["original_filename"] == "new.pdf"
+    assert body["entity_metadata"] == {"k": "v"}
+    assert body["status"] == "pending_upload"
+
+
+def test_patch_attachment_with_document_url_sets_stored(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    create_resp = client.post(
+        "/attachments",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+            }
+        },
+    )
+    name = create_resp.json()["name"]
+
+    patch_resp = client.patch(
+        f"/{name}",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+                "document_url": "https://paperless.example.com/api/documents/42/",
+            }
+        },
+    )
+
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["status"] == "stored"
+    assert patch_resp.json()["document_url"] == "https://paperless.example.com/api/documents/42/"
+
+
+def test_patch_attachment_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    response = client.patch(
+        "/attachments/att_missing",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "x.pdf",
+            }
+        },
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_attachment_removes_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    create_resp = client.post(
+        "/attachments",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+            }
+        },
+    )
+    assert create_resp.status_code == 201
+    name = create_resp.json()["name"]
+
+    delete_resp = client.delete(f"/{name}")
+    assert delete_resp.status_code == 204
+
+    get_resp = client.get(f"/{name}")
+    assert get_resp.status_code == 404
+
+
+def test_delete_attachment_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+
+    response = client.delete("/attachments/att_missing")
+
+    assert response.status_code == 404
+
+
 def test_attachment_routes_require_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
     from family_ledger import config as config_module
 

@@ -159,6 +159,48 @@ def list_attachments_page(
     )
 
 
+def update_attachment(
+    session: Session,
+    attachment: str,
+    *,
+    account: str,
+    attachment_date: date,
+    original_filename: str,
+    media_type: str | None,
+    document_url: str | None,
+    entity_metadata: dict[str, Any],
+) -> AttachmentResource:
+    resolved_name = resource_name("attachments", attachment)
+    attachment_row = session.scalar(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(Attachment.name == resolved_name)
+    )
+    if attachment_row is None:
+        raise NotFoundError(code="attachment_not_found", message="Attachment not found")
+    account_row = resolve_account(session, account)
+    attachment_row.account = account_row
+    attachment_row.attachment_date = attachment_date
+    attachment_row.original_filename = original_filename
+    attachment_row.media_type = media_type
+    attachment_row.document_url = document_url
+    attachment_row.entity_metadata = entity_metadata
+    if document_url is not None:
+        attachment_row.status = ATTACHMENT_STORED_STATUS
+    commit_or_raise(session)
+    session.refresh(attachment_row)
+    return serialize_attachment(attachment_row)
+
+
+def delete_attachment(session: Session, attachment: str) -> None:
+    resolved_name = resource_name("attachments", attachment)
+    attachment_row = session.scalar(select(Attachment).where(Attachment.name == resolved_name))
+    if attachment_row is None:
+        raise NotFoundError(code="attachment_not_found", message="Attachment not found")
+    session.delete(attachment_row)
+    commit_or_raise(session)
+
+
 def get_attachment_by_name(session: Session, attachment: str) -> AttachmentResource:
     resolved_name = resource_name("attachments", attachment)
     attachment_row = session.scalar(

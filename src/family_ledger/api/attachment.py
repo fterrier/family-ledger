@@ -10,6 +10,7 @@ from family_ledger.api.schemas import (
     AttachmentResource,
     CreateAttachmentRequest,
     ListAttachmentsResponse,
+    UpdateAttachmentRequest,
 )
 from family_ledger.config import Settings, get_settings
 from family_ledger.db import get_db_session
@@ -91,6 +92,31 @@ def create_attachment(
         document_url=a.document_url,
         entity_metadata=a.entity_metadata,
     )
+
+
+@router.patch("/attachments/{attachment:path}", response_model=AttachmentResource)
+def update_attachment(
+    attachment: str,
+    request: UpdateAttachmentRequest,
+    session: DbSession,
+) -> AttachmentResource:
+    a = request.attachment
+    return _call_service(
+        attachment_service.update_attachment,
+        session,
+        attachment,
+        account=a.account,
+        attachment_date=a.attachment_date,
+        original_filename=a.original_filename,
+        media_type=a.media_type,
+        document_url=a.document_url,
+        entity_metadata=a.entity_metadata,
+    )
+
+
+@router.delete("/attachments/{attachment:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_attachment(attachment: str, session: DbSession) -> None:
+    _call_service(attachment_service.delete_attachment, session, attachment)
 
 
 @router.post(

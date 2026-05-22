@@ -92,6 +92,9 @@ function loadCode(overrides = {}) {
           requireValueInRange() {
             return this;
           },
+          requireValueInList() {
+            return this;
+          },
           requireCheckbox() {
             return this;
           },

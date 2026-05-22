@@ -199,6 +199,7 @@
   var currentFields = null;
   var currentMode = 'simple';
   var dropdownsByKey = {};
+  var accountFieldOptionsByKey = {};
 
   google.script.run
     .withSuccessHandler(initForm)
@@ -206,8 +207,18 @@
     .getSidebarData(ENTITY);
 
   function makeAccountSearchFn_(query, options) {
+    var dateEl = document.getElementById('field_transaction_date');
+    var dateVal = dateEl ? dateEl.value : '';
+    var filtered = options;
+    if (dateVal) {
+      filtered = options.filter(function(opt) {
+        if (opt.startDate && opt.startDate > dateVal) return false;
+        if (opt.endDate && opt.endDate < dateVal) return false;
+        return true;
+      });
+    }
     return searchAccountEntries_(
-      buildAccountSearchEntries_(options.map(function(option) {
+      buildAccountSearchEntries_(filtered.map(function(option) {
         return { resource_name: option.value, display_name: option.label };
       })),
       query
@@ -265,6 +276,7 @@
     var container = document.getElementById('dynamicFields');
     container.innerHTML = '';
     dropdownsByKey = {};
+    accountFieldOptionsByKey = {};
 
     (fields || []).forEach(function(field) {
       var wrapper = document.createElement('div');
@@ -297,6 +309,8 @@
         (field['selection-options'] || []).forEach(function(opt) {
           var el = document.createElement('option');
           el.value = opt.value; el.textContent = opt.label;
+          if (opt.startDate) el.dataset.start = opt.startDate;
+          if (opt.endDate) el.dataset.end = opt.endDate;
           input.appendChild(el);
         });
       } else {
@@ -324,11 +338,35 @@
       container.appendChild(wrapper);
 
       if (field.type === 'account-search') {
+        accountFieldOptionsByKey[field.key] = field['selection-options'] || [];
         var dd = attachSearchDropdown_(input, makeAccountSearchFn_);
         dropdownsByKey[field.key] = dd;
         setFieldValue_(input, field.default);
       }
     });
+
+    var dateInput = document.getElementById('field_transaction_date');
+    if (dateInput) {
+      dateInput.addEventListener('change', function() {
+        var dateVal = dateInput.value;
+        Object.keys(accountFieldOptionsByKey).forEach(function(key) {
+          var dd = dropdownsByKey[key];
+          if (!dd) return;
+          var selectEl = document.getElementById('field_' + key);
+          if (!selectEl || !selectEl.value || !dateVal) return;
+          var currentValue = selectEl.value;
+          var opts = accountFieldOptionsByKey[key];
+          var opt = null;
+          for (var i = 0; i < opts.length; i++) {
+            if (opts[i].value === currentValue) { opt = opts[i]; break; }
+          }
+          if (!opt) return;
+          if ((opt.startDate && opt.startDate > dateVal) || (opt.endDate && opt.endDate < dateVal)) {
+            dd.clear();
+          }
+        });
+      });
+    }
   }
 
   function collectSimpleAsPostings_() {

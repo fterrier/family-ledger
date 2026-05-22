@@ -38,7 +38,8 @@ function attachSearchDropdown_(rootSelect, searchFn) {
   wrapper.appendChild(panel);
 
   const allOptions = Array.from(rootSelect.options).map(function(opt) {
-    return { value: opt.value, label: opt.textContent };
+    const ds = opt.dataset || {};
+    return { value: opt.value, label: opt.textContent, startDate: ds.start || null, endDate: ds.end || null };
   });
 
   let searchTimer = null;

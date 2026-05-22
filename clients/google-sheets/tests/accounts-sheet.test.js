@@ -37,7 +37,17 @@ test('refreshAccountValidation_ applies account dropdown to validation:account c
   const operations = [];
   const accountsSheet = {
     getLastRow() { return 3; },
-    getRange(row, column, numRows, numCols) { return { row, column, numRows, numCols }; },
+    getRange(row, column, numRows, numCols) {
+      return {
+        getValues() {
+          // Accounts sheet columns 3-5: account_name, effective_start_date, effective_end_date
+          return Array.from({ length: numRows }, function() {
+            return ['Assets:Bank:Checking', new Date('2020-01-01'), ''];
+          });
+        },
+        row, column, numRows, numCols,
+      };
+    },
   };
   const transactionSheet = {
     getLastRow() { return 5; },
@@ -55,7 +65,7 @@ test('refreshAccountValidation_ applies account dropdown to validation:account c
     SpreadsheetApp: {
       newDataValidation() {
         return {
-          requireValueInRange() { return this; },
+          requireValueInList() { return this; },
           setAllowInvalid() { return this; },
           build() { return { kind: 'rule' }; },
         };
@@ -101,4 +111,109 @@ test('refreshAccountValidation_ clears validation when no accounts exist', () =>
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'rangeListClear', notations: ['H2:H3'] },
   ]);
+});
+
+function makeDateFilterAccountsSheet(rows) {
+  return {
+    getLastRow() { return rows.length + 1; },
+    getRange(row, column, numRows) {
+      return {
+        getValues() {
+          return rows.slice(row - 2, row - 2 + numRows).map(function(r) { return [r[0], r[1], r[2]]; });
+        },
+      };
+    },
+  };
+}
+
+test('buildAccountValidationRule_ includes only currently active accounts', () => {
+  const past = new Date('2020-01-01');
+  const future = new Date('2099-01-01');
+  const yesterday = new Date(Date.now() - 86400000);
+  const tomorrow = new Date(Date.now() + 86400000);
+
+  const accountsSheet = makeDateFilterAccountsSheet([
+    ['Assets:Bank:Active', past, ''],           // active: start in past, no end
+    ['Assets:Bank:Closed', past, yesterday],     // closed: end date yesterday
+    ['Assets:Future:Account', tomorrow, ''],     // not yet open
+    ['Assets:Bank:EndsTomorrow', past, tomorrow], // active: end date tomorrow
+  ]);
+  let capturedList = null;
+  const { sandbox } = loadCode({
+    sheetsByName: { Accounts: accountsSheet },
+    SpreadsheetApp: {
+      newDataValidation() {
+        return {
+          requireValueInList(list) { capturedList = list; return this; },
+          setAllowInvalid() { return this; },
+          build() { return { kind: 'rule' }; },
+        };
+      },
+    },
+  });
+
+  sandbox.buildAccountValidationRule_();
+
+  assert.deepEqual(capturedList, ['Assets:Bank:Active', 'Assets:Bank:EndsTomorrow']);
+});
+
+test('buildAccountValidationRule_ excludes accounts where effective_end_date is in the past', () => {
+  const past = new Date('2020-01-01');
+  const closedDate = new Date('2023-06-01');
+  const accountsSheet = makeDateFilterAccountsSheet([
+    ['Assets:Bank:Old', past, closedDate],
+  ]);
+  let capturedList = null;
+  const { sandbox } = loadCode({
+    sheetsByName: { Accounts: accountsSheet },
+    SpreadsheetApp: {
+      newDataValidation() {
+        return {
+          requireValueInList(list) { capturedList = list; return this; },
+          setAllowInvalid() { return this; },
+          build() { return {}; },
+        };
+      },
+    },
+  });
+
+  const rule = sandbox.buildAccountValidationRule_();
+
+  assert.equal(rule, null, 'rule should be null when no active accounts');
+  assert.equal(capturedList, null);
+});
+
+test('buildAccountValidationRule_ excludes accounts where effective_start_date is in the future', () => {
+  const future = new Date('2099-01-01');
+  const accountsSheet = makeDateFilterAccountsSheet([
+    ['Assets:Future', future, ''],
+  ]);
+  let capturedList = null;
+  const { sandbox } = loadCode({
+    sheetsByName: { Accounts: accountsSheet },
+    SpreadsheetApp: {
+      newDataValidation() {
+        return {
+          requireValueInList(list) { capturedList = list; return this; },
+          setAllowInvalid() { return this; },
+          build() { return {}; },
+        };
+      },
+    },
+  });
+
+  const rule = sandbox.buildAccountValidationRule_();
+
+  assert.equal(rule, null);
+  assert.equal(capturedList, null);
+});
+
+test('buildAccountValidationRule_ returns null when no accounts exist', () => {
+  const { sandbox } = loadCode({
+    sheetsByName: { Accounts: { getLastRow() { return 1; } } },
+  });
+
+  const rule = sandbox.buildAccountValidationRule_();
+
+  assert.equal(rule, null);
 });

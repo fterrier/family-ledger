@@ -151,7 +151,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
     edit: {
-      width: 50,
+      width: 40,
       role: 'action',
       note: 'Check to open the edit sidebar.',
       alignment: 'center',

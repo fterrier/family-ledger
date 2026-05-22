@@ -210,7 +210,9 @@ class Transaction extends Entity {
   static buildSidebarFields_(entityName, mode, currentPostings) {
     const allRaw = loadAccountOptions_();
     const toOpts = function(list) {
-      return list.map(function(o) { return { value: o.resource_name, label: o.display_name }; });
+      return list.map(function(o) {
+        return { value: o.resource_name, label: o.display_name, startDate: o.start_date || null, endDate: o.end_date || null };
+      });
     };
     const allAccountOpts   = toOpts(allRaw);
     const allCommodityOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });

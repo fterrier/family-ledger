@@ -271,6 +271,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'readonly',
       note: 'Commodity symbol.',
       alignment: 'left',
+      insertionOrder: true,
     },
   }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
   issues: buildSheetConfig_('issues', FAMILY_LEDGER_SHEET_NAMES.issues, {

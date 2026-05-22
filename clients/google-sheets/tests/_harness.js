@@ -12,6 +12,7 @@ const SOURCE_FILES = [
   'Transaction.js',
   'Balance.js',
   'Account.js',
+  'Commodity.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',

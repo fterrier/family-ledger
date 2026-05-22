@@ -60,16 +60,6 @@ function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
   }
   managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
   refreshAccountValidation_(sheet, sheetConfig, targetSpan);
-  const checkboxHeaders = sheetConfig.headers.filter(function(h) {
-    return (sheetConfig.columnLayout[h] || {}).checkbox === true;
-  });
-  if (checkboxHeaders.length > 0) {
-    const ms = managedSheet_(sheet, sheetConfig);
-    const validation = SpreadsheetApp.newDataValidation().requireCheckbox().build();
-    checkboxHeaders.forEach(function(header) {
-      ms.setColumnValidation(targetSpan, header, validation);
-    });
-  }
   if (sheetConfig.issueHeader) {
     managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
   }

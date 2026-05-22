@@ -12,7 +12,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.config import LedgerConfig, get_ledger_config
 from family_ledger.db import SessionLocal
-from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Price, Transaction
+from family_ledger.models import (
+    Account,
+    Attachment,
+    BalanceAssertion,
+    Commodity,
+    Posting,
+    Price,
+    Transaction,
+)
 
 _META_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _COMMODITY_DATE = "2000-01-01"
@@ -53,6 +61,25 @@ def _format_posting(posting: Posting, account_col_width: int) -> str:
     if posting.narration:
         line += f" ; {posting.narration}"
     return line
+
+
+def _format_document(attachment: Attachment) -> str:
+    account_name = attachment.account.account_name
+    date_str = attachment.attachment_date.isoformat()
+    escaped = attachment.original_filename.replace('"', '\\"')
+    header = f'{date_str} document {account_name} "{escaped}"'
+
+    entity_meta = attachment.entity_metadata or {}
+    top_level = {k: v for k, v in entity_meta.items() if k != "beancount" and _META_KEY_RE.match(k)}
+    beancount = entity_meta.get("beancount", {})
+    merged = {**top_level, **beancount}
+
+    meta: list[str] = []
+    if attachment.document_url is not None:
+        meta.append(f'  document_url: "{attachment.document_url}"')
+    meta.extend(_meta_lines(None, merged))
+
+    return "\n".join([header, *meta])
 
 
 def _format_transaction(tx: Transaction) -> str:
@@ -102,6 +129,13 @@ def export_beancount(session: Session, config: LedgerConfig) -> str:
         .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
     ).all()
 
+    attachments = session.scalars(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(Attachment.status == "stored")
+        .order_by(Attachment.attachment_date, Attachment.name)
+    ).all()
+
     sections: list[str] = []
 
     sections.append(f'option "operating_currency" "{config.default_currency}"')
@@ -141,6 +175,9 @@ def export_beancount(session: Session, config: LedgerConfig) -> str:
                 for ba in balance_assertions
             )
         )
+
+    if attachments:
+        sections.append("\n\n".join(_format_document(att) for att in attachments))
 
     return "\n\n".join(sections) + "\n"
 

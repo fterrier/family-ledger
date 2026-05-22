@@ -56,6 +56,22 @@ Current importer behavior is create-or-skip.
 - `PATCH /importers/{importer}`: replace stored config for that importer after schema validation
 - `POST /importers/{importer}:import`: upload a file and run the importer synchronously
 
+## Special Beancount Metadata Fields
+
+The beancount importer reserves two metadata keys that receive special treatment rather than
+being stored as-is in `entity_metadata`.
+
+| Key | Directive | Meaning |
+|-----|-----------|---------|
+| `source_native_id` | Transaction | Deduplication key for the transaction. When present it is used directly as the `source_native_id` instead of deriving one from a `ref` field or falling back to a content hash. |
+| `document_url` | Document | URL of an already-stored backend document. When present the importer creates the attachment in `stored` status directly, without uploading a file or requiring Paperless to be configured. |
+
+These fields are emitted by the beancount exporter so that a round-trip (export → re-import)
+produces only duplicates and no new records.
+
+All other metadata on a directive is stored verbatim in `entity_metadata["beancount"]` and
+re-emitted on export, preserving round-trip fidelity for arbitrary importer-specific fields.
+
 ## Why It Works This Way
 
 The model is intentionally narrow:

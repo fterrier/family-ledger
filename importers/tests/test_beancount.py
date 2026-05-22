@@ -712,3 +712,129 @@ def test_beancount_importer_macos_metadata_skipped_in_documents_zip(
     assert result.entities["attachment"].created == 1
     assert len(captured) == 1
     assert captured[0]["original_filename"] == "payslip.pdf"
+
+
+def test_beancount_importer_document_with_url_creates_stored_attachment(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2026-05-19 document Assets:Bank "statement.pdf"
+  document_url: "https://paperless.example.com/api/documents/42/"
+"""
+    captured: list[dict[str, Any]] = []
+
+    def fake_create(s, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+        return MagicMock(name="attachments/att_test")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+
+    result = _run_two_file(session, text)
+
+    assert result.entities["attachment"].created == 1
+    assert captured[0]["document_url"] == "https://paperless.example.com/api/documents/42/"
+    assert captured[0]["original_filename"] == "statement.pdf"
+
+
+def test_beancount_importer_document_with_url_does_not_need_zip_or_paperless(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2026-05-19 document Assets:Bank "statement.pdf"
+  document_url: "https://paperless.example.com/api/documents/42/"
+"""
+    monkeypatch.setattr(attachments_service, "create_attachment", lambda s, **kw: MagicMock())
+
+    # No documents_zip and no settings — URL-backed entries still succeed
+    result = _run_two_file(session, text, documents_zip=None, settings=None)
+
+    assert result.entities["attachment"].created == 1
+    assert not any("skipped" in w for w in result.warnings)
+
+
+def test_beancount_importer_document_with_url_conflict_counts_as_duplicate(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+    from family_ledger.services.errors import ConflictError
+
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2026-05-19 document Assets:Bank "statement.pdf"
+  document_url: "https://paperless.example.com/api/documents/42/"
+"""
+
+    def raise_conflict(s, **kwargs):  # type: ignore[no-untyped-def]
+        raise ConflictError(code="integrity_error", message="duplicate")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", raise_conflict)
+
+    result = _run_two_file(session, text)
+
+    assert result.entities["attachment"].duplicate == 1
+    assert (
+        "errors" not in result.entities.get("attachment", object).__dict__
+        or result.entities["attachment"].errors.count == 0
+    )
+
+
+def test_beancount_importer_document_with_url_preserves_entity_metadata(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2026-05-19 document Assets:Bank "statement.pdf"
+  document_url: "https://paperless.example.com/api/documents/42/"
+  ref: "DOC-123"
+"""
+    captured: list[dict[str, Any]] = []
+
+    def fake_create(s, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+        return MagicMock(name="attachments/att_test")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+
+    _run_two_file(session, text)
+
+    assert captured[0]["entity_metadata"] == {"beancount": {"ref": "DOC-123"}}
+    assert "document_url" not in captured[0]["entity_metadata"]
+
+
+def test_beancount_importer_document_with_url_warns_only_for_file_backed_entries(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    # One URL-backed entry (no Paperless needed) and one file-backed entry (needs Paperless)
+    text = """
+2020-01-01 open Assets:Bank
+2020-01-01 commodity CHF
+2026-05-19 document Assets:Bank "stored.pdf"
+  document_url: "https://paperless.example.com/api/documents/42/"
+2026-05-20 document Assets:Bank "pending.pdf"
+"""
+    monkeypatch.setattr(attachments_service, "create_attachment", lambda s, **kw: MagicMock())
+
+    result = _run_two_file(session, text, documents_zip=None, settings=None)
+
+    # Warning should mention 1 document skipped (the file-backed one), not 2
+    assert any("1 Document directive(s) skipped" in w for w in result.warnings)
+    assert result.entities["attachment"].created == 1

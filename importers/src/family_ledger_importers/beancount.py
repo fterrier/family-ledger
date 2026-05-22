@@ -76,6 +76,7 @@ def _import_document_file(
     filename: str,
     doc_bytes: bytes,
     media_type: str | None,
+    entity_metadata: dict[str, Any],
 ) -> None:
     from datetime import date as date_type
 
@@ -88,7 +89,7 @@ def _import_document_file(
             original_filename=filename,
             media_type=media_type,
             document_url=None,
-            entity_metadata={},
+            entity_metadata=entity_metadata,
         )
         attachments_service.upload_attachment(
             session,
@@ -124,25 +125,25 @@ def _import_documents(
     file_map: dict[str, bytes],
     result: ImportResult,
 ) -> None:
+    from datetime import date as date_type
+
     document_entries = [e for e in entries if isinstance(e, Document)]
     if not document_entries:
         return
 
-    if settings is None or not settings.paperless_is_configured():
+    file_backed = [
+        e for e in document_entries if "document_url" not in _extract_beancount_meta(e.meta or {})
+    ]
+    if file_backed and (settings is None or not settings.paperless_is_configured()):
         result.warnings.append(
-            f"Paperless not configured; {len(document_entries)} document(s) skipped"
+            f"Paperless not configured; {len(file_backed)} Document directive(s) skipped"
         )
-        return
 
     for entry in document_entries:
         filename = os.path.basename(entry.filename)
-        doc_bytes = file_map.get(filename.lower())
-        if doc_bytes is None:
-            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
-            att_errors.count += 1
-            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                att_errors.examples.append(f"{filename}: not found in documents archive")
-            continue
+        meta = _extract_beancount_meta(entry.meta or {})
+        document_url = meta.pop("document_url", None)
+        entity_metadata: dict[str, Any] = {"beancount": meta} if meta else {}
 
         account_row = session.scalar(select(Account).where(Account.account_name == entry.account))
         if account_row is None:
@@ -150,6 +151,35 @@ def _import_documents(
             att_errors.count += 1
             if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                 att_errors.examples.append(f"{entry.account}: account not in ledger")
+            continue
+
+        if document_url is not None:
+            assert isinstance(entry.date, date_type)
+            media_type, _ = mimetypes.guess_type(filename)
+            try:
+                attachments_service.create_attachment(
+                    session,
+                    account=account_row.name,
+                    attachment_date=entry.date,
+                    original_filename=filename,
+                    media_type=media_type,
+                    document_url=document_url,
+                    entity_metadata=entity_metadata,
+                )
+                result.entities.setdefault("attachment", EntityCounts()).created += 1
+            except ConflictError:
+                result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
+            continue
+
+        if settings is None or not settings.paperless_is_configured():
+            continue
+
+        doc_bytes = file_map.get(filename.lower())
+        if doc_bytes is None:
+            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors.count += 1
+            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
+                att_errors.examples.append(f"{filename}: not found in documents archive")
             continue
 
         media_type, _ = mimetypes.guess_type(filename)
@@ -163,6 +193,7 @@ def _import_documents(
                 filename=filename,
                 doc_bytes=doc_bytes,
                 media_type=media_type,
+                entity_metadata=entity_metadata,
             )
         except (UnavailableError, ValidationError, NotFoundError) as exc:
             att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
@@ -384,11 +415,8 @@ class BeancountImporter(BaseImporter):
 
         result = ImportResult()
 
-        # Warn about unrecognized entry types.
-        # Document entries are handled separately when documents_file is provided.
-        handled_entry_types = (
-            SUPPORTED_ENTRY_TYPES + (Document,) if documents_zip else SUPPORTED_ENTRY_TYPES
-        )
+        # Document entries are always handled (URL-backed ones need no ZIP or Paperless).
+        handled_entry_types = SUPPORTED_ENTRY_TYPES + (Document,)
         unrecognized: Counter[str] = Counter()
         for entry in entries:
             if not isinstance(entry, handled_entry_types):
@@ -604,8 +632,6 @@ class BeancountImporter(BaseImporter):
                 except ConflictError:
                     result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
 
-        # Documents — only processed when a documents archive was supplied
-        if documents_zip:
-            _import_documents(session, settings, entries, file_map, result)
+        _import_documents(session, settings, entries, file_map, result)
 
         return result

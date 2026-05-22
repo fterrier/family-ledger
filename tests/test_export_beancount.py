@@ -3,8 +3,12 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from family_ledger.models import Account, Posting, Transaction
-from family_ledger.scripts.export_beancount import _format_transaction, _meta_lines
+from family_ledger.models import Account, Attachment, Posting, Transaction
+from family_ledger.scripts.export_beancount import (
+    _format_document,
+    _format_transaction,
+    _meta_lines,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -251,3 +255,76 @@ def test_format_transaction_no_posting_narration_no_comment() -> None:
     tx = _mk_tx(date(2026, 4, 1), None, "Test", postings)
     out = _format_transaction(tx)
     assert ";" not in out
+
+
+# ---------------------------------------------------------------------------
+# _format_document
+# ---------------------------------------------------------------------------
+
+
+def _mk_attachment(
+    *,
+    account_name: str,
+    attachment_date: date,
+    original_filename: str,
+    document_url: str | None = "https://paperless.example.com/api/documents/42/",
+    entity_metadata: dict | None = None,
+) -> Attachment:
+    att = Attachment(
+        name="attachments/att_test",
+        attachment_date=attachment_date,
+        original_filename=original_filename,
+        media_type="application/pdf",
+        status="stored",
+        document_url=document_url,
+        storage_backend="paperless",
+        entity_metadata=entity_metadata or {},
+        storage_metadata={},
+    )
+    att.account = _mk_account(account_name)
+    return att
+
+
+def test_format_document_basic() -> None:
+    att = _mk_attachment(
+        account_name="Assets:Bank:Checking",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+    )
+    out = _format_document(att)
+    assert out.startswith('2026-05-19 document Assets:Bank:Checking "statement.pdf"')
+    assert '  document_url: "https://paperless.example.com/api/documents/42/"' in out
+
+
+def test_format_document_emits_entity_metadata() -> None:
+    att = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 19),
+        original_filename="pay.pdf",
+        entity_metadata={"beancount": {"ref": "DOC-123"}},
+    )
+    out = _format_document(att)
+    assert '  ref: "DOC-123"' in out
+
+
+def test_format_document_document_url_comes_before_other_meta() -> None:
+    att = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 19),
+        original_filename="pay.pdf",
+        entity_metadata={"beancount": {"ref": "DOC-123"}},
+    )
+    lines = _format_document(att).splitlines()
+    url_idx = next(i for i, ln in enumerate(lines) if "document_url" in ln)
+    ref_idx = next(i for i, ln in enumerate(lines) if "ref" in ln)
+    assert url_idx < ref_idx
+
+
+def test_format_document_escapes_quotes_in_filename() -> None:
+    att = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 19),
+        original_filename='say "hello".pdf',
+    )
+    out = _format_document(att)
+    assert '\\"hello\\"' in out

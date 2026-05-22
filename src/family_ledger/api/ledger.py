@@ -154,6 +154,11 @@ def update_commodity(
     return _call_service(ledger_service.update_commodity, session, commodity, request.commodity)
 
 
+@router.delete("/commodities/{commodity:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_commodity(commodity: str, session: DbSession) -> None:
+    _call_service(ledger_service.delete_commodity, session, commodity)
+
+
 @router.get("/transactions", response_model=ListTransactionsResponse)
 def list_transactions(
     session: DbSession,

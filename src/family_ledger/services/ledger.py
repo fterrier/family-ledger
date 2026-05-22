@@ -322,6 +322,15 @@ def update_commodity(
     return serialize_commodity(commodity_row)
 
 
+def delete_commodity(session: Session, commodity: str) -> None:
+    resource = resource_name("commodities", commodity)
+    commodity_row = session.scalar(select(Commodity).where(Commodity.name == resource))
+    if commodity_row is None:
+        raise NotFoundError(code="commodity_not_found", message="Commodity not found")
+    session.delete(commodity_row)
+    commit_or_raise(session)
+
+
 def create_commodity(session: Session, payload: CommodityCreate) -> CommodityResource:
     commodity = Commodity(
         name=generate_resource_name("commodities", "cmd"),

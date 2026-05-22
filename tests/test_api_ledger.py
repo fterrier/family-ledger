@@ -157,6 +157,25 @@ def test_create_and_get_commodity() -> None:
     }
 
 
+def test_delete_commodity_removes_it_and_returns_204() -> None:
+    client = make_client()
+    data = create_commodity(client, "CHF")
+    name = data["name"]
+
+    delete_resp = client.delete(f"/{name}")
+    assert delete_resp.status_code == 204
+
+    get_resp = client.get(f"/{name}")
+    assert get_resp.status_code == 404
+
+
+def test_delete_missing_commodity_returns_404() -> None:
+    client = make_client()
+
+    response = client.delete("/commodities/cmd_nonexistent")
+    assert response.status_code == 404
+
+
 def test_list_commodities_supports_pagination() -> None:
     client = make_client()
 

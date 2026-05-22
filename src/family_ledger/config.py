@@ -24,6 +24,7 @@ class Settings(BaseSettings):
         env_prefix="FAMILY_LEDGER_",
         env_file=".env",
         extra="ignore",
+        env_ignore_empty=True,
     )
 
     app_env: str = "development"

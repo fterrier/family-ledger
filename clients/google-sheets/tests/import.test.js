@@ -41,9 +41,7 @@ test('runImportFromDialog posts multipart import data and returns the result pay
 
   const result = sandbox.runImportFromDialog(
     'importers/mt940',
-    'aGVsbG8=',
-    'text/plain',
-    'sample.mt940',
+    { file: { base64: 'aGVsbG8=', mimeType: 'text/plain', name: 'sample.mt940' } },
     { payee_format: 'zkb' }
   );
 
@@ -60,8 +58,7 @@ test('runImportFromDialog posts multipart import data and returns the result pay
     },
     options: {
       metadata: {
-        fileName: 'sample.mt940',
-        mimeType: 'text/plain',
+        filesMap: { file: { base64: 'aGVsbG8=', mimeType: 'text/plain', name: 'sample.mt940' } },
         configOverride: { payee_format: 'zkb' },
       },
     },
@@ -108,7 +105,7 @@ test('runImportFromDialog sends empty config_override when no override is provid
     return { result: { entities: {} } };
   };
 
-  sandbox.runImportFromDialog('importers/mt940', 'aGVsbG8=', '', 'sample.mt940');
+  sandbox.runImportFromDialog('importers/mt940', { file: { base64: 'aGVsbG8=', mimeType: '', name: 'sample.mt940' } });
 
   assert.equal(payload.config_override, '');
 });
@@ -140,7 +137,7 @@ test('runImportFromDialog throws and toasts when the import response is missing 
   };
 
   assert.throws(
-    () => sandbox.runImportFromDialog('importers/mt940', 'aGVsbG8=', '', 'sample.mt940'),
+    () => sandbox.runImportFromDialog('importers/mt940', { file: { base64: 'aGVsbG8=', mimeType: '', name: 'sample.mt940' } }),
     /Import response missing result payload/
   );
   assert.deepEqual(toasts, [

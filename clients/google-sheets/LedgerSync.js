@@ -37,7 +37,7 @@ function syncLedger() {
 
       const commoditiesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
       perf.wrap('sheet.write_commodities', function() {
-        writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities, commodities.map(function(c) { return { symbol: c.symbol }; }));
+        writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities, commodities.map(function(c) { return { edit: false, resource_name: c.name, symbol: c.symbol }; }));
         commoditiesSheet.setFrozenRows(1);
       }, commodities.length + ' commodities');
 

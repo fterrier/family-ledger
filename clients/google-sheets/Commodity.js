@@ -17,10 +17,7 @@ class Commodity extends Entity {
   }
 
   toApiPayload_() {
-    return {
-      symbol: this._api.symbol,
-      entity_metadata: this._api.entity_metadata || {},
-    };
+    return { symbol: this._api.symbol };
   }
 
   validate() {

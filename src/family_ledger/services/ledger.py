@@ -317,7 +317,6 @@ def update_commodity(
     if commodity_row is None:
         raise NotFoundError(code="commodity_not_found", message="Commodity not found")
     commodity_row.symbol = payload.symbol
-    commodity_row.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
     session.refresh(commodity_row)
     return serialize_commodity(commodity_row)

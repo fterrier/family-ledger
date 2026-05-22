@@ -36,25 +36,26 @@ def create_account(client: TestClient) -> str:
     return response.json()["name"]
 
 
-def test_create_attachment_returns_public_resource_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    from family_ledger.services import paperless
-
-    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "task-123")
+def test_create_attachment_without_url_returns_pending_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     client = make_client(monkeypatch)
     account = create_account(client)
 
     response = client.post(
         "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
-            "account": account,
-            "attachment_date": "2026-05-19",
-            "title": "May statement",
-            "entity_metadata": '{"source": "bank"}',
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+                "media_type": "application/pdf",
+                "entity_metadata": {"source": "bank"},
+            }
         },
     )
 
-    assert response.status_code == 202
+    assert response.status_code == 201
     body = response.json()
     assert body == {
         "name": body["name"],
@@ -62,7 +63,7 @@ def test_create_attachment_returns_public_resource_only(monkeypatch: pytest.Monk
         "attachment_date": "2026-05-19",
         "original_filename": "statement.pdf",
         "media_type": "application/pdf",
-        "status": "pending_storage",
+        "status": "pending_upload",
         "document_url": None,
         "entity_metadata": {"source": "bank"},
     }
@@ -71,56 +72,57 @@ def test_create_attachment_returns_public_resource_only(monkeypatch: pytest.Monk
     assert "storage_backend" not in body
 
 
-def test_create_attachment_rejects_invalid_entity_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_attachment_with_url_returns_stored(monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(monkeypatch)
     account = create_account(client)
 
     response = client.post(
         "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
-            "account": account,
-            "attachment_date": "2026-05-19",
-            "entity_metadata": "not-json",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+                "document_url": "https://paperless.example.com/api/documents/42/",
+            }
         },
     )
 
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "invalid_entity_metadata"
+    assert response.status_code == 201
+    body = response.json()
+    assert body["status"] == "stored"
+    assert body["document_url"] == "https://paperless.example.com/api/documents/42/"
 
 
-def test_create_attachment_rejects_non_object_entity_metadata(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_create_attachment_duplicate_returns_409(monkeypatch: pytest.MonkeyPatch) -> None:
     client = make_client(monkeypatch)
     account = create_account(client)
-
-    response = client.post(
-        "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
+    payload = {
+        "attachment": {
             "account": account,
             "attachment_date": "2026-05-19",
-            "entity_metadata": '"not-an-object"',
-        },
-    )
+            "original_filename": "statement.pdf",
+        }
+    }
 
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "invalid_entity_metadata"
+    first = client.post("/attachments", json=payload)
+    assert first.status_code == 201
+
+    second = client.post("/attachments", json=payload)
+    assert second.status_code == 409
 
 
 def test_create_attachment_requires_existing_account(monkeypatch: pytest.MonkeyPatch) -> None:
-    from family_ledger.services import paperless
-
-    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "task-123")
     client = make_client(monkeypatch)
 
     response = client.post(
         "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
-            "account": "accounts/missing",
-            "attachment_date": "2026-05-19",
+        json={
+            "attachment": {
+                "account": "accounts/missing",
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+            }
         },
     )
 
@@ -128,7 +130,42 @@ def test_create_attachment_requires_existing_account(monkeypatch: pytest.MonkeyP
     assert response.json()["detail"]["code"] == "account_not_found"
 
 
-def test_create_attachment_returns_503_when_paperless_upload_fails(
+def test_upload_attachment_transitions_to_pending_storage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import paperless
+
+    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "task-123")
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    create_resp = client.post(
+        "/attachments",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+                "media_type": "application/pdf",
+            }
+        },
+    )
+    assert create_resp.status_code == 201
+    assert create_resp.json()["status"] == "pending_upload"
+    attachment_name = create_resp.json()["name"]
+
+    upload_resp = client.post(
+        f"/{attachment_name}:upload",
+        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
+    )
+
+    assert upload_resp.status_code == 202
+    body = upload_resp.json()
+    assert body["status"] == "pending_storage"
+    assert body["document_url"] is None
+
+
+def test_upload_attachment_returns_503_when_paperless_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from family_ledger.services import paperless
@@ -141,35 +178,56 @@ def test_create_attachment_returns_503_when_paperless_upload_fails(
     client = make_client(monkeypatch)
     account = create_account(client)
 
-    response = client.post(
+    create_resp = client.post(
         "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
-            "account": account,
-            "attachment_date": "2026-05-19",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+            }
         },
     )
+    assert create_resp.status_code == 201
+    attachment_name = create_resp.json()["name"]
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "paperless_unreachable"
+    upload_resp = client.post(
+        f"/{attachment_name}:upload",
+        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
+    )
+
+    assert upload_resp.status_code == 503
+    assert upload_resp.json()["detail"]["code"] == "paperless_unreachable"
+
+
+def test_upload_attachment_returns_404_for_unknown_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = make_client(monkeypatch)
+
+    response = client.post(
+        "/attachments/att_nonexistent:upload",
+        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
+    )
+
+    assert response.status_code == 404
 
 
 def test_get_and_list_attachments(monkeypatch: pytest.MonkeyPatch) -> None:
-    from family_ledger.services import paperless
-
-    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "task-123")
     client = make_client(monkeypatch)
     account = create_account(client)
 
     create_response = client.post(
         "/attachments",
-        files={"file": ("statement.pdf", b"pdf-data", "application/pdf")},
-        data={
-            "account": account,
-            "attachment_date": "2026-05-19",
+        json={
+            "attachment": {
+                "account": account,
+                "attachment_date": "2026-05-19",
+                "original_filename": "statement.pdf",
+            }
         },
     )
-    assert create_response.status_code == 202
+    assert create_response.status_code == 201
     attachment_name = create_response.json()["name"]
 
     get_response = client.get(f"/{attachment_name}")

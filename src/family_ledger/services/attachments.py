@@ -13,6 +13,7 @@ from family_ledger.services import paperless
 from family_ledger.services.errors import NotFoundError
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.ledger import (
+    commit_or_raise,
     decode_page_token,
     encode_page_token,
     normalize_page_size,
@@ -20,10 +21,17 @@ from family_ledger.services.ledger import (
 )
 from family_ledger.services.validation import resolve_account, resource_name
 
+ATTACHMENT_PENDING_UPLOAD_STATUS = "pending_upload"
 ATTACHMENT_PENDING_STATUS = "pending_storage"
 ATTACHMENT_STORED_STATUS = "stored"
 ATTACHMENT_FAILED_STATUS = "failed"
 ATTACHMENT_TIMED_OUT_STATUS = "timed_out"
+
+_RETRYABLE_STATUSES = {
+    ATTACHMENT_PENDING_UPLOAD_STATUS,
+    ATTACHMENT_FAILED_STATUS,
+    ATTACHMENT_TIMED_OUT_STATUS,
+}
 
 
 def utcnow() -> datetime:
@@ -49,89 +57,78 @@ def serialize_attachment(attachment: Attachment) -> AttachmentResource:
 
 def create_attachment(
     session: Session,
-    settings: Settings,
     *,
     account: str,
     attachment_date: date,
     original_filename: str,
     media_type: str | None,
-    file_data: bytes,
-    title: str | None,
+    document_url: str | None,
     entity_metadata: dict[str, Any],
 ) -> AttachmentResource:
     account_row = resolve_account(session, account)
-
-    existing = session.scalar(
-        select(Attachment)
-        .options(selectinload(Attachment.account))
-        .where(
-            Attachment.account_id == account_row.id,
-            Attachment.original_filename == original_filename,
-            Attachment.attachment_date == attachment_date,
-        )
-    )
-    if existing is not None:
-        if existing.status in (ATTACHMENT_PENDING_STATUS, ATTACHMENT_STORED_STATUS):
-            return serialize_attachment(existing)
-        # timed_out or failed: re-submit to Paperless and reset
-        task_id = paperless.upload_document(
-            settings,
-            filename=original_filename,
-            content_type=media_type,
-            file_data=file_data,
-            created=attachment_date,
-            title=title,
-        )
-        now = utcnow()
-        existing.status = ATTACHMENT_PENDING_STATUS
-        existing.document_url = None
-        existing.storage_deadline_at = now + timedelta(
-            seconds=settings.paperless_ingestion_timeout_seconds
-        )
-        existing.storage_metadata = {
-            "task_id": task_id,
-            "task_url": paperless.build_task_url(settings, task_id),
-            "submitted_at": _storage_metadata_timestamp(now),
-        }
-        session.commit()
-        session.refresh(existing)
-        return serialize_attachment(existing)
-
-    task_id = paperless.upload_document(
-        settings,
-        filename=original_filename,
-        content_type=media_type,
-        file_data=file_data,
-        created=attachment_date,
-        title=title,
-    )
-    now = utcnow()
+    status = ATTACHMENT_STORED_STATUS if document_url else ATTACHMENT_PENDING_UPLOAD_STATUS
     attachment = Attachment(
         name=generate_resource_name("attachments", "att"),
         account=account_row,
         attachment_date=attachment_date,
         original_filename=original_filename,
         media_type=media_type,
-        status=ATTACHMENT_PENDING_STATUS,
-        document_url=None,
+        status=status,
+        document_url=document_url,
         storage_backend="paperless",
-        storage_deadline_at=now + timedelta(seconds=settings.paperless_ingestion_timeout_seconds),
+        storage_deadline_at=utcnow(),
         entity_metadata=entity_metadata,
-        storage_metadata={
-            "task_id": task_id,
-            "task_url": paperless.build_task_url(settings, task_id),
-            "submitted_at": _storage_metadata_timestamp(now),
-        },
+        storage_metadata={},
     )
     session.add(attachment)
-    session.commit()
-    session.refresh(attachment)
+    commit_or_raise(session)
     attachment = session.scalar(
         select(Attachment)
         .options(selectinload(Attachment.account))
         .where(Attachment.id == attachment.id)
     )
     assert attachment is not None
+    return serialize_attachment(attachment)
+
+
+def upload_attachment(
+    session: Session,
+    settings: Settings,
+    *,
+    attachment_name: str,
+    file_data: bytes,
+    media_type: str | None,
+    title: str | None = None,
+) -> AttachmentResource:
+    resolved_name = resource_name("attachments", attachment_name)
+    attachment = session.scalar(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(Attachment.name == resolved_name)
+    )
+    if attachment is None:
+        raise NotFoundError(code="attachment_not_found", message="Attachment not found")
+    task_id = paperless.upload_document(
+        settings,
+        filename=attachment.original_filename,
+        content_type=media_type,
+        file_data=file_data,
+        created=attachment.attachment_date,
+        title=title,
+    )
+    now = utcnow()
+    attachment.status = ATTACHMENT_PENDING_STATUS
+    attachment.document_url = None
+    attachment.storage_deadline_at = now + timedelta(
+        seconds=settings.paperless_ingestion_timeout_seconds
+    )
+    attachment.storage_metadata = {
+        "task_id": task_id,
+        "task_url": paperless.build_task_url(settings, task_id),
+        "submitted_at": _storage_metadata_timestamp(now),
+    }
+    session.commit()
+    session.refresh(attachment)
     return serialize_attachment(attachment)
 
 
@@ -264,15 +261,23 @@ def process_pending_attachments(
 
 
 def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
+    reportable = {
+        ATTACHMENT_PENDING_UPLOAD_STATUS,
+        ATTACHMENT_FAILED_STATUS,
+        ATTACHMENT_TIMED_OUT_STATUS,
+    }
     attachments = session.scalars(
         select(Attachment)
         .options(selectinload(Attachment.account))
-        .where(Attachment.status.in_([ATTACHMENT_FAILED_STATUS, ATTACHMENT_TIMED_OUT_STATUS]))
+        .where(Attachment.status.in_(list(reportable)))
         .order_by(Attachment.attachment_date, Attachment.name)
     ).all()
     issues: list[DoctorIssue] = []
     for attachment in attachments:
-        if attachment.status == ATTACHMENT_FAILED_STATUS:
+        if attachment.status == ATTACHMENT_PENDING_UPLOAD_STATUS:
+            code = "attachment_pending_upload"
+            message = "Attachment has no file uploaded yet."
+        elif attachment.status == ATTACHMENT_FAILED_STATUS:
             code = "attachment_storage_failed"
             message = "Attachment storage failed."
         else:

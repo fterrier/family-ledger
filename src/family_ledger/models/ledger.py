@@ -149,7 +149,7 @@ class Attachment(Base):
     __tablename__ = "attachments"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending_storage', 'stored', 'failed', 'timed_out')",
+            "status IN ('pending_upload', 'pending_storage', 'stored', 'failed', 'timed_out')",
             name="attachments_status_check",
         ),
         UniqueConstraint(

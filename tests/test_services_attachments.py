@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Generator
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -49,64 +49,157 @@ def seed_account(session: Session) -> Account:
     return account
 
 
-def test_create_attachment_persists_pending_storage(
-    monkeypatch: pytest.MonkeyPatch,
+def test_create_attachment_persists_pending_upload(
     session: Session,
 ) -> None:
     seed_account(session)
-    settings = make_settings()
-    monkeypatch.setattr(
-        paperless,
-        "upload_document",
-        lambda *args, **kwargs: "task-123",
-    )
 
     created = attachments.create_attachment(
         session,
-        settings,
         account="accounts/acc_one",
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        file_data=b"pdf-data",
-        title="May statement",
+        document_url=None,
         entity_metadata={"source": "bank"},
     )
 
     assert created.name.startswith("attachments/att_")
     assert created.account == "accounts/acc_one"
-    assert created.status == attachments.ATTACHMENT_PENDING_STATUS
+    assert created.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
     assert created.document_url is None
     assert created.entity_metadata == {"source": "bank"}
 
     persisted = session.get(Attachment, 1)
     assert persisted is not None
     assert persisted.storage_backend == "paperless"
+    assert persisted.storage_metadata == {}
+
+
+def test_create_attachment_with_url_persists_stored(
+    session: Session,
+) -> None:
+    seed_account(session)
+
+    created = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url="https://paperless.example.com/api/documents/42/",
+        entity_metadata={},
+    )
+
+    assert created.status == attachments.ATTACHMENT_STORED_STATUS
+    assert created.document_url == "https://paperless.example.com/api/documents/42/"
+
+
+def test_upload_attachment_transitions_to_pending_storage(
+    monkeypatch: pytest.MonkeyPatch,
+    session: Session,
+) -> None:
+    seed_account(session)
+    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "task-123")
+
+    att = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url=None,
+        entity_metadata={},
+    )
+    assert att.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+
+    uploaded = attachments.upload_attachment(
+        session,
+        make_settings(),
+        attachment_name=att.name,
+        file_data=b"pdf-data",
+        media_type="application/pdf",
+        title="May statement",
+    )
+
+    assert uploaded.status == attachments.ATTACHMENT_PENDING_STATUS
+    assert uploaded.document_url is None
+    persisted = session.get(Attachment, 1)
+    assert persisted is not None
     assert persisted.storage_metadata["task_id"] == "task-123"
     assert persisted.storage_metadata["task_url"].endswith("task_id=task-123")
+
+
+def test_upload_attachment_allowed_from_any_status(
+    monkeypatch: pytest.MonkeyPatch,
+    session: Session,
+) -> None:
+    account = seed_account(session)
+    monkeypatch.setattr(paperless, "upload_document", lambda *args, **kwargs: "new-task")
+
+    for initial_status in ("stored", "failed", "timed_out", "pending_storage"):
+        existing = Attachment(
+            name=f"attachments/att_{initial_status}",
+            account=account,
+            attachment_date=date(2026, 5, 19),
+            original_filename=f"{initial_status}.pdf",
+            media_type="application/pdf",
+            status=initial_status,
+            document_url=(
+                "https://paperless.example.com/api/documents/1/"
+                if initial_status == "stored"
+                else None
+            ),
+            storage_backend="paperless",
+            storage_deadline_at=datetime(2026, 5, 19, 12, 0, 0),
+            entity_metadata={},
+            storage_metadata={},
+        )
+        session.add(existing)
+        session.commit()
+
+        result = attachments.upload_attachment(
+            session,
+            make_settings(),
+            attachment_name=existing.name,
+            file_data=b"data",
+            media_type="application/pdf",
+        )
+
+        assert result.status == attachments.ATTACHMENT_PENDING_STATUS
+        session.delete(existing)
+        session.commit()
 
 
 def test_create_attachment_requires_existing_account(session: Session) -> None:
     with pytest.raises(ValidationError) as excinfo:
         attachments.create_attachment(
             session,
-            make_settings(),
             account="accounts/missing",
             attachment_date=date(2026, 5, 19),
             original_filename="statement.pdf",
             media_type="application/pdf",
-            file_data=b"pdf-data",
-            title=None,
+            document_url=None,
             entity_metadata={},
         )
 
     assert excinfo.value.code == "account_not_found"
 
 
-def test_create_attachment_does_not_persist_when_upload_fails(
+def test_upload_attachment_does_not_change_status_when_paperless_fails(
     monkeypatch: pytest.MonkeyPatch, session: Session
 ) -> None:
     seed_account(session)
+
+    att = attachments.create_attachment(
+        session,
+        account="accounts/acc_one",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        document_url=None,
+        entity_metadata={},
+    )
 
     def raise_upload(*args, **kwargs):
         raise UnavailableError(code="paperless_unreachable", message="Paperless is unreachable")
@@ -114,19 +207,18 @@ def test_create_attachment_does_not_persist_when_upload_fails(
     monkeypatch.setattr(paperless, "upload_document", raise_upload)
 
     with pytest.raises(UnavailableError):
-        attachments.create_attachment(
+        attachments.upload_attachment(
             session,
             make_settings(),
-            account="accounts/acc_one",
-            attachment_date=date(2026, 5, 19),
-            original_filename="statement.pdf",
-            media_type="application/pdf",
+            attachment_name=att.name,
             file_data=b"pdf-data",
-            title=None,
-            entity_metadata={},
+            media_type="application/pdf",
         )
 
-    assert session.query(Attachment).count() == 0
+    session.expire_all()
+    persisted = session.get(Attachment, 1)
+    assert persisted is not None
+    assert persisted.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
 
 
 def test_process_pending_attachment_marks_stored_from_document_id(
@@ -328,139 +420,74 @@ def test_process_pending_attachment_marks_timed_out(session: Session) -> None:
     assert attachment.storage_metadata["last_error_code"] == "timed_out"
 
 
-@pytest.mark.parametrize("existing_status", ["pending_storage", "stored"])
-def test_create_attachment_dedup_returns_existing_when_nonterminal(
-    monkeypatch: pytest.MonkeyPatch,
+def test_create_attachment_raises_conflict_on_duplicate(session: Session) -> None:
+    seed_account(session)
+
+    def _create() -> None:
+        attachments.create_attachment(
+            session,
+            account="accounts/acc_one",
+            attachment_date=date(2026, 5, 19),
+            original_filename="statement.pdf",
+            media_type="application/pdf",
+            document_url=None,
+            entity_metadata={},
+        )
+
+    _create()
+
+    from family_ledger.services.errors import ConflictError as CE
+
+    with pytest.raises(CE):
+        _create()
+
+
+def test_build_attachment_doctor_issues_reports_all_actionable_statuses(
     session: Session,
-    existing_status: str,
 ) -> None:
     account = seed_account(session)
-    existing = Attachment(
-        name="attachments/att_existing",
-        account=account,
-        attachment_date=date(2026, 5, 19),
-        original_filename="statement.pdf",
-        media_type="application/pdf",
-        status=existing_status,
-        document_url="https://paperless.example.com/api/documents/7/"
-        if existing_status == "stored"
-        else None,
-        storage_backend="paperless",
-        storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
-        entity_metadata={},
-        storage_metadata={"task_id": "old-task"},
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    def _make(name: str, filename: str, att_date: date, att_status: str) -> Attachment:
+        return Attachment(
+            name=f"attachments/{name}",
+            account=account,
+            attachment_date=att_date,
+            original_filename=filename,
+            media_type="application/pdf",
+            status=att_status,
+            document_url=None,
+            storage_backend="paperless",
+            storage_deadline_at=now,
+            entity_metadata={},
+            storage_metadata={},
+        )
+
+    session.add_all(
+        [
+            _make(
+                "att_pending_upload",
+                "pending.pdf",
+                date(2026, 5, 17),
+                attachments.ATTACHMENT_PENDING_UPLOAD_STATUS,
+            ),
+            _make(
+                "att_failed", "failed.pdf", date(2026, 5, 18), attachments.ATTACHMENT_FAILED_STATUS
+            ),
+            _make(
+                "att_timed_out",
+                "timeout.pdf",
+                date(2026, 5, 19),
+                attachments.ATTACHMENT_TIMED_OUT_STATUS,
+            ),
+        ]
     )
-    session.add(existing)
-    session.commit()
-
-    upload_calls: list[str] = []
-    monkeypatch.setattr(
-        paperless, "upload_document", lambda *a, **kw: upload_calls.append("called") or "new-task"
-    )
-
-    result = attachments.create_attachment(
-        session,
-        make_settings(),
-        account="accounts/acc_one",
-        attachment_date=date(2026, 5, 19),
-        original_filename="statement.pdf",
-        media_type="application/pdf",
-        file_data=b"pdf-data",
-        title=None,
-        entity_metadata={},
-    )
-
-    assert upload_calls == [], (
-        "upload_document should not be called for existing non-terminal attachment"
-    )
-    assert result.name == "attachments/att_existing"
-    assert result.status == existing_status
-    assert session.query(Attachment).count() == 1
-
-
-@pytest.mark.parametrize("existing_status", ["timed_out", "failed"])
-def test_create_attachment_dedup_resubmits_when_terminal(
-    monkeypatch: pytest.MonkeyPatch,
-    session: Session,
-    existing_status: str,
-) -> None:
-    account = seed_account(session)
-    existing = Attachment(
-        name="attachments/att_existing",
-        account=account,
-        attachment_date=date(2026, 5, 19),
-        original_filename="statement.pdf",
-        media_type="application/pdf",
-        status=existing_status,
-        document_url=None,
-        storage_backend="paperless",
-        storage_deadline_at=datetime(2026, 5, 19, 10, 0, 0),
-        entity_metadata={},
-        storage_metadata={"task_id": "old-task", "last_error_code": existing_status},
-    )
-    session.add(existing)
-    session.commit()
-
-    monkeypatch.setattr(paperless, "upload_document", lambda *a, **kw: "new-task")
-
-    result = attachments.create_attachment(
-        session,
-        make_settings(),
-        account="accounts/acc_one",
-        attachment_date=date(2026, 5, 19),
-        original_filename="statement.pdf",
-        media_type="application/pdf",
-        file_data=b"pdf-data",
-        title=None,
-        entity_metadata={},
-    )
-
-    assert result.name == "attachments/att_existing", (
-        "should reuse the existing record, not create a new one"
-    )
-    assert result.status == attachments.ATTACHMENT_PENDING_STATUS
-    assert session.query(Attachment).count() == 1
-    session.refresh(existing)
-    assert existing.status == attachments.ATTACHMENT_PENDING_STATUS
-    assert existing.storage_metadata["task_id"] == "new-task"
-    assert "last_error_code" not in existing.storage_metadata
-    assert existing.storage_deadline_at > datetime(2026, 5, 19, 10, 0, 0)
-
-
-def test_build_attachment_doctor_issues_reports_failed_and_timed_out(session: Session) -> None:
-    account = seed_account(session)
-    failed = Attachment(
-        name="attachments/att_failed",
-        account=account,
-        attachment_date=date(2026, 5, 18),
-        original_filename="failed.pdf",
-        media_type="application/pdf",
-        status=attachments.ATTACHMENT_FAILED_STATUS,
-        document_url=None,
-        storage_backend="paperless",
-        storage_deadline_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
-        entity_metadata={},
-        storage_metadata={},
-    )
-    timed_out = Attachment(
-        name="attachments/att_timed_out",
-        account=account,
-        attachment_date=date(2026, 5, 19),
-        original_filename="timeout.pdf",
-        media_type="application/pdf",
-        status=attachments.ATTACHMENT_TIMED_OUT_STATUS,
-        document_url=None,
-        storage_backend="paperless",
-        storage_deadline_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5),
-        entity_metadata={},
-        storage_metadata={},
-    )
-    session.add_all([timed_out, failed])
     session.commit()
 
     issues = attachments.build_attachment_doctor_issues(session)
 
     assert [(issue.target, issue.code) for issue in issues] == [
+        ("attachments/att_pending_upload", "attachment_pending_upload"),
         ("attachments/att_failed", "attachment_storage_failed"),
         ("attachments/att_timed_out", "attachment_storage_timed_out"),
     ]

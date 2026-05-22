@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import json
-from datetime import date
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from family_ledger.api.auth import require_api_token
-from family_ledger.api.schemas import AttachmentResource, ListAttachmentsResponse
+from family_ledger.api.schemas import (
+    AttachmentResource,
+    CreateAttachmentRequest,
+    ListAttachmentsResponse,
+)
 from family_ledger.config import Settings, get_settings
 from family_ledger.db import get_db_session
 from family_ledger.services import attachments as attachment_service
@@ -50,30 +52,6 @@ def _call_service(fn, *args, **kwargs):  # type: ignore[no-untyped-def]
         raise _translate_service_error(error) from error
 
 
-def _parse_entity_metadata(raw: str | None) -> dict[str, Any]:
-    if raw is None:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "invalid_entity_metadata",
-                "message": "entity_metadata is not valid JSON",
-            },
-        ) from exc
-    if not isinstance(parsed, dict):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "invalid_entity_metadata",
-                "message": "entity_metadata must be a JSON object",
-            },
-        )
-    return parsed
-
-
 @router.get("/attachments", response_model=ListAttachmentsResponse)
 def list_attachments(
     session: DbSession,
@@ -96,28 +74,43 @@ def get_attachment(attachment: str, session: DbSession) -> AttachmentResource:
 @router.post(
     "/attachments",
     response_model=AttachmentResource,
-    status_code=status.HTTP_202_ACCEPTED,
+    status_code=status.HTTP_201_CREATED,
 )
 def create_attachment(
     session: DbSession,
-    settings: AppSettings,
-    file: Annotated[UploadFile, File()],
-    account: Annotated[str, Form()],
-    attachment_date: Annotated[date, Form()],
-    title: Annotated[str | None, Form()] = None,
-    entity_metadata: Annotated[str | None, Form()] = None,
+    request: CreateAttachmentRequest,
 ) -> AttachmentResource:
-    metadata = _parse_entity_metadata(entity_metadata)
-    file_data = file.file.read()
+    a = request.attachment
     return _call_service(
         attachment_service.create_attachment,
         session,
+        account=a.account,
+        attachment_date=a.attachment_date,
+        original_filename=a.original_filename,
+        media_type=a.media_type,
+        document_url=a.document_url,
+        entity_metadata=a.entity_metadata,
+    )
+
+
+@router.post(
+    "/attachments/{attachment:path}:upload",
+    response_model=AttachmentResource,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def upload_attachment(
+    attachment: str,
+    session: DbSession,
+    settings: AppSettings,
+    file: Annotated[UploadFile, File()],
+    title: Annotated[str | None, Form()] = None,
+) -> AttachmentResource:
+    return _call_service(
+        attachment_service.upload_attachment,
+        session,
         settings,
-        account=account,
-        attachment_date=attachment_date,
-        original_filename=file.filename or "attachment",
+        attachment_name=attachment,
+        file_data=file.file.read(),
         media_type=file.content_type,
-        file_data=file_data,
         title=title,
-        entity_metadata=metadata,
     )

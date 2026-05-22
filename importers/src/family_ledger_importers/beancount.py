@@ -33,7 +33,7 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.config import Settings
 from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
-from family_ledger.models import Account
+from family_ledger.models import Account, Attachment
 from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import attachments as attachments_service
@@ -62,8 +62,59 @@ def _extract_zip_flat(data: bytes) -> dict[str, bytes]:
                 continue
             basename = os.path.basename(name)
             if basename:
-                file_map[basename] = zf.read(name)
+                file_map[basename.lower()] = zf.read(name)
     return file_map
+
+
+def _import_document_file(
+    session: Session,
+    settings: Settings,
+    result: ImportResult,
+    *,
+    account_row: Account,
+    entry_date: object,
+    filename: str,
+    doc_bytes: bytes,
+    media_type: str | None,
+) -> None:
+    from datetime import date as date_type
+
+    assert isinstance(entry_date, date_type)
+    try:
+        att = attachments_service.create_attachment(
+            session,
+            account=account_row.name,
+            attachment_date=entry_date,
+            original_filename=filename,
+            media_type=media_type,
+            document_url=None,
+            entity_metadata={},
+        )
+        attachments_service.upload_attachment(
+            session,
+            settings,
+            attachment_name=att.name,
+            file_data=doc_bytes,
+            media_type=media_type,
+        )
+        result.entities.setdefault("attachment", EntityCounts()).created += 1
+    except ConflictError:
+        att_row = session.scalar(
+            select(Attachment).where(
+                Attachment.account_id == account_row.id,
+                Attachment.original_filename == filename,
+                Attachment.attachment_date == entry_date,
+            )
+        )
+        if att_row is not None and att_row.status in (attachments_service._RETRYABLE_STATUSES):
+            attachments_service.upload_attachment(
+                session,
+                settings,
+                attachment_name=att_row.name,
+                file_data=doc_bytes,
+                media_type=media_type,
+            )
+        result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
 
 
 def _import_documents(
@@ -85,7 +136,7 @@ def _import_documents(
 
     for entry in document_entries:
         filename = os.path.basename(entry.filename)
-        doc_bytes = file_map.get(filename)
+        doc_bytes = file_map.get(filename.lower())
         if doc_bytes is None:
             att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1
@@ -103,18 +154,16 @@ def _import_documents(
 
         media_type, _ = mimetypes.guess_type(filename)
         try:
-            attachments_service.create_attachment(
+            _import_document_file(
                 session,
                 settings,
-                account=account_row.name,
-                attachment_date=entry.date,
-                original_filename=filename,
+                result,
+                account_row=account_row,
+                entry_date=entry.date,
+                filename=filename,
+                doc_bytes=doc_bytes,
                 media_type=media_type,
-                file_data=doc_bytes,
-                title=None,
-                entity_metadata={},
             )
-            result.entities.setdefault("attachment", EntityCounts()).created += 1
         except (UnavailableError, ValidationError, NotFoundError) as exc:
             att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1

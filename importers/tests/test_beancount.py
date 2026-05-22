@@ -580,23 +580,29 @@ def test_beancount_importer_document_uploaded_from_documents_zip(
 
     docs_zip = _make_zip({"payslip.pdf": b"pdf-data"})
     settings = _paperless_settings()
-    captured: list[dict[str, Any]] = []
+    create_captured: list[dict[str, Any]] = []
+    upload_captured: list[dict[str, Any]] = []
 
-    def fake_create(s, cfg, **kwargs):  # type: ignore[no-untyped-def]
-        captured.append(kwargs)
+    def fake_create(s, **kwargs):  # type: ignore[no-untyped-def]
+        create_captured.append(kwargs)
         return MagicMock(name="attachments/att_test")
 
+    def fake_upload(s, cfg, **kwargs):  # type: ignore[no-untyped-def]
+        upload_captured.append(kwargs)
+
     monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+    monkeypatch.setattr(attachments_service, "upload_attachment", fake_upload)
 
     result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip, settings=settings)
 
     assert result.entities["attachment"].created == 1
     assert result.entities["attachment"].errors.count == 0
-    assert len(captured) == 1
-    assert captured[0]["original_filename"] == "payslip.pdf"
-    assert captured[0]["media_type"] == "application/pdf"
-    assert captured[0]["attachment_date"].isoformat() == "2019-02-25"
-    assert captured[0]["title"] is None
+    assert len(create_captured) == 1
+    assert create_captured[0]["original_filename"] == "payslip.pdf"
+    assert create_captured[0]["media_type"] == "application/pdf"
+    assert create_captured[0]["attachment_date"].isoformat() == "2019-02-25"
+    assert len(upload_captured) == 1
+    assert upload_captured[0]["file_data"] == b"pdf-data"
 
 
 def test_beancount_importer_document_not_in_zip_counts_as_error(
@@ -609,11 +615,37 @@ def test_beancount_importer_document_not_in_zip_counts_as_error(
     docs_zip = _make_zip({"other.pdf": b"other-data"})
     settings = _paperless_settings()
     monkeypatch.setattr(attachments_service, "create_attachment", lambda *a, **kw: None)
+    monkeypatch.setattr(attachments_service, "upload_attachment", lambda *a, **kw: None)
 
     result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip, settings=settings)
 
     assert result.entities["attachment"].errors.count == 1
     assert "payslip.pdf" in result.entities["attachment"].errors.examples[0]
+
+
+def test_beancount_importer_document_matched_case_insensitively(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services import attachments as attachments_service
+
+    # Archive contains "PAYSLIP.PDF" (uppercase), beancount references "payslip.pdf" (lowercase)
+    docs_zip = _make_zip({"PAYSLIP.PDF": b"pdf-data"})
+    settings = _paperless_settings()
+    captured: list[dict[str, Any]] = []
+
+    def fake_create(s, **kwargs):  # type: ignore[no-untyped-def]
+        captured.append(kwargs)
+        return MagicMock(name="attachments/att_test")
+
+    monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+    monkeypatch.setattr(attachments_service, "upload_attachment", lambda *a, **kw: None)
+
+    result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip, settings=settings)
+
+    assert result.entities["attachment"].created == 1
+    assert "attachment" not in result.entities or result.entities["attachment"].errors.count == 0
+    assert captured[0]["original_filename"] == "payslip.pdf"
 
 
 def test_beancount_importer_document_upload_failure_counts_as_error(
@@ -628,7 +660,9 @@ def test_beancount_importer_document_upload_failure_counts_as_error(
     def raise_unavailable(*a, **kw):  # type: ignore[no-untyped-def]
         raise UnavailableError(code="paperless_unreachable", message="Paperless is unreachable")
 
-    monkeypatch.setattr(attachments_service, "create_attachment", raise_unavailable)
+    fake_att = MagicMock(name="attachments/att_test")
+    monkeypatch.setattr(attachments_service, "create_attachment", lambda *a, **kw: fake_att)
+    monkeypatch.setattr(attachments_service, "upload_attachment", raise_unavailable)
 
     result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip, settings=settings)
 
@@ -666,11 +700,12 @@ def test_beancount_importer_macos_metadata_skipped_in_documents_zip(
     settings = _paperless_settings()
     captured: list[dict[str, Any]] = []
 
-    def fake_create(s, cfg, **kwargs):  # type: ignore[no-untyped-def]
+    def fake_create(s, **kwargs):  # type: ignore[no-untyped-def]
         captured.append(kwargs)
         return MagicMock(name="attachments/att_test")
 
     monkeypatch.setattr(attachments_service, "create_attachment", fake_create)
+    monkeypatch.setattr(attachments_service, "upload_attachment", lambda *a, **kw: None)
 
     result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip, settings=settings)
 

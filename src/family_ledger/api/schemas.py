@@ -131,6 +131,19 @@ class ListAttachmentsResponse(BaseModel):
     next_page_token: str | None = None
 
 
+class AttachmentCreate(BaseModel):
+    account: str
+    attachment_date: date
+    original_filename: str
+    media_type: str | None = None
+    document_url: str | None = None
+    entity_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CreateAttachmentRequest(BaseModel):
+    attachment: AttachmentCreate
+
+
 class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None

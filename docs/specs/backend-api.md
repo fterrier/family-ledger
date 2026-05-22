@@ -19,6 +19,28 @@
 
 - list endpoints use `page_size` and `page_token` when implemented
 
+## Consistent Create Semantics
+
+All standard create endpoints share the same shape:
+
+- method: `POST /{collection}`
+- body: `application/json` with a wrapper object `{"<entity>": {...}}`
+- success: `201 Created` with the created resource
+- duplicate: `409 Conflict`
+
+The duplicate check is enforced by a database unique constraint. Any attempt to create a record that violates the constraint returns `409` with `"code": "integrity_error"`. The unique keys are:
+
+| Entity | Unique key |
+|---|---|
+| Account | `account_name` |
+| Commodity | `symbol` |
+| Transaction | `source_native_id` (when present; partial unique index) |
+| Price | `(price_date, base_symbol, quote_symbol)` |
+| Balance assertion | `(assertion_date, account, symbol)` |
+| Attachment | `(account, original_filename, attachment_date)` |
+
+Custom methods on existing resources (`:upload`, `:normalize`, `:pad`, `:import`) do not follow this create pattern and have their own documented semantics.
+
 ## Health
 
 - `GET /healthz`
@@ -85,18 +107,13 @@ There is currently no `GET /prices` list endpoint.
 - `GET /attachments`
 - `POST /attachments`
 - `GET /attachments/{attachment}`
+- `POST /attachments/{attachment}:upload`
 
 Attachments are canonical ledger records that reference documents stored by an external backend.
 
-`POST /attachments` accepts `multipart/form-data` with:
+`POST /attachments` accepts `application/json` and returns `201 Created`. It creates the metadata record only — no file is transferred. Supply `document_url` to link a pre-existing document directly (`stored` status), or omit it to create a record in `pending_upload` status awaiting a subsequent `:upload` call. Returns `409 Conflict` on duplicate `(account, original_filename, attachment_date)`.
 
-- `file`: uploaded file
-- `account`: required account resource name
-- `attachment_date`: required date
-- `title`: optional user-facing title hint for the storage backend
-- `entity_metadata`: optional JSON object encoded as a string
-
-The backend uploads the file to the configured document backend and returns `202 Accepted` once the external ingestion task has been started successfully.
+`POST /attachments/{attachment}:upload` accepts `multipart/form-data` with a `file` field (and optional `title`). It uploads the file to the configured document backend and returns `202 Accepted`. Allowed from any attachment status; always resets to `pending_storage`.
 
 The public attachment resource exposes only canonical fields:
 
@@ -109,12 +126,15 @@ The public attachment resource exposes only canonical fields:
 - `document_url`
 - `entity_metadata`
 
-Attachment status values are currently:
+Attachment status values:
 
-- `pending_storage`
-- `stored`
-- `failed`
-- `timed_out`
+- `pending_upload`: record created, no file uploaded yet
+- `pending_storage`: file accepted by the external backend, ingestion in progress
+- `stored`: ingestion complete, `document_url` is available
+- `failed`: external backend reported terminal failure
+- `timed_out`: ingestion did not complete before the deadline
+
+See [attachment-storage.md](attachment-storage.md) for the full status lifecycle and storage backend details.
 
 ## Diagnostics
 
@@ -125,8 +145,9 @@ Doctor returns derived issues, not canonical stored records. Current issue famil
 - transaction balancing issues
 - FIFO lot replay failures for cost-tracked reductions
 - balance assertion failures
-- attachment storage failures
-- attachment storage timeouts
+- `attachment_pending_upload`: attachment created but no file uploaded yet
+- `attachment_storage_failed`: external backend reported terminal failure
+- `attachment_storage_timed_out`: ingestion did not complete before the deadline
 
 ## Importers
 

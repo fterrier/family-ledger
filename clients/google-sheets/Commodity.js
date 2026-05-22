@@ -33,20 +33,13 @@ class Commodity extends Entity {
     if ('symbol' in fields) {
       this._api.symbol = String(fields.symbol || '').trim() || null;
     }
-    if ('entity_metadata' in fields) {
-      try {
-        this._api.entity_metadata = JSON.parse(fields.entity_metadata || '{}');
-      } catch (_e) {
-        this._api.entity_metadata = {};
-      }
-    }
   }
 
   static get SHEET_KEY() { return 'commodities'; }
   static get RESOURCE_IDENTITY() { return { header: 'resource_name', multiRow: false }; }
   static get API_RESOURCE_KEY() { return 'commodity'; }
   static get API_COLLECTION_PATH() { return 'commodities'; }
-  static get UPDATE_MASK() { return 'symbol,entity_metadata'; }
+  static get UPDATE_MASK() { return 'symbol'; }
   static get ENTITY_LABEL() { return 'commodity'; }
 
   static isEditableHeader(h) { return h === 'edit'; }
@@ -70,13 +63,10 @@ class Commodity extends Entity {
   }
 
   static buildSidebarFields_(entityName, _mode) {
-    let defaults = { symbol: null, entity_metadata: '{}' };
+    let defaults = { symbol: null };
     if (entityName) {
       const apiEntity = apiFetchJson_('get', Commodity.apiPath_(entityName));
-      defaults = {
-        symbol: apiEntity.symbol || null,
-        entity_metadata: JSON.stringify(apiEntity.entity_metadata || {}, null, 2),
-      };
+      defaults = { symbol: apiEntity.symbol || null };
     }
     return {
       mode: 'advanced',
@@ -88,14 +78,6 @@ class Commodity extends Entity {
           required: true,
           hint: 'Unique commodity symbol, e.g. CHF, USD, AAPL.',
           default: defaults.symbol,
-        },
-        {
-          key: 'entity_metadata',
-          label: 'Metadata',
-          type: 'textarea',
-          required: false,
-          hint: 'JSON metadata (advanced).',
-          default: defaults.entity_metadata,
         },
       ],
     };

@@ -249,7 +249,7 @@ class Transaction extends Entity {
     });
 
     if (mode === 'advanced') {
-      return { mode: 'advanced', fields: textFields.concat([postingsField(postings || [])]) };
+      return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings || [])]) };
     }
 
     if (postings !== null) {
@@ -258,12 +258,12 @@ class Transaction extends Entity {
       const shape = classifySupportedTransaction_({ postings: postings }, accountResourceToDisplayName);
 
       if (!shape || shape.sourceIndex === null || shape.destinationIndexes.length > 1) {
-        return { mode: 'advanced', fields: textFields.concat([postingsField(postings)]) };
+        return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings)]) };
       }
 
       const src = postings[shape.sourceIndex];
       const dst = shape.destinationIndexes.length > 0 ? postings[shape.destinationIndexes[0]] : null;
-      return { mode: 'simple', fields: textFields.concat([
+      return { mode: 'simple', allowModeSwitch: true, fields: textFields.concat([
         { key: 'source_account',      label: 'Source account',      type: 'account-search', required: true,
           hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account },
         { key: 'destination_account', label: 'Destination account', type: 'account-search',
@@ -283,7 +283,7 @@ class Transaction extends Entity {
     const destOpts   = toOpts(allRaw.filter(function(o) { return settings.destinationAccounts.indexOf(o.resource_name) !== -1; }));
     const symOpts    = buildQuickAddSymbolOptions_(listCommodityOptions_(), settings.symbols)
                          .map(function(o) { return { value: o.symbol, label: o.symbol }; });
-    return { mode: 'simple', fields: textFields.concat([
+    return { mode: 'simple', allowModeSwitch: true, fields: textFields.concat([
       { key: 'source_account',      label: 'Source account',      type: 'account-search', required: true,
         hint: 'Required. Only the configured quick-add source account shortlist is shown.',
         'selection-options': sourceOpts, default: settings.defaultSourceAccount || null },

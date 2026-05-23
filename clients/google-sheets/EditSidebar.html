@@ -268,8 +268,10 @@
 
     var toggleBtn = document.getElementById('toggleMode');
     var toggleLink = document.getElementById('toggleModeLink');
-    toggleBtn.style.display = '';
-    toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';
+    if (data.allowModeSwitch) {
+      toggleBtn.style.display = '';
+      toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';
+    }
   }
 
   function renderDynamicFields(fields) {

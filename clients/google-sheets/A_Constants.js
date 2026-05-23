@@ -3,6 +3,7 @@ const FAMILY_LEDGER_SHEET_NAMES = {
   transactions: 'Transactions',
   balances: 'Balances',
   commodities: 'Commodities',
+  attachments: 'Attachments',
   issues: 'Issues',
 };
 
@@ -20,6 +21,10 @@ const FAMILY_LEDGER_DOCTOR_TARGET_REGISTRY = Object.freeze([
   Object.freeze({
     targetPrefix: 'balanceAssertions/',
     visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.balances,
+  }),
+  Object.freeze({
+    targetPrefix: 'attachments/',
+    visibleSheetName: FAMILY_LEDGER_SHEET_NAMES.attachments,
   }),
 ]);
 
@@ -274,6 +279,62 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       insertionOrder: true,
     },
   }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
+  attachments: buildSheetConfig_('attachments', FAMILY_LEDGER_SHEET_NAMES.attachments, {
+    edit: {
+      width: 40,
+      role: 'action',
+      note: 'Click to open the Edit/Delete Attachment sidebar.',
+      alignment: 'center',
+      checkbox: true,
+    },
+    resource_name: {
+      width: 200,
+      role: 'system',
+      note: 'Technical attachment resource name used by the client.',
+      alignment: 'left',
+    },
+    attachment_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only attachment date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+      quickFilter: 'date',
+      insertionOrder: true,
+    },
+    account: {
+      width: 280,
+      role: 'readonly',
+      note: 'Read-only account.',
+      alignment: 'left',
+      wrap: false,
+      quickFilter: 'account',
+    },
+    original_filename: {
+      width: 300,
+      role: 'readonly',
+      note: 'Read-only filename. Hyperlinked to document URL when available.',
+      alignment: 'left',
+    },
+    status: {
+      width: 120,
+      role: 'readonly',
+      note: 'Read-only attachment status (e.g. stored, pending_upload).',
+      alignment: 'left',
+    },
+    issues: {
+      width: 600,
+      role: 'system',
+      note: 'Derived ledger doctor issues linked by attachment resource name.',
+      alignment: 'left',
+      wrap: false,
+      wrapStrategy: 'OVERFLOW',
+      formulaManaged: true,
+    },
+  }, {
+    hiddenHeaders: ['resource_name'],
+    protectedHeaders: ['resource_name', 'attachment_date', 'account', 'original_filename', 'status'],
+  }),
   issues: buildSheetConfig_('issues', FAMILY_LEDGER_SHEET_NAMES.issues, {
     target: {
       width: 220,

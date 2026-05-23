@@ -362,6 +362,29 @@ def test_delete_attachment_returns_404_for_unknown(monkeypatch: pytest.MonkeyPat
     assert response.status_code == 404
 
 
+def test_list_attachments_ordered_by_date_ascending(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = make_client(monkeypatch)
+    account = create_account(client)
+
+    for attachment_date in ["2026-03-01", "2026-01-01", "2026-02-01"]:
+        client.post(
+            "/attachments",
+            json={
+                "attachment": {
+                    "account": account,
+                    "attachment_date": attachment_date,
+                    "original_filename": f"{attachment_date}.pdf",
+                }
+            },
+        )
+
+    response = client.get("/attachments")
+
+    assert response.status_code == 200
+    dates = [a["attachment_date"] for a in response.json()["attachments"]]
+    assert dates == ["2026-01-01", "2026-02-01", "2026-03-01"]
+
+
 def test_attachment_routes_require_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
     from family_ledger import config as config_module
 

@@ -144,7 +144,7 @@ def list_attachments_page(
         paginate_query(
             select(Attachment)
             .options(selectinload(Attachment.account))
-            .order_by(Attachment.attachment_date.desc(), Attachment.name),
+            .order_by(Attachment.attachment_date, Attachment.name),
             offset=offset,
             page_size=normalized_page_size,
         )

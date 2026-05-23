@@ -13,6 +13,7 @@ const SOURCE_FILES = [
   'Balance.js',
   'Account.js',
   'Commodity.js',
+  'Attachment.js',
   'LedgerSync.js',
   'Api.js',
   'Settings.js',

@@ -10,6 +10,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     Accounts: { name: 'Accounts', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
     Balances: { name: 'Balances', setFrozenRows() {} },
     Commodities: { name: 'Commodities', setFrozenRows() {} },
+    Attachments: { name: 'Attachments', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; }, getRange() { return { setFormulas() {} }; } },
   };
   const { sandbox } = loadCode({
@@ -36,6 +37,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
       return [{ name: 'accounts/checking', account_name: 'Assets:Bank:Checking' }];
     }
     if (resourceKey === 'balance_assertions') return [];
+    if (resourceKey === 'attachments') return [];
     return [{ name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [] }];
   };
   sandbox.buildAccountSyncData_ = function(accounts) {
@@ -76,11 +78,13 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
     { type: 'fetch', path: '/transactions?page_size=1000', resourceKey: 'transactions' },
     { type: 'fetch', path: '/balance-assertions?page_size=1000', resourceKey: 'balance_assertions' },
+    { type: 'fetch', path: '/attachments?page_size=1000', resourceKey: 'attachments' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
     { type: 'writeSheet', sheet: 'Commodities', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
+    { type: 'writeSheet', sheet: 'Attachments', rowCount: 0 },
     { type: 'writeSheet', sheet: 'Transactions', rowCount: 1 },
   ]);
   assert.equal(calls.filter((call) => call.type === 'deleteSheet').length, 0, 'sheets must not be deleted during sync');

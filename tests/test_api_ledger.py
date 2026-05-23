@@ -1349,6 +1349,61 @@ def test_list_balance_assertions_empty() -> None:
     assert response.json() == {"balance_assertions": [], "next_page_token": None}
 
 
+def test_list_balance_assertions_ordered_by_date_ascending() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    create_commodity(client, "CHF")
+
+    _create_balance_assertion(client, checking["name"], "2026-03-31", "900.00", "CHF")
+    _create_balance_assertion(client, checking["name"], "2026-01-31", "800.00", "CHF")
+    _create_balance_assertion(client, checking["name"], "2026-02-28", "850.00", "CHF")
+
+    response = client.get("/balance-assertions")
+
+    assert response.status_code == 200
+    dates = [ba["assertion_date"] for ba in response.json()["balance_assertions"]]
+    assert dates == ["2026-01-31", "2026-02-28", "2026-03-31"]
+
+
+def test_list_transactions_ordered_by_date_ascending() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    def post_tx(tx_date: str, amount: str) -> None:
+        client.post(
+            "/transactions",
+            json={
+                "transaction": {
+                    "transaction_date": tx_date,
+                    "postings": [
+                        {
+                            "account": checking["name"],
+                            "units": {"amount": f"-{amount}", "symbol": "CHF"},
+                        },
+                        {
+                            "account": food["name"],
+                            "units": {"amount": amount, "symbol": "CHF"},
+                        },
+                    ],
+                }
+            },
+        )
+
+    post_tx("2026-03-01", "30.00")
+    post_tx("2026-01-01", "10.00")
+    post_tx("2026-02-01", "20.00")
+
+    response = client.get("/transactions")
+
+    assert response.status_code == 200
+    dates = [tx["transaction_date"] for tx in response.json()["transactions"]]
+    assert dates == ["2026-01-01", "2026-02-01", "2026-03-01"]
+
+
 def test_create_price_rejects_unknown_symbol() -> None:
     client = make_client()
 

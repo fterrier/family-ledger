@@ -35,6 +35,14 @@ function syncLedger() {
         return buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountResourceToDisplayName);
       }, function(r) { return r.length + ' rows'; });
 
+      const attachments = fetchFamilyLedgerPagedResource_(
+        '/attachments?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'attachments'
+      );
+      const attachmentRows = perf.wrap('data.build_attachments', function() {
+        return buildAttachmentSyncRows_(attachments, accountSyncData.accountResourceToDisplayName);
+      }, function(r) { return r.length + ' rows'; });
+
       const commoditiesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.commodities);
       perf.wrap('sheet.write_commodities', function() {
         writeSheet_(commoditiesSheet, FAMILY_LEDGER_SHEET_REGISTRY.commodities, commodities.map(function(c) { return { edit: false, resource_name: c.name, symbol: c.symbol }; }));
@@ -65,6 +73,18 @@ function syncLedger() {
         );
       }, balanceAssertionRows.length + ' rows');
 
+      const attachmentsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.attachments);
+      perf.wrap('sheet.write_attachments', function() {
+        ensureSheetCapacity_(attachmentsSheet, FAMILY_LEDGER_SHEET_REGISTRY.attachments.headers.length, attachmentRows.length + 1);
+        writeSheet_(attachmentsSheet, FAMILY_LEDGER_SHEET_REGISTRY.attachments, attachmentRows);
+        attachmentsSheet.setFrozenRows(1);
+        managedSheet_(attachmentsSheet, FAMILY_LEDGER_SHEET_REGISTRY.attachments).setColumnFormulas(
+          { start: 2, count: attachmentRows.length },
+          'issues',
+          buildIssueLookupFormula_
+        );
+      }, attachmentRows.length + ' rows');
+
       const transactionsSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.transactions);
       perf.wrap('sheet.write_transactions', function() {
         ensureSheetCapacity_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length, transactionSyncData.rows.length + 1);
@@ -80,7 +100,7 @@ function syncLedger() {
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
 
       SpreadsheetApp.getActiveSpreadsheet().toast(
-        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length),
+        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length, attachments.length),
         'Ledger Sync Complete',
         10
       );
@@ -109,11 +129,12 @@ function ensureEditTriggerInstalled_() {
   }
 }
 
-function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount, commodityCount) {
+function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount, commodityCount, attachmentCount) {
   const message = [
     'Synced ' + accountCount + ' accounts, ' + commodityCount + ' commodities.',
     'Fetched ' + transactionCount + ' transactions and synced ' + transactionSyncData.rows.length + ' allocation rows.',
     'Synced ' + balanceAssertionCount + ' balance assertions.',
+    'Synced ' + (attachmentCount || 0) + ' attachments.',
   ];
 
   if (transactionSyncData.skippedCount > 0) {
@@ -187,6 +208,25 @@ function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisp
       account: accountResourceToDisplayName[assertion.account] || assertion.account,
       amount: assertion.amount.amount,
       symbol: assertion.amount.symbol,
+      issues: '',
+    };
+  });
+}
+
+function buildAttachmentSyncRows_(attachments, accountResourceToDisplayName) {
+  return attachments.map(function(attachment) {
+    let filenameCell = attachment.original_filename || '';
+    if (attachment.document_url) {
+      const url = String(attachment.document_url).replace(/"/g, '""');
+      const label = (attachment.original_filename || 'Open').replace(/"/g, '""');
+      filenameCell = '=HYPERLINK("' + url + '","' + label + '")';
+    }
+    return {
+      resource_name: attachment.name,
+      attachment_date: attachment.attachment_date,
+      account: accountResourceToDisplayName[attachment.account] || attachment.account,
+      original_filename: filenameCell,
+      status: attachment.status || '',
       issues: '',
     };
   });

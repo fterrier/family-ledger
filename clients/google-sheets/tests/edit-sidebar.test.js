@@ -44,6 +44,7 @@ test('getSidebarData (add mode) returns mode and fields with inline selection-op
   const data = sandbox.getSidebarData({ classKey: 'transactions', name: null });
 
   assert.equal(data.mode, 'simple');
+  assert.equal(data.allowModeSwitch, true);
   assert.ok(!('options' in data), 'no top-level options key');
   assert.ok(Array.isArray(data.fields));
   assert.ok(data.fields.some(function(f) { return f.type === 'date'; }));
@@ -69,6 +70,7 @@ test('getSidebarData (edit, 2-posting) returns simple mode with classified field
   const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' });
 
   assert.equal(data.mode, 'simple');
+  assert.equal(data.allowModeSwitch, true);
   assert.ok(!('options' in data), 'no top-level options key');
 
   const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
@@ -103,6 +105,7 @@ test('getSidebarData (edit, 3-posting) returns advanced mode with postings field
   const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_2' });
 
   assert.equal(data.mode, 'advanced');
+  assert.equal(data.allowModeSwitch, true);
   assert.ok(!('options' in data), 'no top-level options key');
 
   const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
@@ -112,6 +115,14 @@ test('getSidebarData (edit, 3-posting) returns advanced mode with postings field
   assert.ok(Array.isArray(postingsField['account-options']));
   assert.ok(Array.isArray(postingsField['commodity-options']));
   assert.equal(postingsField['commodity-options'].length, 1);
+});
+
+test('getSidebarData for non-Transaction entity does not set allowModeSwitch', () => {
+  const { sandbox } = loadCode();
+
+  const data = sandbox.getSidebarData({ classKey: 'accounts', name: null });
+
+  assert.ok(!data.allowModeSwitch, 'allowModeSwitch should be falsy for Account');
 });
 
 // --- submitEntity ---

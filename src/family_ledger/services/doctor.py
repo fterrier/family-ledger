@@ -12,7 +12,7 @@ from family_ledger.api.schemas import (
     DoctorLedgerRequest,
     DoctorLedgerResponse,
 )
-from family_ledger.models import Account, BalanceAssertion, Posting, Transaction
+from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Transaction
 from family_ledger.services import attachments as attachment_service
 from family_ledger.services.account_balance import compute_balance_assertion_diffs
 from family_ledger.services.booking import BookingMethod, BookingReplay, LotKey, TransactionLotDelta
@@ -88,6 +88,33 @@ def build_account_not_effective_issues(
     return issues
 
 
+def build_unknown_commodity_issues(
+    transactions: Sequence[Transaction],
+    known_symbols: set[str],
+) -> list[DoctorIssue]:
+    issues = []
+    for transaction in transactions:
+        unknown = sorted(
+            {
+                symbol
+                for posting in transaction.postings
+                for symbol in (posting.units_symbol, posting.cost_symbol, posting.price_symbol)
+                if symbol is not None and symbol not in known_symbols
+            }
+        )
+        if unknown:
+            issues.append(
+                DoctorIssue(
+                    target=transaction.name,
+                    code="unknown_commodity",
+                    severity="error",
+                    message="Transaction references commodities that do not exist.",
+                    details={"symbols": ", ".join(unknown)},
+                )
+            )
+    return issues
+
+
 def build_lot_match_missing_issues(
     transactions: Sequence[Transaction],
     booking_method: BookingMethod = BookingMethod.FIFO,
@@ -138,6 +165,7 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
 def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
     del request
     transactions = _load_transactions_for_doctor(session)
+    known_symbols: set[str] = set(session.scalars(select(Commodity.symbol)))
     balance_assertion_diffs = compute_balance_assertion_diffs(
         transactions, _load_balance_assertions_for_doctor(session)
     )
@@ -148,6 +176,7 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
             for issue in build_transaction_unbalanced_issues(transaction)
         ],
         *build_account_not_effective_issues(transactions),
+        *build_unknown_commodity_issues(transactions, known_symbols),
         *build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
         *[
             DoctorIssue(

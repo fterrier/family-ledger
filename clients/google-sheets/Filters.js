@@ -23,9 +23,10 @@ function getTransactionFilterYears() {
   managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions)
     .getRows({ start: 2, count }, ['transaction_date'])
     .forEach(function(row) {
-      const v = row.transaction_date;
-      if (v instanceof Date && !isNaN(v.getTime())) {
-        seen[v.getFullYear()] = true;
+      const v = String(row.transaction_date || '').trim();
+      if (v.length >= 4) {
+        const year = parseInt(v.slice(0, 4), 10);
+        if (!isNaN(year)) seen[year] = true;
       }
     });
   return Object.keys(seen).map(Number).sort(function(a, b) { return b - a; });

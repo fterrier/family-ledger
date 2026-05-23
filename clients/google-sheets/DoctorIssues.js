@@ -147,7 +147,10 @@ function refreshDoctorIssueSheets_(accountResourceToDisplayName) {
 function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountResourceToDisplayName) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
-  const sortedTargets = Object.keys(issuesByTarget);
+  // Sort alphabetically by resource name so the Issues sheet has a stable, consistent order.
+  // The VLOOKUP formulas on entity sheets depend on this; the Issues sheet data must not change
+  // row positions between syncs or formula results become stale until manually re-triggered.
+  const sortedTargets = Object.keys(issuesByTarget).sort();
   const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountResourceToDisplayName);
   const sheetByName = {};
   const dataRows = sortedTargets.map(function(target, index) {

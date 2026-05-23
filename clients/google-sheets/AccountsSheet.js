@@ -59,7 +59,7 @@ function buildAccountValidationRule_() {
   const lastRow = accountsSheet.getLastRow();
   if (lastRow <= 1) return null;
   const accConfig = FAMILY_LEDGER_SHEET_REGISTRY.accounts;
-  const today = normalizeEntityDate_(new Date());
+  const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
   const activeNames = managedSheet_(accountsSheet, accConfig)
     .getRows({ start: 2, count: lastRow - 1 }, ['account_name', 'effective_start_date', 'effective_end_date'])
     .filter(function(row) {

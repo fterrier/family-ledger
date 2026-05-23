@@ -320,10 +320,10 @@ test('buildTransactionPatchPayload_ rebuilds canonical PATCH payload in sheet ro
   });
 });
 
-test('buildTransactionPatchPayload_ normalizes Sheets date objects to yyyy-mm-dd', () => {
+test('buildTransactionPatchPayload_ passes string transaction_date through unchanged', () => {
   const { sandbox } = loadCode();
   const payload = sandbox.buildTransactionPatchPayload_([{
-    resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: new Date('2019-09-15T22:00:00.000Z'),
+    resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2019-09-15',
     payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking',
     destination_account_name: '[X] Food', amount: 84.25, symbol: 'CHF', __rowNumber: 2,
   }], {

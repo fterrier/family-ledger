@@ -163,6 +163,7 @@ function loadCode(overrides = {}) {
           getSheetByName(name) {
             return (overrides.sheetsByName || {})[name] || null;
           },
+          getSpreadsheetTimeZone() { return 'UTC'; },
           insertSheet(name) {
             return {
               getName() { return name; },
@@ -264,11 +265,20 @@ function loadCode(overrides = {}) {
       },
     },
     Utilities: {
-      formatDate(value) {
-        return value.toISOString().slice(0, 10);
+      formatDate(value, timezone, _format) {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: timezone || 'UTC',
+          year: 'numeric', month: '2-digit', day: '2-digit',
+        }).formatToParts(value);
+        const get = (type) => parts.find((p) => p.type === type).value;
+        return get('year') + '-' + get('month') + '-' + get('day');
       },
       sleep(_ms) {},
       ...overrides.Utilities,
+    },
+    Session: {
+      getScriptTimeZone() { return 'UTC'; },
+      ...overrides.Session,
     },
     HtmlService: {
       createHtmlOutputFromFile() {
@@ -334,6 +344,9 @@ function makeRowStoreSheet_(sandbox, rowStore, operations, sheetName = 'Transact
             values.push(rowValues);
           }
           return values;
+        },
+        getDisplayValues() {
+          return this.getValues();
         },
         setValues(valueRows) {
           valueRows.forEach((valueRow, rowIndex) => {
@@ -470,6 +483,9 @@ function makeFakeSheet_(getValuesFn) {
   function makeRange(row, col, numRows, numCols) {
     return {
       getValues() {
+        return getValuesFn ? getValuesFn(row, col, numRows, numCols) : [];
+      },
+      getDisplayValues() {
         return getValuesFn ? getValuesFn(row, col, numRows, numCols) : [];
       },
       setValues(values) {

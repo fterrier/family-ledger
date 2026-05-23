@@ -227,12 +227,7 @@ test('ensureSheetFilter_ (accounts) snapshots and restores existing criteria uni
 });
 
 test('getTransactionFilterYears returns unique years from transaction dates in descending order', () => {
-  const dates = [
-    new Date(Date.UTC(2024, 0, 15)),
-    new Date(Date.UTC(2026, 2, 20)),
-    new Date(Date.UTC(2024, 5, 10)),
-    new Date(Date.UTC(2025, 11, 31)),
-  ];
+  const dates = ['2024-01-15', '2026-03-20', '2024-06-10', '2025-12-31'];
   const { sandbox } = loadCode({
     sheetsByName: {
       Transactions: {
@@ -240,6 +235,7 @@ test('getTransactionFilterYears returns unique years from transaction dates in d
         getRange(_row, _col, numRows) {
           return {
             getValues() { return dates.slice(0, numRows).map((d) => [d]); },
+            getDisplayValues() { return dates.slice(0, numRows).map((d) => [d]); },
           };
         },
       },
@@ -336,7 +332,10 @@ test('getTransactionAccountNames returns sorted display names from Accounts shee
         getLastRow() { return 4; },
         getRange(_row, _col, numRows) {
           const rows = [['[X] Food - Groceries'], ['[A] Bank - Checking'], ['[X] Housing']];
-          return { getValues() { return rows.slice(0, numRows); } };
+          return {
+            getValues() { return rows.slice(0, numRows); },
+            getDisplayValues() { return rows.slice(0, numRows); },
+          };
         },
       },
     },
@@ -650,19 +649,26 @@ test('clearQuickFilter removes date and account criteria from all sheets', () =>
 });
 
 test('getQuickFilterSidebarData returns combined years, account names, and persisted filter state', () => {
-  const dates = [new Date(Date.UTC(2025, 5, 1))];
   const { sandbox, documentProperties } = loadCode({
     sheetsByName: {
       Transactions: {
         getLastRow() { return 2; },
         getRange(_row, _col, numRows) {
-          return { getValues() { return dates.slice(0, numRows).map((d) => [d]); } };
+          const dates = [['2025-06-01']];
+          return {
+            getValues() { return dates.slice(0, numRows); },
+            getDisplayValues() { return dates.slice(0, numRows); },
+          };
         },
       },
       Accounts: {
         getLastRow() { return 2; },
         getRange(_row, _col, numRows) {
-          return { getValues() { return [['[X] Food']].slice(0, numRows); } };
+          const rows = [['[X] Food']];
+          return {
+            getValues() { return rows.slice(0, numRows); },
+            getDisplayValues() { return rows.slice(0, numRows); },
+          };
         },
       },
     },

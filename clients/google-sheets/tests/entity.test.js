@@ -7,6 +7,16 @@ function getTransaction(sandbox) {
   return sandbox.ENTITY_REGISTRY['Transactions'];
 }
 
+// --- normalizeEntityDate_ ---
+
+test('normalizeEntityDate_ passes strings through unchanged', () => {
+  const { sandbox } = loadCode();
+
+  assert.equal(sandbox.normalizeEntityDate_('2026-05-22'), '2026-05-22');
+  assert.equal(sandbox.normalizeEntityDate_(''), '');
+  assert.equal(sandbox.normalizeEntityDate_(null), '');
+});
+
 // --- beginSaveGeneration_ / isCurrentSaveGeneration_ ---
 
 test('beginSaveGeneration_ returns incrementing string values', () => {

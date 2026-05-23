@@ -129,11 +129,11 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
   // setValuesCalls[0] = header row; setValuesCalls[1] = data rows
   const dataCall = setValuesCalls.find(function(c) { return c.row === 2 && c.col === 1; });
   assert.ok(dataCall, 'data rows must be written to Issues sheet');
-  // rows preserve server insertion order (transactions/txn_1 was inserted first)
-  assert.equal(dataCall.values[0][0], 'transactions/txn_1'); // column A: target
-  assert.equal(dataCall.values[0][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
-  assert.equal(dataCall.values[1][0], 'accounts/food');     // column A: target
-  assert.equal(dataCall.values[1][3], 'Account needs attention. (severity warning)');   // column D: issues_text
+  // rows are sorted alphabetically by resource name (stable order required for VLOOKUP)
+  assert.equal(dataCall.values[0][0], 'accounts/food');        // column A: target
+  assert.equal(dataCall.values[0][3], 'Account needs attention. (severity warning)');   // column D: issues_text
+  assert.equal(dataCall.values[1][0], 'transactions/txn_1');   // column A: target
+  assert.equal(dataCall.values[1][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
 });
 
 test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column of target sheet', () => {
@@ -174,9 +174,9 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
   );
 
   const dataCall = setValuesCalls.find(function(c) { return c.row === 2; });
-  // rows preserve server insertion order: transactions/txn_1 first, then balanceAssertions/bal_1
-  const txNavigate = dataCall.values[0][1]; // column B (navigate)
-  const balNavigate = dataCall.values[1][1];
+  // rows are sorted alphabetically: balanceAssertions/bal_1 before transactions/txn_1
+  const balNavigate = dataCall.values[0][1]; // column B (navigate)
+  const txNavigate = dataCall.values[1][1];
 
   // Transactions: resource_name is column B ($B:$B), first visible is column A (edit)
   assert.ok(txNavigate.includes('$B:$B'), 'transaction MATCH should search resource_name column B');

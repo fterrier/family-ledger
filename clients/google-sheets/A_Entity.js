@@ -1,7 +1,4 @@
 function normalizeEntityDate_(value) {
-  if (Object.prototype.toString.call(value) === '[object Date]') {
-    return Utilities.formatDate(value, 'UTC', 'yyyy-MM-dd');
-  }
   return String(value || '').trim();
 }
 

@@ -40,9 +40,13 @@ test('refreshAccountValidation_ applies account dropdown to validation:account c
     getRange(row, column, numRows, numCols) {
       return {
         getValues() {
-          // Accounts sheet columns 3-5: account_name, effective_start_date, effective_end_date
           return Array.from({ length: numRows }, function() {
-            return ['Assets:Bank:Checking', new Date('2020-01-01'), ''];
+            return ['Assets:Bank:Checking', '2020-01-01', ''];
+          });
+        },
+        getDisplayValues() {
+          return Array.from({ length: numRows }, function() {
+            return ['Assets:Bank:Checking', '2020-01-01', ''];
           });
         },
         row, column, numRows, numCols,
@@ -113,6 +117,12 @@ test('refreshAccountValidation_ clears validation when no accounts exist', () =>
   ]);
 });
 
+function toDateString_(v) {
+  if (!v) return '';
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  return String(v);
+}
+
 function makeDateFilterAccountsSheet(rows) {
   return {
     getLastRow() { return rows.length + 1; },
@@ -120,6 +130,11 @@ function makeDateFilterAccountsSheet(rows) {
       return {
         getValues() {
           return rows.slice(row - 2, row - 2 + numRows).map(function(r) { return [r[0], r[1], r[2]]; });
+        },
+        getDisplayValues() {
+          return rows.slice(row - 2, row - 2 + numRows).map(function(r) {
+            return [r[0], toDateString_(r[1]), toDateString_(r[2])];
+          });
         },
       };
     },

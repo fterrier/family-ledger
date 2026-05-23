@@ -169,32 +169,39 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
     balance_assertion_diffs = compute_balance_assertion_diffs(
         transactions, _load_balance_assertions_for_doctor(session)
     )
-    issues = [
-        *[
-            issue
-            for transaction in transactions
-            for issue in build_transaction_unbalanced_issues(transaction)
-        ],
+
+    # Build transaction-scoped issues in batch (existing functions unchanged).
+    tx_issues: dict[str, list[DoctorIssue]] = {}
+    for iss in [
+        *[iss for tx in transactions for iss in build_transaction_unbalanced_issues(tx)],
         *build_account_not_effective_issues(transactions),
         *build_unknown_commodity_issues(transactions, known_symbols),
         *build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
-        *[
-            DoctorIssue(
-                target=diff.balance_assertion,
-                code="balance_assertion_failed",
-                severity="error",
-                message="Balance assertion not satisfied.",
-                details={
-                    "symbol": diff.symbol,
-                    "asserted_amount": decimal_to_string(diff.expected),
-                    "actual_amount": decimal_to_string(diff.actual),
-                    "diff": decimal_to_string(diff.diff),
-                    "tolerance": decimal_to_string(resolve_tolerance(diff.symbol)),
-                },
-            )
-            for diff in balance_assertion_diffs
-            if abs(diff.diff) > resolve_tolerance(diff.symbol)
-        ],
-        *attachment_service.build_attachment_doctor_issues(session),
-    ]
+    ]:
+        if iss.target is not None:
+            tx_issues.setdefault(iss.target, []).append(iss)
+
+    # Emit per-transaction in (date, name) order so the Issues sheet sorts like the API.
+    issues: list[DoctorIssue] = []
+    for transaction in transactions:
+        issues.extend(tx_issues.get(transaction.name, []))
+
+    issues.extend(
+        DoctorIssue(
+            target=diff.balance_assertion,
+            code="balance_assertion_failed",
+            severity="error",
+            message="Balance assertion not satisfied.",
+            details={
+                "symbol": diff.symbol,
+                "asserted_amount": decimal_to_string(diff.expected),
+                "actual_amount": decimal_to_string(diff.actual),
+                "diff": decimal_to_string(diff.diff),
+                "tolerance": decimal_to_string(resolve_tolerance(diff.symbol)),
+            },
+        )
+        for diff in balance_assertion_diffs
+        if abs(diff.diff) > resolve_tolerance(diff.symbol)
+    )
+    issues.extend(attachment_service.build_attachment_doctor_issues(session))
     return DoctorLedgerResponse(issues=issues)

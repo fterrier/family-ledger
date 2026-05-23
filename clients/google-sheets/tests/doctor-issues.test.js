@@ -129,11 +129,11 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
   // setValuesCalls[0] = header row; setValuesCalls[1] = data rows
   const dataCall = setValuesCalls.find(function(c) { return c.row === 2 && c.col === 1; });
   assert.ok(dataCall, 'data rows must be written to Issues sheet');
-  // rows are sorted alphabetically by target
-  assert.equal(dataCall.values[0][0], 'accounts/food');     // column A: target
-  assert.equal(dataCall.values[0][3], 'Account needs attention. (severity warning)');   // column D: issues_text
-  assert.equal(dataCall.values[1][0], 'transactions/txn_1'); // column A: target
-  assert.equal(dataCall.values[1][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
+  // rows preserve server insertion order (transactions/txn_1 was inserted first)
+  assert.equal(dataCall.values[0][0], 'transactions/txn_1'); // column A: target
+  assert.equal(dataCall.values[0][3], 'Transaction is not balanced within tolerance. (residual_amount -4.25, symbol CHF, tolerance_amount 0.005)'); // column D: issues_text
+  assert.equal(dataCall.values[1][0], 'accounts/food');     // column A: target
+  assert.equal(dataCall.values[1][3], 'Account needs attention. (severity warning)');   // column D: issues_text
 });
 
 test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column of target sheet', () => {
@@ -174,19 +174,19 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
   );
 
   const dataCall = setValuesCalls.find(function(c) { return c.row === 2; });
-  // rows sorted: balanceAssertions/bal_1, then transactions/txn_1
-  const balNavigate = dataCall.values[0][1]; // column B (navigate)
-  const txNavigate = dataCall.values[1][1];
-
-  // Balances: resource_name is column B ($B:$B), first visible is column A (edit)
-  assert.ok(balNavigate.includes('$B:$B'), 'balance MATCH should search resource_name column B');
-  assert.ok(balNavigate.includes('range=A'), 'balance link should navigate to first visible column A');
-  assert.ok(balNavigate.includes('gid=43'), 'balance link should use balances sheet gid');
+  // rows preserve server insertion order: transactions/txn_1 first, then balanceAssertions/bal_1
+  const txNavigate = dataCall.values[0][1]; // column B (navigate)
+  const balNavigate = dataCall.values[1][1];
 
   // Transactions: resource_name is column B ($B:$B), first visible is column A (edit)
   assert.ok(txNavigate.includes('$B:$B'), 'transaction MATCH should search resource_name column B');
   assert.ok(txNavigate.includes('range=A'), 'transaction link should navigate to first visible column A');
   assert.ok(txNavigate.includes('gid=42'), 'transaction link should use transactions sheet gid');
+
+  // Balances: resource_name is column B ($B:$B), first visible is column A (edit)
+  assert.ok(balNavigate.includes('$B:$B'), 'balance MATCH should search resource_name column B');
+  assert.ok(balNavigate.includes('range=A'), 'balance link should navigate to first visible column A');
+  assert.ok(balNavigate.includes('gid=43'), 'balance link should use balances sheet gid');
 });
 
 test('refreshDoctorIssueSheets_ groups fetched issues by target and passes them to write', () => {

@@ -147,7 +147,7 @@ function refreshDoctorIssueSheets_(accountResourceToDisplayName) {
 function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountResourceToDisplayName) {
   const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
   const issueSheet = resolveSheet(FAMILY_LEDGER_SHEET_NAMES.issues);
-  const sortedTargets = Object.keys(issuesByTarget).sort();
+  const sortedTargets = Object.keys(issuesByTarget);
   const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountResourceToDisplayName);
   const sheetByName = {};
   const dataRows = sortedTargets.map(function(target, index) {

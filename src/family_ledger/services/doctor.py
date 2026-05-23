@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from decimal import Decimal
+from itertools import chain
 from typing import cast
 
 from sqlalchemy import select
@@ -170,18 +171,17 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
         transactions, _load_balance_assertions_for_doctor(session)
     )
 
-    # Build transaction-scoped issues in batch (existing functions unchanged).
     tx_issues: dict[str, list[DoctorIssue]] = {}
-    for iss in [
-        *[iss for tx in transactions for iss in build_transaction_unbalanced_issues(tx)],
-        *build_account_not_effective_issues(transactions),
-        *build_unknown_commodity_issues(transactions, known_symbols),
-        *build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
-    ]:
+    for iss in chain(
+        (iss for tx in transactions for iss in build_transaction_unbalanced_issues(tx)),
+        build_account_not_effective_issues(transactions),
+        build_unknown_commodity_issues(transactions, known_symbols),
+        build_lot_match_missing_issues(transactions, booking_method=BookingMethod.FIFO),
+    ):
         if iss.target is not None:
             tx_issues.setdefault(iss.target, []).append(iss)
 
-    # Emit per-transaction in (date, name) order so the Issues sheet sorts like the API.
+    # Group all issue types per transaction so the Issues sheet reflects entity date order.
     issues: list[DoctorIssue] = []
     for transaction in transactions:
         issues.extend(tx_issues.get(transaction.name, []))
@@ -197,11 +197,12 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
                 "asserted_amount": decimal_to_string(diff.expected),
                 "actual_amount": decimal_to_string(diff.actual),
                 "diff": decimal_to_string(diff.diff),
-                "tolerance": decimal_to_string(resolve_tolerance(diff.symbol)),
+                "tolerance": decimal_to_string(tolerance),
             },
         )
         for diff in balance_assertion_diffs
-        if abs(diff.diff) > resolve_tolerance(diff.symbol)
+        for tolerance in [resolve_tolerance(diff.symbol)]
+        if abs(diff.diff) > tolerance
     )
     issues.extend(attachment_service.build_attachment_doctor_issues(session))
     return DoctorLedgerResponse(issues=issues)

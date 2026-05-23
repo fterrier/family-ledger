@@ -2,27 +2,22 @@ function includeHtml_(filename) {
   return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
-// Menu entry point — opens the Add Transaction sidebar.
 function showAddTransaction() {
   showEditSidebar_('transactions', null, null);
 }
 
-// Menu entry point — opens the Add Balance Assertion sidebar.
 function showAddBalanceAssertion() {
   showEditSidebar_('balances', null, null);
 }
 
-// Menu entry point — opens the Add Account sidebar.
 function showAddAccount() {
   showEditSidebar_('accounts', null, null);
 }
 
-// Menu entry point — opens the Add Commodity sidebar.
 function showAddCommodity() {
   showEditSidebar_('commodities', null, null);
 }
 
-// Menu entry point — opens the Add Attachment sidebar.
 function showAddAttachment() {
   showEditSidebar_('attachments', null, null);
 }

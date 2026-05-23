@@ -215,12 +215,7 @@ function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisp
 
 function buildAttachmentSyncRows_(attachments, accountResourceToDisplayName) {
   return attachments.map(function(attachment) {
-    let filenameCell = attachment.original_filename || '';
-    if (attachment.document_url) {
-      const url = String(attachment.document_url).replace(/"/g, '""');
-      const label = (attachment.original_filename || 'Open').replace(/"/g, '""');
-      filenameCell = '=HYPERLINK("' + url + '","' + label + '")';
-    }
+    const filenameCell = buildAttachmentFilenameCell_(attachment.document_url, attachment.original_filename);
     return {
       resource_name: attachment.name,
       attachment_date: attachment.attachment_date,

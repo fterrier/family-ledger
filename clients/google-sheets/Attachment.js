@@ -1,3 +1,10 @@
+function buildAttachmentFilenameCell_(document_url, original_filename) {
+  if (!document_url) return original_filename || '';
+  const url = String(document_url).replace(/"/g, '""');
+  const label = (original_filename || 'Open').replace(/"/g, '""');
+  return '=HYPERLINK("' + url + '","' + label + '")';
+}
+
 class Attachment extends Entity {
   constructor(api, context) {
     super();
@@ -10,12 +17,7 @@ class Attachment extends Entity {
 
   toRows_() {
     const displayName = (this._context.accountResourceToDisplayName || {})[this._api.account] || this._api.account || '';
-    let filenameCell = this._api.original_filename || '';
-    if (this._api.document_url) {
-      const url = String(this._api.document_url).replace(/"/g, '""');
-      const label = (this._api.original_filename || 'Open').replace(/"/g, '""');
-      filenameCell = '=HYPERLINK("' + url + '","' + label + '")';
-    }
+    const filenameCell = buildAttachmentFilenameCell_(this._api.document_url, this._api.original_filename);
     return [{
       edit: false,
       resource_name: this._api.name || '',

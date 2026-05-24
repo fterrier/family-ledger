@@ -67,9 +67,14 @@ function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
     targetSpan = resizeContiguousRows_(sheet, existingSpan, rows.length);
   }
   managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
-  refreshAccountValidation_(sheet, sheetConfig, targetSpan);
-  if (sheetConfig.issueHeader) {
-    managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
+  // Skip when row count is unchanged — existing rows already carry the correct
+  // VLOOKUP formula and validation from the prior write. Only re-apply when rows
+  // were added, removed, or this is a new entity.
+  if (!existingSpan || existingSpan.count !== rows.length) {
+    refreshAccountValidation_(sheet, sheetConfig, targetSpan);
+    if (sheetConfig.issueHeader) {
+      managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
+    }
   }
   return targetSpan;
 }

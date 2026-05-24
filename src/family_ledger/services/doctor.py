@@ -6,7 +6,7 @@ from itertools import chain
 from typing import cast
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, defer, load_only, selectinload
+from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
     DoctorIssue,
@@ -165,16 +165,7 @@ def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
         list[Transaction],
         session.scalars(
             select(Transaction)
-            .options(
-                defer(Transaction.entity_metadata),
-                selectinload(Transaction.postings).options(
-                    defer(Posting.entity_metadata),
-                    defer(Posting.narration),
-                    selectinload(Posting.account).options(
-                        defer(Account.entity_metadata),
-                    ),
-                ),
-            )
+            .options(selectinload(Transaction.postings).selectinload(Posting.account))
             .order_by(Transaction.transaction_date, Transaction.name)
         ).all(),
     )
@@ -185,12 +176,7 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
         list[BalanceAssertion],
         session.scalars(
             select(BalanceAssertion)
-            .options(
-                defer(BalanceAssertion.entity_metadata),
-                selectinload(BalanceAssertion.account).options(
-                    defer(Account.entity_metadata),
-                ),
-            )
+            .options(selectinload(BalanceAssertion.account))
             .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
         ).all(),
     )
@@ -204,18 +190,7 @@ def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
     ]
     attachments = session.scalars(
         select(Attachment)
-        .options(
-            load_only(
-                Attachment.name,
-                Attachment.account_id,
-                Attachment.attachment_date,
-                Attachment.original_filename,
-                Attachment.status,
-            ),
-            selectinload(Attachment.account).options(
-                load_only(Account.id, Account.account_name),
-            ),
-        )
+        .options(selectinload(Attachment.account))
         .where(Attachment.status.in_(reportable))
         .order_by(Attachment.attachment_date, Attachment.name)
     ).all()

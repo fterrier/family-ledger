@@ -190,10 +190,34 @@ test('applySheetDirectFormatting_ applies grouped formatting from config metadat
   const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('L1:L5'));
   const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('L1:L5'));
   const dateFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('C2:C5'));
+  const amountFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('J2:J5'));
   assert.equal(leftAlign.value, 'left');
   assert.equal(issuesWrap.value, false);
   assert.equal(issuesWrapStrategy.value, 'OVERFLOW');
   assert.equal(dateFormat.value, 'yyyy-mm-dd');
+  assert.equal(amountFormat.value, '#,##0.00');
+});
+
+test('applySheetDirectFormatting_ applies amount number format for balances sheet', () => {
+  const operations = [];
+  const { sandbox } = loadCode({ SpreadsheetApp: { WrapStrategy: { CLIP: 'CLIP', OVERFLOW: 'OVERFLOW' } } });
+  const fakeSheet = {
+    getMaxRows() { return 5; },
+    getRange() { return { setHorizontalAlignment() { return this; }, setWrap() { return this; }, setWrapStrategy() { return this; }, setNumberFormat() { return this; } }; },
+    getRangeList(notations) {
+      return {
+        setHorizontalAlignment(value) { operations.push({ type: 'rangeListAlign', notations, value }); return this; },
+        setWrap(value) { operations.push({ type: 'rangeListWrap', notations, value }); return this; },
+        setWrapStrategy(value) { operations.push({ type: 'rangeListWrapStrategy', notations, value }); return this; },
+        setNumberFormat(value) { operations.push({ type: 'rangeListNumberFormat', notations, value }); return this; },
+      };
+    },
+  };
+
+  sandbox.applySheetDirectFormatting_(fakeSheet, sandbox.getSheetConfigByName_('Balances'));
+
+  const amountFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('E2:E5'));
+  assert.equal(amountFormat.value, '#,##0.00');
 });
 
 test('ensureSheetConditionalFormatting_ keeps only issue-state background rules for transactions', () => {

@@ -134,6 +134,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'editable',
       note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
       alignment: 'right',
+      numberFormat: '#,##0.00',
     },
     split_off_amount: {
       width: 95,
@@ -190,6 +191,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'readonly',
       note: 'Read-only asserted amount.',
       alignment: 'right',
+      numberFormat: '#,##0.00',
     },
     symbol: {
       width: 55,

@@ -79,6 +79,25 @@ class _AttachmentData:
     account_name: str
 
 
+def _make_account_data(row) -> _AccountData:
+    return _AccountData(
+        id=row.account_id,
+        account_name=row.account_name,
+        effective_start_date=row.effective_start_date,
+        effective_end_date=row.effective_end_date,
+    )
+
+
+_ATTACHMENT_STATUS_INFO: dict[str, tuple[str, str]] = {
+    Attachment.STATUS_PENDING_UPLOAD: (
+        "attachment_pending_upload",
+        "Attachment has no file uploaded yet.",
+    ),
+    Attachment.STATUS_FAILED: ("attachment_storage_failed", "Attachment storage failed."),
+    Attachment.STATUS_TIMED_OUT: ("attachment_storage_timed_out", "Attachment storage timed out."),
+}
+
+
 def _transaction_target_summary(tx: Transaction) -> dict[str, str]:
     summary: dict[str, str] = {"date": tx.transaction_date.isoformat()}
     if tx.payee:
@@ -235,7 +254,6 @@ def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
     ).all()
 
     tx_map: dict[int, _TxData] = {}
-    tx_order: list[int] = []
     for row in rows:
         if row.id not in tx_map:
             tx_map[row.id] = _TxData(
@@ -245,15 +263,9 @@ def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
                 payee=row.payee,
                 narration=row.narration,
             )
-            tx_order.append(row.id)
         tx_map[row.id].postings.append(
             _PostingData(
-                account=_AccountData(
-                    id=row.account_id,
-                    account_name=row.account_name,
-                    effective_start_date=row.effective_start_date,
-                    effective_end_date=row.effective_end_date,
-                ),
+                account=_make_account_data(row),
                 units_amount=row.units_amount,
                 units_symbol=row.units_symbol,
                 cost_per_unit=row.cost_per_unit,
@@ -262,7 +274,7 @@ def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
                 price_symbol=row.price_symbol,
             )
         )
-    return cast(list[Transaction], [tx_map[i] for i in tx_order])
+    return cast(list[Transaction], list(tx_map.values()))
 
 
 def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAssertion]:
@@ -289,12 +301,7 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
                 assertion_date=row.assertion_date,
                 amount=row.amount,
                 symbol=row.symbol,
-                account=_AccountData(
-                    id=row.account_id,
-                    account_name=row.account_name,
-                    effective_start_date=row.effective_start_date,
-                    effective_end_date=row.effective_end_date,
-                ),
+                account=_make_account_data(row),
             )
             for row in rows
         ],
@@ -332,15 +339,7 @@ def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
     ]
     issues: list[DoctorIssue] = []
     for attachment in attachments:
-        if attachment.status == Attachment.STATUS_PENDING_UPLOAD:
-            code = "attachment_pending_upload"
-            message = "Attachment has no file uploaded yet."
-        elif attachment.status == Attachment.STATUS_FAILED:
-            code = "attachment_storage_failed"
-            message = "Attachment storage failed."
-        else:
-            code = "attachment_storage_timed_out"
-            message = "Attachment storage timed out."
+        code, message = _ATTACHMENT_STATUS_INFO[attachment.status]
         issues.append(
             DoctorIssue(
                 target=attachment.name,

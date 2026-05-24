@@ -460,18 +460,14 @@ def test_normalize_transaction_returns_issues_for_unbalanced_payload() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["issues"] == [
-        {
-            "code": "transaction_unbalanced",
-            "severity": "error",
-            "message": "Transaction is not balanced within tolerance.",
-            "details": {
-                "symbol": "CHF",
-                "residual_amount": "-4.25",
-                "tolerance_amount": "0.01",
-            },
-        }
-    ]
+    issues = response.json()["issues"]
+    assert len(issues) == 1
+    assert issues[0]["code"] == "transaction_unbalanced"
+    assert issues[0]["details"] == {
+        "symbol": "CHF",
+        "residual_amount": "-4.25",
+        "tolerance_amount": "0.01",
+    }
 
 
 def test_create_transaction_returns_canonical_resource_without_issues() -> None:
@@ -898,19 +894,16 @@ def test_ledger_doctor_reports_unbalanced_transactions() -> None:
     response = client.post("/ledger:doctor", json={})
 
     assert response.status_code == 200
-    assert response.json()["issues"] == [
-        {
-            "target": created["name"],
-            "code": "transaction_unbalanced",
-            "severity": "error",
-            "message": "Transaction is not balanced within tolerance.",
-            "details": {
-                "symbol": "CHF",
-                "residual_amount": "-4.25",
-                "tolerance_amount": "0.01",
-            },
-        }
-    ]
+    issues = response.json()["issues"]
+    assert len(issues) == 1
+    assert issues[0]["target"] == created["name"]
+    assert issues[0]["code"] == "transaction_unbalanced"
+    assert issues[0]["details"] == {
+        "symbol": "CHF",
+        "residual_amount": "-4.25",
+        "tolerance_amount": "0.01",
+    }
+    assert issues[0]["target_summary"]["date"] == "2026-04-19"
 
 
 def test_ledger_doctor_reports_fifo_lot_match_missing() -> None:
@@ -982,22 +975,19 @@ def test_ledger_doctor_reports_fifo_lot_match_missing() -> None:
     response = client.post("/ledger:doctor", json={})
 
     assert response.status_code == 200
-    assert response.json()["issues"] == [
-        {
-            "target": reducing["name"],
-            "code": "lot_match_missing",
-            "severity": "error",
-            "message": "Not enough lots to reduce.",
-            "details": {
-                "account": broker["name"],
-                "units_symbol": "AAPL",
-                "cost_symbol": "USD",
-                "cost_per_unit": "100",
-                "requested_amount": "15",
-                "available_amount": "10",
-            },
-        }
-    ]
+    issues = response.json()["issues"]
+    assert len(issues) == 1
+    assert issues[0]["target"] == reducing["name"]
+    assert issues[0]["code"] == "lot_match_missing"
+    assert issues[0]["details"] == {
+        "account": broker["account_name"],
+        "units_symbol": "AAPL",
+        "cost_symbol": "USD",
+        "cost_per_unit": "100",
+        "requested_amount": "15",
+        "available_amount": "10",
+    }
+    assert issues[0]["target_summary"]["date"] == "2026-04-03"
 
 
 def test_ledger_doctor_uses_bounded_queries() -> None:

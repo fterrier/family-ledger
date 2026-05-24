@@ -67,63 +67,30 @@ function getDoctorTargetConfigForTarget_(target) {
   return null;
 }
 
-function buildNavigateLabelLookup_(spreadsheet, neededTargets, accountResourceToDisplayName) {
-  const lookup = {};
-  const targetSet = {};
-  neededTargets.forEach(function(t) { targetSet[t] = true; });
-
-  let txNeededCount = 0;
-  neededTargets.forEach(function(t) { if (t.indexOf('transactions/') === 0) txNeededCount++; });
-  if (txNeededCount > 0) {
-    const txSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.transactions);
-    if (txSheet) {
-      const lastTxRow = txSheet.getLastRow();
-      if (lastTxRow > 1) {
-        const txConfig = FAMILY_LEDGER_SHEET_REGISTRY.transactions;
-        const seen = {};
-        managedSheet_(txSheet, txConfig)
-          .getRows({ start: 2, count: lastTxRow - 1 }, ['resource_name', 'transaction_date', 'payee'])
-          .forEach(function(row) {
-            const name = String(row.resource_name || '');
-            if (name && targetSet[name] && !seen[name]) {
-              seen[name] = true;
-              const parts = ['Transaction'];
-              if (row.transaction_date) { parts.push(normalizeEntityDate_(row.transaction_date)); }
-              if (row.payee) { parts.push(row.payee); }
-              lookup[name] = parts.join(' ');
-            }
-          });
-      }
-    }
+function buildNavigateLabel_(target, targetSummary, accountResourceToDisplayName) {
+  const s = targetSummary || {};
+  if (target.indexOf('accounts/') === 0) {
+    return 'Account ' + (accountResourceToDisplayName[target] || target.split('/').slice(1).join('/'));
   }
-
-  Object.keys(accountResourceToDisplayName).forEach(function(resourceName) {
-    if (targetSet[resourceName]) {
-      const displayName = accountResourceToDisplayName[resourceName];
-      lookup[resourceName] = displayName ? 'Account ' + displayName : 'Account';
-    }
-  });
-
-  const balSheet = spreadsheet.getSheetByName(FAMILY_LEDGER_SHEET_NAMES.balances);
-  if (balSheet) {
-    const lastBalRow = balSheet.getLastRow();
-    if (lastBalRow > 1) {
-      const balConfig = FAMILY_LEDGER_SHEET_REGISTRY.balances;
-      managedSheet_(balSheet, balConfig)
-        .getRows({ start: 2, count: lastBalRow - 1 }, ['resource_name', 'assertion_date', 'account'])
-        .forEach(function(row) {
-          const resourceName = row.resource_name;
-          if (resourceName && targetSet[resourceName]) {
-            const parts = ['Balance'];
-            if (row.assertion_date) { parts.push(normalizeEntityDate_(row.assertion_date)); }
-            if (row.account) { parts.push(row.account); }
-            lookup[resourceName] = parts.join(' ');
-          }
-        });
-    }
+  if (target.indexOf('transactions/') === 0) {
+    const parts = ['Transaction'];
+    if (s.date) parts.push(s.date);
+    if (s.payee) parts.push(s.payee);
+    return parts.join(' ');
   }
-
-  return lookup;
+  if (target.indexOf('balanceAssertions/') === 0) {
+    const parts = ['Balance'];
+    if (s.date) parts.push(s.date);
+    if (s.account) parts.push(s.account);
+    return parts.join(' ');
+  }
+  if (target.indexOf('attachments/') === 0) {
+    const parts = ['Attachment'];
+    if (s.date) parts.push(s.date);
+    if (s.account) parts.push(s.account);
+    return parts.join(' ');
+  }
+  return target;
 }
 
 function buildNavigateFormula_(labelText, visibleSheetName, visibleSheetGid, rowNumber, resourceNameCol, navigateCol) {
@@ -151,13 +118,13 @@ function writeFetchedDoctorIssueSheets_(issuesByTarget, resolveSheet, accountRes
   // The VLOOKUP formulas on entity sheets depend on this; the Issues sheet data must not change
   // row positions between syncs or formula results become stale until manually re-triggered.
   const sortedTargets = Object.keys(issuesByTarget).sort();
-  const labelLookup = buildNavigateLabelLookup_(spreadsheet, sortedTargets, accountResourceToDisplayName);
   const sheetByName = {};
   const dataRows = sortedTargets.map(function(target, index) {
     const issues = issuesByTarget[target] || [];
     const rowNumber = index + 2;
     const registryEntry = getDoctorTargetConfigForTarget_(target);
-    const labelText = labelLookup[target] || target;
+    const targetSummary = (issues[0] || {}).target_summary || {};
+    const labelText = buildNavigateLabel_(target, targetSummary, accountResourceToDisplayName);
     let navigate = labelText;
     if (registryEntry) {
       const name = registryEntry.visibleSheetName;

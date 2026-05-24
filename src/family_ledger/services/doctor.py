@@ -30,11 +30,20 @@ from family_ledger.services.transaction_balancing import (
 )
 
 
+def _transaction_target_summary(tx: Transaction) -> dict[str, str]:
+    summary: dict[str, str] = {"date": tx.transaction_date.isoformat()}
+    if tx.payee:
+        summary["payee"] = tx.payee
+    if tx.narration:
+        summary["narration"] = tx.narration
+    return summary
+
+
 def lot_key_for_posting(posting: Posting) -> LotKey | None:
     if posting.cost_per_unit is None or posting.cost_symbol is None:
         return None
     return LotKey(
-        account=posting.account.name,
+        account=posting.account.account_name,
         units_symbol=posting.units_symbol,
         cost_symbol=posting.cost_symbol,
         cost_per_unit=posting.cost_per_unit,
@@ -86,6 +95,7 @@ def build_account_not_effective_issues(
             issues.append(
                 DoctorIssue(
                     target=transaction.name,
+                    target_summary=_transaction_target_summary(transaction),
                     code="account_not_effective",
                     severity="error",
                     message="Transaction references accounts not effective on its date.",
@@ -113,6 +123,7 @@ def build_unknown_commodity_issues(
             issues.append(
                 DoctorIssue(
                     target=transaction.name,
+                    target_summary=_transaction_target_summary(transaction),
                     code="unknown_commodity",
                     severity="error",
                     message="Transaction references commodities that do not exist.",
@@ -126,11 +137,13 @@ def build_lot_match_missing_issues(
     transactions: Sequence[Transaction],
     booking_method: BookingMethod = BookingMethod.FIFO,
 ) -> list[DoctorIssue]:
+    tx_summaries = {tx.name: _transaction_target_summary(tx) for tx in transactions}
     lot_deltas = transaction_lot_deltas(transactions)
     failures = BookingReplay(booking_method).replay(lot_deltas).failures
     return [
         DoctorIssue(
             target=failure.target,
+            target_summary=tx_summaries.get(failure.target, {}),
             code="lot_match_missing",
             severity="error",
             message="Not enough lots to reduce.",
@@ -195,14 +208,14 @@ def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
         issues.append(
             DoctorIssue(
                 target=attachment.name,
+                target_summary={
+                    "date": attachment.attachment_date.isoformat(),
+                    "account": attachment.account.account_name,
+                    "filename": attachment.original_filename,
+                },
                 code=code,
                 severity="error",
                 message=message,
-                details={
-                    "account": attachment.account.name,
-                    "attachment_date": attachment.attachment_date.isoformat(),
-                    "original_filename": attachment.original_filename,
-                },
             )
         )
     return issues
@@ -226,6 +239,10 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
                 (
                     DoctorIssue(
                         target=diff.balance_assertion,
+                        target_summary={
+                            "date": diff.assertion_date.isoformat(),
+                            "account": diff.account_name,
+                        },
                         code="balance_assertion_failed",
                         severity="error",
                         message="Balance assertion not satisfied.",

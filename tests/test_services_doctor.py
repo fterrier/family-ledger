@@ -458,3 +458,197 @@ def test_doctor_reports_attachment_storage_failures(session: Session) -> None:
     attachment_issues = [i for i in diagnosed.issues if i.code == "attachment_storage_failed"]
     assert len(attachment_issues) == 1
     assert attachment_issues[0].target == "attachments/att_failed"
+    assert attachment_issues[0].target_summary == {
+        "date": "2026-05-19",
+        "account": "Assets:Bank:Checking",
+        "filename": "failed.pdf",
+    }
+    assert attachment_issues[0].details == {}
+
+
+def test_doctor_transaction_unbalanced_target_summary_includes_payee_and_narration(
+    session: Session,
+) -> None:
+    seed_doctor_dependencies(session)
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            payee="ACME Corp",
+            narration="Monthly invoice",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-90.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("89.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "transaction_unbalanced"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert issues[0].target_summary == {
+        "date": "2026-04-01",
+        "payee": "ACME Corp",
+        "narration": "Monthly invoice",
+    }
+
+
+def test_doctor_transaction_unbalanced_target_summary_date_only_when_no_payee_narration(
+    session: Session,
+) -> None:
+    seed_doctor_dependencies(session)
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 5),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-90.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("89.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "transaction_unbalanced"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert issues[0].target_summary == {"date": "2026-04-05"}
+
+
+def test_doctor_account_not_effective_target_summary(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2026, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2025, 12, 31),
+            payee="Some Payee",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "account_not_effective"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert issues[0].target_summary == {"date": "2025-12-31", "payee": "Some Payee"}
+
+
+def test_doctor_unknown_commodity_target_summary(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Account(
+                name="accounts/acc_two",
+                account_name="Expenses:Uncategorized",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_xyz", symbol="XYZ"),
+        ]
+    )
+    session.commit()
+    tx = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 1, 1),
+            narration="Buy something",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="XYZ"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="XYZ"),
+                ),
+            ],
+        ),
+    )
+    ledger.delete_commodity(session, "commodities/cmd_xyz")
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "unknown_commodity"]
+    assert len(issues) == 1
+    assert issues[0].target == tx.name
+    assert issues[0].target_summary == {"date": "2026-01-01", "narration": "Buy something"}
+
+
+def test_doctor_balance_assertion_failed_target_summary(session: Session) -> None:
+    from family_ledger.api.schemas import BalanceAssertionCreate
+
+    seed_doctor_dependencies(session)
+    ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("750.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("-750.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    ba = ledger.create_balance_assertion(
+        session,
+        BalanceAssertionCreate(
+            assertion_date=date(2026, 4, 2),
+            account="accounts/acc_two",
+            amount=MoneyValue(amount=Decimal("1000.00"), symbol="CHF"),
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "balance_assertion_failed"]
+    assert len(issues) == 1
+    assert issues[0].target == ba.name
+    assert issues[0].target_summary == {"date": "2026-04-02", "account": "Assets:Broker:Cash"}

@@ -129,6 +129,7 @@ def test_build_transaction_unbalanced_issues_for_persisted_transaction() -> None
     assert issues == [
         balancing.DoctorIssue(
             target="transactions/txn_one",
+            target_summary={"date": "2026-04-19"},
             code="transaction_unbalanced",
             severity="error",
             message="Transaction is not balanced within tolerance.",

@@ -241,6 +241,7 @@ class DoctorIssue(BaseModel):
     severity: str
     message: str
     details: dict[str, str] = Field(default_factory=dict)
+    target_summary: dict[str, str] = Field(default_factory=dict)
 
 
 class DoctorLedgerRequest(BaseModel):

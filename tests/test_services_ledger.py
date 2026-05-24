@@ -478,6 +478,7 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
     assert diagnosed.issues == [
         DoctorIssue(
             target=unbalanced.name,
+            target_summary={"date": "2026-04-01"},
             code="transaction_unbalanced",
             severity="error",
             message="Transaction is not balanced within tolerance.",
@@ -489,11 +490,12 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
         ),
         DoctorIssue(
             target=crossing.name,
+            target_summary={"date": "2026-04-04"},
             code="lot_match_missing",
             severity="error",
             message="Not enough lots to reduce.",
             details={
-                "account": "accounts/acc_one",
+                "account": "Assets:Broker:Stocks",
                 "units_symbol": "AAPL",
                 "cost_symbol": "USD",
                 "cost_per_unit": "100",

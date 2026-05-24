@@ -92,7 +92,9 @@ def decimal_to_string(value: Decimal) -> str:
 
 
 def _build_unbalanced_issues(
-    totals: dict[str, Decimal], target: str | None = None
+    totals: dict[str, Decimal],
+    target: str | None = None,
+    target_summary: dict[str, str] | None = None,
 ) -> list[DoctorIssue]:
     issues: list[DoctorIssue] = []
     for symbol, amount in sorted(totals.items()):
@@ -102,6 +104,7 @@ def _build_unbalanced_issues(
         issues.append(
             DoctorIssue(
                 target=target,
+                target_summary=target_summary or {},
                 code="transaction_unbalanced",
                 severity="error",
                 message="Transaction is not balanced within tolerance.",
@@ -118,8 +121,13 @@ def _build_unbalanced_issues(
 def build_transaction_unbalanced_issues(
     transaction: Transaction,
 ) -> list[DoctorIssue]:
+    summary: dict[str, str] = {"date": transaction.transaction_date.isoformat()}
+    if transaction.payee:
+        summary["payee"] = transaction.payee
+    if transaction.narration:
+        summary["narration"] = transaction.narration
     totals = _accumulate_totals(persisted_posting_weight(p) for p in transaction.postings)
-    return _build_unbalanced_issues(totals, target=transaction.name)
+    return _build_unbalanced_issues(totals, target=transaction.name, target_summary=summary)
 
 
 def derive_normalize_issues(payload: TransactionData) -> list[DoctorIssue]:

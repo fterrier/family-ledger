@@ -1,13 +1,27 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from family_ledger.models import Account, Attachment, Posting, Transaction
+import pytest
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session
+
+from family_ledger.config import LedgerConfig
+from family_ledger.models import (
+    Account,
+    Attachment,
+    BalanceAssertion,
+    Commodity,
+    Posting,
+    Price,
+    Transaction,
+)
 from family_ledger.scripts.export_beancount import (
     _format_document,
     _format_transaction,
     _meta_lines,
+    export_beancount,
 )
 
 # ---------------------------------------------------------------------------
@@ -328,3 +342,240 @@ def test_format_document_escapes_quotes_in_filename() -> None:
     )
     out = _format_document(att)
     assert '\\"hello\\"' in out
+
+
+# ---------------------------------------------------------------------------
+# export_beancount — DB integration
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def export_session():
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    from family_ledger.models import Base
+
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        yield session
+
+
+_EXPORT_CONFIG = LedgerConfig.model_validate(
+    {
+        "default_currency": "CHF",
+        "default_tolerance": "0.000001",
+        "tolerance": {"CHF": "0.01"},
+        "uncategorized_accounts": [],
+    }
+)
+
+
+def test_export_beancount_emits_operating_currency_header(export_session: Session) -> None:
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+    assert 'option "operating_currency" "CHF"' in output
+
+
+def test_export_beancount_emits_commodity_directives(export_session: Session) -> None:
+    export_session.add(Commodity(name="commodities/cmd_chf", symbol="CHF"))
+    export_session.add(Commodity(name="commodities/cmd_usd", symbol="USD"))
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert "2000-01-01 commodity CHF" in output
+    assert "2000-01-01 commodity USD" in output
+
+
+def test_export_beancount_emits_open_and_close_directives(export_session: Session) -> None:
+    export_session.add(
+        Account(
+            name="accounts/acc_checking",
+            account_name="Assets:Bank:Checking",
+            effective_start_date=date(2020, 1, 1),
+        )
+    )
+    export_session.add(
+        Account(
+            name="accounts/acc_old",
+            account_name="Assets:Bank:Old",
+            effective_start_date=date(2018, 1, 1),
+            effective_end_date=date(2022, 12, 31),
+        )
+    )
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert "2020-01-01 open Assets:Bank:Checking" in output
+    assert "2018-01-01 open Assets:Bank:Old" in output
+    assert "2022-12-31 close Assets:Bank:Old" in output
+
+
+def test_export_beancount_emits_price_directives(export_session: Session) -> None:
+    export_session.add(
+        Price(
+            name="prices/p_1",
+            base_symbol="USD",
+            quote_symbol="CHF",
+            price_date=date(2026, 4, 1),
+            price_per_unit=Decimal("0.92"),
+            entity_metadata={},
+        )
+    )
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert any("price USD" in line and "CHF" in line for line in output.splitlines())
+
+
+def test_export_beancount_emits_transactions(export_session: Session) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    food = Account(
+        name="accounts/acc_food",
+        account_name="Expenses:Food",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add_all([checking, food])
+    export_session.flush()
+
+    p1 = Posting(
+        posting_order=1,
+        units_amount=Decimal("-84.25"),
+        units_symbol="CHF",
+        entity_metadata={},
+    )
+    p1.account = checking
+    p2 = Posting(
+        posting_order=2,
+        units_amount=Decimal("84.25"),
+        units_symbol="CHF",
+        entity_metadata={},
+    )
+    p2.account = food
+
+    txn = Transaction(
+        name="transactions/txn_1",
+        transaction_date=date(2026, 4, 1),
+        payee="Migros",
+        narration="Groceries",
+        source_native_id="ref-1",
+        entity_metadata={},
+    )
+    txn.postings = [p1, p2]
+    export_session.add(txn)
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert '2026-04-01 * "Migros" "Groceries"' in output
+    assert "Assets:Bank:Checking" in output
+    assert "Expenses:Food" in output
+    assert "CHF" in output
+    assert 'source_native_id: "ref-1"' in output
+
+
+def test_export_beancount_emits_balance_assertions(export_session: Session) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    ba = BalanceAssertion(
+        name="balanceAssertions/ba_1",
+        assertion_date=date(2026, 4, 30),
+        amount=Decimal("1500.00"),
+        symbol="CHF",
+        entity_metadata={},
+    )
+    ba.account = checking
+    export_session.add(ba)
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert any(
+        "balance Assets:Bank:Checking" in line and "CHF" in line for line in output.splitlines()
+    )
+
+
+def _make_attachment(
+    account: Account, *, name: str, filename: str, status: str, document_url: str | None = None
+) -> Attachment:
+    att = Attachment(
+        name=name,
+        attachment_date=date(2026, 5, 1),
+        original_filename=filename,
+        media_type="application/pdf",
+        status=status,
+        document_url=document_url,
+        storage_backend="paperless",
+        storage_deadline_at=datetime(2026, 6, 1, tzinfo=timezone.utc).replace(tzinfo=None),
+        entity_metadata={},
+        storage_metadata={},
+    )
+    att.account = account
+    return att
+
+
+def test_export_beancount_emits_document_directives_for_stored_attachments(
+    export_session: Session,
+) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    att = _make_attachment(
+        checking,
+        name="attachments/att_1",
+        filename="statement.pdf",
+        status="stored",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+    export_session.add(att)
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert '2026-05-01 document Assets:Bank:Checking "statement.pdf"' in output
+    assert "paperless.example.com" in output
+
+
+def test_export_beancount_excludes_pending_attachments(export_session: Session) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    att = _make_attachment(
+        checking,
+        name="attachments/att_pending",
+        filename="pending.pdf",
+        status="pending_upload",
+    )
+    export_session.add(att)
+    export_session.commit()
+
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+
+    assert "pending.pdf" not in output

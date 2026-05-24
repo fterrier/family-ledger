@@ -119,6 +119,28 @@ test('getImportersForDialog fetches importer resources', () => {
   assert.equal(fetchCalls[0].options.method, 'GET');
 });
 
+test('buildImportToastSummary_ summarises created entity counts', () => {
+  const { sandbox } = loadCode();
+
+  const summary = sandbox.buildImportToastSummary_({
+    entities: {
+      transaction: { created: 2 },
+      account: { created: 1 },
+    },
+  });
+
+  assert.ok(summary.includes('2 transactions created'), 'pluralises transaction count');
+  assert.ok(summary.includes('1 account created'), 'singular for account');
+});
+
+test('buildImportToastSummary_ returns fallback when no entities created', () => {
+  const { sandbox } = loadCode();
+
+  const summary = sandbox.buildImportToastSummary_({ entities: {} });
+
+  assert.equal(summary, 'No entities imported');
+});
+
 test('getAccountsForDialog maps account resources for the dialog', () => {
   const { sandbox } = loadCode();
   sandbox.fetchFamilyLedgerPagedResource_ = function(path, resourceKey) {

@@ -7,6 +7,7 @@ import pytest
 
 from family_ledger.api.schemas import (
     MoneyValue,
+    NormalizeMoneyValue,
     NormalizePriceValue,
     PostingNormalizePayload,
     TransactionNormalizeData,
@@ -152,3 +153,197 @@ def test_normalize_transaction_interpolates_missing_price_amount() -> None:
 
     assert normalized.postings[1].price is not None
     assert normalized.postings[1].price.amount == Decimal("17.50336707692307692307692308")
+
+
+def test_normalize_rejects_multiple_missing_symbols() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=NormalizeMoneyValue(amount=Decimal("100"), symbol=None),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=NormalizeMoneyValue(amount=Decimal("200"), symbol=None),
+            ),
+            PostingNormalizePayload(account="accounts/acc_three"),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "multiple_missing_symbols"
+
+
+def test_normalize_rejects_missing_units_with_cost() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=None,
+                cost=MoneyValue(amount=Decimal("100"), symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("100"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_units_with_cost_or_price"
+
+
+def test_normalize_rejects_missing_symbol_with_cost() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=NormalizeMoneyValue(amount=Decimal("5"), symbol=None),
+                cost=MoneyValue(amount=Decimal("100"), symbol="USD"),
+            ),
+            PostingNormalizePayload(account="accounts/acc_two"),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_symbol_with_cost_or_price"
+
+
+def test_normalize_rejects_missing_price_amount_with_cost() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("5"), symbol="GOOG"),
+                cost=MoneyValue(amount=Decimal("100"), symbol="USD"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(account="accounts/acc_two"),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_price_with_cost"
+
+
+def test_normalize_rejects_multiple_missing_price_amounts_for_same_symbol() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-50"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("-30"), symbol="CHF"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(account="accounts/acc_three"),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "multiple_missing_price_amounts_in_group"
+
+
+def test_normalize_rejects_ambiguous_interpolation_when_all_weights_zero() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("0"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(account="accounts/acc_two"),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "ambiguous_interpolation_symbol"
+
+
+def test_normalize_rejects_ambiguous_missing_symbol_in_multi_currency() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("-50"), symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_three",
+                units=NormalizeMoneyValue(amount=Decimal("200"), symbol=None),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "ambiguous_missing_symbol"
+
+
+def test_normalize_rejects_missing_price_amount_with_zero_units() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("0"), symbol="ESGV"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+        ],
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        normalization.normalize_transaction_payload(payload)
+
+    assert exc_info.value.code == "missing_price_with_zero_units"
+
+
+def test_normalize_infers_symbol_when_single_currency_balance() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=NormalizeMoneyValue(amount=Decimal("100"), symbol=None),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].units is not None
+    assert normalized.postings[1].units.symbol == "CHF"
+    assert normalized.postings[1].units.amount == Decimal("100")

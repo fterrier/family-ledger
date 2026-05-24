@@ -33,12 +33,14 @@ dev = [
   "httpx>=0.27,<1.0",
   "pre-commit>=4.5,<5.0",
   "pytest>=8.3,<9.0",
+  "pytest-cov>=6.0,<8.0",
   "ruff>=0.15,<1.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", ".", "importers/src"]
 testpaths = ["tests", "importers/tests"]
+addopts = "--cov=family_ledger --cov=family_ledger_importers --cov-report=term-missing --cov-fail-under=85"
 
 [tool.ruff]
 target-version = "py312"

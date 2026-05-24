@@ -41,17 +41,18 @@ Transaction fields:
 - optional `narration`
 - `entity_metadata`
 - optional unique `source_native_id`
+- optional `import_metadata` — carries `source_native_id` as an alternative input path on create/normalize; not stored as a separate column
 
 Postings belong to transactions in explicit `posting_order` and carry:
 
 - referenced account
 - units amount and symbol
 - optional narration
-- optional per-unit cost pair
-- optional per-unit price pair
+- optional per-unit cost pair (amount + symbol)
+- optional per-unit price pair (amount + symbol)
 - `entity_metadata`
 
-`source_native_id` is the minimal import lineage key used for idempotent create-or-skip imports.
+`source_native_id` is the minimal import lineage key used for idempotent create-or-skip imports. It may be supplied either directly on the transaction or inside `import_metadata`.
 
 ## Prices
 

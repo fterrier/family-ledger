@@ -11,11 +11,15 @@ The spreadsheet is not the source of truth. All writes go through the API.
 The current `Family Ledger` menu exposes:
 
 - `Quick Filter`
-- `Quick Add Transaction`
+- `Add Transaction`
+- `Add Balance Assertion`
+- `Add Account`
+- `Add Commodity`
+- `Add Attachment`
 - `Sheet Settings`
 - `Importer Settings`
 - `Import data`
-- `Developer Settings` submenu with `Sync Ledger`, `Push Active Transaction`, `Reset Sheet Layouts`, `API Settings`, and `Test Connection`
+- `Developer Settings` submenu with `Sync Ledger`, `Reset Sheet Layouts`, `API Settings`, and `Test Connection`
 
 ## Managed Sheets
 
@@ -25,6 +29,7 @@ The current `Family Ledger` menu exposes:
 - `Transactions`
 - `Balances`
 - `Commodities`
+- `Attachments`
 - `Issues`
 
 The sync path pulls canonical API data, rewrites the managed sheets, and refreshes derived doctor issues.
@@ -78,7 +83,7 @@ The client auto-saves supported edits at transaction scope.
 - doctor-derived issues appear in the visible `issues` column and trigger row highlighting
 - transient save errors use `status=error` and hidden `last_error` without doctor highlighting
 
-`Push Active Transaction` remains available as a fallback manual retry path.
+A manual retry is available by opening the edit sidebar and saving again from there.
 
 ## Quick Filter
 
@@ -90,9 +95,23 @@ Current scope:
 - account filters apply to `Transactions`, `Balances`, and `Accounts`
 - filter state is persisted in document properties
 
-## Quick Add Transaction
+## Entity CRUD Sidebars
 
-`Quick Add Transaction` is the fast path for new manual transactions.
+All managed entity types support create, edit, and delete through a shared sidebar system. The `edit` checkbox column in each sheet opens the edit sidebar for that row. The `Family Ledger` menu provides `Add ...` items for each entity type.
+
+Supported via the sidebar for all entity types:
+
+- **Accounts**: create with `account_name`, `effective_start_date`, `effective_end_date`; edit any of those fields
+- **Balance Assertions**: create and edit `assertion_date`, `account`, `amount`, `symbol`
+- **Commodities**: create with `symbol`
+- **Attachments**: create with `account`, `attachment_date`, `original_filename`, `document_url`
+- **Transactions**: create and edit (see Transactions Sheet Model below)
+
+Entity creates inject `entity_metadata: { source: "google_sheets_quick_add" }` into the API payload for provenance tracking.
+
+## Add Transaction
+
+`Add Transaction` is the fast path for new manual transactions.
 
 - simple mode targets common two-posting entry
 - advanced mode allows explicit posting lists

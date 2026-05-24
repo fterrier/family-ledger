@@ -27,6 +27,9 @@ Importer plugins define:
 
 - `display_name`
 - JSON Schema returned by `get_schema()`
+- file descriptors returned by `get_file_descriptors()`
+
+File descriptors declare what named file inputs the importer expects. Each descriptor has `name`, `label`, `description`, `accept` (list of accepted MIME types or extensions), and `required`. The default implementation returns a single descriptor named `file`. Importers that require more than one file declare multiple descriptors.
 
 The service stores only sparse persistent config values explicitly chosen by the user. Blank or absent values remain absent instead of being expanded to schema defaults in storage.
 
@@ -50,11 +53,15 @@ Current importer behavior is create-or-skip.
 - import lineage is tracked through `source_native_id`
 - the system favors idempotent re-runs over destructive sync behavior
 
+## Importer DB Row Lifecycle
+
+Importer config rows are created lazily. No rows are bootstrapped at application startup. The first `PATCH /importers/{importer}` call for a given plugin creates the row; subsequent calls update it. `GET /importers` constructs the response from the installed entry points registry and looks up stored config from the DB for each, using an empty config when no row exists yet.
+
 ## API Surface
 
-- `GET /importers`: list installed importer plugins with display name, sparse stored config, and runtime schema
-- `PATCH /importers/{importer}`: replace stored config for that importer after schema validation
-- `POST /importers/{importer}:import`: upload a file and run the importer synchronously
+- `GET /importers`: list installed importer plugins with display name, sparse stored config, runtime schema, and file descriptors
+- `PATCH /importers/{importer}`: replace stored config for that importer after schema validation; creates the DB row if absent
+- `POST /importers/{importer}:import`: upload one or more named files and run the importer synchronously
 
 ## Special Beancount Metadata Fields
 

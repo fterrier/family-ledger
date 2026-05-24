@@ -7,6 +7,7 @@ import pytest
 
 from family_ledger.config import Settings
 from family_ledger.services import paperless
+from family_ledger.services.errors import UnavailableError
 
 
 def test_upload_document_includes_configured_tag_ids(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,6 +130,257 @@ def test_settings_reject_invalid_paperless_tag_ids() -> None:
                 "paperless_tag_ids": "12, nope",
             }
         )
+
+
+def test_require_paperless_settings_raises_when_not_configured() -> None:
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless._require_paperless_settings(
+            Settings(
+                api_token="test-token",
+                paperless_base_url=None,
+                paperless_token=None,
+            )
+        )
+
+    assert exc_info.value.code == "paperless_not_configured"
+
+
+def test_upload_document_raises_on_http_status_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    def fake_post(*args, **kwargs):
+        response = httpx.Response(503)
+        raise httpx.HTTPStatusError(
+            "server error", request=httpx.Request("POST", "http://x"), response=response
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.upload_document(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            filename="f.pdf",
+            content_type="application/pdf",
+            file_data=b"data",
+            created=date(2026, 1, 1),
+            title="T",
+        )
+
+    assert exc_info.value.code == "paperless_upload_failed"
+
+
+def test_upload_document_raises_on_http_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    def fake_post(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.upload_document(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            filename="f.pdf",
+            content_type="application/pdf",
+            file_data=b"data",
+            created=date(2026, 1, 1),
+            title="T",
+        )
+
+    assert exc_info.value.code == "paperless_unreachable"
+
+
+def test_upload_document_raises_on_non_string_task_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return 42
+
+    monkeypatch.setattr(httpx, "post", lambda *args, **kwargs: FakeResponse())
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.upload_document(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            filename="f.pdf",
+            content_type="application/pdf",
+            file_data=b"data",
+            created=date(2026, 1, 1),
+            title="T",
+        )
+
+    assert exc_info.value.code == "paperless_invalid_response"
+
+
+def test_add_tags_raises_on_http_status_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    def fake_post(*args, **kwargs):
+        response = httpx.Response(503)
+        raise httpx.HTTPStatusError(
+            "server error", request=httpx.Request("POST", "http://x"), response=response
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.add_tags_to_document(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            84,
+            [12],
+        )
+
+    assert exc_info.value.code == "paperless_tagging_failed"
+
+
+def test_get_task_result_raises_on_http_status_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    def fake_get(*args, **kwargs):
+        response = httpx.Response(503)
+        raise httpx.HTTPStatusError(
+            "error", request=httpx.Request("GET", "http://x"), response=response
+        )
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.get_task_result(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            "task-abc",
+        )
+
+    assert exc_info.value.code == "paperless_task_poll_failed"
+
+
+def test_get_task_result_returns_none_for_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return []
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: FakeResponse())
+
+    result = paperless.get_task_result(
+        Settings(
+            api_token="test-token",
+            paperless_base_url="https://paperless.example.com",
+            paperless_token="tok",
+        ),
+        "task-empty",
+    )
+
+    assert result is None
+
+
+def test_get_task_result_returns_none_for_dict_body_with_empty_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return {"results": []}
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: FakeResponse())
+
+    result = paperless.get_task_result(
+        Settings(
+            api_token="test-token",
+            paperless_base_url="https://paperless.example.com",
+            paperless_token="tok",
+        ),
+        "task-empty",
+    )
+
+    assert result is None
+
+
+def test_get_task_result_raises_for_non_list_non_dict_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return "unexpected string"
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: FakeResponse())
+
+    with pytest.raises(UnavailableError) as exc_info:
+        paperless.get_task_result(
+            Settings(
+                api_token="test-token",
+                paperless_base_url="https://paperless.example.com",
+                paperless_token="tok",
+            ),
+            "task-bad",
+        )
+
+    assert exc_info.value.code == "paperless_invalid_response"
+
+
+def test_get_task_result_supports_dict_body_with_results_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return {
+                "results": [
+                    {
+                        "task_id": "task-456",
+                        "status": "success",
+                        "result_data": {"document_id": 99},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: FakeResponse())
+
+    result = paperless.get_task_result(
+        Settings(
+            api_token="test-token",
+            paperless_base_url="https://paperless.example.com",
+            paperless_token="tok",
+        ),
+        "task-456",
+    )
+
+    assert result is not None
+    assert result.status == "success"
+    assert result.document_id == 99
 
 
 def test_get_task_result_supports_legacy_list_response(monkeypatch: pytest.MonkeyPatch) -> None:

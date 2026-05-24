@@ -9,6 +9,8 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
+    AccountCreate,
+    CommodityCreate,
     DoctorIssue,
     DoctorLedgerRequest,
     ImportMetadata,
@@ -20,6 +22,7 @@ from family_ledger.models import Account, Base, Commodity
 from family_ledger.services import doctor as doctor_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import NotFoundError
+from family_ledger.services.errors import ValidationError as LedgerValidationError
 
 
 @pytest.fixture
@@ -515,3 +518,90 @@ def test_update_transaction_raises_for_missing_transaction(session: Session) -> 
         )
 
     assert exc_info.value.code == "transaction_not_found"
+
+
+def test_update_account_modifies_fields_and_returns_updated(session: Session) -> None:
+    session.add(
+        Account(
+            name="accounts/acc_one",
+            account_name="Assets:Bank:Checking",
+            effective_start_date=date(2020, 1, 1),
+        )
+    )
+    session.commit()
+
+    updated = ledger_service.update_account(
+        session,
+        "acc_one",
+        AccountCreate(
+            account_name="Assets:Bank:Savings",
+            effective_start_date=date(2021, 1, 1),
+        ),
+    )
+
+    assert updated.account_name == "Assets:Bank:Savings"
+    assert updated.effective_start_date == date(2021, 1, 1)
+    assert updated.name == "accounts/acc_one"
+
+
+def test_update_account_raises_for_missing_account(session: Session) -> None:
+    with pytest.raises(NotFoundError) as exc_info:
+        ledger_service.update_account(
+            session,
+            "acc_missing",
+            AccountCreate(
+                account_name="Assets:Bank",
+                effective_start_date=date(2020, 1, 1),
+            ),
+        )
+
+    assert exc_info.value.code == "account_not_found"
+
+
+def test_update_commodity_modifies_symbol_and_returns_updated(session: Session) -> None:
+    session.add(Commodity(name="commodities/cmd_old", symbol="OLDCHF"))
+    session.commit()
+
+    updated = ledger_service.update_commodity(
+        session,
+        "cmd_old",
+        CommodityCreate(symbol="CHF"),
+    )
+
+    assert updated.symbol == "CHF"
+    assert updated.name == "commodities/cmd_old"
+
+
+def test_update_commodity_raises_for_missing_commodity(session: Session) -> None:
+    with pytest.raises(NotFoundError) as exc_info:
+        ledger_service.update_commodity(
+            session,
+            "cmd_missing",
+            CommodityCreate(symbol="CHF"),
+        )
+
+    assert exc_info.value.code == "commodity_not_found"
+
+
+def test_normalize_page_size_raises_for_non_positive() -> None:
+    with pytest.raises(LedgerValidationError) as exc_info:
+        ledger_service.normalize_page_size(0)
+
+    assert exc_info.value.code == "invalid_page_size"
+
+
+def test_decode_page_token_raises_for_garbage() -> None:
+    with pytest.raises(LedgerValidationError) as exc_info:
+        ledger_service.decode_page_token("!!!not-base64!!!")
+
+    assert exc_info.value.code == "invalid_page_token"
+
+
+def test_decode_page_token_raises_for_negative_offset() -> None:
+    from base64 import urlsafe_b64encode
+
+    token = urlsafe_b64encode(b"-5").decode()
+    with pytest.raises(LedgerValidationError) as exc_info:
+        ledger_service.decode_page_token(token)
+
+    assert exc_info.value.code == "invalid_page_token"

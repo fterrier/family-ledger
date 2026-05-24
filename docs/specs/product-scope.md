@@ -10,12 +10,12 @@ The current implementation provides:
 
 - canonical storage for accounts, commodities, prices, transactions, postings, balance assertions, and importer configuration
 - canonical storage for account-linked attachments whose binaries are stored through an external document backend
-- authenticated FastAPI routes for ledger reads, writes, normalization, diagnostics, and imports
-- derived ledger diagnostics through `POST /ledger:doctor`
+- authenticated FastAPI routes for ledger reads, writes, updates, deletes, normalization, diagnostics, and imports (accounts, commodities, transactions, balance assertions, and attachments all support PATCH and DELETE)
+- derived ledger diagnostics through `POST /ledger:doctor` (7 check types: unbalanced, account effectiveness, unknown commodity, lot matching, balance assertion, and two attachment states)
 - on-demand pad computation through `GET /accounts/{account}:pad`
-- synchronous file import through installed importer plugins
-- deterministic full-ledger Beancount export through the `export-beancount` CLI
-- a Google Sheets client for common transaction review, categorization, splitting, and importer workflows
+- synchronous file import through installed importer plugins; importers may declare multiple named file inputs via `file_descriptors`
+- deterministic full-ledger Beancount export through the `export-beancount` CLI, including `document` directives for stored attachments
+- a Google Sheets client for transaction review, categorization, splitting, entity CRUD (accounts, balance assertions, commodities, attachments, transactions), quick filter, and importer workflows
 
 ## Compatibility Target
 

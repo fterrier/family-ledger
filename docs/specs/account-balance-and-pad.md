@@ -12,9 +12,14 @@ Doctor is a read-only reporting path.
 
 Current checks include:
 
-- unbalanced transaction issues
-- FIFO lot replay failures for cost-tracked reductions (`lot_match_missing`)
-- balance assertion failures (`balance_assertion_failed`)
+- `unbalanced_transaction`: posting amounts do not sum to zero within tolerance
+- `account_not_effective`: a posting references an account outside its effective date range
+- `unknown_commodity`: a posting references a symbol not present in the commodities table
+- `lot_match_missing`: FIFO lot replay fails to find enough lots for a cost-tracked reduction
+- `balance_assertion_failed`: running balance does not match a stored balance assertion within tolerance
+- `attachment_pending_upload`: attachment record has no file uploaded yet
+- `attachment_storage_failed`: external backend reported terminal failure
+- `attachment_storage_timed_out`: ingestion did not complete before the deadline
 
 Doctor issues are derived diagnostics. They do not mutate ledger state.
 

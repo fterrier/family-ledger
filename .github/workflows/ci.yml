@@ -30,6 +30,21 @@ jobs:
       - name: Run tests
         run: uv run pytest
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: clients/google-sheets/package-lock.json
+
+      - name: Install JS dependencies
+        working-directory: clients/google-sheets
+        run: npm ci
+
+      - name: Run Google Sheets client tests
+        working-directory: clients/google-sheets
+        run: npm test
+
   docker-smoke:
     runs-on: ubuntu-latest
     needs: test

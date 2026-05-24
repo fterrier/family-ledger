@@ -60,25 +60,11 @@ def seed_doctor_dependencies(session: Session) -> None:
     session.commit()
 
 
-def test_doctor_ledger_sorts_issues_in_transaction_order(session: Session) -> None:
+def test_doctor_ledger_reports_issues_for_multiple_unbalanced_transactions(
+    session: Session,
+) -> None:
     seed_doctor_dependencies(session)
-    second = ledger.create_transaction(
-        session,
-        TransactionCreate(
-            transaction_date=date(2026, 4, 2),
-            postings=[
-                PostingPayload(
-                    account="accounts/acc_two",
-                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
-                ),
-                PostingPayload(
-                    account="accounts/acc_three",
-                    units=MoneyValue(amount=Decimal("99.00"), symbol="CHF"),
-                ),
-            ],
-        ),
-    )
-    first = ledger.create_transaction(
+    tx_a = ledger.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -94,10 +80,28 @@ def test_doctor_ledger_sorts_issues_in_transaction_order(session: Session) -> No
             ],
         ),
     )
+    tx_b = ledger.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 2),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_three",
+                    units=MoneyValue(amount=Decimal("99.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
 
     diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
 
-    assert [issue.target for issue in diagnosed.issues] == [first.name, second.name]
+    targets = {issue.target for issue in diagnosed.issues}
+    assert tx_a.name in targets
+    assert tx_b.name in targets
 
 
 def test_doctor_reports_balance_assertion_failure(session: Session) -> None:

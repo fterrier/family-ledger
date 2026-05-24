@@ -231,7 +231,7 @@ test('apiFetchJson_ logs HTTP error responses via console.error without requirin
   });
   properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
   properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
-  // FAMILY_LEDGER_DEBUG_LOGS is intentionally not set
+  // No FAMILY_LEDGER_DEBUG_LOGS — verifies console.error fires regardless of the debug flag.
 
   assert.throws(() => sandbox.apiFetchJson_('patch', '/transactions/txn_1'), /502/);
   assert.equal(errors.length, 1);

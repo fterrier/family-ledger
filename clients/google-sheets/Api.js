@@ -55,7 +55,7 @@ function apiFetchJson_(method, path, payload, options) {
   const body = response.getContentText();
 
   if (statusCode >= 400) {
-    console.error('[family-ledger] api http error', method.toUpperCase(), path, statusCode);
+    logApiHttpError_(method, path, statusCode);
     throw buildApiError_(statusCode, body, method, path);
   }
 
@@ -79,7 +79,7 @@ function apiFetchMultipartJson_(method, path, payload, options) {
   const body = response.getContentText();
 
   if (statusCode >= 400) {
-    console.error('[family-ledger] api http error', method.toUpperCase(), path, statusCode);
+    logApiHttpError_(method, path, statusCode);
     throw buildApiError_(statusCode, body, method, path);
   }
 
@@ -148,6 +148,10 @@ function logApiRequestError_(eventName, method, path, url, durationMs, error, me
     durationMs: durationMs,
     message: error && error.message ? error.message : String(error),
   }, metadata || {}));
+}
+
+function logApiHttpError_(method, path, statusCode) {
+  console.error('[family-ledger] api http error', method.toUpperCase(), path, statusCode);
 }
 
 function isBandwidthQuotaError_(error) {

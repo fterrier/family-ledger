@@ -223,6 +223,67 @@ test('buildAccountValidationRule_ excludes accounts where effective_start_date i
   assert.equal(capturedList, null);
 });
 
+test('loadAccountOptions_ caches result and skips sheet read on second call', () => {
+  let readCalls = 0;
+  const accountsSheet = {
+    getLastRow() { readCalls++; return 3; },
+    getRange(row, column, numRows) {
+      return {
+        getValues() {
+          return [
+            ['accounts/checking', 'Assets:Bank:Checking', '2020-01-01', ''],
+            ['accounts/food', 'Expenses:Food', '', ''],
+          ].slice(0, numRows);
+        },
+        getDisplayValues() {
+          return [
+            ['Assets:Bank:Checking', '2020-01-01', ''],
+            ['Expenses:Food', '', ''],
+          ].slice(0, numRows);
+        },
+      };
+    },
+  };
+  const { sandbox } = loadCode({ sheetsByName: { Accounts: accountsSheet } });
+
+  const first = sandbox.loadAccountOptions_();
+  const second = sandbox.loadAccountOptions_();
+
+  assert.equal(readCalls, 1, 'sheet should be read only once');
+  assert.strictEqual(first, second, 'should return the same cached array reference');
+});
+
+test('invalidateAccountOptionsCache_ forces a fresh sheet read on the next call', () => {
+  let readCalls = 0;
+  const accountsSheet = {
+    getLastRow() { readCalls++; return 3; },
+    getRange(row, column, numRows) {
+      return {
+        getValues() {
+          return [
+            ['accounts/checking', 'Assets:Bank:Checking', '2020-01-01', ''],
+            ['accounts/food', 'Expenses:Food', '', ''],
+          ].slice(0, numRows);
+        },
+        getDisplayValues() {
+          return [
+            ['Assets:Bank:Checking', '2020-01-01', ''],
+            ['Expenses:Food', '', ''],
+          ].slice(0, numRows);
+        },
+      };
+    },
+  };
+  const { sandbox } = loadCode({ sheetsByName: { Accounts: accountsSheet } });
+
+  sandbox.loadAccountOptions_();
+  assert.equal(readCalls, 1);
+
+  sandbox.invalidateAccountOptionsCache_();
+  sandbox.loadAccountOptions_();
+  assert.equal(readCalls, 2, 'cache invalidation should trigger a second sheet read');
+});
+
 test('buildAccountValidationRule_ returns null when no accounts exist', () => {
   const { sandbox } = loadCode({
     sheetsByName: { Accounts: { getLastRow() { return 1; } } },

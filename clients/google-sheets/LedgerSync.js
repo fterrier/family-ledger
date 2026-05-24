@@ -104,6 +104,7 @@ function syncLedger() {
         'Ledger Sync Complete',
         10
       );
+      invalidateAccountOptionsCache_();
     } finally {
       clearActivePerf_();
       perf.log('Sync Ledger');

@@ -1,3 +1,5 @@
+var _accountOptionsCache_ = null;
+
 function buildAccountDisplayEntries_(accounts) {
   return accounts.map(function(account) {
     return {
@@ -21,7 +23,8 @@ function formatAccountDisplayName_(accountName) {
 }
 
 function loadAccountOptions_() {
-  return readAccountSheetEntries_()
+  if (_accountOptionsCache_) return _accountOptionsCache_;
+  _accountOptionsCache_ = readAccountSheetEntries_()
     .filter(function(entry) { return entry.resourceName && entry.displayName; })
     .map(function(entry) {
       return {
@@ -32,6 +35,11 @@ function loadAccountOptions_() {
       };
     })
     .sort(function(a, b) { return a.display_name.localeCompare(b.display_name); });
+  return _accountOptionsCache_;
+}
+
+function invalidateAccountOptionsCache_() {
+  _accountOptionsCache_ = null;
 }
 
 function readAccountSheetEntries_() {

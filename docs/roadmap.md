@@ -21,6 +21,7 @@ This document tracks planned work, verified implementation state, and deferred s
 - Google Sheets: Quick Add Transaction sidebar (simple and advanced modes)
 - Google Sheets: Quick Filter with date range (year buttons + custom range) and account hierarchy filter
 - Google Sheets: Importer Settings and Import Data dialog
+- Google Sheets: `#,##0.00` number formatting on amount columns (Transactions, Balances)
 
 ### Not Implemented
 
@@ -28,7 +29,6 @@ This document tracks planned work, verified implementation state, and deferred s
 - account PATCH/update route
 - cost/price display or editing in the Transactions sheet (those transactions are currently skipped at sync)
 - Prices sheet in the Google Sheets client
-- number formatting on amount columns in the Google Sheets client
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
@@ -53,10 +53,6 @@ Add a paginated list route consistent with all other collection endpoints. Requi
 **Account filter: free-text search**
 
 Replace the current cascading dropdown hierarchy with a free-text search input backed by the existing `SearchDropdown` component. The filter matches any prefix of the full account display name. Applies across Transactions, Balances, Accounts, and Attachments sheets, consistent with the current account filter behavior.
-
-**Number formatting**
-
-Apply `#,##0.00` formatting to amount columns in all managed sheets. The symbol column is already separate and stays as plain text.
 
 **Cost/price: display**
 

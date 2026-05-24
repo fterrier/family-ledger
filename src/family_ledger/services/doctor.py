@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from itertools import chain
 from typing import cast
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
     DoctorIssue,
@@ -28,6 +30,53 @@ from family_ledger.services.transaction_balancing import (
     decimal_to_string,
     resolve_tolerance,
 )
+
+
+@dataclass
+class _AccountData:
+    id: int
+    account_name: str
+    effective_start_date: date
+    effective_end_date: date | None
+
+
+@dataclass
+class _PostingData:
+    account: _AccountData
+    units_amount: Decimal
+    units_symbol: str
+    cost_per_unit: Decimal | None
+    cost_symbol: str | None
+    price_per_unit: Decimal | None
+    price_symbol: str | None
+
+
+@dataclass
+class _TxData:
+    id: int
+    name: str
+    transaction_date: date
+    payee: str | None
+    narration: str | None
+    postings: list[_PostingData] = field(default_factory=list)
+
+
+@dataclass
+class _BalanceAssertionData:
+    name: str
+    assertion_date: date
+    amount: Decimal
+    symbol: str
+    account: _AccountData
+
+
+@dataclass
+class _AttachmentData:
+    name: str
+    attachment_date: date
+    original_filename: str
+    status: str
+    account_name: str
 
 
 def _transaction_target_summary(tx: Transaction) -> dict[str, str]:
@@ -161,24 +210,94 @@ def build_lot_match_missing_issues(
 
 
 def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
-    return cast(
-        list[Transaction],
-        session.scalars(
-            select(Transaction)
-            .options(selectinload(Transaction.postings).selectinload(Posting.account))
-            .order_by(Transaction.transaction_date, Transaction.name)
-        ).all(),
-    )
+    rows = session.execute(
+        select(
+            Transaction.id,
+            Transaction.name,
+            Transaction.transaction_date,
+            Transaction.payee,
+            Transaction.narration,
+            Posting.units_amount,
+            Posting.units_symbol,
+            Posting.cost_per_unit,
+            Posting.cost_symbol,
+            Posting.price_per_unit,
+            Posting.price_symbol,
+            Account.id.label("account_id"),
+            Account.account_name,
+            Account.effective_start_date,
+            Account.effective_end_date,
+        )
+        .select_from(Transaction)
+        .join(Posting, Posting.transaction_id == Transaction.id)
+        .join(Account, Account.id == Posting.account_id)
+        .order_by(Transaction.transaction_date, Transaction.name, Posting.posting_order)
+    ).all()
+
+    tx_map: dict[int, _TxData] = {}
+    tx_order: list[int] = []
+    for row in rows:
+        if row.id not in tx_map:
+            tx_map[row.id] = _TxData(
+                id=row.id,
+                name=row.name,
+                transaction_date=row.transaction_date,
+                payee=row.payee,
+                narration=row.narration,
+            )
+            tx_order.append(row.id)
+        tx_map[row.id].postings.append(
+            _PostingData(
+                account=_AccountData(
+                    id=row.account_id,
+                    account_name=row.account_name,
+                    effective_start_date=row.effective_start_date,
+                    effective_end_date=row.effective_end_date,
+                ),
+                units_amount=row.units_amount,
+                units_symbol=row.units_symbol,
+                cost_per_unit=row.cost_per_unit,
+                cost_symbol=row.cost_symbol,
+                price_per_unit=row.price_per_unit,
+                price_symbol=row.price_symbol,
+            )
+        )
+    return cast(list[Transaction], [tx_map[i] for i in tx_order])
 
 
 def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAssertion]:
+    rows = session.execute(
+        select(
+            BalanceAssertion.name,
+            BalanceAssertion.assertion_date,
+            BalanceAssertion.amount,
+            BalanceAssertion.symbol,
+            Account.id.label("account_id"),
+            Account.account_name,
+            Account.effective_start_date,
+            Account.effective_end_date,
+        )
+        .select_from(BalanceAssertion)
+        .join(Account, Account.id == BalanceAssertion.account_id)
+        .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
+    ).all()
     return cast(
         list[BalanceAssertion],
-        session.scalars(
-            select(BalanceAssertion)
-            .options(selectinload(BalanceAssertion.account))
-            .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
-        ).all(),
+        [
+            _BalanceAssertionData(
+                name=row.name,
+                assertion_date=row.assertion_date,
+                amount=row.amount,
+                symbol=row.symbol,
+                account=_AccountData(
+                    id=row.account_id,
+                    account_name=row.account_name,
+                    effective_start_date=row.effective_start_date,
+                    effective_end_date=row.effective_end_date,
+                ),
+            )
+            for row in rows
+        ],
     )
 
 
@@ -188,12 +307,29 @@ def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
         Attachment.STATUS_FAILED,
         Attachment.STATUS_TIMED_OUT,
     ]
-    attachments = session.scalars(
-        select(Attachment)
-        .options(selectinload(Attachment.account))
+    rows = session.execute(
+        select(
+            Attachment.name,
+            Attachment.attachment_date,
+            Attachment.original_filename,
+            Attachment.status,
+            Account.account_name,
+        )
+        .select_from(Attachment)
+        .join(Account, Account.id == Attachment.account_id)
         .where(Attachment.status.in_(reportable))
         .order_by(Attachment.attachment_date, Attachment.name)
     ).all()
+    attachments = [
+        _AttachmentData(
+            name=row.name,
+            attachment_date=row.attachment_date,
+            original_filename=row.original_filename,
+            status=row.status,
+            account_name=row.account_name,
+        )
+        for row in rows
+    ]
     issues: list[DoctorIssue] = []
     for attachment in attachments:
         if attachment.status == Attachment.STATUS_PENDING_UPLOAD:
@@ -210,7 +346,7 @@ def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
                 target=attachment.name,
                 target_summary={
                     "date": attachment.attachment_date.isoformat(),
-                    "account": attachment.account.account_name,
+                    "account": attachment.account_name,
                     "filename": attachment.original_filename,
                 },
                 code=code,

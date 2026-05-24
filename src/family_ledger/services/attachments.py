@@ -6,7 +6,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from family_ledger.api.schemas import AttachmentResource, DoctorIssue, ListAttachmentsResponse
+from family_ledger.api.schemas import AttachmentResource, ListAttachmentsResponse
 from family_ledger.config import Settings
 from family_ledger.models import Attachment
 from family_ledger.services import paperless
@@ -20,18 +20,6 @@ from family_ledger.services.ledger import (
     paginate_query,
 )
 from family_ledger.services.validation import resolve_account, resource_name
-
-ATTACHMENT_PENDING_UPLOAD_STATUS = "pending_upload"
-ATTACHMENT_PENDING_STATUS = "pending_storage"
-ATTACHMENT_STORED_STATUS = "stored"
-ATTACHMENT_FAILED_STATUS = "failed"
-ATTACHMENT_TIMED_OUT_STATUS = "timed_out"
-
-_RETRYABLE_STATUSES = {
-    ATTACHMENT_PENDING_UPLOAD_STATUS,
-    ATTACHMENT_FAILED_STATUS,
-    ATTACHMENT_TIMED_OUT_STATUS,
-}
 
 
 def utcnow() -> datetime:
@@ -66,7 +54,7 @@ def create_attachment(
     entity_metadata: dict[str, Any],
 ) -> AttachmentResource:
     account_row = resolve_account(session, account)
-    status = ATTACHMENT_STORED_STATUS if document_url else ATTACHMENT_PENDING_UPLOAD_STATUS
+    status = Attachment.STATUS_STORED if document_url else Attachment.STATUS_PENDING_UPLOAD
     attachment = Attachment(
         name=generate_resource_name("attachments", "att"),
         account=account_row,
@@ -117,7 +105,7 @@ def upload_attachment(
         title=title,
     )
     now = utcnow()
-    attachment.status = ATTACHMENT_PENDING_STATUS
+    attachment.status = Attachment.STATUS_PENDING_STORAGE
     attachment.document_url = None
     attachment.storage_deadline_at = now + timedelta(
         seconds=settings.paperless_ingestion_timeout_seconds
@@ -186,7 +174,7 @@ def update_attachment(
     attachment_row.document_url = document_url
     attachment_row.entity_metadata = entity_metadata
     if document_url is not None:
-        attachment_row.status = ATTACHMENT_STORED_STATUS
+        attachment_row.status = Attachment.STATUS_STORED
     commit_or_raise(session)
     session.refresh(attachment_row)
     return serialize_attachment(attachment_row)
@@ -239,7 +227,7 @@ def process_pending_attachments(
     current_time = now or utcnow()
     pending = session.scalars(
         select(Attachment)
-        .where(Attachment.status == ATTACHMENT_PENDING_STATUS)
+        .where(Attachment.status == Attachment.STATUS_PENDING_STORAGE)
         .order_by(Attachment.storage_deadline_at, Attachment.name)
         .limit(batch_size)
     ).all()
@@ -252,7 +240,7 @@ def process_pending_attachments(
         if current_time >= attachment.storage_deadline_at:
             _set_storage_failure(
                 attachment,
-                status=ATTACHMENT_TIMED_OUT_STATUS,
+                status=Attachment.STATUS_TIMED_OUT,
                 error_code="timed_out",
                 error_message="Attachment storage timed out",
                 now=current_time,
@@ -263,7 +251,7 @@ def process_pending_attachments(
         if not isinstance(task_id, str) or not task_id:
             _set_storage_failure(
                 attachment,
-                status=ATTACHMENT_FAILED_STATUS,
+                status=Attachment.STATUS_FAILED,
                 error_code="missing_task_id",
                 error_message="Attachment storage metadata is missing a task identifier",
                 now=current_time,
@@ -281,7 +269,7 @@ def process_pending_attachments(
         if result.document_id is not None:
             metadata["document_id"] = result.document_id
             attachment.document_url = paperless.build_document_url(settings, result.document_id)
-            attachment.status = ATTACHMENT_STORED_STATUS
+            attachment.status = Attachment.STATUS_STORED
         elif result.duplicate_of is not None:
             paperless.add_tags_to_document(
                 settings,
@@ -291,51 +279,12 @@ def process_pending_attachments(
             metadata["document_id"] = result.duplicate_of
             metadata["duplicate_of"] = result.duplicate_of
             attachment.document_url = paperless.build_document_url(settings, result.duplicate_of)
-            attachment.status = ATTACHMENT_STORED_STATUS
+            attachment.status = Attachment.STATUS_STORED
         else:
             metadata["last_error_code"] = result.error_code
             metadata["last_error_message"] = result.error_message or "Attachment storage failed"
-            attachment.status = ATTACHMENT_FAILED_STATUS
+            attachment.status = Attachment.STATUS_FAILED
         attachment.storage_metadata = metadata
 
     session.commit()
     return processed
-
-
-def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
-    reportable = {
-        ATTACHMENT_PENDING_UPLOAD_STATUS,
-        ATTACHMENT_FAILED_STATUS,
-        ATTACHMENT_TIMED_OUT_STATUS,
-    }
-    attachments = session.scalars(
-        select(Attachment)
-        .options(selectinload(Attachment.account))
-        .where(Attachment.status.in_(list(reportable)))
-        .order_by(Attachment.attachment_date, Attachment.name)
-    ).all()
-    issues: list[DoctorIssue] = []
-    for attachment in attachments:
-        if attachment.status == ATTACHMENT_PENDING_UPLOAD_STATUS:
-            code = "attachment_pending_upload"
-            message = "Attachment has no file uploaded yet."
-        elif attachment.status == ATTACHMENT_FAILED_STATUS:
-            code = "attachment_storage_failed"
-            message = "Attachment storage failed."
-        else:
-            code = "attachment_storage_timed_out"
-            message = "Attachment storage timed out."
-        issues.append(
-            DoctorIssue(
-                target=attachment.name,
-                code=code,
-                severity="error",
-                message=message,
-                details={
-                    "account": attachment.account.name,
-                    "attachment_date": attachment.attachment_date.isoformat(),
-                    "original_filename": attachment.original_filename,
-                },
-            )
-        )
-    return issues

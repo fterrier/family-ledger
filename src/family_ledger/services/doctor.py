@@ -13,8 +13,14 @@ from family_ledger.api.schemas import (
     DoctorLedgerRequest,
     DoctorLedgerResponse,
 )
-from family_ledger.models import Account, BalanceAssertion, Commodity, Posting, Transaction
-from family_ledger.services import attachments as attachment_service
+from family_ledger.models import (
+    Account,
+    Attachment,
+    BalanceAssertion,
+    Commodity,
+    Posting,
+    Transaction,
+)
 from family_ledger.services.account_balance import compute_balance_assertion_diffs
 from family_ledger.services.booking import BookingMethod, BookingReplay, LotKey, TransactionLotDelta
 from family_ledger.services.transaction_balancing import (
@@ -163,6 +169,45 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
     )
 
 
+def build_attachment_doctor_issues(session: Session) -> list[DoctorIssue]:
+    reportable = [
+        Attachment.STATUS_PENDING_UPLOAD,
+        Attachment.STATUS_FAILED,
+        Attachment.STATUS_TIMED_OUT,
+    ]
+    attachments = session.scalars(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(Attachment.status.in_(reportable))
+        .order_by(Attachment.attachment_date, Attachment.name)
+    ).all()
+    issues: list[DoctorIssue] = []
+    for attachment in attachments:
+        if attachment.status == Attachment.STATUS_PENDING_UPLOAD:
+            code = "attachment_pending_upload"
+            message = "Attachment has no file uploaded yet."
+        elif attachment.status == Attachment.STATUS_FAILED:
+            code = "attachment_storage_failed"
+            message = "Attachment storage failed."
+        else:
+            code = "attachment_storage_timed_out"
+            message = "Attachment storage timed out."
+        issues.append(
+            DoctorIssue(
+                target=attachment.name,
+                code=code,
+                severity="error",
+                message=message,
+                details={
+                    "account": attachment.account.name,
+                    "attachment_date": attachment.attachment_date.isoformat(),
+                    "original_filename": attachment.original_filename,
+                },
+            )
+        )
+    return issues
+
+
 def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedgerResponse:
     del request
     transactions = _load_transactions_for_doctor(session)
@@ -196,7 +241,7 @@ def doctor_ledger(session: Session, request: DoctorLedgerRequest) -> DoctorLedge
                     for tolerance in [resolve_tolerance(diff.symbol)]
                     if abs(diff.diff) > tolerance
                 ),
-                attachment_service.build_attachment_doctor_issues(session),
+                build_attachment_doctor_issues(session),
             )
         )
     )

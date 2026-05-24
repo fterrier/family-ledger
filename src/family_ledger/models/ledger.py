@@ -160,6 +160,14 @@ class Attachment(Base):
         ),
     )
 
+    STATUS_PENDING_UPLOAD = "pending_upload"
+    STATUS_PENDING_STORAGE = "pending_storage"
+    STATUS_STORED = "stored"
+    STATUS_FAILED = "failed"
+    STATUS_TIMED_OUT = "timed_out"
+
+    RETRYABLE_STATUSES = {STATUS_PENDING_UPLOAD, STATUS_FAILED, STATUS_TIMED_OUT}
+
     id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, unique=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))

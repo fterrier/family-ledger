@@ -107,7 +107,7 @@ def _import_document_file(
                 Attachment.attachment_date == entry_date,
             )
         )
-        if att_row is not None and att_row.status in (attachments_service._RETRYABLE_STATUSES):
+        if att_row is not None and att_row.status in Attachment.RETRYABLE_STATUSES:
             attachments_service.upload_attachment(
                 session,
                 settings,

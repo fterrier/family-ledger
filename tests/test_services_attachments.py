@@ -10,8 +10,7 @@ from sqlalchemy.orm import Session
 
 from family_ledger.config import Settings
 from family_ledger.models import Account, Attachment, Base
-from family_ledger.models import Attachment as AttModel
-from family_ledger.services import attachments, paperless
+from family_ledger.services import attachments, doctor, paperless
 from family_ledger.services.errors import UnavailableError, ValidationError
 
 
@@ -68,7 +67,7 @@ def test_create_attachment_persists_pending_upload(
 
     assert created.name.startswith("attachments/att_")
     assert created.account == "accounts/acc_one"
-    assert created.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+    assert created.status == Attachment.STATUS_PENDING_UPLOAD
     assert created.document_url is None
     assert created.entity_metadata == {"source": "bank"}
 
@@ -93,7 +92,7 @@ def test_create_attachment_with_url_persists_stored(
         entity_metadata={},
     )
 
-    assert created.status == attachments.ATTACHMENT_STORED_STATUS
+    assert created.status == Attachment.STATUS_STORED
     assert created.document_url == "https://paperless.example.com/api/documents/42/"
 
 
@@ -113,7 +112,7 @@ def test_upload_attachment_transitions_to_pending_storage(
         document_url=None,
         entity_metadata={},
     )
-    assert att.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+    assert att.status == Attachment.STATUS_PENDING_UPLOAD
 
     uploaded = attachments.upload_attachment(
         session,
@@ -124,7 +123,7 @@ def test_upload_attachment_transitions_to_pending_storage(
         title="May statement",
     )
 
-    assert uploaded.status == attachments.ATTACHMENT_PENDING_STATUS
+    assert uploaded.status == Attachment.STATUS_PENDING_STORAGE
     assert uploaded.document_url is None
     persisted = session.get(Attachment, 1)
     assert persisted is not None
@@ -168,7 +167,7 @@ def test_upload_attachment_allowed_from_any_status(
             media_type="application/pdf",
         )
 
-        assert result.status == attachments.ATTACHMENT_PENDING_STATUS
+        assert result.status == Attachment.STATUS_PENDING_STORAGE
         session.delete(existing)
         session.commit()
 
@@ -220,7 +219,7 @@ def test_upload_attachment_does_not_change_status_when_paperless_fails(
     session.expire_all()
     persisted = session.get(Attachment, 1)
     assert persisted is not None
-    assert persisted.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+    assert persisted.status == Attachment.STATUS_PENDING_UPLOAD
 
 
 def test_process_pending_attachment_marks_stored_from_document_id(
@@ -233,7 +232,7 @@ def test_process_pending_attachment_marks_stored_from_document_id(
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        status=attachments.ATTACHMENT_PENDING_STATUS,
+        status=Attachment.STATUS_PENDING_STORAGE,
         document_url=None,
         storage_backend="paperless",
         storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
@@ -257,7 +256,7 @@ def test_process_pending_attachment_marks_stored_from_document_id(
 
     assert processed == 1
     session.refresh(attachment)
-    assert attachment.status == attachments.ATTACHMENT_STORED_STATUS
+    assert attachment.status == Attachment.STATUS_STORED
     assert attachment.document_url == "https://paperless.example.com/api/documents/42/"
     assert attachment.storage_metadata["document_id"] == 42
 
@@ -272,7 +271,7 @@ def test_process_pending_attachment_marks_stored_from_duplicate_of(
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        status=attachments.ATTACHMENT_PENDING_STATUS,
+        status=Attachment.STATUS_PENDING_STORAGE,
         document_url=None,
         storage_backend="paperless",
         storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
@@ -302,7 +301,7 @@ def test_process_pending_attachment_marks_stored_from_duplicate_of(
     )
 
     session.refresh(attachment)
-    assert attachment.status == attachments.ATTACHMENT_STORED_STATUS
+    assert attachment.status == Attachment.STATUS_STORED
     assert attachment.document_url == "https://paperless.example.com/api/documents/84/"
     assert attachment.storage_metadata["duplicate_of"] == 84
     assert captured == [(84, [12])]
@@ -318,7 +317,7 @@ def test_process_pending_attachment_marks_failed_when_duplicate_tagging_fails(
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        status=attachments.ATTACHMENT_PENDING_STATUS,
+        status=Attachment.STATUS_PENDING_STORAGE,
         document_url=None,
         storage_backend="paperless",
         storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
@@ -348,7 +347,7 @@ def test_process_pending_attachment_marks_failed_when_duplicate_tagging_fails(
         )
 
     session.refresh(attachment)
-    assert attachment.status == attachments.ATTACHMENT_PENDING_STATUS
+    assert attachment.status == Attachment.STATUS_PENDING_STORAGE
 
 
 def test_process_pending_attachment_marks_failed_on_terminal_error(
@@ -361,7 +360,7 @@ def test_process_pending_attachment_marks_failed_on_terminal_error(
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        status=attachments.ATTACHMENT_PENDING_STATUS,
+        status=Attachment.STATUS_PENDING_STORAGE,
         document_url=None,
         storage_backend="paperless",
         storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
@@ -388,7 +387,7 @@ def test_process_pending_attachment_marks_failed_on_terminal_error(
     )
 
     session.refresh(attachment)
-    assert attachment.status == attachments.ATTACHMENT_FAILED_STATUS
+    assert attachment.status == Attachment.STATUS_FAILED
     assert attachment.storage_metadata["last_error_code"] == "failure"
     assert attachment.storage_metadata["last_error_message"] == "OCR failed"
 
@@ -401,7 +400,7 @@ def test_process_pending_attachment_marks_timed_out(session: Session) -> None:
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        status=attachments.ATTACHMENT_PENDING_STATUS,
+        status=Attachment.STATUS_PENDING_STORAGE,
         document_url=None,
         storage_backend="paperless",
         storage_deadline_at=datetime(2026, 5, 19, 11, 59, 59),
@@ -418,7 +417,7 @@ def test_process_pending_attachment_marks_timed_out(session: Session) -> None:
     )
 
     session.refresh(attachment)
-    assert attachment.status == attachments.ATTACHMENT_TIMED_OUT_STATUS
+    assert attachment.status == Attachment.STATUS_TIMED_OUT
     assert attachment.storage_metadata["last_error_code"] == "timed_out"
 
 
@@ -471,22 +470,20 @@ def test_build_attachment_doctor_issues_reports_all_actionable_statuses(
                 "att_pending_upload",
                 "pending.pdf",
                 date(2026, 5, 17),
-                attachments.ATTACHMENT_PENDING_UPLOAD_STATUS,
+                Attachment.STATUS_PENDING_UPLOAD,
             ),
-            _make(
-                "att_failed", "failed.pdf", date(2026, 5, 18), attachments.ATTACHMENT_FAILED_STATUS
-            ),
+            _make("att_failed", "failed.pdf", date(2026, 5, 18), Attachment.STATUS_FAILED),
             _make(
                 "att_timed_out",
                 "timeout.pdf",
                 date(2026, 5, 19),
-                attachments.ATTACHMENT_TIMED_OUT_STATUS,
+                Attachment.STATUS_TIMED_OUT,
             ),
         ]
     )
     session.commit()
 
-    issues = attachments.build_attachment_doctor_issues(session)
+    issues = doctor.build_attachment_doctor_issues(session)
 
     assert [(issue.target, issue.code) for issue in issues] == [
         ("attachments/att_pending_upload", "attachment_pending_upload"),
@@ -531,7 +528,7 @@ def test_update_attachment_changes_fields(session: Session) -> None:
     assert updated.original_filename == "new.pdf"
     assert updated.media_type == "text/plain"
     assert updated.entity_metadata == {"source": "corrected"}
-    assert updated.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+    assert updated.status == Attachment.STATUS_PENDING_UPLOAD
 
 
 def test_update_attachment_with_document_url_sets_stored_status(session: Session) -> None:
@@ -546,7 +543,7 @@ def test_update_attachment_with_document_url_sets_stored_status(session: Session
         document_url=None,
         entity_metadata={},
     )
-    assert att.status == attachments.ATTACHMENT_PENDING_UPLOAD_STATUS
+    assert att.status == Attachment.STATUS_PENDING_UPLOAD
 
     updated = attachments.update_attachment(
         session,
@@ -559,7 +556,7 @@ def test_update_attachment_with_document_url_sets_stored_status(session: Session
         entity_metadata={},
     )
 
-    assert updated.status == attachments.ATTACHMENT_STORED_STATUS
+    assert updated.status == Attachment.STATUS_STORED
     assert updated.document_url == "https://paperless.example.com/api/documents/42/"
 
 
@@ -632,7 +629,7 @@ def test_delete_attachment_removes_record(session: Session) -> None:
 
     attachments.delete_attachment(session, att.name)
 
-    assert session.scalar(sa_select(AttModel).where(AttModel.name == att.name)) is None
+    assert session.scalar(sa_select(Attachment).where(Attachment.name == att.name)) is None
 
 
 def test_delete_attachment_raises_not_found(session: Session) -> None:

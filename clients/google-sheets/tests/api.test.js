@@ -212,3 +212,30 @@ test('buildApiError_ formats structured API errors', () => {
 
   assert.equal(error.message, '401 unauthenticated: Missing or invalid API token');
 });
+
+test('buildApiError_ appends method and path context when provided', () => {
+  const { sandbox } = loadCode();
+
+  const error = sandbox.buildApiError_(502, '', 'patch', '/transactions/txn_1');
+  assert.ok(error.message.includes('502'), 'message includes status code');
+  assert.ok(error.message.includes('(PATCH /transactions/txn_1)'), 'message includes method and path');
+});
+
+test('apiFetchJson_ logs HTTP error responses via console.error without requiring debug flag', () => {
+  const errors = [];
+  const { sandbox, properties } = loadCode({
+    console: { log() {}, error(...args) { errors.push(args); } },
+    fetchImpl() {
+      return { getResponseCode() { return 502; }, getContentText() { return ''; } };
+    },
+  });
+  properties.set('FAMILY_LEDGER_BASE_URL', 'https://ledger.example');
+  properties.set('FAMILY_LEDGER_API_TOKEN', 'secret');
+  // FAMILY_LEDGER_DEBUG_LOGS is intentionally not set
+
+  assert.throws(() => sandbox.apiFetchJson_('patch', '/transactions/txn_1'), /502/);
+  assert.equal(errors.length, 1);
+  assert.ok(errors[0].includes('PATCH'), 'console.error includes method');
+  assert.ok(errors[0].includes('/transactions/txn_1'), 'console.error includes path');
+  assert.ok(errors[0].includes(502), 'console.error includes status code');
+});

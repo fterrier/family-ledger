@@ -55,7 +55,8 @@ function apiFetchJson_(method, path, payload, options) {
   const body = response.getContentText();
 
   if (statusCode >= 400) {
-    throw buildApiError_(statusCode, body);
+    console.error('[family-ledger] api http error', method.toUpperCase(), path, statusCode);
+    throw buildApiError_(statusCode, body, method, path);
   }
 
   return body ? JSON.parse(body) : {};
@@ -78,7 +79,8 @@ function apiFetchMultipartJson_(method, path, payload, options) {
   const body = response.getContentText();
 
   if (statusCode >= 400) {
-    throw buildApiError_(statusCode, body);
+    console.error('[family-ledger] api http error', method.toUpperCase(), path, statusCode);
+    throw buildApiError_(statusCode, body, method, path);
   }
 
   return body ? JSON.parse(body) : {};
@@ -152,21 +154,22 @@ function isBandwidthQuotaError_(error) {
   return !!(error && error.message && error.message.indexOf('Bandwidth quota exceeded') !== -1);
 }
 
-function buildApiError_(statusCode, body) {
+function buildApiError_(statusCode, body, method, path) {
+  const context = method && path ? ' (' + method.toUpperCase() + ' ' + path + ')' : '';
   if (!body) {
-    return new Error('API request failed with status ' + statusCode + '.');
+    return new Error('API request failed with status ' + statusCode + context);
   }
 
   try {
     const parsed = JSON.parse(body);
     if (parsed.detail && parsed.detail.message) {
-      return new Error(statusCode + ' ' + parsed.detail.code + ': ' + parsed.detail.message);
+      return new Error(statusCode + ' ' + parsed.detail.code + ': ' + parsed.detail.message + context);
     }
   } catch {
     // Fall through to the raw body error below.
   }
 
-  return new Error('API request failed with status ' + statusCode + ': ' + body);
+  return new Error('API request failed with status ' + statusCode + context + ': ' + body);
 }
 
 function buildApiUrl_(path) {

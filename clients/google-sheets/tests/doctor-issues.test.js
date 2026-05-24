@@ -114,12 +114,14 @@ test('writeFetchedDoctorIssueSheets_ writes target and issues_text to Issues she
         code: 'transaction_unbalanced',
         message: 'Transaction is not balanced within tolerance.',
         details: { symbol: 'CHF', residual_amount: '-4.25', tolerance_amount: '0.005' },
+        target_summary: { date: '2026-05-22', payee: 'Migros' },
       }],
       'accounts/food': [{
         target: 'accounts/food',
         code: 'account_warning',
         message: 'Account needs attention.',
         details: { severity: 'warning' },
+        target_summary: {},
       }],
     },
     function() { return issueSheet; },
@@ -147,8 +149,8 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
       return { setValues(values) { setValuesCalls.push({ row, values }); return this; } };
     },
   };
-  const txSheet = { getSheetId() { return 42; }, getLastRow() { return 1; } };
-  const balSheet = { getSheetId() { return 43; }, getLastRow() { return 1; } };
+  const txSheet = { getSheetId() { return 42; } };
+  const balSheet = { getSheetId() { return 43; } };
 
   const { sandbox } = loadCode({
     SpreadsheetApp: {
@@ -166,8 +168,8 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
 
   sandbox.writeFetchedDoctorIssueSheets_(
     {
-      'transactions/txn_1': [{ target: 'transactions/txn_1', code: 'x', message: 'msg', details: {} }],
-      'balanceAssertions/bal_1': [{ target: 'balanceAssertions/bal_1', code: 'x', message: 'msg', details: {} }],
+      'transactions/txn_1': [{ target: 'transactions/txn_1', code: 'x', message: 'msg', details: {}, target_summary: { date: '2026-05-22', payee: 'Coop' } }],
+      'balanceAssertions/bal_1': [{ target: 'balanceAssertions/bal_1', code: 'x', message: 'msg', details: {}, target_summary: { date: '2026-04-01', account: 'Assets:Bank' } }],
     },
     function() { return issueSheet; },
     {}
@@ -187,6 +189,44 @@ test('writeFetchedDoctorIssueSheets_ navigate formula uses resource_name column 
   assert.ok(balNavigate.includes('$B:$B'), 'balance MATCH should search resource_name column B');
   assert.ok(balNavigate.includes('range=A'), 'balance link should navigate to first visible column A');
   assert.ok(balNavigate.includes('gid=43'), 'balance link should use balances sheet gid');
+
+  // Labels from target_summary
+  assert.ok(txNavigate.includes('Transaction 2026-05-22 Coop'), 'transaction label uses target_summary date and payee');
+  assert.ok(balNavigate.includes('Balance 2026-04-01 Assets:Bank'), 'balance label uses target_summary date and account');
+});
+
+test('buildNavigateLabel_ builds label from target_summary for each target type', () => {
+  const { sandbox } = loadCode();
+  const accountMap = { 'accounts/food': 'Food & Dining' };
+
+  assert.equal(
+    sandbox.buildNavigateLabel_('transactions/txn_1', { date: '2026-05-22', payee: 'Migros' }, {}),
+    'Transaction 2026-05-22 Migros'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('transactions/txn_2', { date: '2026-01-15' }, {}),
+    'Transaction 2026-01-15'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('balanceAssertions/ba_1', { date: '2026-04-01', account: 'Assets:Bank:Checking' }, {}),
+    'Balance 2026-04-01 Assets:Bank:Checking'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('attachments/att_1', { date: '2026-03-10', account: 'Expenses:Food' }, {}),
+    'Attachment 2026-03-10 Expenses:Food'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('accounts/food', {}, accountMap),
+    'Account Food & Dining'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('accounts/unknown/sub', {}, {}),
+    'Account unknown/sub'
+  );
+  assert.equal(
+    sandbox.buildNavigateLabel_('unknown/resource', {}, {}),
+    'unknown/resource'
+  );
 });
 
 test('refreshDoctorIssueSheets_ groups fetched issues by target and passes them to write', () => {

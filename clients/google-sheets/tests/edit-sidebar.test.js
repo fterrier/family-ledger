@@ -135,7 +135,7 @@ test('submitEntity (add) inserts new row before a later transaction', () => {
   const { sandbox, documentProperties } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
-        return { toast() {}, setActiveSheet() {}, getSheetByName() { return null; } };
+        return { toast() {}, setActiveSheet() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } };
       },
     },
   });
@@ -190,7 +190,7 @@ test('submitEntity (edit) shows toast and returns null on PATCH failure', () => 
   ]);
   const { sandbox } = loadCode({
     SpreadsheetApp: {
-      getActiveSpreadsheet() { return { toast(message, title, seconds) { toasts.push({ message, title, seconds }); } }; },
+      getActiveSpreadsheet() { return { toast(message, title, seconds) { toasts.push({ message, title, seconds }); }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
       getUi() { return { alert() {}, ButtonSet: { OK: 0 } }; },
     },
   });
@@ -221,7 +221,7 @@ test('submitEntity (edit) sends correct 2-posting PATCH payload', () => {
 
   const apiCalls = [];
   const { sandbox } = loadCode({
-    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; } }; } },
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -267,7 +267,7 @@ test('submitEntity (edit) sends raw postings for 3+ posting transaction', () => 
 
   const apiCalls = [];
   const { sandbox } = loadCode({
-    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; } }; } },
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -310,7 +310,7 @@ test('submitEntity (edit) removes extra rows when posting count decreases', () =
   ]);
 
   const { sandbox } = loadCode({
-    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; } }; } },
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   sandbox.apiFetchJson_ = function(method) {
@@ -349,7 +349,7 @@ test('submitEntity (edit) inserts extra rows when posting count increases', () =
   ]);
 
   const { sandbox } = loadCode({
-    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; } }; } },
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   sandbox.apiFetchJson_ = function(method) {
@@ -393,7 +393,7 @@ test('deleteEntity calls DELETE and removes rows from sheet', () => {
 
   const apiCalls = [];
   const { sandbox } = loadCode({
-    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; } }; } },
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
   sandbox.apiFetchJson_ = function(method, path) {

@@ -75,16 +75,10 @@ function managedSheet_(sheet, sheetConfig) {
         if (col > maxCol) maxCol = col;
       });
       const values = sheet.getRange(span.start, minCol, span.count, maxCol - minCol + 1).getValues();
-      let tz = null;
       return values.map(function(rowValues) {
         const obj = {};
         headers.forEach(function(h) {
-          let v = rowValues[getColumnIndex_(sheetConfig, h) - minCol];
-          if (Object.prototype.toString.call(v) === '[object Date]') {
-            if (!tz) tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-            v = Utilities.formatDate(v, tz, 'yyyy-MM-dd');
-          }
-          obj[h] = v;
+          obj[h] = rowValues[getColumnIndex_(sheetConfig, h) - minCol];
         });
         return obj;
       });

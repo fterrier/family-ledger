@@ -17,6 +17,14 @@ test('normalizeEntityDate_ passes strings through unchanged', () => {
   assert.equal(sandbox.normalizeEntityDate_(null), '');
 });
 
+test('normalizeEntityDate_ formats Date objects using spreadsheet timezone', () => {
+  const { sandbox } = loadCode();
+
+  // UTC midnight on 2026-05-22 — in a UTC spreadsheet this must return 2026-05-22, not the day before.
+  const d = new Date('2026-05-22T00:00:00.000Z');
+  assert.equal(sandbox.normalizeEntityDate_(d), '2026-05-22');
+});
+
 // --- beginSaveGeneration_ / isCurrentSaveGeneration_ ---
 
 test('beginSaveGeneration_ returns incrementing string values', () => {

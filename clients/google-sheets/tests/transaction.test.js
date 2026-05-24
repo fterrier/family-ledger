@@ -320,7 +320,7 @@ test('buildTransactionPatchPayload_ rebuilds canonical PATCH payload in sheet ro
   });
 });
 
-test('buildTransactionPatchPayload_ passes string transaction_date through unchanged', () => {
+test('buildTransactionPatchPayload_ preserves transaction_date as-is', () => {
   const { sandbox } = loadCode();
   const payload = sandbox.buildTransactionPatchPayload_([{
     resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2019-09-15',
@@ -1312,7 +1312,7 @@ function makeHandleEditSandbox(toasts) {
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
-        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); }, getSpreadsheetTimeZone() { return 'UTC'; } };
       },
     },
   });
@@ -1437,7 +1437,7 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
-        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); }, getSpreadsheetTimeZone() { return 'UTC'; } };
       },
     },
   });
@@ -1515,7 +1515,7 @@ test('handleEntitySheetEdit_ sets posting narration for split row narration edit
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
-        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); } };
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); }, getSpreadsheetTimeZone() { return 'UTC'; } };
       },
     },
   });

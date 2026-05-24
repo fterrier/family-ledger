@@ -1,4 +1,15 @@
+var _cachedSpreadsheetTz_ = null;
+function getSpreadsheetTz_() {
+  if (!_cachedSpreadsheetTz_) {
+    _cachedSpreadsheetTz_ = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  }
+  return _cachedSpreadsheetTz_;
+}
+
 function normalizeEntityDate_(value) {
+  if (Object.prototype.toString.call(value) === '[object Date]') {
+    return Utilities.formatDate(value, getSpreadsheetTz_(), 'yyyy-MM-dd');
+  }
   return String(value || '').trim();
 }
 

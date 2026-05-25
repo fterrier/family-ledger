@@ -22,6 +22,7 @@ This document tracks planned work, verified implementation state, and deferred s
 - Google Sheets: Quick Filter with date range (year buttons + custom range) and account hierarchy filter
 - Google Sheets: Importer Settings and Import Data dialog
 - Google Sheets: `#,##0.00` number formatting on amount columns (Transactions, Balances)
+- Google Sheets: free-text account search in the Quick Filter sidebar with intermediate prefix entries shown in italic
 
 ### Not Implemented
 
@@ -49,10 +50,6 @@ Add a paginated list route consistent with all other collection endpoints. Requi
 `PATCH /accounts/{account}` for mutable fields (`account_name`, `effective_end_date`, `entity_metadata`).
 
 ### Google Sheets — UX and display
-
-**Account filter: free-text search**
-
-Replace the current cascading dropdown hierarchy with a free-text search input backed by the existing `SearchDropdown` component. The filter matches any prefix of the full account display name. Applies across Transactions, Balances, Accounts, and Attachments sheets, consistent with the current account filter behavior.
 
 **Cost/price: display**
 

@@ -37,3 +37,37 @@ function searchAccountEntries_(entries, query) {
     return isOrderedCharacterMatch_(query, entry.search_text);
   });
 }
+
+function buildAccountFilterOptions_(accountNames) {
+  const nameSet = {};
+  accountNames.forEach(function(n) { nameSet[n] = true; });
+
+  const optionMap = {};
+  accountNames.forEach(function(name) {
+    const parts = name.split(' - ');
+    const marker = parts[0].split(' ')[0];
+    const levels = [marker].concat(
+      parts.slice(0, parts.length).map(function(_, i) { return parts.slice(0, i + 1).join(' - '); })
+    );
+    levels.forEach(function(prefix) {
+      if (!optionMap[prefix]) {
+        optionMap[prefix] = { value: prefix, label: prefix, isPrefix: !nameSet[prefix] };
+      }
+    });
+  });
+
+  return Object.keys(optionMap).sort().map(function(k) { return optionMap[k]; });
+}
+
+function filterAccountOptions_(query, options) {
+  const pinned = options.filter(function(o) { return o.dataset && o.dataset.pinned; });
+  const searchable = options.filter(function(o) { return !(o.dataset && o.dataset.pinned); });
+  if (!query.trim()) return pinned.concat(searchable);
+  const entries = buildAccountSearchEntries_(searchable.map(function(o) {
+    return { resource_name: o.value, display_name: o.label };
+  }));
+  const matched = searchAccountEntries_(entries, query);
+  const matchedValues = {};
+  matched.forEach(function(e) { matchedValues[e.resource_name] = true; });
+  return pinned.concat(searchable.filter(function(o) { return matchedValues[o.value]; }));
+}

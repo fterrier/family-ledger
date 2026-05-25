@@ -74,15 +74,56 @@
     }
     .month-input:focus { outline: none; border-color: #1a73e8; }
     .month-input.empty::-webkit-datetime-edit { color: transparent; }
-    .account-select {
-      width: 100%;
-      padding: 5px 6px;
-      margin-bottom: 6px;
+    .search-dropdown-host { position: relative; }
+    .search-dropdown-value {
+      display: flex;
+      align-items: center;
+      padding: 6px 8px;
       border: 1px solid #dadce0;
       border-radius: 4px;
-      font-size: 13px;
-      color: #3c4043;
+      background: #fff;
+      cursor: pointer;
+      min-height: 32px;
+      user-select: none;
     }
+    .search-dropdown-value-text { flex: 1; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .search-dropdown-value-text.placeholder { color: #80868b; }
+    .search-dropdown-trigger {
+      width: 0; height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #5f6368;
+      flex-shrink: 0;
+      margin-left: 6px;
+    }
+    .search-dropdown-panel {
+      position: absolute;
+      top: 100%; left: 0; right: 0;
+      z-index: 100;
+      background: #fff;
+      border: 1px solid #dadce0;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      margin-top: 2px;
+    }
+    .search-dropdown-input {
+      width: 100%;
+      padding: 6px 8px;
+      border: none;
+      border-bottom: 1px solid #dadce0;
+      border-radius: 4px 4px 0 0;
+      font-size: 13px;
+      outline: none;
+    }
+    .search-dropdown-select {
+      display: block;
+      width: 100%;
+      border: none;
+      border-radius: 0 0 4px 4px;
+      font-size: 13px;
+      min-height: 160px;
+    }
+    .search-dropdown-select option[data-variant="prefix"] { font-style: italic; color: #5f6368; }
     .clear-btn {
       width: 100%;
       padding: 8px;
@@ -130,7 +171,7 @@
       <span class="section-summary" id="acctSummary"></span>
     </div>
     <div class="collapsible-body">
-      <div id="acctDropdowns"></div>
+      <select id="acctSelect"></select>
     </div>
   </div>
 
@@ -138,17 +179,17 @@
   <div id="status" class="status"></div>
 
   <script>
+    <?!= includeHtml_('AccountSearch'); ?>
+    <?!= includeHtml_('SearchDropdown'); ?>
+
     var fromInput = document.getElementById('fromInput');
     var toInput = document.getElementById('toInput');
 
-    // Year button state
     var years = [];
     var fromYear = null;
     var toYear = null;
 
-    // Account data
-    var TYPE_LABELS = {'[A]':'Assets','[L]':'Liabilities','[X]':'Expenses','[I]':'Income','[Q]':'Equity'};
-    var accountTree = {};
+    var acctCtrl = null;
 
     // --- Collapsible sections ---
 
@@ -159,7 +200,7 @@
 
     function refreshSummaries() {
       document.getElementById('dateSummary').textContent = getDateSummary();
-      document.getElementById('acctSummary').textContent = acctCtrl.getSummary();
+      document.getElementById('acctSummary').textContent = acctCtrl ? acctCtrl.getSummary() : '';
     }
 
     function getDateSummary() {
@@ -173,11 +214,62 @@
       return from || to;
     }
 
-    // --- Startup: load all data and restore persisted filter state in one call ---
+    // --- Account search ---
+
+    function initAccountDropdown_(accountNames, savedPrefix) {
+      var sel = document.getElementById('acctSelect');
+      sel.innerHTML = '';
+      var allOpt = document.createElement('option');
+      allOpt.value = ''; allOpt.textContent = '— All accounts';
+      allOpt.dataset.pinned = 'true';
+      sel.appendChild(allOpt);
+      var blankOpt = document.createElement('option');
+      blankOpt.value = '__blank__'; blankOpt.textContent = '— Unassigned';
+      blankOpt.dataset.pinned = 'true';
+      sel.appendChild(blankOpt);
+      buildAccountFilterOptions_(accountNames).forEach(function(opt) {
+        var el = document.createElement('option');
+        el.value = opt.value; el.textContent = opt.label;
+        if (opt.isPrefix) el.dataset.variant = 'prefix';
+        sel.appendChild(el);
+      });
+
+      if (savedPrefix) sel.value = savedPrefix;
+      var dropdown = attachSearchDropdown_(sel, filterAccountOptions_);
+
+      var lastApplied = savedPrefix || '';
+      sel.addEventListener('change', function() {
+        var v = sel.value;
+        if (v === lastApplied) return;
+        lastApplied = v;
+        onAccountChange_(v);
+        refreshSummaries();
+      });
+
+      acctCtrl = {
+        clear: function() { lastApplied = ''; dropdown.clear(); },
+        getSummary: function() {
+          var v = sel.value;
+          return v === '__blank__' ? '— Unassigned' : (v || '');
+        },
+      };
+    }
+
+    function onAccountChange_(value) {
+      if (!value) {
+        google.script.run.withSuccessHandler(done).withFailureHandler(showError)
+          .clearQuickAccountFilter();
+      } else {
+        setStatus('Applying…', false);
+        google.script.run.withSuccessHandler(done).withFailureHandler(showError)
+          .applyQuickAccountFilter(value);
+      }
+    }
+
+    // --- Startup ---
 
     google.script.run
       .withSuccessHandler(function(data) {
-        // Render year buttons
         years = (data.years || []).slice().reverse();
         var yearsEl = document.getElementById('years');
         yearsEl.innerHTML = '';
@@ -193,7 +285,6 @@
             yearsEl.appendChild(btn);
           });
         }
-        // Restore date filter
         if (data.from && data.to) {
           setInputValue(fromInput, data.from);
           setInputValue(toInput, data.to);
@@ -201,9 +292,7 @@
           toYear = parseInt(data.to.split('-')[0], 10);
         }
         syncYearButtons();
-        // Build account tree and restore account filter
-        accountTree = buildAccountTree(data.accountNames || []);
-        acctCtrl.restore(parsePrefix(data.accountPrefix || ''));
+        initAccountDropdown_(data.accountNames || [], data.accountPrefix || '');
         refreshSummaries();
       })
       .withFailureHandler(showError)
@@ -318,124 +407,6 @@
         .clearQuickDateFilter();
     }
 
-    // --- Account controller ---
-
-    function makeAccountController(containerId) {
-      var prefixes = [];
-
-      function render() {
-        var el = document.getElementById(containerId);
-        el.innerHTML = '';
-        var typeOptions = Object.keys(accountTree).sort().concat(['__blank__']);
-        addDropdown(el, 0, '— All accounts', typeOptions, function(k) {
-          if (k === '__blank__') return 'No account set';
-          return (TYPE_LABELS[k] || k) + '  ' + k;
-        });
-        if (prefixes.length > 0 && prefixes[0] !== '__blank__') {
-          for (var i = 0; i < prefixes.length; i++) {
-            var node = nodeAt(prefixes.slice(0, i + 1));
-            var children = Object.keys(node || {}).sort();
-            if (!children.length) break;
-            addDropdown(el, i + 1, '— All', children, function(k) { return k; });
-          }
-        }
-      }
-
-      function addDropdown(el, level, allLabel, options, labelFn) {
-        var sel = document.createElement('select');
-        sel.className = 'account-select';
-        var opt = document.createElement('option');
-        opt.value = ''; opt.textContent = allLabel;
-        sel.appendChild(opt);
-        options.forEach(function(o) {
-          var item = document.createElement('option');
-          item.value = o; item.textContent = labelFn(o);
-          sel.appendChild(item);
-        });
-        if (prefixes[level] !== undefined) sel.value = prefixes[level];
-        sel.onchange = function() { onChange(level, sel.value); };
-        el.appendChild(sel);
-      }
-
-      function onChange(level, value) {
-        prefixes = prefixes.slice(0, level);
-        if (value) prefixes.push(value);
-        render();
-        applyAccountFilter();
-        refreshSummaries();
-      }
-
-      function applyAccountFilter() {
-        if (!prefixes.length) {
-          google.script.run.withSuccessHandler(done).withFailureHandler(showError)
-            .clearQuickAccountFilter();
-        } else {
-          setStatus('Applying…', false);
-          google.script.run.withSuccessHandler(done).withFailureHandler(showError)
-            .applyQuickAccountFilter(buildPrefix(prefixes));
-        }
-      }
-
-      function clear() { prefixes = []; render(); }
-
-      function restore(pArr) { prefixes = pArr.slice(); render(); }
-
-      function getSummary() {
-        if (!prefixes.length) return '';
-        if (prefixes[0] === '__blank__') return 'No account set';
-        var parts = [TYPE_LABELS[prefixes[0]] || prefixes[0]];
-        for (var i = 1; i < prefixes.length; i++) parts.push(prefixes[i]);
-        return parts.join(' > ');
-      }
-
-      return { clear: clear, getSummary: getSummary, restore: restore };
-    }
-
-    function nodeAt(pArr) {
-      var node = accountTree[pArr[0]];
-      for (var i = 1; i < pArr.length; i++) { if (!node) return null; node = node[pArr[i]]; }
-      return node;
-    }
-
-    function buildPrefix(pArr) {
-      var r = pArr[0];
-      for (var i = 1; i < pArr.length; i++) r += (i === 1 ? ' ' : ' - ') + pArr[i];
-      return r;
-    }
-
-    function parsePrefix(prefix) {
-      if (!prefix) return [];
-      if (prefix === '__blank__') return ['__blank__'];
-      var markerEnd = prefix.indexOf(']');
-      if (markerEnd < 0) return [];
-      var marker = prefix.slice(0, markerEnd + 1);
-      var rest = prefix.slice(markerEnd + 2);
-      var pArr = [marker];
-      if (rest) rest.split(' - ').forEach(function(seg) { pArr.push(seg); });
-      return pArr;
-    }
-
-    function buildAccountTree(names) {
-      var tree = {};
-      names.forEach(function(name) {
-        var str = String(name);
-        var markerEnd = str.indexOf(']');
-        if (markerEnd < 0) return;
-        var marker = str.slice(0, markerEnd + 1);
-        var rest = str.slice(markerEnd + 2);
-        var parts = rest ? rest.split(' - ') : [];
-        if (!tree[marker]) tree[marker] = {};
-        var node = tree[marker];
-        parts.forEach(function(seg) {
-          if (!node[seg]) node[seg] = {};
-          node = node[seg];
-        });
-      });
-      return tree;
-    }
-
-    var acctCtrl = makeAccountController('acctDropdowns');
-
     // --- Clear all ---
 
     function clearAll() {
@@ -443,7 +414,7 @@
       setInputValue(fromInput, '');
       setInputValue(toInput, '');
       syncYearButtons();
-      acctCtrl.clear();
+      if (acctCtrl) acctCtrl.clear();
       refreshSummaries();
       setStatus('Clearing…', false);
       google.script.run.withSuccessHandler(done).withFailureHandler(showError)

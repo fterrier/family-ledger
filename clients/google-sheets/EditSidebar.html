@@ -212,8 +212,8 @@
     var filtered = options;
     if (dateVal) {
       filtered = options.filter(function(opt) {
-        if (opt.startDate && opt.startDate > dateVal) return false;
-        if (opt.endDate && opt.endDate < dateVal) return false;
+        if (opt.dataset && opt.dataset.start && opt.dataset.start > dateVal) return false;
+        if (opt.dataset && opt.dataset.end && opt.dataset.end < dateVal) return false;
         return true;
       });
     }

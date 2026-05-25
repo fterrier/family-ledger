@@ -34,6 +34,7 @@ function makeFakeDom() {
       children: [],
       value: '',
       textContent: '',
+      dataset: {},
       selectedIndex: 0,
       parentNode: null,
       listeners: {},
@@ -324,4 +325,38 @@ test('attachSearchDropdown_ closing the panel clears the search input', () => {
   select.dispatchEvent({ type: 'change' });
 
   assert.equal(input.value, '');
+});
+
+test('attachSearchDropdown_ preserves data-* attributes on options through list rebuilds', async () => {
+  const { document, makeElement } = makeFakeDom();
+  const { sandbox } = loadCode({ setTimeout, clearTimeout });
+  const parent = makeElement('div', document);
+  const select = makeElement('select', document);
+  parent.appendChild(select);
+  [
+    { value: '', label: '— All', dataset: {} },
+    { value: '[A] Bank', label: '[A] Bank', dataset: { variant: 'prefix' } },
+    { value: '[A] Bank - Checking', label: '[A] Bank - Checking', dataset: {} },
+  ].forEach(function(spec) {
+    const option = makeElement('option', document);
+    option.value = spec.value;
+    option.textContent = spec.label;
+    option.dataset = spec.dataset;
+    select.appendChild(option);
+  });
+
+  sandbox.attachSearchDropdown_(select, function(_query, options) { return options; });
+
+  const panel = parent.children[0].children[1];
+  const input = panel.children[0];
+
+  parent.children[0].children[0].listeners.mousedown({ preventDefault() {} });
+  input.value = 'bank';
+  input.listeners.input({ target: input });
+  await new Promise(function(resolve) { setTimeout(resolve, 220); });
+
+  const rebuildPrefix = select.options.find(function(o) { return o.value === '[A] Bank'; });
+  const rebuildLeaf = select.options.find(function(o) { return o.value === '[A] Bank - Checking'; });
+  assert.equal(rebuildPrefix && rebuildPrefix.dataset.variant, 'prefix', 'prefix option keeps data-variant');
+  assert.ok(!rebuildLeaf || !rebuildLeaf.dataset.variant, 'leaf option has no data-variant');
 });

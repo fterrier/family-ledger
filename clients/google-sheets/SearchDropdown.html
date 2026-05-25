@@ -39,10 +39,13 @@ function attachSearchDropdown_(rootSelect, searchFn) {
 
   const allOptions = Array.from(rootSelect.options).map(function(opt) {
     const ds = opt.dataset || {};
-    return { value: opt.value, label: opt.textContent, startDate: ds.start || null, endDate: ds.end || null };
+    const dataset = {};
+    Object.keys(ds).forEach(function(k) { dataset[k] = ds[k]; });
+    return { value: opt.value, label: opt.textContent, dataset: dataset };
   });
 
   let searchTimer = null;
+  let isDispatching_ = false;
 
   function cancelSearch_() {
     if (searchTimer !== null) { clearTimeout(searchTimer); searchTimer = null; }
@@ -55,6 +58,9 @@ function attachSearchDropdown_(rootSelect, searchFn) {
       const el = doc.createElement('option');
       el.value = opt.value;
       el.textContent = opt.label;
+      if (opt.dataset) {
+        Object.keys(opt.dataset).forEach(function(k) { el.dataset[k] = opt.dataset[k]; });
+      }
       rootSelect.appendChild(el);
     });
     rootSelect.value = options.some(function(o) { return o.value === prev; })
@@ -91,8 +97,14 @@ function attachSearchDropdown_(rootSelect, searchFn) {
   }
 
   function commitSelection_() {
+    if (isDispatching_) return;
     updateDisplay_();
     hidePanel_();
+    isDispatching_ = true;
+    const evt = doc.createEvent('Event');
+    evt.initEvent('change', true, true);
+    rootSelect.dispatchEvent(evt);
+    isDispatching_ = false;
   }
 
   function openDropdown_() {
@@ -146,20 +158,24 @@ function attachSearchDropdown_(rootSelect, searchFn) {
     }, 0);
   });
 
-  // change as fallback (e.g. keyboard selection)
+  // change as fallback (e.g. keyboard selection); skip when commitSelection_ already owns the event
   rootSelect.addEventListener('change', function() {
-    commitSelection_();
+    if (!isDispatching_) {
+      commitSelection_();
+    }
   });
 
   return {
     clear: function() {
       cancelSearch_();
       rootSelect.value = '';
-      updateDisplay_();
       hidePanel_();
+      isDispatching_ = true;
       const evt = doc.createEvent('Event');
       evt.initEvent('change', true, true);
       rootSelect.dispatchEvent(evt);
+      isDispatching_ = false;
+      updateDisplay_();
     },
     open: openDropdown_,
   };

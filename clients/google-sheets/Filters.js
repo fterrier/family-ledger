@@ -1,5 +1,5 @@
 function showQuickFilter() {
-  const html = HtmlService.createHtmlOutputFromFile('FilterSidebar').setTitle('Quick Filter');
+  const html = HtmlService.createTemplateFromFile('FilterSidebar').evaluate().setTitle('Quick Filter');
   SpreadsheetApp.getUi().showSidebar(html);
 }
 

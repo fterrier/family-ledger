@@ -51,6 +51,13 @@ Add a paginated list route consistent with all other collection endpoints. Requi
 
 ### Google Sheets — UX and display
 
+**Quick Filter sidebar: performance and loading feedback**
+
+The sidebar currently issues a single `getQuickFilterSidebarData` call on open that fetches years, active date range, account names, and the saved account prefix in one round-trip. Two areas to improve:
+
+- *Loading state*: the account dropdown and year buttons show a generic "Loading…" spinner with no progress indication. Add per-section loading messages and surface errors inline rather than only in the status bar.
+- *Performance*: the sidebar startup call reads the Accounts sheet and Transactions sheet synchronously. Investigate caching account names across sidebar opens (they rarely change) and lazy-loading the year list separately so the account dropdown can render without waiting for the full transaction scan.
+
 **Cost/price: display**
 
 Stop skipping transactions whose postings carry cost or price annotations. Render them in the Transactions sheet with cost/price fields displayed as read-only. This unblocks investment transactions that are currently invisible.

@@ -217,16 +217,7 @@ function buildTransactionSyncData_(transactions, accountResourceToDisplayName) {
 }
 
 function buildPriceSyncRows_(prices) {
-  return prices.map(function(price) {
-    return {
-      edit: false,
-      resource_name: price.name,
-      price_date: price.price_date,
-      base_symbol: price.base_symbol,
-      quote_amount: price.quote.amount,
-      quote_symbol: price.quote.symbol,
-    };
-  });
+  return prices.map(function(price) { return Price.fromApi(price).toRows_()[0]; });
 }
 
 function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {

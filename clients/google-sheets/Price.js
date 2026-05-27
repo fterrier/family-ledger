@@ -1,8 +1,7 @@
 class Price extends Entity {
-  constructor(api, context) {
+  constructor(api) {
     super();
     this._api = api;
-    this._context = context || {};
     this._span = null;
   }
 
@@ -63,11 +62,11 @@ class Price extends Entity {
     return {};
   }
 
-  static fromApi(apiEntity, context) {
-    return new Price(apiEntity || {}, context);
+  static fromApi(apiEntity) {
+    return new Price(apiEntity || {});
   }
 
-  static fromRows(rows, context, span) {
+  static fromRows(rows, _context, span) {
     const row = rows[0] || {};
     const quoteAmountRaw = row.quote_amount;
     const quoteAmountVal = quoteAmountRaw !== '' && quoteAmountRaw != null ? String(quoteAmountRaw) : null;
@@ -77,7 +76,7 @@ class Price extends Entity {
       base_symbol: String(row.base_symbol || '').trim() || null,
       quote: { amount: quoteAmountVal, symbol: String(row.quote_symbol || '').trim() || null },
     };
-    const instance = new Price(api, context);
+    const instance = new Price(api);
     instance._span = span || null;
     return instance;
   }
@@ -99,10 +98,10 @@ class Price extends Entity {
     return {
       mode: 'advanced',
       fields: [
-        { key: 'price_date',    label: 'Date',         type: 'date',   required: true, hint: 'Required.', default: defaults.price_date || null },
-        { key: 'base_symbol',   label: 'Base symbol',  type: 'select', required: true, hint: 'Required.', default: defaults.base_symbol || null, 'selection-options': allSymbolOpts },
-        { key: 'quote_amount',  label: 'Price',        type: 'number', required: true, hint: 'Required.', default: defaults.quote_amount || null },
-        { key: 'quote_symbol',  label: 'Quote symbol', type: 'select', required: true, hint: 'Required.', default: defaults.quote_symbol || null, 'selection-options': allSymbolOpts },
+        { key: 'price_date',    label: 'Date',         type: 'date',   required: true, hint: 'Required.', default: defaults.price_date },
+        { key: 'base_symbol',   label: 'Base symbol',  type: 'select', required: true, hint: 'Required.', default: defaults.base_symbol, 'selection-options': allSymbolOpts },
+        { key: 'quote_amount',  label: 'Price',        type: 'number', required: true, hint: 'Required.', default: defaults.quote_amount },
+        { key: 'quote_symbol',  label: 'Quote symbol', type: 'select', required: true, hint: 'Required.', default: defaults.quote_symbol, 'selection-options': allSymbolOpts },
       ],
     };
   }

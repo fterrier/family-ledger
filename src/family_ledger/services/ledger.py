@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
-from typing import cast
+from typing import Any, cast
 
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
@@ -87,6 +87,21 @@ def encode_page_token(offset: int) -> str:
 
 def paginate_query(query: Select, *, offset: int, page_size: int):
     return query.offset(offset).limit(page_size + 1)
+
+
+def _run_list_page(
+    session: Session, query: Select, *, page_size: int | None, page_token: str | None
+) -> tuple[list[Any], str | None]:
+    normalized = normalize_page_size(page_size)
+    offset = decode_page_token(page_token)
+    rows: list[Any] = list(
+        session.scalars(paginate_query(query, offset=offset, page_size=normalized)).all()
+    )
+    next_token: str | None = None
+    if len(rows) > normalized:
+        rows = rows[:normalized]
+        next_token = encode_page_token(offset + normalized)
+    return rows, next_token
 
 
 def serialize_account(account: Account) -> AccountResource:
@@ -227,21 +242,14 @@ def get_transaction_row(session: Session, transaction: str) -> Transaction:
 def list_accounts_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListAccountsResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    accounts = session.scalars(
-        paginate_query(
-            select(Account).order_by(Account.account_name),
-            offset=offset,
-            page_size=normalized_page_size,
-        )
-    ).all()
-    next_page_token = None
-    if len(accounts) > normalized_page_size:
-        accounts = accounts[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    accounts, next_page_token = _run_list_page(
+        session,
+        select(Account).order_by(Account.account_name),
+        page_size=page_size,
+        page_token=page_token,
+    )
     return ListAccountsResponse(
-        accounts=[serialize_account(account) for account in accounts],
+        accounts=[serialize_account(a) for a in accounts],
         next_page_token=next_page_token,
     )
 
@@ -287,21 +295,14 @@ def create_account(session: Session, payload: AccountCreate) -> AccountResource:
 def list_commodities_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListCommoditiesResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    commodities = session.scalars(
-        paginate_query(
-            select(Commodity).order_by(Commodity.symbol),
-            offset=offset,
-            page_size=normalized_page_size,
-        )
-    ).all()
-    next_page_token = None
-    if len(commodities) > normalized_page_size:
-        commodities = commodities[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    commodities, next_page_token = _run_list_page(
+        session,
+        select(Commodity).order_by(Commodity.symbol),
+        page_size=page_size,
+        page_token=page_token,
+    )
     return ListCommoditiesResponse(
-        commodities=[serialize_commodity(commodity) for commodity in commodities],
+        commodities=[serialize_commodity(c) for c in commodities],
         next_page_token=next_page_token,
     )
 
@@ -461,19 +462,12 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
 def list_prices_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListPricesResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    prices = session.scalars(
-        paginate_query(
-            select(Price).order_by(Price.price_date, Price.name),
-            offset=offset,
-            page_size=normalized_page_size,
-        )
-    ).all()
-    next_page_token = None
-    if len(prices) > normalized_page_size:
-        prices = prices[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    prices, next_page_token = _run_list_page(
+        session,
+        select(Price).order_by(Price.price_date, Price.name),
+        page_size=page_size,
+        page_token=page_token,
+    )
     return ListPricesResponse(
         prices=[serialize_price(p) for p in prices],
         next_page_token=next_page_token,
@@ -483,21 +477,14 @@ def list_prices_page(
 def list_balance_assertions_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListBalanceAssertionsResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    assertions = session.scalars(
-        paginate_query(
-            select(BalanceAssertion)
-            .options(selectinload(BalanceAssertion.account))
-            .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name),
-            offset=offset,
-            page_size=normalized_page_size,
-        )
-    ).all()
-    next_page_token = None
-    if len(assertions) > normalized_page_size:
-        assertions = assertions[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    assertions, next_page_token = _run_list_page(
+        session,
+        select(BalanceAssertion)
+        .options(selectinload(BalanceAssertion.account))
+        .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name),
+        page_size=page_size,
+        page_token=page_token,
+    )
     return ListBalanceAssertionsResponse(
         balance_assertions=[serialize_balance_assertion(a) for a in assertions],
         next_page_token=next_page_token,

@@ -35,6 +35,14 @@ function syncLedger() {
         return buildBalanceAssertionSyncRows_(balanceAssertions, accountSyncData.accountResourceToDisplayName);
       }, function(r) { return r.length + ' rows'; });
 
+      const prices = fetchFamilyLedgerPagedResource_(
+        '/prices?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
+        'prices'
+      );
+      const priceRows = perf.wrap('data.build_prices', function() {
+        return buildPriceSyncRows_(prices);
+      }, function(r) { return r.length + ' rows'; });
+
       const attachments = fetchFamilyLedgerPagedResource_(
         '/attachments?page_size=' + FAMILY_LEDGER_PAGE_SIZE,
         'attachments'
@@ -60,6 +68,13 @@ function syncLedger() {
           buildIssueLookupFormula_
         );
       }, accountSyncData.accountRows.length + ' rows');
+
+      const pricesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.prices);
+      perf.wrap('sheet.write_prices', function() {
+        ensureSheetCapacity_(pricesSheet, FAMILY_LEDGER_SHEET_REGISTRY.prices.headers.length, priceRows.length + 1);
+        writeSheet_(pricesSheet, FAMILY_LEDGER_SHEET_REGISTRY.prices, priceRows);
+        pricesSheet.setFrozenRows(1);
+      }, priceRows.length + ' rows');
 
       const balancesSheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES.balances);
       perf.wrap('sheet.write_balances', function() {
@@ -100,7 +115,7 @@ function syncLedger() {
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
 
       SpreadsheetApp.getActiveSpreadsheet().toast(
-        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length, attachments.length),
+        buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length, attachments.length, prices.length),
         'Ledger Sync Complete',
         10
       );
@@ -130,9 +145,9 @@ function ensureEditTriggerInstalled_() {
   }
 }
 
-function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount, commodityCount, attachmentCount) {
+function buildLedgerSyncSummaryMessage_(accountCount, transactionCount, transactionSyncData, balanceAssertionCount, commodityCount, attachmentCount, priceCount) {
   const message = [
-    'Synced ' + accountCount + ' accounts, ' + commodityCount + ' commodities.',
+    'Synced ' + accountCount + ' accounts, ' + commodityCount + ' commodities, ' + (priceCount || 0) + ' prices.',
     'Fetched ' + transactionCount + ' transactions and synced ' + transactionSyncData.rows.length + ' allocation rows.',
     'Synced ' + balanceAssertionCount + ' balance assertions.',
     'Synced ' + (attachmentCount || 0) + ' attachments.',
@@ -199,6 +214,19 @@ function buildTransactionSyncData_(transactions, accountResourceToDisplayName) {
     skippedExamples: skippedExamples,
     skippedCount: skippedCount,
   };
+}
+
+function buildPriceSyncRows_(prices) {
+  return prices.map(function(price) {
+    return {
+      edit: false,
+      resource_name: price.name,
+      price_date: price.price_date,
+      base_symbol: price.base_symbol,
+      quote_amount: price.quote.amount,
+      quote_symbol: price.quote.symbol,
+    };
+  });
 }
 
 function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {

@@ -13,6 +13,7 @@ function onOpen() {
     .addItem('Add Account', 'showAddAccount')
     .addItem('Add Commodity', 'showAddCommodity')
     .addItem('Add Attachment', 'showAddAttachment')
+    .addItem('Add Price', 'showAddPrice')
     .addSeparator()
     .addItem('Sheet Settings', 'showSheetSettings')
     .addItem('Importer Settings', 'showImporterSettings')

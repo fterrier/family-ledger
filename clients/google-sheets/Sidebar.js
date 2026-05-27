@@ -22,6 +22,10 @@ function showAddAttachment() {
   showEditSidebar_('attachments', null, null);
 }
 
+function showAddPrice() {
+  showEditSidebar_('prices', null, null);
+}
+
 function showEditSidebar_(entityClassKey, entityName, span, context) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entityClassKey];
   const template = HtmlService.createTemplateFromFile('EditSidebar');

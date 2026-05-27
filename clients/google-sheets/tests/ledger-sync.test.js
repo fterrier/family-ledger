@@ -10,6 +10,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     Accounts: { name: 'Accounts', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
     Balances: { name: 'Balances', setFrozenRows() {} },
     Commodities: { name: 'Commodities', setFrozenRows() {} },
+    Prices: { name: 'Prices', setFrozenRows() {} },
     Attachments: { name: 'Attachments', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
     Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; }, getRange() { return { setFormulas() {} }; } },
   };
@@ -38,6 +39,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     }
     if (resourceKey === 'balance_assertions') return [];
     if (resourceKey === 'attachments') return [];
+    if (resourceKey === 'prices') return [];
     return [{ name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [] }];
   };
   sandbox.buildAccountSyncData_ = function(accounts) {
@@ -78,11 +80,13 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     { type: 'fetch', path: '/accounts?page_size=1000', resourceKey: 'accounts' },
     { type: 'fetch', path: '/transactions?page_size=1000', resourceKey: 'transactions' },
     { type: 'fetch', path: '/balance-assertions?page_size=1000', resourceKey: 'balance_assertions' },
+    { type: 'fetch', path: '/prices?page_size=1000', resourceKey: 'prices' },
     { type: 'fetch', path: '/attachments?page_size=1000', resourceKey: 'attachments' },
   ]);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.filter((call) => call.type === 'writeSheet'))), [
     { type: 'writeSheet', sheet: 'Commodities', rowCount: 1 },
     { type: 'writeSheet', sheet: 'Accounts', rowCount: 1 },
+    { type: 'writeSheet', sheet: 'Prices', rowCount: 0 },
     { type: 'writeSheet', sheet: 'Balances', rowCount: 0 },
     { type: 'writeSheet', sheet: 'Attachments', rowCount: 0 },
     { type: 'writeSheet', sheet: 'Transactions', rowCount: 1 },
@@ -121,10 +125,10 @@ test('buildLedgerSyncSummaryMessage_ formats counts with no skipped', () => {
   const { sandbox } = loadCode();
 
   const msg = sandbox.buildLedgerSyncSummaryMessage_(
-    3, 50, { rows: new Array(48), skippedCount: 0, skippedExamples: [] }, 10, 2, 5
+    3, 50, { rows: new Array(48), skippedCount: 0, skippedExamples: [] }, 10, 2, 5, 7
   );
 
-  assert.ok(msg.includes('Synced 3 accounts, 2 commodities.'), 'accounts and commodities');
+  assert.ok(msg.includes('Synced 3 accounts, 2 commodities, 7 prices.'), 'accounts, commodities, prices');
   assert.ok(msg.includes('Fetched 50 transactions and synced 48 allocation rows.'), 'transactions');
   assert.ok(msg.includes('Synced 10 balance assertions.'), 'balance assertions');
   assert.ok(msg.includes('Synced 5 attachments.'), 'attachments');

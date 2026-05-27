@@ -26,12 +26,12 @@ This document tracks planned work, verified implementation state, and deferred s
 - Google Sheets: all transactions displayed using weight-based model; cost/price transactions show settlement-currency amounts and are editable via the sidebar postings editor (cost and price per posting, individual toggles, account search with date filtering, move/reorder controls)
 - Google Sheets: source account determined by posting order — first posting of each weight-symbol group is always the source; posting order in the ledger file is the control mechanism
 - API: `weight` field returned per posting in transaction responses (computed from cost/price/units)
+- API: `GET /prices` list endpoint with pagination
+- Google Sheets: Prices sheet — synced on every ledger sync, with create/edit/delete sidebar
 
 ### Not Implemented
 
-- `GET /prices` list endpoint (no list route exists; required to unblock the Prices sheet)
 - account PATCH/update route
-- Prices sheet in the Google Sheets client (blocked on `GET /prices` list endpoint)
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
@@ -42,10 +42,6 @@ This document tracks planned work, verified implementation state, and deferred s
 ## Planned Work
 
 ### Backend
-
-**`GET /prices` list endpoint**
-
-Add a paginated list route consistent with all other collection endpoints. Required before the Prices sheet can be built.
 
 **Account update route**
 
@@ -59,10 +55,6 @@ The sidebar currently issues a single `getQuickFilterSidebarData` call on open t
 
 - *Loading state*: the account dropdown and year buttons show a generic "Loading…" spinner with no progress indication. Add per-section loading messages and surface errors inline rather than only in the status bar.
 - *Performance*: the sidebar startup call reads the Accounts sheet and Transactions sheet synchronously. Investigate caching account names across sidebar opens (they rarely change) and lazy-loading the year list separately so the account dropdown can render without waiting for the full transaction scan.
-
-**Prices sheet**
-
-Fetch `/prices` and write a managed Prices sheet on sync, following the same pattern as the Balances sheet. Depends on the `GET /prices` backend endpoint.
 
 **Provenance metadata**
 

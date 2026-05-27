@@ -89,6 +89,11 @@ class PriceCreate(PriceData):
     pass
 
 
+class ListPricesResponse(BaseModel):
+    prices: list[PriceResource]
+    next_page_token: str | None = None
+
+
 class BalanceAssertionData(BaseModel):
     assertion_date: date
     account: str

@@ -21,6 +21,7 @@ from family_ledger.api.schemas import (
     ListAccountsResponse,
     ListBalanceAssertionsResponse,
     ListCommoditiesResponse,
+    ListPricesResponse,
     ListTransactionsResponse,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
@@ -234,6 +235,20 @@ def get_transaction(transaction: str, session: DbSession) -> TransactionResource
 @router.delete("/transactions/{transaction:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(transaction: str, session: DbSession) -> None:
     _call_service(ledger_service.delete_transaction, session, transaction)
+
+
+@router.get("/prices", response_model=ListPricesResponse)
+def list_prices(
+    session: DbSession,
+    page_size: int | None = None,
+    page_token: str | None = None,
+) -> ListPricesResponse:
+    return _call_service(
+        ledger_service.list_prices_page,
+        session,
+        page_size=page_size,
+        page_token=page_token,
+    )
 
 
 @router.post(

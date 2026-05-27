@@ -3,6 +3,7 @@ const FAMILY_LEDGER_SHEET_NAMES = {
   transactions: 'Transactions',
   balances: 'Balances',
   commodities: 'Commodities',
+  prices: 'Prices',
   attachments: 'Attachments',
   issues: 'Issues',
 };
@@ -281,6 +282,52 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       insertionOrder: true,
     },
   }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
+  prices: buildSheetConfig_('prices', FAMILY_LEDGER_SHEET_NAMES.prices, {
+    edit: {
+      width: 40,
+      role: 'action',
+      note: 'Click to open the Edit/Delete Price sidebar.',
+      alignment: 'center',
+      checkbox: true,
+    },
+    resource_name: {
+      width: 200,
+      role: 'system',
+      note: 'Technical price resource name used by the client.',
+      alignment: 'left',
+    },
+    price_date: {
+      width: 95,
+      role: 'readonly',
+      note: 'Read-only price date.',
+      alignment: 'left',
+      numberFormat: 'yyyy-mm-dd',
+      insertionOrder: true,
+    },
+    base_symbol: {
+      width: 80,
+      role: 'readonly',
+      note: 'Read-only base commodity symbol.',
+      alignment: 'left',
+    },
+    quote_amount: {
+      width: 110,
+      role: 'readonly',
+      note: 'Read-only price per unit of base in quote currency.',
+      alignment: 'right',
+      numberFormat: '#,##0.0000',
+    },
+    quote_symbol: {
+      width: 80,
+      role: 'readonly',
+      note: 'Read-only quote currency symbol.',
+      alignment: 'left',
+    },
+  }, {
+    issueHeader: null,
+    hiddenHeaders: ['resource_name'],
+    protectedHeaders: ['resource_name', 'price_date', 'base_symbol', 'quote_amount', 'quote_symbol'],
+  }),
   attachments: buildSheetConfig_('attachments', FAMILY_LEDGER_SHEET_NAMES.attachments, {
     edit: {
       width: 40,

@@ -1,5 +1,6 @@
 var PostingsEditor = (function() {
   var _container = null;
+  var _listEl = null;
   var _accountOptions = [];
   var _commodityOptions = [];
 
@@ -9,9 +10,9 @@ var PostingsEditor = (function() {
     _commodityOptions = commodityOptions || [];
     _container.innerHTML = '';
 
-    var listEl = document.createElement('div');
-    listEl.className = 'postings-list';
-    _container.appendChild(listEl);
+    _listEl = document.createElement('div');
+    _listEl.className = 'postings-list';
+    _container.appendChild(_listEl);
 
     var addBtn = document.createElement('button');
     addBtn.type = 'button';
@@ -24,48 +25,158 @@ var PostingsEditor = (function() {
     (initialPostings || []).forEach(function(p) { addRow(p); });
   }
 
+  function makeCommoditySelect_(cls) {
+    var sel = document.createElement('select');
+    sel.className = cls;
+    [{ value: '', label: '—' }].concat(_commodityOptions).forEach(function(o) {
+      var opt = document.createElement('option');
+      opt.value = o.value; opt.textContent = o.label || o.value || '—';
+      sel.appendChild(opt);
+    });
+    return sel;
+  }
+
+  function makeAmountInput_(cls) {
+    var inp = document.createElement('input');
+    inp.type = 'number'; inp.step = '0.000001'; inp.placeholder = '0.00';
+    inp.className = cls;
+    return inp;
+  }
+
+  function setMoneyInputs_(val, amtInput, symInput) {
+    if (val) { amtInput.value = val.amount || ''; symInput.value = val.symbol || ''; }
+  }
+
+  function makeCpRow_(labelText, amtCls, symCls, toggleEl) {
+    var cpRow = document.createElement('div');
+    cpRow.className = 'posting-cp-row';
+
+    var label = document.createElement('span');
+    label.textContent = labelText;
+    label.style.cssText = 'font-size:11px;color:#80868b;white-space:nowrap';
+
+    var amtInput = makeAmountInput_(amtCls);
+    var symSel = makeCommoditySelect_(symCls);
+
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'btn-icon'; removeBtn.textContent = '×';
+    removeBtn.title = 'Remove';
+    removeBtn.onclick = function() {
+      amtInput.value = '';
+      symSel.value = '';
+      cpRow.style.display = 'none';
+      if (toggleEl) toggleEl.style.display = '';
+    };
+
+    cpRow.appendChild(label);
+    cpRow.appendChild(amtInput);
+    cpRow.appendChild(symSel);
+    cpRow.appendChild(removeBtn);
+    return cpRow;
+  }
+
+  function makeCpToggle_(label) {
+    var toggle = document.createElement('span');
+    toggle.textContent = label;
+    toggle.style.cssText = 'font-size:11px;color:#1a73e8;cursor:pointer';
+    return toggle;
+  }
+
+  function makeCpSection_(posting, field, toggleLabel, rowLabel, clsPrefix) {
+    var toggle = makeCpToggle_(toggleLabel);
+    var row = makeCpRow_(rowLabel, clsPrefix + '-amount', clsPrefix + '-symbol', toggle);
+    var val = posting && posting[field];
+    row.style.display = val ? '' : 'none';
+    toggle.style.display = val ? 'none' : '';
+    if (val) setMoneyInputs_(val, row.querySelector('.' + clsPrefix + '-amount'), row.querySelector('.' + clsPrefix + '-symbol'));
+    toggle.onclick = function() { toggle.style.display = 'none'; row.style.display = ''; };
+    return { toggle: toggle, row: row };
+  }
+
   function addRow(posting) {
-    var listEl = _container && _container.querySelector('.postings-list');
-    if (!listEl) return;
+    if (!_listEl) return;
 
     var row = document.createElement('div');
     row.className = 'posting-row';
 
+    var controls = document.createElement('div');
+    controls.className = 'posting-row-controls';
+
+    var upBtn = document.createElement('button');
+    upBtn.type = 'button'; upBtn.className = 'btn-icon'; upBtn.textContent = '↑'; upBtn.title = 'Move up';
+    upBtn.onclick = function() {
+      var prev = row.previousElementSibling;
+      if (prev) _listEl.insertBefore(row, prev);
+    };
+
+    var downBtn = document.createElement('button');
+    downBtn.type = 'button'; downBtn.className = 'btn-icon'; downBtn.textContent = '↓'; downBtn.title = 'Move down';
+    downBtn.onclick = function() {
+      var next = row.nextElementSibling;
+      if (next) _listEl.insertBefore(next, row);
+    };
+
+    var removeBtn = document.createElement('button');
+    removeBtn.type = 'button'; removeBtn.className = 'btn-icon'; removeBtn.textContent = '×'; removeBtn.title = 'Remove';
+    removeBtn.onclick = function() { row.remove(); };
+
+    controls.appendChild(upBtn);
+    controls.appendChild(downBtn);
+    controls.appendChild(removeBtn);
+
+    var content = document.createElement('div');
+    content.className = 'posting-content';
+
     var acctSel = document.createElement('select');
     acctSel.className = 'posting-account';
-    [{ value: '', label: 'Account' }].concat(_accountOptions).forEach(function(o) {
+    [{ value: '', label: 'Account', startDate: null, endDate: null }].concat(_accountOptions).forEach(function(o) {
       var opt = document.createElement('option');
-      opt.value = o.value; opt.textContent = o.label;
+      opt.value = o.value; opt.textContent = o.label || o.value || '—';
+      if (o.startDate) opt.dataset.start = o.startDate;
+      if (o.endDate) opt.dataset.end = o.endDate;
       acctSel.appendChild(opt);
     });
     if (posting && posting.account) acctSel.value = posting.account;
+    content.appendChild(acctSel);
 
-    var amtInput = document.createElement('input');
-    amtInput.type = 'number'; amtInput.step = '0.01'; amtInput.placeholder = '0.00';
-    amtInput.className = 'posting-amount';
+    if (typeof attachSearchDropdown_ === 'function' && typeof makeAccountSearchFn_ === 'function') {
+      attachSearchDropdown_(acctSel, makeAccountSearchFn_);
+    }
+
+    var unitsRow = document.createElement('div');
+    unitsRow.className = 'posting-units';
+
+    var amtInput = makeAmountInput_('posting-amount');
     if (posting && posting.units) amtInput.value = posting.units.amount || '';
 
-    var symSel = document.createElement('select');
-    symSel.className = 'posting-symbol';
-    [{ value: '', label: '—' }].concat(_commodityOptions).forEach(function(o) {
-      var opt = document.createElement('option');
-      opt.value = o.value; opt.textContent = o.label || o.value || '—';
-      symSel.appendChild(opt);
-    });
+    var symSel = makeCommoditySelect_('posting-symbol');
     if (posting && posting.units) symSel.value = posting.units.symbol || '';
 
-    var removeBtn = document.createElement('button');
-    removeBtn.type = 'button'; removeBtn.className = 'btn-icon'; removeBtn.textContent = '×';
-    removeBtn.onclick = function() { row.remove(); };
+    unitsRow.appendChild(amtInput);
+    unitsRow.appendChild(symSel);
+    content.appendChild(unitsRow);
 
-    row.appendChild(acctSel); row.appendChild(amtInput); row.appendChild(symSel); row.appendChild(removeBtn);
-    listEl.appendChild(row);
+    var cost = makeCpSection_(posting, 'cost', '+ cost', '{}', 'posting-cost');
+    var price = makeCpSection_(posting, 'price', '+ price', '@', 'posting-price');
+    content.appendChild(cost.row);
+    content.appendChild(price.row);
+
+    var footer = document.createElement('div');
+    footer.className = 'posting-footer';
+    cost.toggle.style.marginRight = '6px';
+    footer.appendChild(cost.toggle);
+    footer.appendChild(price.toggle);
+    content.appendChild(footer);
+
+    row.appendChild(content);
+    row.appendChild(controls);
+
+    _listEl.appendChild(row);
   }
 
   function collect() {
-    var listEl = _container && _container.querySelector('.postings-list');
-    if (!listEl) { showError('Postings editor not initialized.'); return null; }
-    var rows = listEl.querySelectorAll('.posting-row');
+    if (!_listEl) { showError('Postings editor not initialized.'); return null; }
+    var rows = _listEl.querySelectorAll('.posting-row');
     if (!rows.length) { showError('At least one posting is required.'); return null; }
     var postings = [];
     var valid = true;
@@ -74,15 +185,21 @@ var PostingsEditor = (function() {
       var amt = row.querySelector('.posting-amount').value;
       var sym = row.querySelector('.posting-symbol').value;
       if (!acct || amt === '' || !sym) { valid = false; return; }
-      postings.push({ account: acct, units: { amount: amt, symbol: sym } });
+      var p = { account: acct, units: { amount: amt, symbol: sym } };
+      var costAmt = row.querySelector('.posting-cost-amount').value;
+      var costSym = row.querySelector('.posting-cost-symbol').value;
+      if (costAmt && costSym) p.cost = { amount: costAmt, symbol: costSym };
+      var priceAmt = row.querySelector('.posting-price-amount').value;
+      var priceSym = row.querySelector('.posting-price-symbol').value;
+      if (priceAmt && priceSym) p.price = { amount: priceAmt, symbol: priceSym };
+      postings.push(p);
     });
     if (!valid) { showError('All posting fields (account, amount, symbol) are required.'); return null; }
     return postings;
   }
 
   function clear() {
-    var listEl = _container && _container.querySelector('.postings-list');
-    if (listEl) listEl.innerHTML = '';
+    if (_listEl) _listEl.innerHTML = '';
   }
 
   return { init: init, collect: collect, clear: clear, addRow: addRow };

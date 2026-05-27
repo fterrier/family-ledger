@@ -32,6 +32,7 @@ class PostingPayload(BaseModel):
     narration: str | None = None
     cost: MoneyValue | None = None
     price: MoneyValue | None = None
+    weight: MoneyValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

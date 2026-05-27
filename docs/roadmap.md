@@ -23,13 +23,15 @@ This document tracks planned work, verified implementation state, and deferred s
 - Google Sheets: Importer Settings and Import Data dialog
 - Google Sheets: `#,##0.00` number formatting on amount columns (Transactions, Balances)
 - Google Sheets: free-text account search in the Quick Filter sidebar with intermediate prefix entries shown in italic
+- Google Sheets: all transactions displayed using weight-based model; cost/price transactions show settlement-currency amounts and are editable via the sidebar postings editor (cost and price per posting, individual toggles, account search with date filtering, move/reorder controls)
+- Google Sheets: source account determined by posting order — first posting of each weight-symbol group is always the source; posting order in the ledger file is the control mechanism
+- API: `weight` field returned per posting in transaction responses (computed from cost/price/units)
 
 ### Not Implemented
 
 - `GET /prices` list endpoint (no list route exists; required to unblock the Prices sheet)
 - account PATCH/update route
-- cost/price display or editing in the Transactions sheet (those transactions are currently skipped at sync)
-- Prices sheet in the Google Sheets client
+- Prices sheet in the Google Sheets client (blocked on `GET /prices` list endpoint)
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
@@ -57,14 +59,6 @@ The sidebar currently issues a single `getQuickFilterSidebarData` call on open t
 
 - *Loading state*: the account dropdown and year buttons show a generic "Loading…" spinner with no progress indication. Add per-section loading messages and surface errors inline rather than only in the status bar.
 - *Performance*: the sidebar startup call reads the Accounts sheet and Transactions sheet synchronously. Investigate caching account names across sidebar opens (they rarely change) and lazy-loading the year list separately so the account dropdown can render without waiting for the full transaction scan.
-
-**Cost/price: display**
-
-Stop skipping transactions whose postings carry cost or price annotations. Render them in the Transactions sheet with cost/price fields displayed as read-only. This unblocks investment transactions that are currently invisible.
-
-**Cost/price: editing**
-
-Extend the editable fields (payee, narration, destination account, amount) to work on transactions with cost/price postings. Cost and price annotations themselves are not editable through the sheet.
 
 **Prices sheet**
 

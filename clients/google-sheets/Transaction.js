@@ -88,6 +88,10 @@ class Transaction extends Entity {
       return;
     }
 
+    if (this._api.postings && this._api.postings.some(function(p) { return p.cost || p.price; })) {
+      throw new Error('Use the sidebar to edit this transaction.');
+    }
+
     if (header === 'destination_account_name') {
       const account = this._context.accountDisplayNameToResource[String(value || '').trim()];
       if (!account) throw new Error('Unknown account_name: ' + value);
@@ -255,14 +259,14 @@ class Transaction extends Entity {
     if (postings !== null) {
       const accountResourceToDisplayName = {};
       allRaw.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
-      const shape = classifySupportedTransaction_({ postings: postings }, accountResourceToDisplayName);
+      const groups = classifyTransactionGroups_({ postings: postings }, accountResourceToDisplayName);
 
-      if (!shape || shape.sourceIndex === null || shape.destinationIndexes.length > 1) {
+      if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].sourceIndex === null || groups[0].destinationIndexes.length > 1) {
         return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings)]) };
       }
 
-      const src = postings[shape.sourceIndex];
-      const dst = shape.destinationIndexes.length > 0 ? postings[shape.destinationIndexes[0]] : null;
+      const src = postings[groups[0].sourceIndex];
+      const dst = groups[0].destinationIndexes.length > 0 ? postings[groups[0].destinationIndexes[0]] : null;
       return { mode: 'simple', allowModeSwitch: true, fields: textFields.concat([
         { key: 'source_account',      label: 'Source account',      type: 'account-search', required: true,
           hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account },
@@ -329,14 +333,13 @@ function parseTransactionRowsToApi_(rows, accountDisplayNameToResource) {
 // — Transaction-specific functions (moved from TransactionsSheet.js) —
 
 function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) {
-  const shape = classifySupportedTransaction_(transaction, accountResourceToDisplayName);
-  if (shape === null) {
-    return null;
-  }
+  const groups = classifyTransactionGroups_(transaction, accountResourceToDisplayName);
+  if (groups === null) return null;
 
   const transactionNarration = String(transaction.narration || '');
+  const lookup = accountResourceToDisplayName || {};
 
-  if (shape.sourceIndex === null) {
+  if (groups.length === 0) {
     return [{
       resource_name: transaction.name,
       narration_source: 'txn',
@@ -351,97 +354,116 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
     }];
   }
 
-  const sourcePosting = transaction.postings[shape.sourceIndex];
-  const sourceAccountName = accountResourceToDisplayName[sourcePosting.account] || sourcePosting.account;
-  const sourcePostingNarration = String(sourcePosting.narration || '');
+  const rows = [];
 
-  if (shape.destinationIndexes.length === 0) {
-    const postingNarration = sourcePostingNarration;
-    return [{
-      resource_name: transaction.name,
-      narration_source: postingNarration ? 'post' : 'txn',
-      transaction_date: transaction.transaction_date,
-      payee: transaction.payee || '',
-      narration: effectiveSheetNarration_(transactionNarration, postingNarration),
-      source_account_name: sourceAccountName,
-      destination_account_name: '',
-      amount: -parseFloat(sourcePosting.units.amount),
-      split_off_amount: '',
-      symbol: sourcePosting.units.symbol,
-    }];
-  }
+  groups.forEach(function(group) {
+    if (group.sourceIndex === null) {
+      rows.push({
+        resource_name: transaction.name,
+        narration_source: 'txn',
+        transaction_date: transaction.transaction_date,
+        payee: transaction.payee || '',
+        narration: transactionNarration,
+        source_account_name: '',
+        destination_account_name: '',
+        amount: '',
+        split_off_amount: '',
+        symbol: group.symbol,
+        hasCostPrice: group.hasCostPrice,
+      });
+      return;
+    }
 
-  return shape.destinationIndexes.map(function(destinationIndex) {
-    const posting = transaction.postings[destinationIndex];
-    const postingNarration = String(posting.narration || '');
-    return {
-      resource_name: transaction.name,
-      narration_source: postingNarration ? 'post' : 'txn',
-      transaction_date: transaction.transaction_date,
-      payee: transaction.payee || '',
-      narration: effectiveSheetNarration_(transactionNarration, postingNarration),
-      source_account_name: sourceAccountName,
-      destination_account_name: accountResourceToDisplayName[posting.account] || posting.account,
-      amount: parseFloat(posting.units.amount),
-      split_off_amount: '',
-      symbol: posting.units.symbol,
-    };
+    const sourcePosting = transaction.postings[group.sourceIndex];
+    const sourceAccountName = lookup[sourcePosting.account] || sourcePosting.account;
+    const sourceWeight = postingWeight_(sourcePosting);
+
+    if (group.destinationIndexes.length === 0) {
+      const postingNarration = String(sourcePosting.narration || '');
+      rows.push({
+        resource_name: transaction.name,
+        narration_source: postingNarration ? 'post' : 'txn',
+        transaction_date: transaction.transaction_date,
+        payee: transaction.payee || '',
+        narration: effectiveSheetNarration_(transactionNarration, postingNarration),
+        source_account_name: sourceAccountName,
+        destination_account_name: '',
+        amount: -parseFloat(sourceWeight.amount),
+        split_off_amount: '',
+        symbol: sourceWeight.symbol,
+        hasCostPrice: group.hasCostPrice,
+      });
+      return;
+    }
+
+    group.destinationIndexes.forEach(function(destinationIndex) {
+      const posting = transaction.postings[destinationIndex];
+      const postingNarration = String(posting.narration || '');
+      const weight = postingWeight_(posting);
+      rows.push({
+        resource_name: transaction.name,
+        narration_source: postingNarration ? 'post' : 'txn',
+        transaction_date: transaction.transaction_date,
+        payee: transaction.payee || '',
+        narration: effectiveSheetNarration_(transactionNarration, postingNarration),
+        source_account_name: sourceAccountName,
+        destination_account_name: lookup[posting.account] || posting.account,
+        amount: parseFloat(weight.amount),
+        split_off_amount: '',
+        symbol: weight.symbol,
+        hasCostPrice: group.hasCostPrice,
+      });
+    });
   });
+
+  return rows;
 }
 
-function classifySupportedTransaction_(transaction, accountResourceToDisplayName) {
+// Returns the weight of a posting. Falls back to units when weight field is absent
+// (older API responses or test fixtures that predate the weight field).
+function postingWeight_(posting) {
+  return posting.weight || posting.units;
+}
+
+// Classify a transaction into display groups, one per weight symbol.
+// Each group: { symbol, sourceIndex, destinationIndexes, hasCostPrice }
+// sourceIndex is a posting array index (or null when ambiguous).
+// Returns null for malformed input; [] when all postings are zero-weight.
+function classifyTransactionGroups_(transaction, accountResourceToDisplayName) {
   if (!transaction || !Array.isArray(transaction.postings)) {
     return null;
   }
 
   const postings = transaction.postings;
+  if (postings.length === 0) return [];
+  const hasCostPrice = postings.some(function(p) { return p.cost || p.price; });
 
-  if (postings.length === 0) {
-    return { sourceIndex: null, destinationIndexes: [], symbol: null };
-  }
+  // Drop zero-weight postings — they carry no economic content.
+  const active = postings.map(function(p, i) {
+    const w = postingWeight_(p);
+    return { index: i, posting: p, weight: w, weightAmount: parseFloat(w.amount) };
+  }).filter(function(item) {
+    return item.weightAmount !== 0;
+  });
 
-  let symbol = null;
-  for (let i = 0; i < postings.length; i++) {
-    const p = postings[i];
-    if (!p.units || p.cost || p.price) return null;
-    if (symbol === null) symbol = p.units.symbol;
-    else if (symbol !== p.units.symbol) return null;
-  }
+  if (active.length === 0) return [];
 
-  const lookup = accountResourceToDisplayName || {};
-  const balanceIndexes = [];
-  for (let i = 0; i < postings.length; i++) {
-    const name = lookup[postings[i].account] || '';
-    if (name.startsWith('[A]') || name.startsWith('[L]')) balanceIndexes.push(i);
-  }
+  // Group by weight symbol, preserving first-seen order.
+  const symbolOrder = [];
+  const bySymbol = {};
+  active.forEach(function(item) {
+    const sym = item.weight.symbol;
+    if (!bySymbol[sym]) { symbolOrder.push(sym); bySymbol[sym] = []; }
+    bySymbol[sym].push(item);
+  });
 
-  let sourceIndex;
-  if (balanceIndexes.length > 0) {
-    let negativeBalanceIndex = -1;
-    for (let i = 0; i < balanceIndexes.length; i++) {
-      if (parseFloat(postings[balanceIndexes[i]].units.amount) < 0) {
-        negativeBalanceIndex = balanceIndexes[i];
-        break;
-      }
-    }
-    sourceIndex = negativeBalanceIndex >= 0 ? negativeBalanceIndex : balanceIndexes[0];
-  } else {
-    let negIndex = -1;
-    for (let i = 0; i < postings.length; i++) {
-      if (parseFloat(postings[i].units.amount) < 0) {
-        if (negIndex >= 0) return null;
-        negIndex = i;
-      }
-    }
-    if (negIndex < 0) return null;
-    sourceIndex = negIndex;
-  }
+  return symbolOrder.map(function(sym) {
+    const items = bySymbol[sym];
+    const sourceIndex = items.length > 0 ? items[0].index : null;
+    const destinationIndexes = items.slice(1).map(function(item) { return item.index; });
 
-  const destinationIndexes = [];
-  for (let i = 0; i < postings.length; i++) {
-    if (i !== sourceIndex) destinationIndexes.push(i);
-  }
-  return { sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, symbol: symbol };
+    return { symbol: sym, sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, hasCostPrice: hasCostPrice };
+  });
 }
 
 function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {

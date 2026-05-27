@@ -36,23 +36,59 @@ The sync path pulls canonical API data, rewrites the managed sheets, and refresh
 
 ## Supported Transaction Model
 
-The editable `Transactions` sheet is intentionally narrower than the full API transaction model.
+Every transaction is displayed in the Transactions sheet. The rendering uses a **weight-based model** so that investment, FX, and income transactions appear naturally alongside simple expenses.
 
-Current supported workflow centers on one source posting plus zero or more destination postings:
+### Weight computation
 
-- normal spending
-- income
-- balance-sheet transfers
-- source-only transactions
-- multi-destination splits
+Each posting's _weight_ is its value in the settlement currency:
 
-Rows that would require an ambiguous or misleading editing model are skipped during sync rather than rendered unsafely.
+| Posting has | Weight |
+|---|---|
+| `cost` | `units.amount × cost.amount` in `cost.symbol` |
+| `price` (no cost) | `units.amount × price.amount` in `price.symbol` |
+| neither | `units` (amount and symbol unchanged) |
+
+Zero-weight postings are suppressed and never appear in the sheet.
+
+### Grouping
+
+Postings are partitioned by `weight.symbol`. Each non-empty partition is a **group**, processed independently to produce one or more sheet rows.
+
+### Source selection (within each group)
+
+The first posting in the group is the source. All remaining postings are destinations.
+
+Source selection is controlled by posting order in the ledger file. The ledger owner is responsible for placing the intended source posting first within each weight-symbol group.
+
+### Amount column sum meaning
+
+| Filtered by | Sum means |
+|---|---|
+| Expense account | Net spending in that category |
+| Income account | Net income received (bank-side flow) |
+| Asset/liability account | Gross transaction volume (not net position) |
+
+Net account balances live in the Balances sheet.
+
+### Cost/price transactions
+
+If any posting in a transaction has a non-null `cost` or `price`, the entire transaction is flagged `hasCostPrice`. The Amount and symbol columns reflect the _weight_ (settlement value), not the raw units. Inline edits to `destination_account_name`, `amount`, and `split_off_amount` are blocked with a toast error — the sidebar postings editor is the only edit path. `payee` and `narration` remain editable inline.
+
+### Examples
+
+| Transaction | Groups | Source | Destination | Amount | Symbol |
+|---|---|---|---|---|---|
+| Grocery expense | 1 (CHF) | Bank [A] | Food [X] | 84.25 | CHF |
+| Salary | 1 (CHF) | Salary [I] | Bank [A] | 5000 | CHF |
+| Account transfer | 1 (CHF) | Checking [A] | Savings [A] | 100 | CHF |
+| Expense refund | 1 (CHF) | Bank [A] | Food [X] | −20 | CHF |
+| Investment buy (VTI @ 200 CHF) | 1 (CHF) | Bank [A] | Investments [A] | 1000 | CHF |
+| FX conversion | 2 (CHF, USD) | Bank CHF [A] / Bank USD [A] | — / — | 900 / −1000 | CHF / USD |
+| Split payment | 1 (CHF) | Bank [A] | Food [X], Household [X] | 50, 34.25 | CHF |
 
 Current notable limits:
 
-- one symbol across the rendered transaction
-- no cost or price editing in Sheets
-- the synced allocation sheet currently focuses on a constrained rendered transaction model
+- the edit sidebar does not yet support creating transactions with cost or price directly (postings editor allows editing existing cost/price values)
 
 ## Transactions Sheet Model
 

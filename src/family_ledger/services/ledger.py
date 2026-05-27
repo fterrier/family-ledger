@@ -43,7 +43,10 @@ from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import (
     normalize_and_validate_transaction_payload,
 )
-from family_ledger.services.transaction_balancing import derive_normalize_issues
+from family_ledger.services.transaction_balancing import (
+    derive_normalize_issues,
+    persisted_posting_weight,
+)
 from family_ledger.services.validation import (
     resolve_account,
     resolve_accounts,
@@ -105,6 +108,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
             price=None
             if posting.price_per_unit is None
             else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
+            weight=persisted_posting_weight(posting),
             entity_metadata=posting.entity_metadata,
         )
         for posting in transaction.postings

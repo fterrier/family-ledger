@@ -12,36 +12,34 @@ function loadT_() {
   return { sandbox, Transaction: getTransaction(sandbox) };
 }
 
-// --- classifySupportedTransaction_ ---
+// --- classifyTransactionGroups_ ---
 
-test('classifySupportedTransaction_ accepts simple outgoing transaction', () => {
+test('classifyTransactionGroups_ simple outgoing expense: negative [A] is source', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_(sampleTransaction());
+  const groups = sandbox.classifyTransactionGroups_(sampleTransaction(), {
+    'accounts/source': '[A] Bank - Checking',
+    'accounts/food': '[X] Food',
+  });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: 0,
-    destinationIndexes: [1],
-    symbol: 'CHF',
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1], hasCostPrice: false,
   });
 });
 
-test('classifySupportedTransaction_ accepts zero postings', () => {
+test('classifyTransactionGroups_ returns empty array for zero postings', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({ postings: [] });
+  const groups = sandbox.classifyTransactionGroups_({ postings: [] });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: null,
-    destinationIndexes: [],
-    symbol: null,
-  });
+  assert.deepEqual(JSON.parse(JSON.stringify(groups)), []);
 });
 
-test('classifySupportedTransaction_ uses balance-sheet account as source for income transaction', () => {
+test('classifyTransactionGroups_ income: negative [I] is source (rule 2), [A] bank is destination', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({
+  const groups = sandbox.classifyTransactionGroups_({
     postings: [
       { account: 'accounts/salary', units: { amount: '-5000', symbol: 'CHF' }, cost: null, price: null },
       { account: 'accounts/bank', units: { amount: '5000', symbol: 'CHF' }, cost: null, price: null },
@@ -51,33 +49,31 @@ test('classifySupportedTransaction_ uses balance-sheet account as source for inc
     'accounts/bank': '[A] Bank',
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: 1,
-    destinationIndexes: [0],
-    symbol: 'CHF',
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1], hasCostPrice: false,
   });
 });
 
-test('classifySupportedTransaction_ accepts single positive balance-sheet posting', () => {
+test('classifyTransactionGroups_ single positive [A] posting: rule 3 picks it as source', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({
+  const groups = sandbox.classifyTransactionGroups_({
     postings: [{ account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' }, cost: null, price: null }],
   }, {
     'accounts/savings': '[A] Savings',
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: 0,
-    destinationIndexes: [],
-    symbol: 'CHF',
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [], hasCostPrice: false,
   });
 });
 
-test('classifySupportedTransaction_ prefers negative balance-sheet account as source for transfers', () => {
+test('classifyTransactionGroups_ transfer: negative [A] preferred over positive [A]', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({
+  const groups = sandbox.classifyTransactionGroups_({
     postings: [
       { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' }, cost: null, price: null },
       { account: 'accounts/savings', units: { amount: '100', symbol: 'CHF' }, cost: null, price: null },
@@ -87,17 +83,16 @@ test('classifySupportedTransaction_ prefers negative balance-sheet account as so
     'accounts/savings': '[A] Savings',
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: 0,
-    destinationIndexes: [1],
-    symbol: 'CHF',
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1], hasCostPrice: false,
   });
 });
 
-test('classifySupportedTransaction_ rejects two positive postings with no balance-sheet account', () => {
+test('classifyTransactionGroups_ two [X] postings: first posting is source', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({
+  const groups = sandbox.classifyTransactionGroups_({
     postings: [
       { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, cost: null, price: null },
       { account: 'accounts/household', units: { amount: '50', symbol: 'CHF' }, cost: null, price: null },
@@ -107,13 +102,16 @@ test('classifySupportedTransaction_ rejects two positive postings with no balanc
     'accounts/household': '[X] Household',
   });
 
-  assert.equal(shape, null);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1], hasCostPrice: false,
+  });
 });
 
-test('classifySupportedTransaction_ rejects multiple negative source legs', () => {
+test('classifyTransactionGroups_ multiple [X] legs: first posting is source', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_(sampleTransaction({
+  const groups = sandbox.classifyTransactionGroups_(sampleTransaction({
     postings: [
       { account: 'accounts/source-one', units: { amount: '-10', symbol: 'CHF' }, cost: null, price: null },
       { account: 'accounts/source-two', units: { amount: '-20', symbol: 'CHF' }, cost: null, price: null },
@@ -121,21 +119,97 @@ test('classifySupportedTransaction_ rejects multiple negative source legs', () =
     ],
   }));
 
-  assert.equal(shape, null);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1, 2], hasCostPrice: false,
+  });
 });
 
-test('classifySupportedTransaction_ accepts source-only transaction', () => {
+test('classifyTransactionGroups_ source-only: single negative picked by rule 4', () => {
   const { sandbox } = loadCode();
 
-  const shape = sandbox.classifySupportedTransaction_({
+  const groups = sandbox.classifyTransactionGroups_({
     postings: [{ account: 'accounts/source', units: { amount: '-1.5', symbol: 'CHF' }, cost: null, price: null }],
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(shape)), {
-    sourceIndex: 0,
-    destinationIndexes: [],
-    symbol: 'CHF',
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [], hasCostPrice: false,
   });
+});
+
+test('classifyTransactionGroups_ investment buy with cost: hasCostPrice true, single group uses weight symbol', () => {
+  const { sandbox } = loadCode();
+
+  // VTI buy: pay CHF from bank, receive VTI shares at cost 200 USD each
+  const groups = sandbox.classifyTransactionGroups_({
+    postings: [
+      {
+        account: 'accounts/bank', units: { amount: '-1000', symbol: 'CHF' },
+        weight: { amount: '-1000', symbol: 'CHF' }, cost: null, price: null,
+      },
+      {
+        account: 'accounts/vti', units: { amount: '5', symbol: 'VTI' },
+        weight: { amount: '1000', symbol: 'CHF' }, cost: { amount: '200', symbol: 'CHF' }, price: null,
+      },
+    ],
+  }, {
+    'accounts/bank': '[A] Bank',
+    'accounts/vti': '[A] Investments - VTI',
+  });
+
+  assert.equal(groups.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0])), {
+    symbol: 'CHF', sourceIndex: 0, destinationIndexes: [1], hasCostPrice: true,
+  });
+});
+
+test('classifyTransactionGroups_ zero-weight posting is suppressed and not in any group', () => {
+  const { sandbox } = loadCode();
+
+  // A posting with weight amount 0 should be excluded
+  const groups = sandbox.classifyTransactionGroups_({
+    postings: [
+      { account: 'accounts/bank', units: { amount: '-100', symbol: 'CHF' }, weight: { amount: '-100', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/food', units: { amount: '100', symbol: 'CHF' }, weight: { amount: '100', symbol: 'CHF' }, cost: null, price: null },
+      { account: 'accounts/rounding', units: { amount: '0', symbol: 'CHF' }, weight: { amount: '0', symbol: 'CHF' }, cost: null, price: null },
+    ],
+  }, {
+    'accounts/bank': '[A] Bank',
+    'accounts/food': '[X] Food',
+    'accounts/rounding': '[X] Rounding',
+  });
+
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].destinationIndexes.length, 1);
+  assert.equal(groups[0].destinationIndexes[0], 1);
+});
+
+test('classifyTransactionGroups_ FX conversion produces two groups (one per weight symbol)', () => {
+  const { sandbox } = loadCode();
+
+  // CHF out of bank, USD into USD account: two weight symbols → two groups
+  const groups = sandbox.classifyTransactionGroups_({
+    postings: [
+      {
+        account: 'accounts/chf_bank', units: { amount: '-900', symbol: 'CHF' },
+        weight: { amount: '-900', symbol: 'CHF' }, cost: null, price: null,
+      },
+      {
+        account: 'accounts/usd_account', units: { amount: '1000', symbol: 'USD' },
+        weight: { amount: '1000', symbol: 'USD' }, cost: null, price: null,
+      },
+    ],
+  }, {
+    'accounts/chf_bank': '[A] Bank CHF',
+    'accounts/usd_account': '[A] Bank USD',
+  });
+
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].symbol, 'CHF');
+  assert.equal(groups[0].sourceIndex, 0);
+  assert.equal(groups[1].symbol, 'USD');
+  assert.equal(groups[1].sourceIndex, 1);
 });
 
 // --- flattenTransactionForSheet_ ---
@@ -215,7 +289,7 @@ test('flattenTransactionForSheet_ renders zero-posting transactions as a placeho
   assert.equal(rows[0].symbol, '');
 });
 
-test('flattenTransactionForSheet_ uses balance-sheet account as source with negative destination for income', () => {
+test('flattenTransactionForSheet_ income: salary [I] is source, bank [A] is destination with positive amount', () => {
   const { sandbox } = loadCode();
 
   const rows = sandbox.flattenTransactionForSheet_({
@@ -233,9 +307,9 @@ test('flattenTransactionForSheet_ uses balance-sheet account as source with nega
   });
 
   assert.equal(rows.length, 1);
-  assert.equal(rows[0].source_account_name, '[A] Bank');
-  assert.equal(rows[0].destination_account_name, '[I] Salary');
-  assert.equal(rows[0].amount, -5000);
+  assert.equal(rows[0].source_account_name, '[I] Salary');
+  assert.equal(rows[0].destination_account_name, '[A] Bank');
+  assert.equal(rows[0].amount, 5000);
   assert.equal(rows[0].symbol, 'CHF');
 });
 
@@ -284,6 +358,94 @@ test('flattenTransactionForSheet_ passes transaction_date string through unchang
     'accounts/food': '[X] Food',
   });
   assert.equal(rows[0].transaction_date, '2026-04-19');
+});
+
+test('flattenTransactionForSheet_ investment buy: uses weight for amount/symbol, hasCostPrice true', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_buy',
+    transaction_date: '2026-03-01',
+    payee: 'IBKR',
+    narration: 'VTI purchase',
+    postings: [
+      {
+        account: 'accounts/bank', units: { amount: '-1000', symbol: 'CHF' },
+        weight: { amount: '-1000', symbol: 'CHF' }, cost: null, price: null,
+      },
+      {
+        account: 'accounts/vti', units: { amount: '5', symbol: 'VTI' },
+        weight: { amount: '1000', symbol: 'CHF' }, cost: { amount: '200', symbol: 'CHF' }, price: null,
+      },
+    ],
+  }, {
+    'accounts/bank': '[A] Bank',
+    'accounts/vti': '[A] Investments - VTI',
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].source_account_name, '[A] Bank');
+  assert.equal(rows[0].destination_account_name, '[A] Investments - VTI');
+  assert.equal(rows[0].amount, 1000);
+  assert.equal(rows[0].symbol, 'CHF');
+  assert.equal(rows[0].hasCostPrice, true);
+});
+
+test('flattenTransactionForSheet_ FX conversion: two rows, one per weight symbol', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_fx',
+    transaction_date: '2026-03-15',
+    payee: '',
+    narration: 'FX conversion',
+    postings: [
+      {
+        account: 'accounts/chf_bank', units: { amount: '-900', symbol: 'CHF' },
+        weight: { amount: '-900', symbol: 'CHF' }, cost: null, price: null,
+      },
+      {
+        account: 'accounts/usd_account', units: { amount: '1000', symbol: 'USD' },
+        weight: { amount: '1000', symbol: 'USD' }, cost: null, price: null,
+      },
+    ],
+  }, {
+    'accounts/chf_bank': '[A] Bank CHF',
+    'accounts/usd_account': '[A] Bank USD',
+  });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].symbol, 'CHF');
+  assert.equal(rows[0].source_account_name, '[A] Bank CHF');
+  assert.equal(rows[0].amount, 900);
+  // USD group has one posting (weight +1000), selected as source by rule 3.
+  // Source-only amount = -(+1000) = -1000 (negative = inflow; sum by USD account gives -1000 net).
+  assert.equal(rows[1].symbol, 'USD');
+  assert.equal(rows[1].source_account_name, '[A] Bank USD');
+  assert.equal(rows[1].amount, -1000);
+});
+
+test('flattenTransactionForSheet_ falls back to units when weight field absent (backward compat)', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
+    'accounts/source': '[A] Bank',
+    'accounts/food': '[X] Food',
+  });
+
+  assert.equal(rows[0].amount, 84.25);
+  assert.equal(rows[0].symbol, 'CHF');
+});
+
+test('flattenTransactionForSheet_ hasCostPrice false when no posting has cost or price', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_(sampleTransaction(), {
+    'accounts/source': '[A] Bank',
+    'accounts/food': '[X] Food',
+  });
+
+  assert.equal(rows[0].hasCostPrice, false);
 });
 
 // --- buildTransactionPatchPayload_ ---
@@ -1304,6 +1466,68 @@ test("Transaction.applyEdit('split_off_amount') x keeps txn narration when survi
   assert.equal(tx._api.postings.length, 2);
   assert.equal(tx._api.narration, 'Groceries', 'txn narration unchanged');
   assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration stays null');
+});
+
+// cost/price guard
+
+function costPriceApi() {
+  return {
+    name: 'transactions/txn_buy',
+    transaction_date: '2026-03-01',
+    payee: 'IBKR',
+    narration: 'VTI purchase',
+    postings: [
+      {
+        account: 'accounts/checking', units: { amount: '-1000', symbol: 'CHF' },
+        weight: { amount: '-1000', symbol: 'CHF' }, cost: null, price: null,
+      },
+      {
+        account: 'accounts/food', units: { amount: '5', symbol: 'VTI' },
+        weight: { amount: '1000', symbol: 'CHF' }, cost: { amount: '200', symbol: 'CHF' }, price: null,
+      },
+    ],
+  };
+}
+
+test("Transaction.applyEdit('destination_account_name') throws for cost/price transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, costPriceApi());
+  assert.throws(
+    () => tx.applyEdit('destination_account_name', '[X] Food', '', 2),
+    /Use the sidebar to edit this transaction/
+  );
+});
+
+test("Transaction.applyEdit('amount') throws for cost/price transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, costPriceApi());
+  assert.throws(
+    () => tx.applyEdit('amount', '900', '1000', 2),
+    /Use the sidebar to edit this transaction/
+  );
+});
+
+test("Transaction.applyEdit('split_off_amount') throws for cost/price transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, costPriceApi());
+  assert.throws(
+    () => tx.applyEdit('split_off_amount', '500', '', 2),
+    /Use the sidebar to edit this transaction/
+  );
+});
+
+test("Transaction.applyEdit('payee') does not throw for cost/price transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, costPriceApi());
+  assert.doesNotThrow(() => tx.applyEdit('payee', 'New Payee', '', 2));
+  assert.equal(tx._api.payee, 'New Payee');
+});
+
+test("Transaction.applyEdit('narration') does not throw for cost/price transaction", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, costPriceApi());
+  assert.doesNotThrow(() => tx.applyEdit('narration', 'Updated', '', 2));
+  assert.equal(tx._api.narration, 'Updated');
 });
 
 // --- handleEntitySheetEdit_ ---

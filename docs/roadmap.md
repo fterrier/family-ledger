@@ -28,6 +28,7 @@ This document tracks planned work, verified implementation state, and deferred s
 - API: `weight` field returned per posting in transaction responses (computed from cost/price/units)
 - API: `GET /prices` list endpoint with pagination
 - Google Sheets: Prices sheet — synced on every ledger sync, with create/edit/delete sidebar
+- Synology deployment: Docker Compose stack running on Synology NAS with periodic Beancount export via `export-ledger` script
 
 ### Not Implemented
 
@@ -36,7 +37,7 @@ This document tracks planned work, verified implementation state, and deferred s
 - snapshot export after import
 - IBKR, payslip, and Visa Cumulus importers
 - `document` Beancount import directive support
-- Synology deployment and backup workflow
+- snapshot export after import
 
 ## Planned Work
 
@@ -76,10 +77,6 @@ After a successful `POST /importers/{importer}:import` run, export the full ledg
 - Visa Cumulus (CSV statement)
 
 ### Infrastructure
-
-**Synology deployment and backup**
-
-Document and script the Docker Compose deployment on a Synology host, including startup, shutdown, and periodic Beancount backup to the NAS filesystem.
 
 **Beancount export parity**
 

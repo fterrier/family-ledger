@@ -623,6 +623,13 @@ def test_beancount_importer_document_not_in_zip_counts_as_error(
     assert "payslip.pdf" in result.entities["attachment"].errors.examples[0]
 
 
+def test_beancount_importer_warns_on_duplicate_basename_in_zip(session: Session) -> None:
+    docs_zip = _make_zip({"folder_a/report.pdf": b"version-a", "folder_b/report.pdf": b"version-b"})
+    result = _run_two_file(session, ARCHIVE_BEANCOUNT, documents_zip=docs_zip)
+
+    assert any("duplicate basename" in w and "report.pdf" in w for w in result.warnings)
+
+
 def test_beancount_importer_document_matched_case_insensitively(
     session: Session,
     monkeypatch: pytest.MonkeyPatch,

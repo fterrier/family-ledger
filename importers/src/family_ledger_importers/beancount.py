@@ -52,9 +52,15 @@ POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 _BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
 
 
-def _extract_zip_flat(data: bytes) -> dict[str, bytes]:
-    """Extract a zip into a basename→bytes map, skipping macOS metadata entries."""
+def _extract_zip_flat(data: bytes) -> tuple[dict[str, bytes], set[str]]:
+    """Extract a zip into a basename→bytes map, skipping macOS metadata entries.
+
+    Returns (file_map, duplicate_basenames). Duplicates are basenames that appear
+    more than once in the archive; only the last entry wins in the map.
+    """
     file_map: dict[str, bytes] = {}
+    seen: set[str] = set()
+    duplicates: set[str] = set()
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for name in zf.namelist():
             parts = name.split("/")
@@ -62,8 +68,12 @@ def _extract_zip_flat(data: bytes) -> dict[str, bytes]:
                 continue
             basename = os.path.basename(name)
             if basename:
-                file_map[basename.lower()] = zf.read(name)
-    return file_map
+                key = basename.lower()
+                if key in seen:
+                    duplicates.add(basename)
+                seen.add(key)
+                file_map[key] = zf.read(name)
+    return file_map, duplicates
 
 
 def _import_document_file(
@@ -398,7 +408,10 @@ class BeancountImporter(BaseImporter):
     ) -> ImportResult:
         ledger_bytes = files.get("ledger_file") or files.get("file", b"")
         documents_zip = files.get("documents_file")
-        file_map = _extract_zip_flat(documents_zip) if documents_zip else {}
+        file_map: dict[str, bytes] = {}
+        zip_duplicate_basenames: set[str] = set()
+        if documents_zip:
+            file_map, zip_duplicate_basenames = _extract_zip_flat(documents_zip)
 
         text = ledger_bytes.decode("utf-8")
         entries, errors, _options_map = _load_beancount_string(text)
@@ -414,6 +427,12 @@ class BeancountImporter(BaseImporter):
             )
 
         result = ImportResult()
+
+        for name in sorted(zip_duplicate_basenames):
+            result.warnings.append(
+                f"duplicate basename in documents archive: {name!r}"
+                " — only the last entry will be used"
+            )
 
         # Document entries are always handled (URL-backed ones need no ZIP or Paperless).
         handled_entry_types = SUPPORTED_ENTRY_TYPES + (Document,)

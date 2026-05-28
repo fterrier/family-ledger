@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from family_ledger.config import LedgerConfig, get_ledger_config
+from family_ledger.config import LedgerConfig, Settings, get_ledger_config, get_settings
 from family_ledger.db import SessionLocal
 from family_ledger.models import (
     Account,
@@ -21,6 +21,7 @@ from family_ledger.models import (
     Price,
     Transaction,
 )
+from family_ledger.services import paperless as paperless_service
 
 _META_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _COMMODITY_DATE = "2000-01-01"
@@ -63,10 +64,11 @@ def _format_posting(posting: Posting, account_col_width: int) -> str:
     return line
 
 
-def _format_document(attachment: Attachment) -> str:
+def _format_document(attachment: Attachment, document_path: str | None = None) -> str:
     account_name = attachment.account.account_name
     date_str = attachment.attachment_date.isoformat()
-    escaped = attachment.original_filename.replace('"', '\\"')
+    path = document_path if document_path is not None else attachment.original_filename
+    escaped = path.replace('"', '\\"')
     header = f'{date_str} document {account_name} "{escaped}"'
 
     entity_meta = attachment.entity_metadata or {}
@@ -108,7 +110,30 @@ def _format_transaction(tx: Transaction) -> str:
     return "\n".join([header, *meta, *posting_lines])
 
 
-def export_beancount(session: Session, config: LedgerConfig) -> str:
+def _sync_documents(
+    attachments: list[Attachment], documents_dir: Path, settings: Settings | None
+) -> None:
+    documents_dir.mkdir(parents=True, exist_ok=True)
+    can_download = settings is not None and settings.paperless_is_configured()
+    for att in attachments:
+        dest = documents_dir / att.original_filename
+        if dest.exists():
+            continue
+        if can_download and att.document_url is not None:
+            assert settings is not None
+            content = paperless_service.download_document(settings, att.document_url)
+            dest.write_bytes(content)
+
+
+def export_beancount(
+    session: Session,
+    config: LedgerConfig,
+    settings: Settings | None = None,
+    *,
+    documents_dir: Path | None = None,
+) -> str:
+    effective_documents_dir = documents_dir
+
     commodities = session.scalars(select(Commodity).order_by(Commodity.symbol)).all()
 
     accounts = session.scalars(
@@ -129,12 +154,17 @@ def export_beancount(session: Session, config: LedgerConfig) -> str:
         .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
     ).all()
 
-    attachments = session.scalars(
-        select(Attachment)
-        .options(selectinload(Attachment.account))
-        .where(Attachment.status == "stored")
-        .order_by(Attachment.attachment_date, Attachment.name)
-    ).all()
+    attachments = list(
+        session.scalars(
+            select(Attachment)
+            .options(selectinload(Attachment.account))
+            .where(Attachment.status == "stored")
+            .order_by(Attachment.attachment_date, Attachment.name)
+        ).all()
+    )
+
+    if effective_documents_dir is not None:
+        _sync_documents(attachments, effective_documents_dir, settings)
 
     sections: list[str] = []
 
@@ -177,7 +207,17 @@ def export_beancount(session: Session, config: LedgerConfig) -> str:
         )
 
     if attachments:
-        sections.append("\n\n".join(_format_document(att) for att in attachments))
+        sections.append(
+            "\n\n".join(
+                _format_document(
+                    att,
+                    document_path=str(effective_documents_dir / att.original_filename)
+                    if effective_documents_dir is not None
+                    else None,
+                )
+                for att in attachments
+            )
+        )
 
     return "\n\n".join(sections) + "\n"
 
@@ -185,11 +225,18 @@ def export_beancount(session: Session, config: LedgerConfig) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export the ledger to Beancount format.")
     parser.add_argument("--output", default=None, help="Output file path (default: stdout)")
+    parser.add_argument(
+        "--documents-dir",
+        default=None,
+        help="Directory to download and reference documents (overrides ledger.yaml documents_dir)",
+    )
     args = parser.parse_args()
 
     config = get_ledger_config()
+    settings = get_settings()
+    documents_dir = Path(args.documents_dir) if args.documents_dir else None
     with SessionLocal() as session:
-        content = export_beancount(session, config)
+        content = export_beancount(session, config, settings, documents_dir=documents_dir)
 
     if args.output:
         Path(args.output).write_text(content, encoding="utf-8")

@@ -135,6 +135,29 @@ def add_tags_to_document(settings: Settings, document_id: int, tag_ids: list[int
         ) from exc
 
 
+def download_document(settings: Settings, document_url: str) -> bytes:
+    download_url = document_url.rstrip("/") + "/download/"
+    try:
+        response = httpx.get(
+            download_url,
+            headers=_build_headers(settings),
+            timeout=REQUEST_TIMEOUT_SECONDS,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        return response.content
+    except httpx.HTTPStatusError as exc:
+        raise UnavailableError(
+            code="paperless_download_failed",
+            message=f"Paperless download failed with status {exc.response.status_code}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise UnavailableError(
+            code="paperless_unreachable",
+            message="Paperless is unreachable",
+        ) from exc
+
+
 def get_task_result(settings: Settings, task_id: str) -> PaperlessTaskResult | None:
     base_url, _token = _require_paperless_settings(settings)
     try:

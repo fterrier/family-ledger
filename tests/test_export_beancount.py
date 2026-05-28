@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -344,6 +346,18 @@ def test_format_document_escapes_quotes_in_filename() -> None:
     assert '\\"hello\\"' in out
 
 
+def test_format_document_uses_explicit_path_when_given() -> None:
+    att = _mk_attachment(
+        account_name="Assets:Bank:Checking",
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+    )
+    out = _format_document(att, document_path="/data/documents/statement.pdf")
+    assert out.startswith(
+        '2026-05-19 document Assets:Bank:Checking "/data/documents/statement.pdf"'
+    )
+
+
 # ---------------------------------------------------------------------------
 # export_beancount — DB integration
 # ---------------------------------------------------------------------------
@@ -579,3 +593,107 @@ def test_export_beancount_excludes_pending_attachments(export_session: Session) 
     output = export_beancount(export_session, _EXPORT_CONFIG)
 
     assert "pending.pdf" not in output
+
+
+def _make_paperless_settings():
+    from unittest.mock import MagicMock
+
+    s = MagicMock()
+    s.paperless_is_configured.return_value = True
+    return s
+
+
+def test_export_beancount_uses_documents_dir_in_directive(
+    export_session: Session, tmp_path: Path
+) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    att = _make_attachment(
+        checking,
+        name="attachments/att_1",
+        filename="statement.pdf",
+        status="stored",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+    export_session.add(att)
+    export_session.commit()
+
+    with patch(
+        "family_ledger.services.paperless.download_document", return_value=b"PDF"
+    ) as mock_dl:
+        output = export_beancount(
+            export_session, _EXPORT_CONFIG, _make_paperless_settings(), documents_dir=tmp_path
+        )
+
+    expected_path = str(tmp_path / "statement.pdf")
+    assert f'document Assets:Bank:Checking "{expected_path}"' in output
+    mock_dl.assert_called_once()
+    assert (tmp_path / "statement.pdf").read_bytes() == b"PDF"
+
+
+def test_export_beancount_skips_download_if_file_exists(
+    export_session: Session, tmp_path: Path
+) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    att = _make_attachment(
+        checking,
+        name="attachments/att_1",
+        filename="statement.pdf",
+        status="stored",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+    export_session.add(att)
+    export_session.commit()
+
+    (tmp_path / "statement.pdf").write_bytes(b"existing")
+
+    with patch("family_ledger.services.paperless.download_document") as mock_dl:
+        export_beancount(
+            export_session, _EXPORT_CONFIG, _make_paperless_settings(), documents_dir=tmp_path
+        )
+
+    mock_dl.assert_not_called()
+
+
+def test_export_beancount_no_download_without_settings(
+    export_session: Session, tmp_path: Path
+) -> None:
+    checking = Account(
+        name="accounts/acc_checking",
+        account_name="Assets:Bank:Checking",
+        effective_start_date=date(2020, 1, 1),
+    )
+    export_session.add(checking)
+    export_session.flush()
+
+    att = _make_attachment(
+        checking,
+        name="attachments/att_1",
+        filename="statement.pdf",
+        status="stored",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+    export_session.add(att)
+    export_session.commit()
+
+    with patch("family_ledger.services.paperless.download_document") as mock_dl:
+        output = export_beancount(
+            export_session, _EXPORT_CONFIG, settings=None, documents_dir=tmp_path
+        )
+
+    mock_dl.assert_not_called()
+    expected_path = str(tmp_path / "statement.pdf")
+    assert f'document Assets:Bank:Checking "{expected_path}"' in output

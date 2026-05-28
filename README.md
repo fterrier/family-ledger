@@ -191,6 +191,39 @@ The export includes all accounts, commodities, prices, transactions, and balance
 in Beancount syntax. Beancount metadata stored on import round-trips back as directive
 metadata. Pad directives are represented as the synthetic transactions they generated.
 
+### Exporting with documents
+
+Pass `--documents-dir` to also download all stored attachments from Paperless-ngx and include
+them in the Beancount output:
+
+```bash
+docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.env \
+  exec api export-beancount \
+  --documents-dir /export/docs \
+  --output /export/ledger.beancount
+```
+
+When `--documents-dir` is set:
+
+- The directory is created if it does not exist.
+- Each stored attachment is downloaded from Paperless-ngx into that directory, using the
+  original filename as stored in the database.
+- Already-present files are skipped; use `--force-download` to re-download them.
+- If a download fails (e.g. Paperless is unreachable), a warning is printed to stderr and
+  the export continues — the `.beancount` file is always produced.
+- The output includes `option "documents" "<dir>"`, which tells Beancount and Fava to look
+  for documents relative to that path.
+- `document` directives use the bare filename (no path prefix), consistent with the
+  Beancount `documents` option convention.
+
+### Flags
+
+| Flag | Description |
+|------|-------------|
+| `--output FILE` | Write the Beancount output to `FILE` instead of stdout |
+| `--documents-dir DIR` | Download attachments to `DIR` and emit `option "documents"` |
+| `--force-download` | Re-download files even if they already exist in `--documents-dir` |
+
 To validate the output with Beancount's own checker:
 
 ```bash

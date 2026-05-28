@@ -23,6 +23,7 @@ from family_ledger.scripts.export_beancount import (
     _format_document,
     _format_transaction,
     _meta_lines,
+    _sync_documents,
     export_beancount,
 )
 
@@ -684,3 +685,81 @@ def test_export_beancount_no_download_without_settings(
     mock_dl.assert_not_called()
     assert 'document Assets:Bank:Checking "statement.pdf"' in output
     assert f'option "documents" "{tmp_path}"' in output
+
+
+# ---------------------------------------------------------------------------
+# _sync_documents — force download and error handling
+# ---------------------------------------------------------------------------
+
+
+def test_sync_documents_force_download_overwrites_existing(tmp_path: Path) -> None:
+    (tmp_path / "statement.pdf").write_bytes(b"old")
+    att = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 1),
+        original_filename="statement.pdf",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+
+    settings = _make_paperless_settings()
+    with patch(
+        "family_ledger.services.paperless.download_document", return_value=b"new"
+    ) as mock_dl:
+        _sync_documents([att], tmp_path, settings, force=True)
+
+    mock_dl.assert_called_once()
+    assert (tmp_path / "statement.pdf").read_bytes() == b"new"
+
+
+def test_sync_documents_skips_existing_without_force(tmp_path: Path) -> None:
+    (tmp_path / "statement.pdf").write_bytes(b"existing")
+    att = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 1),
+        original_filename="statement.pdf",
+        document_url="https://paperless.example.com/api/documents/42/",
+    )
+
+    settings = _make_paperless_settings()
+    with patch("family_ledger.services.paperless.download_document") as mock_dl:
+        _sync_documents([att], tmp_path, settings, force=False)
+
+    mock_dl.assert_not_called()
+    assert (tmp_path / "statement.pdf").read_bytes() == b"existing"
+
+
+def test_sync_documents_warns_and_continues_on_unavailable(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    from family_ledger.services.errors import UnavailableError
+
+    att1 = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 1),
+        original_filename="fail.pdf",
+        document_url="https://paperless.example.com/api/documents/1/",
+    )
+    att2 = _mk_attachment(
+        account_name="Assets:Bank",
+        attachment_date=date(2026, 5, 1),
+        original_filename="ok.pdf",
+        document_url="https://paperless.example.com/api/documents/2/",
+    )
+
+    def _dl_side_effect(settings, url):
+        if "1/" in url:
+            raise UnavailableError(code="paperless_unreachable", message="Paperless is unreachable")
+        return b"PDF"
+
+    settings = _make_paperless_settings()
+    import logging
+
+    with (
+        patch("family_ledger.services.paperless.download_document", side_effect=_dl_side_effect),
+        caplog.at_level(logging.WARNING, logger="family_ledger.scripts.export_beancount"),
+    ):
+        _sync_documents([att1, att2], tmp_path, settings)
+
+    assert not (tmp_path / "fail.pdf").exists()
+    assert (tmp_path / "ok.pdf").read_bytes() == b"PDF"
+    assert any("fail.pdf" in r.message for r in caplog.records)

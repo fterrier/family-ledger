@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import re
 import sys
 from collections.abc import Sequence
@@ -23,6 +24,9 @@ from family_ledger.models import (
     Transaction,
 )
 from family_ledger.services import paperless as paperless_service
+from family_ledger.services.errors import UnavailableError
+
+_log = logging.getLogger(__name__)
 
 _META_KEY_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _COMMODITY_DATE = "2000-01-01"
@@ -111,17 +115,24 @@ def _format_transaction(tx: Transaction) -> str:
 
 
 def _sync_documents(
-    attachments: Sequence[Attachment], documents_dir: Path, settings: Settings | None
+    attachments: Sequence[Attachment],
+    documents_dir: Path,
+    settings: Settings | None,
+    *,
+    force: bool = False,
 ) -> None:
     documents_dir.mkdir(parents=True, exist_ok=True)
     can_download = settings is not None and settings.paperless_is_configured()
     for att in attachments:
         dest = documents_dir / att.original_filename
-        if dest.exists():
+        if dest.exists() and not force:
             continue
         if can_download and att.document_url is not None:
-            content = paperless_service.download_document(settings, att.document_url)  # type: ignore[arg-type]
-            dest.write_bytes(content)
+            try:
+                content = paperless_service.download_document(settings, att.document_url)  # type: ignore[arg-type]
+                dest.write_bytes(content)
+            except UnavailableError as exc:
+                _log.warning("skipping %s: %s", att.original_filename, exc)
 
 
 def export_beancount(
@@ -130,6 +141,7 @@ def export_beancount(
     settings: Settings | None = None,
     *,
     documents_dir: Path | None = None,
+    force_download: bool = False,
 ) -> str:
     commodities = session.scalars(select(Commodity).order_by(Commodity.symbol)).all()
 
@@ -159,7 +171,7 @@ def export_beancount(
     ).all()
 
     if documents_dir is not None:
-        _sync_documents(attachments, documents_dir, settings)
+        _sync_documents(attachments, documents_dir, settings, force=force_download)
 
     sections: list[str] = []
 
@@ -211,6 +223,7 @@ def export_beancount(
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(description="Export the ledger to Beancount format.")
     parser.add_argument("--output", default=None, help="Output file path (default: stdout)")
     parser.add_argument(
@@ -218,13 +231,25 @@ def main() -> None:
         default=None,
         help="Directory to download and reference documents (overrides ledger.yaml documents_dir)",
     )
+    parser.add_argument(
+        "--force-download",
+        action="store_true",
+        default=False,
+        help="Re-download documents even if they already exist in the documents directory",
+    )
     args = parser.parse_args()
 
     config = get_ledger_config()
     settings = get_settings()
     documents_dir = Path(args.documents_dir) if args.documents_dir else None
     with SessionLocal() as session:
-        content = export_beancount(session, config, settings, documents_dir=documents_dir)
+        content = export_beancount(
+            session,
+            config,
+            settings,
+            documents_dir=documents_dir,
+            force_download=args.force_download,
+        )
 
     if args.output:
         Path(args.output).write_text(content, encoding="utf-8")

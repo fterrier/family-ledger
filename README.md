@@ -211,10 +211,8 @@ When `--documents-dir` is set:
 - Already-present files are skipped; use `--force-download` to re-download them.
 - If a download fails (e.g. Paperless is unreachable), a warning is printed to stderr and
   the export continues — the `.beancount` file is always produced.
-- The output includes `option "documents" "<dir>"`, which tells Beancount and Fava to look
-  for documents relative to that path.
-- `document` directives use the bare filename (no path prefix), consistent with the
-  Beancount `documents` option convention.
+- `document` directives use the absolute path to the file so `bean-check` and Fava can
+  resolve them regardless of where the `.beancount` file is located.
 
 ### Flags
 

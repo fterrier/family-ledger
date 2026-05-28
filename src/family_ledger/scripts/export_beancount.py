@@ -69,10 +69,14 @@ def _format_posting(posting: Posting, account_col_width: int) -> str:
     return line
 
 
-def _format_document(attachment: Attachment) -> str:
+def _format_document(attachment: Attachment, documents_dir: Path | None = None) -> str:
     account_name = attachment.account.account_name
     date_str = attachment.attachment_date.isoformat()
-    escaped = attachment.original_filename.replace('"', '\\"')
+    if documents_dir is not None:
+        raw_path = str(documents_dir / attachment.original_filename)
+    else:
+        raw_path = attachment.original_filename
+    escaped = raw_path.replace('"', '\\"')
     header = f'{date_str} document {account_name} "{escaped}"'
 
     entity_meta = attachment.entity_metadata or {}
@@ -176,8 +180,6 @@ def export_beancount(
     sections: list[str] = []
 
     options = [f'option "operating_currency" "{config.default_currency}"']
-    if documents_dir is not None:
-        options.append(f'option "documents" "{documents_dir}"')
     sections.append("\n".join(options))
 
     if commodities:
@@ -217,7 +219,7 @@ def export_beancount(
         )
 
     if attachments:
-        sections.append("\n\n".join(_format_document(att) for att in attachments))
+        sections.append("\n\n".join(_format_document(att, documents_dir) for att in attachments))
 
     return "\n\n".join(sections) + "\n"
 

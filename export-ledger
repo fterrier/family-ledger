@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "usage: $0 [--documents-dir <container-docs-dir>] <container-export-dir> <host-export-dir> <beancount-file-name>" >&2
+  echo "example: $0 /exports exports ledger.beancount" >&2
+  echo "example: $0 --documents-dir /exports/docs /exports exports ledger.beancount" >&2
+  exit 1
+}
+
+CTR_DOCS_DIR=""
+
+while [[ "${1:-}" == --* ]]; do
+  case "${1:-}" in
+    --documents-dir)
+      CTR_DOCS_DIR="${2:-}"
+      [ -n "$CTR_DOCS_DIR" ] || { echo "error: --documents-dir requires an argument" >&2; exit 1; }
+      shift 2
+      ;;
+    *)
+      echo "error: unknown option: $1" >&2
+      usage
+      ;;
+  esac
+done
+
+CTR_OUT="${1:-}"
+HOST_BASE_DIR="${2:-}"
+FILE_NAME="${3:-}"
+
+[ -n "$CTR_OUT" ] || usage
+[ -n "$HOST_BASE_DIR" ] || usage
+[ -n "$FILE_NAME" ] || usage
+
+case "$FILE_NAME" in
+  */*)
+    echo "error: file name must not contain '/'" >&2
+    exit 1
+    ;;
+esac
+
+HOST_OUT="$HOST_BASE_DIR/snapshots"
+LATEST="$HOST_BASE_DIR/$FILE_NAME"
+LOCK_FILE="$HOST_OUT/.export-ledger.lock"
+
+STAMP_H="$(date +%Y-%m-%dT%H)"
+STAMP_D="$(date +%Y-%m-%d)"
+STAMP_M="$(date +%Y-%m)"
+
+BASE_NAME="${FILE_NAME%.beancount}"
+
+HOURLY="$HOST_OUT/hourly/${BASE_NAME}-${STAMP_H}.beancount"
+DAILY="$HOST_OUT/daily/${BASE_NAME}-${STAMP_D}.beancount"
+MONTHLY="$HOST_OUT/monthly/${BASE_NAME}-${STAMP_M}.beancount"
+
+mkdir -p "$HOST_OUT/hourly" "$HOST_OUT/daily" "$HOST_OUT/monthly"
+
+if ! command -v flock >/dev/null 2>&1; then
+  echo "error: flock is required" >&2
+  exit 1
+fi
+
+if ! command -v docker >/dev/null 2>&1; then
+  echo "error: docker is required" >&2
+  exit 1
+fi
+
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+  echo "error: another export-ledger run is already in progress" >&2
+  exit 1
+fi
+
+EXPORT_ARGS=(export-beancount --output "$CTR_OUT/$FILE_NAME")
+if [ -n "$CTR_DOCS_DIR" ]; then
+  EXPORT_ARGS+=(--documents-dir "$CTR_DOCS_DIR")
+fi
+
+docker compose \
+  -f docker/compose/docker-compose.yml \
+  --env-file docker/compose/.env \
+  exec -T api \
+  "${EXPORT_ARGS[@]}"
+
+if [ ! -s "$LATEST" ]; then
+  echo "error: export file was not created or is empty: $LATEST" >&2
+  exit 1
+fi
+
+cp "$LATEST" "$HOURLY"
+find "$HOST_OUT/hourly" -type f -name "${BASE_NAME}-*.beancount" -mmin +1440 -delete
+
+if [ ! -e "$DAILY" ]; then
+  cp "$LATEST" "$DAILY"
+fi
+find "$HOST_OUT/daily" -type f -name "${BASE_NAME}-*.beancount" -mtime +7 -delete
+
+if [ ! -e "$MONTHLY" ]; then
+  cp "$LATEST" "$MONTHLY"
+fi

@@ -631,8 +631,9 @@ def test_export_beancount_uses_documents_dir_in_directive(
             export_session, _EXPORT_CONFIG, _make_paperless_settings(), documents_dir=tmp_path
         )
 
-    expected_path = str(tmp_path / "statement.pdf")
-    assert f'document Assets:Bank:Checking "{expected_path}"' in output
+    # document directive uses relative filename; documents option carries the directory
+    assert 'document Assets:Bank:Checking "statement.pdf"' in output
+    assert f'option "documents" "{tmp_path}"' in output
     mock_dl.assert_called_once()
     assert (tmp_path / "statement.pdf").read_bytes() == b"PDF"
 
@@ -695,5 +696,5 @@ def test_export_beancount_no_download_without_settings(
         )
 
     mock_dl.assert_not_called()
-    expected_path = str(tmp_path / "statement.pdf")
-    assert f'document Assets:Bank:Checking "{expected_path}"' in output
+    assert 'document Assets:Bank:Checking "statement.pdf"' in output
+    assert f'option "documents" "{tmp_path}"' in output

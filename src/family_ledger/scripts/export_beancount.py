@@ -132,8 +132,6 @@ def export_beancount(
     *,
     documents_dir: Path | None = None,
 ) -> str:
-    effective_documents_dir = documents_dir
-
     commodities = session.scalars(select(Commodity).order_by(Commodity.symbol)).all()
 
     accounts = session.scalars(
@@ -163,12 +161,15 @@ def export_beancount(
         ).all()
     )
 
-    if effective_documents_dir is not None:
-        _sync_documents(attachments, effective_documents_dir, settings)
+    if documents_dir is not None:
+        _sync_documents(attachments, documents_dir, settings)
 
     sections: list[str] = []
 
-    sections.append(f'option "operating_currency" "{config.default_currency}"')
+    options = [f'option "operating_currency" "{config.default_currency}"']
+    if documents_dir is not None:
+        options.append(f'option "documents" "{documents_dir}"')
+    sections.append("\n".join(options))
 
     if commodities:
         sections.append("\n".join(f"{_COMMODITY_DATE} commodity {c.symbol}" for c in commodities))
@@ -207,17 +208,7 @@ def export_beancount(
         )
 
     if attachments:
-        sections.append(
-            "\n\n".join(
-                _format_document(
-                    att,
-                    document_path=str(effective_documents_dir / att.original_filename)
-                    if effective_documents_dir is not None
-                    else None,
-                )
-                for att in attachments
-            )
-        )
+        sections.append("\n\n".join(_format_document(att) for att in attachments))
 
     return "\n\n".join(sections) + "\n"
 

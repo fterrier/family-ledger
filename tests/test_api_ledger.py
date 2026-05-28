@@ -140,6 +140,69 @@ def test_list_accounts_supports_pagination() -> None:
     assert second_page.json()["next_page_token"] is None
 
 
+def test_patch_account_updates_name_and_dates() -> None:
+    client = make_client()
+    created = create_account(client, "Assets:Bank:Checking:Family")
+    account_name = created["name"]
+
+    patch_resp = client.patch(
+        f"/{account_name}",
+        json={
+            "account": {
+                "account_name": "Assets:Bank:Checking:Family:Renamed",
+                "effective_start_date": "2020-01-01",
+                "effective_end_date": "2024-12-31",
+            },
+            "update_mask": "account_name,effective_start_date,effective_end_date",
+        },
+    )
+
+    assert patch_resp.status_code == 200
+    body = patch_resp.json()
+    assert body["name"] == account_name
+    assert body["account_name"] == "Assets:Bank:Checking:Family:Renamed"
+    assert body["effective_start_date"] == "2020-01-01"
+    assert body["effective_end_date"] == "2024-12-31"
+
+
+def test_patch_account_not_found_returns_404() -> None:
+    client = make_client()
+
+    resp = client.patch(
+        "/accounts/acc_nonexistent",
+        json={
+            "account": {
+                "account_name": "Assets:Bank:Checking",
+                "effective_start_date": "2020-01-01",
+            },
+            "update_mask": "account_name",
+        },
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["code"] == "account_not_found"
+
+
+def test_patch_account_rejects_end_before_start() -> None:
+    client = make_client()
+    created = create_account(client, "Assets:Bank:Checking:Family")
+
+    resp = client.patch(
+        f"/{created['name']}",
+        json={
+            "account": {
+                "account_name": "Assets:Bank:Checking:Family",
+                "effective_start_date": "2020-06-01",
+                "effective_end_date": "2020-01-01",
+            },
+            "update_mask": "account_name,effective_start_date,effective_end_date",
+        },
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_effective_date_range"
+
+
 def test_create_and_get_commodity() -> None:
     client = make_client()
 

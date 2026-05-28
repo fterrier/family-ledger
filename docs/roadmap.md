@@ -7,7 +7,7 @@ This document tracks planned work, verified implementation state, and deferred s
 ### Implemented
 
 - canonical storage for accounts, commodities, transactions, postings, prices, balance assertions, attachments, importer config
-- authenticated FastAPI routes for all canonical entity types
+- authenticated FastAPI routes for all canonical entity types (including `PATCH /accounts/{account}` for name, dates, metadata)
 - `POST /ledger:doctor` — derived diagnostics: unbalanced transactions, FIFO lot failures, balance assertion failures, attachment issues
 - `GET /accounts/{account}:pad` — on-demand pad computation
 - `POST /transactions:normalize` — validation without persistence
@@ -31,7 +31,6 @@ This document tracks planned work, verified implementation state, and deferred s
 
 ### Not Implemented
 
-- account PATCH/update route
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
@@ -40,12 +39,6 @@ This document tracks planned work, verified implementation state, and deferred s
 - Synology deployment and backup workflow
 
 ## Planned Work
-
-### Backend
-
-**Account update route**
-
-`PATCH /accounts/{account}` for mutable fields (`account_name`, `effective_end_date`, `entity_metadata`).
 
 ### Google Sheets — UX and display
 

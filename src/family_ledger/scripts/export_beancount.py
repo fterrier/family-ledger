@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Sequence
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -64,11 +65,10 @@ def _format_posting(posting: Posting, account_col_width: int) -> str:
     return line
 
 
-def _format_document(attachment: Attachment, document_path: str | None = None) -> str:
+def _format_document(attachment: Attachment) -> str:
     account_name = attachment.account.account_name
     date_str = attachment.attachment_date.isoformat()
-    path = document_path if document_path is not None else attachment.original_filename
-    escaped = path.replace('"', '\\"')
+    escaped = attachment.original_filename.replace('"', '\\"')
     header = f'{date_str} document {account_name} "{escaped}"'
 
     entity_meta = attachment.entity_metadata or {}
@@ -111,7 +111,7 @@ def _format_transaction(tx: Transaction) -> str:
 
 
 def _sync_documents(
-    attachments: list[Attachment], documents_dir: Path, settings: Settings | None
+    attachments: Sequence[Attachment], documents_dir: Path, settings: Settings | None
 ) -> None:
     documents_dir.mkdir(parents=True, exist_ok=True)
     can_download = settings is not None and settings.paperless_is_configured()
@@ -120,8 +120,7 @@ def _sync_documents(
         if dest.exists():
             continue
         if can_download and att.document_url is not None:
-            assert settings is not None
-            content = paperless_service.download_document(settings, att.document_url)
+            content = paperless_service.download_document(settings, att.document_url)  # type: ignore[arg-type]
             dest.write_bytes(content)
 
 
@@ -152,14 +151,12 @@ def export_beancount(
         .order_by(BalanceAssertion.assertion_date, BalanceAssertion.name)
     ).all()
 
-    attachments = list(
-        session.scalars(
-            select(Attachment)
-            .options(selectinload(Attachment.account))
-            .where(Attachment.status == "stored")
-            .order_by(Attachment.attachment_date, Attachment.name)
-        ).all()
-    )
+    attachments = session.scalars(
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .where(Attachment.status == "stored")
+        .order_by(Attachment.attachment_date, Attachment.name)
+    ).all()
 
     if documents_dir is not None:
         _sync_documents(attachments, documents_dir, settings)

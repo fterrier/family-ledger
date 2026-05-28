@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -346,18 +346,6 @@ def test_format_document_escapes_quotes_in_filename() -> None:
     assert '\\"hello\\"' in out
 
 
-def test_format_document_uses_explicit_path_when_given() -> None:
-    att = _mk_attachment(
-        account_name="Assets:Bank:Checking",
-        attachment_date=date(2026, 5, 19),
-        original_filename="statement.pdf",
-    )
-    out = _format_document(att, document_path="/data/documents/statement.pdf")
-    assert out.startswith(
-        '2026-05-19 document Assets:Bank:Checking "/data/documents/statement.pdf"'
-    )
-
-
 # ---------------------------------------------------------------------------
 # export_beancount — DB integration
 # ---------------------------------------------------------------------------
@@ -596,8 +584,6 @@ def test_export_beancount_excludes_pending_attachments(export_session: Session) 
 
 
 def _make_paperless_settings():
-    from unittest.mock import MagicMock
-
     s = MagicMock()
     s.paperless_is_configured.return_value = True
     return s

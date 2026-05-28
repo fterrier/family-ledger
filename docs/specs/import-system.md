@@ -79,6 +79,23 @@ produces only duplicates and no new records.
 All other metadata on a directive is stored verbatim in `entity_metadata["beancount"]` and
 re-emitted on export, preserving round-trip fidelity for arbitrary importer-specific fields.
 
+## Document File Matching
+
+`Document` directives that have no `document_url` metadata require a documents ZIP archive
+to be uploaded alongside the Beancount file. The importer resolves files from the archive
+using the bare filename only — directory components on both sides are stripped before matching:
+
+- the path in the directive (e.g. `Viac/MyDocument.pdf` or `/export/docs/MyDocument.pdf`)
+  is reduced to `mydocument.pdf`
+- every entry in the ZIP (regardless of its path inside the archive) is indexed by its
+  lowercased basename
+
+**Limitation**: if two `Document` directives reference files with the same basename in
+different directories (e.g. `viac/statement.pdf` and `schwab/statement.pdf`), only one
+will be matched — the last entry with that basename in the ZIP wins and the other directive
+will either get the wrong file or be silently skipped. Avoid duplicate basenames across
+accounts when preparing a documents archive for import.
+
 ## Why It Works This Way
 
 The model is intentionally narrow:

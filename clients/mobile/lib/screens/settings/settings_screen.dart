@@ -193,8 +193,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } else {
         _testOk = true;
         _testResult = 'Connected successfully';
-        if (_accounts == null || _commodities == null)
+        if (_accounts == null || _commodities == null) {
           _loadAccountsAndDefault();
+        }
       }
     });
   }

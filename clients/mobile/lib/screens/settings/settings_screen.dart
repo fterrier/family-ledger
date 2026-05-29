@@ -187,13 +187,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           AuthError() => 'Authentication failed. Check your token.',
           NetworkError() => 'Cannot reach server. Check the URL.',
           MissingSettingsError() => 'Server not configured.',
-          ValidationError(:final message) || ServerError(:final message) =>
-            'Server error: $message',
+          ValidationError(:final message) ||
+          ServerError(:final message) => 'Server error: $message',
         };
       } else {
         _testOk = true;
         _testResult = 'Connected successfully';
-        if (_accounts == null || _commodities == null) _loadAccountsAndDefault();
+        if (_accounts == null || _commodities == null)
+          _loadAccountsAndDefault();
       }
     });
   }

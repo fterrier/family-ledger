@@ -10,7 +10,10 @@ class MockApiClient extends Mock implements ApiClient {}
 void main() {
   group('Commodity.fromJson', () {
     test('parses symbol and name', () {
-      final c = Commodity.fromJson({'name': 'commodities/chf', 'symbol': 'CHF'});
+      final c = Commodity.fromJson({
+        'name': 'commodities/chf',
+        'symbol': 'CHF',
+      });
       expect(c.name, 'commodities/chf');
       expect(c.symbol, 'CHF');
     });
@@ -126,10 +129,8 @@ void main() {
       when(
         () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
       ).thenAnswer(
-        (_) async => (
-          data: {'commodities': [], 'next_page_token': null},
-          error: null,
-        ),
+        (_) async =>
+            (data: {'commodities': [], 'next_page_token': null}, error: null),
       );
 
       await repo.getAllCommodities();

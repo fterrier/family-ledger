@@ -66,7 +66,10 @@ void main() {
     });
 
     test('whitespace-only query matches everything', () {
-      expect(isOrderedCharacterMatch('   ', 'Expenses:Food:Restaurant'), isTrue);
+      expect(
+        isOrderedCharacterMatch('   ', 'Expenses:Food:Restaurant'),
+        isTrue,
+      );
     });
   });
 

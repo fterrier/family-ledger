@@ -84,7 +84,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         : null;
     final commodities = commoditiesResult.data ?? [];
     final defaultCurrency = prefs.getString(_prefKeyDefaultCurrency);
-    final currency = defaultCurrency ??
+    final currency =
+        defaultCurrency ??
         (commodities.isNotEmpty ? commodities.first.symbol : 'CHF');
     setState(() {
       _accounts = active;
@@ -295,10 +296,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Future<void> _pickCurrency() async {
     final v = await showModalBottomSheet<String>(
       context: context,
-      builder: (_) => CurrencyPickerSheet(
-        commodities: _commodities,
-        selected: _currency,
-      ),
+      builder: (_) =>
+          CurrencyPickerSheet(commodities: _commodities, selected: _currency),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),

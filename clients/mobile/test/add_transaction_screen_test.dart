@@ -52,9 +52,9 @@ void main() {
         error: null,
       ),
     );
-    when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-      (_) async => (data: [_commodity('CHF')], error: null),
-    );
+    when(
+      () => mockCommodityRepo.getAllCommodities(),
+    ).thenAnswer((_) async => (data: [_commodity('CHF')], error: null));
   });
 
   Widget buildScreen({VoidCallback? onOpenSettings}) => MaterialApp(
@@ -86,8 +86,9 @@ void main() {
   }
 
   group('AddTransactionScreen initial load', () {
-    testWidgets('shows From account from SharedPreferences on open',
-        (tester) async {
+    testWidgets('shows From account from SharedPreferences on open', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({
         _prefKeyLastFrom: 'Assets:Cash:Wallet',
       });
@@ -98,14 +99,16 @@ void main() {
       expect(find.text('Assets · Cash · Wallet'), findsOneWidget);
     });
 
-    testWidgets('shows default currency from SharedPreferences on open',
-        (tester) async {
+    testWidgets('shows default currency from SharedPreferences on open', (
+      tester,
+    ) async {
       SharedPreferences.setMockInitialValues({_prefKeyDefaultCurrency: 'EUR'});
-      when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
-        (_) async => (data: <AccountResource>[], error: null),
-      );
+      when(
+        () => mockAccountRepo.getAllAccounts(),
+      ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
       when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-        (_) async => (data: [_commodity('CHF'), _commodity('EUR')], error: null),
+        (_) async =>
+            (data: [_commodity('CHF'), _commodity('EUR')], error: null),
       );
 
       await tester.pumpWidget(buildScreen());
@@ -114,10 +117,12 @@ void main() {
       expect(find.text('EUR'), findsOneWidget);
     });
 
-    testWidgets('defaults currency to first commodity when no pref set',
-        (tester) async {
+    testWidgets('defaults currency to first commodity when no pref set', (
+      tester,
+    ) async {
       when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-        (_) async => (data: [_commodity('CHF'), _commodity('EUR')], error: null),
+        (_) async =>
+            (data: [_commodity('CHF'), _commodity('EUR')], error: null),
       );
 
       await tester.pumpWidget(buildScreen());
@@ -126,13 +131,15 @@ void main() {
       expect(find.text('CHF'), findsOneWidget);
     });
 
-    testWidgets('shows error banner when accounts fail to load', (tester) async {
+    testWidgets('shows error banner when accounts fail to load', (
+      tester,
+    ) async {
       when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
         (_) async => (data: null, error: const NetworkError('unreachable')),
       );
-      when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-        (_) async => (data: <Commodity>[], error: null),
-      );
+      when(
+        () => mockCommodityRepo.getAllCommodities(),
+      ).thenAnswer((_) async => (data: <Commodity>[], error: null));
 
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
@@ -144,9 +151,9 @@ void main() {
       when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
         (_) async => (data: null, error: const NetworkError('unreachable')),
       );
-      when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-        (_) async => (data: <Commodity>[], error: null),
-      );
+      when(
+        () => mockCommodityRepo.getAllCommodities(),
+      ).thenAnswer((_) async => (data: <Commodity>[], error: null));
 
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
@@ -164,8 +171,9 @@ void main() {
   });
 
   group('AddTransactionScreen validation', () {
-    testWidgets('submit with no amount/from/to shows validation error',
-        (tester) async {
+    testWidgets('submit with no amount/from/to shows validation error', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
@@ -176,8 +184,9 @@ void main() {
       verifyNever(() => mockTransactionRepo.createTransaction(any()));
     });
 
-    testWidgets('submit with zero amount shows validation error',
-        (tester) async {
+    testWidgets('submit with zero amount shows validation error', (
+      tester,
+    ) async {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
@@ -192,9 +201,9 @@ void main() {
 
   group('AddTransactionScreen successful submit', () {
     setUp(() {
-      when(() => mockTransactionRepo.createTransaction(any())).thenAnswer(
-        (_) async => (data: <String, dynamic>{}, error: null),
-      );
+      when(
+        () => mockTransactionRepo.createTransaction(any()),
+      ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
     });
 
     testWidgets('submits correct payload and resets form', (tester) async {
@@ -214,8 +223,9 @@ void main() {
       expect(find.text('42.50'), findsNothing);
     });
 
-    testWidgets('saves From account name to SharedPreferences on submit',
-        (tester) async {
+    testWidgets('saves From account name to SharedPreferences on submit', (
+      tester,
+    ) async {
       await fillAndSubmit(tester, amount: '10');
 
       final prefs = await SharedPreferences.getInstance();
@@ -223,9 +233,9 @@ void main() {
     });
 
     testWidgets('shows API error in banner on failed submit', (tester) async {
-      when(() => mockTransactionRepo.createTransaction(any())).thenAnswer(
-        (_) async => (data: null, error: const AuthError()),
-      );
+      when(
+        () => mockTransactionRepo.createTransaction(any()),
+      ).thenAnswer((_) async => (data: null, error: const AuthError()));
 
       await fillAndSubmit(tester);
 
@@ -234,13 +244,15 @@ void main() {
   });
 
   group('AddTransactionScreen currency picker', () {
-    testWidgets('currency picker bottom sheet shows commodities and updates',
-        (tester) async {
-      when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
-        (_) async => (data: <AccountResource>[], error: null),
-      );
+    testWidgets('currency picker bottom sheet shows commodities and updates', (
+      tester,
+    ) async {
+      when(
+        () => mockAccountRepo.getAllAccounts(),
+      ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
       when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
-        (_) async => (data: [_commodity('CHF'), _commodity('EUR')], error: null),
+        (_) async =>
+            (data: [_commodity('CHF'), _commodity('EUR')], error: null),
       );
 
       await tester.pumpWidget(buildScreen());

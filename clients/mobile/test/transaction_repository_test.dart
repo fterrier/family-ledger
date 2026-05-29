@@ -34,10 +34,9 @@ void main() {
 
   group('TransactionRepository.createTransaction', () {
     test('posts to /transactions and returns success', () async {
-      when(
-        () => mockClient.post(any(), any()),
-      ).thenAnswer(
-        (_) async => (data: <String, dynamic>{'name': 'transactions/t1'}, error: null),
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async =>
+            (data: <String, dynamic>{'name': 'transactions/t1'}, error: null),
       );
 
       final result = await repo.createTransaction(_tx);
@@ -64,9 +63,7 @@ void main() {
     });
 
     test('propagates validation error from client', () async {
-      when(
-        () => mockClient.post(any(), any()),
-      ).thenAnswer(
+      when(() => mockClient.post(any(), any())).thenAnswer(
         (_) async =>
             (data: null, error: const ValidationError('Invalid amount')),
       );

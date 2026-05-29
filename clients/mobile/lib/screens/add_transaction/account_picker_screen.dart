@@ -146,9 +146,7 @@ class _AccountItem extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: const BoxDecoration(
           color: Colors.white,
-          border: Border(
-            bottom: BorderSide(color: Color(0xFFF2F2F7)),
-          ),
+          border: Border(bottom: BorderSide(color: Color(0xFFF2F2F7))),
         ),
         child: Row(
           children: [

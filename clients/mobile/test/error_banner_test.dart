@@ -56,9 +56,7 @@ void main() {
     });
 
     testWidgets('AuthError without onSettings shows no button', (tester) async {
-      await tester.pumpWidget(
-        _wrap(const ErrorBanner(error: AuthError())),
-      );
+      await tester.pumpWidget(_wrap(const ErrorBanner(error: AuthError())));
 
       expect(
         find.text('Authentication failed. Check your API token.'),
@@ -70,9 +68,7 @@ void main() {
     testWidgets('ValidationError shows message with no button', (tester) async {
       await tester.pumpWidget(
         _wrap(
-          const ErrorBanner(
-            error: ValidationError('Amount must be positive.'),
-          ),
+          const ErrorBanner(error: ValidationError('Amount must be positive.')),
         ),
       );
 
@@ -80,8 +76,9 @@ void main() {
       expect(find.byType(TextButton), findsNothing);
     });
 
-    testWidgets('ServerError shows server error message with no button',
-        (tester) async {
+    testWidgets('ServerError shows server error message with no button', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           const ErrorBanner(
@@ -94,8 +91,9 @@ void main() {
       expect(find.byType(TextButton), findsNothing);
     });
 
-    testWidgets('MissingSettingsError shows message and Settings button',
-        (tester) async {
+    testWidgets('MissingSettingsError shows message and Settings button', (
+      tester,
+    ) async {
       var settingsCalled = false;
       await tester.pumpWidget(
         _wrap(

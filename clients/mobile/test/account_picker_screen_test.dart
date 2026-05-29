@@ -33,7 +33,9 @@ void main() {
     });
 
     testWidgets('shows checkmark on selected account', (tester) async {
-      await tester.pumpWidget(buildPicker(selected: _acct('Assets:Cash:Wallet')));
+      await tester.pumpWidget(
+        buildPicker(selected: _acct('Assets:Cash:Wallet')),
+      );
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.check), findsOneWidget);
@@ -60,7 +62,10 @@ void main() {
         find.text('Expenses · Food · Restaurant', findRichText: true),
         findsOneWidget,
       );
-      expect(find.text('Assets · Cash · Wallet', findRichText: true), findsNothing);
+      expect(
+        find.text('Assets · Cash · Wallet', findRichText: true),
+        findsNothing,
+      );
       expect(find.text('Income · Salary', findRichText: true), findsNothing);
     });
 
@@ -76,7 +81,10 @@ void main() {
         find.text('Expenses · Food · Restaurant', findRichText: true),
         findsOneWidget,
       );
-      expect(find.text('Assets · Cash · Wallet', findRichText: true), findsNothing);
+      expect(
+        find.text('Assets · Cash · Wallet', findRichText: true),
+        findsNothing,
+      );
     });
 
     testWidgets('clearing search restores full list', (tester) async {

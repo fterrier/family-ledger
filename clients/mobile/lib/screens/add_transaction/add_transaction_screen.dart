@@ -48,7 +48,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   List<AccountResource>? _accounts;
   List<Commodity> _commodities = [];
   SharedPreferences? _prefs;
-  bool _loadingAccounts = false;
   bool _saving = false;
   ApiError? _error;
 
@@ -60,7 +59,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   Future<void> _loadAccounts() async {
     setState(() {
-      _loadingAccounts = true;
       _error = null;
     });
     final (accountsResult, commoditiesResult, prefs) = await (
@@ -72,7 +70,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     if (!mounted) return;
     if (accountsResult.error != null) {
       setState(() {
-        _loadingAccounts = false;
         _error = accountsResult.error;
       });
       return;
@@ -91,7 +88,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       _accounts = active;
       _commodities = commodities;
       _currency = currency;
-      _loadingAccounts = false;
       _fromAccount = lastFrom;
     });
   }
@@ -183,7 +179,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
-    await _prefs!.setString(_prefKeyLastFrom, _fromAccount!.accountName);
+    _prefs!.setString(_prefKeyLastFrom, _fromAccount!.accountName);
 
     setState(() {
       _saving = false;
@@ -255,7 +251,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 _FlowCard(
                   fromAccount: _fromAccount,
                   toAccount: _toAccount,
-                  loading: _loadingAccounts,
+                  loading: _accounts == null && _error == null,
                   onFromTap: () => _pickAccount(isFrom: true),
                   onToTap: () => _pickAccount(isFrom: false),
                   payeeController: _payeeController,

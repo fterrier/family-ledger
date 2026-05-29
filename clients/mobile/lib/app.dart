@@ -38,8 +38,8 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     setState(() => _configured = ok);
   }
 
-  void _openSettings() {
-    Navigator.push(
+  Future<void> _openSettings() async {
+    final saved = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
@@ -49,9 +49,8 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           commodityRepository: _commodityRepo,
         ),
       ),
-    ).then((saved) {
-      if (saved == true) _checkConfiguration();
-    });
+    );
+    if (saved == true) _checkConfiguration();
   }
 
   @override

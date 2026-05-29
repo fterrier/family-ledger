@@ -15,6 +15,7 @@ Current implementation includes:
 - account-linked attachments with asynchronous document storage via Paperless-ngx
 - `export-beancount` CLI script for full-ledger Beancount export
 - Google Sheets client workflow for transaction categorization and editing via the API
+- Flutter mobile app (iOS/Android) for logging cash transactions on-device
 
 ## Docker Deployment
 
@@ -81,17 +82,28 @@ docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.e
 
 Migrations run automatically on startup.
 
-## Google Sheets Access
+## Client Access
+
+### Google Sheets
 
 Google Apps Script runs on Google's servers. It cannot call `localhost`, a private LAN IP, or a plain private Tailscale address.
 
-For the Google Sheets client, the API must be reachable over public HTTPS.
+The API must be reachable over public HTTPS for the Sheets client.
 
 Recommended setup:
 - run `family-ledger` on-prem
 - expose it with `Tailscale Funnel`
 - set a strong `FAMILY_LEDGER_API_TOKEN`
 - configure the same base URL and token in the Sheets client
+
+### Mobile App (iOS / Android)
+
+The mobile app connects directly from the device. It works with a plain Tailscale address (no Funnel needed) as long as the device is on the same Tailscale network.
+
+Recommended setup:
+- run `family-ledger` on-prem
+- join the server and device to the same Tailscale network
+- configure the Tailscale IP and API token in the app's Settings screen
 
 `GET /healthz` stays open for reachability checks. Ledger routes still require the bearer token.
 
@@ -290,5 +302,6 @@ There are only two checked-in config files now:
 
 ## Clients
 
-- `clients/google-sheets/README.md`: user-facing install and usage guide for the Google Sheets client
+- `clients/google-sheets/README.md`: install and usage guide for the Google Sheets client
 - `clients/google-sheets/docs/`: client-local permissions and performance notes
+- `clients/mobile/README.md`: install and usage guide for the Flutter mobile app (iOS/Android)

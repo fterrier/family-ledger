@@ -42,8 +42,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _tokenController = TextEditingController();
   bool _tokenVisible = false;
   bool _testing = false;
-  String? _testResult;
-  bool _testOk = false;
+  ({bool ok, String text})? _testResult;
 
   SharedPreferences? _prefs;
   List<AccountResource>? _accounts;
@@ -68,7 +67,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _urlController.text = url ?? '';
       _tokenController.text = token ?? '';
     });
-    _loadAccountsAndDefault();
+    if ((url?.isNotEmpty ?? false) && (token?.isNotEmpty ?? false)) {
+      _loadAccountsAndDefault();
+    }
   }
 
   Future<void> _loadAccountsAndDefault() async {
@@ -169,8 +170,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (healthErr != null) {
       setState(() {
         _testing = false;
-        _testOk = false;
-        _testResult = 'Cannot reach server. Check the URL.';
+        _testResult = (ok: false, text: 'Cannot reach server. Check the URL.');
       });
       return;
     }
@@ -182,17 +182,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() {
       _testing = false;
       if (result.error != null) {
-        _testOk = false;
-        _testResult = switch (result.error!) {
-          AuthError() => 'Authentication failed. Check your token.',
-          NetworkError() => 'Cannot reach server. Check the URL.',
-          MissingSettingsError() => 'Server not configured.',
-          ValidationError(:final message) ||
-          ServerError(:final message) => 'Server error: $message',
-        };
+        _testResult = (
+          ok: false,
+          text: switch (result.error!) {
+            AuthError() => 'Authentication failed. Check your token.',
+            NetworkError() => 'Cannot reach server. Check the URL.',
+            MissingSettingsError() => 'Server not configured.',
+            ValidationError(:final message) ||
+            ServerError(:final message) => 'Server error: $message',
+          },
+        );
       } else {
-        _testOk = true;
-        _testResult = 'Connected successfully';
+        _testResult = (ok: true, text: 'Connected successfully');
         if (_accounts == null || _commodities == null) {
           _loadAccountsAndDefault();
         }
@@ -306,11 +307,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   vertical: 8,
                 ),
                 child: Text(
-                  _testResult!,
+                  _testResult!.text,
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 13,
-                    color: _testOk
+                    color: _testResult!.ok
                         ? const Color(0xFF34C759)
                         : const Color(0xFFD93025),
                   ),

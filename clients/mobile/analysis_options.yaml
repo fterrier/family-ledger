@@ -1,0 +1,20 @@
+include: package:flutter_lints/flutter.yaml
+
+linter:
+  rules:
+    avoid_print: true
+    prefer_const_constructors: true
+    prefer_const_declarations: true
+    prefer_single_quotes: true
+    always_declare_return_types: true
+    avoid_unnecessary_containers: true
+    sized_box_for_whitespace: true
+    use_decorated_box: true
+    use_key_in_widget_constructors: true
+    unnecessary_null_checks: true
+    avoid_redundant_argument_values: true
+
+analyzer:
+  errors:
+    missing_return: error
+    dead_code: warning

@@ -1,0 +1,195 @@
+name: Mobile Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: 'Build number (e.g. 42)'
+        required: true
+        default: '1'
+
+jobs:
+  release-android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > android/app/upload-keystore.jks
+
+      - name: Build release APK
+        env:
+          ANDROID_KEYSTORE_PATH: app/upload-keystore.jks
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          flutter build apk --release \
+            --build-number=${{ github.event.inputs.build_number }}
+
+      - name: Upload APK to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mobile-v1.0.0+${{ github.event.inputs.build_number }}
+          name: Mobile v1.0.0 (build ${{ github.event.inputs.build_number }})
+          files: clients/mobile/build/app/outputs/flutter-apk/app-release.apk
+          generate_release_notes: false
+
+  release-ios:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: clients/mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Import signing certificate
+        run: |
+          echo "${{ secrets.APPLE_CERTIFICATE_BASE64 }}" | base64 --decode > certificate.p12
+          security create-keychain -p "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "${{ secrets.APPLE_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}" | base64 --decode \
+            > ~/Library/MobileDevice/Provisioning\ Profiles/profile.mobileprovision
+
+      - name: Set Team ID in ExportOptions.plist
+        run: sed -i '' "s/YOUR_TEAM_ID/${{ secrets.APPLE_TEAM_ID }}/g" ios/ExportOptions.plist
+
+      - name: Build IPA
+        run: |
+          flutter build ipa --release \
+            --build-number=${{ github.event.inputs.build_number }} \
+            --export-options-plist=ios/ExportOptions.plist
+
+      - name: Notarize IPA
+        run: |
+          echo "${{ secrets.APPLE_API_KEY_BASE64 }}" | base64 --decode > AuthKey.p8
+          xcrun notarytool submit build/ios/ipa/*.ipa \
+            --key AuthKey.p8 \
+            --key-id "${{ secrets.APPLE_API_KEY_ID }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER_ID }}" \
+            --wait
+          rm AuthKey.p8
+
+      - name: Generate distribution files
+        run: |
+          VERSION="1.0.0+${{ github.event.inputs.build_number }}"
+          IPA_NAME="FamilyLedger-${VERSION}.ipa"
+          BASE_URL="https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/releases/${VERSION}"
+
+          cp build/ios/ipa/*.ipa "/tmp/${IPA_NAME}"
+          mkdir -p "/tmp/gh-pages/releases/${VERSION}"
+          cp "/tmp/${IPA_NAME}" "/tmp/gh-pages/releases/${VERSION}/${IPA_NAME}"
+
+          export APP_VERSION="${VERSION}"
+          export RELEASES_DIR="/tmp/gh-pages/releases/${VERSION}"
+          export IPA_URL="${BASE_URL}/${IPA_NAME}"
+          export MANIFEST_URL="${BASE_URL}/manifest.plist"
+          python3 << 'PYEOF'
+          import os, textwrap
+          v = os.environ['APP_VERSION']
+          d = os.environ['RELEASES_DIR']
+          ipa_url = os.environ['IPA_URL']
+          manifest_url = os.environ['MANIFEST_URL']
+          open(f"{d}/manifest.plist", "w").write(textwrap.dedent(f"""\
+              <?xml version="1.0" encoding="UTF-8"?>
+              <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+              <plist version="1.0">
+              <dict>
+                <key>items</key>
+                <array>
+                  <dict>
+                    <key>assets</key>
+                    <array>
+                      <dict>
+                        <key>kind</key>
+                        <string>software-package</string>
+                        <key>url</key>
+                        <string>{ipa_url}</string>
+                      </dict>
+                    </array>
+                    <key>metadata</key>
+                    <dict>
+                      <key>bundle-identifier</key>
+                      <string>com.familyledger.familyLedgerMobile</string>
+                      <key>bundle-version</key>
+                      <string>{v}</string>
+                      <key>kind</key>
+                      <string>software</string>
+                      <key>title</key>
+                      <string>Family Ledger</string>
+                    </dict>
+                  </dict>
+                </array>
+              </dict>
+              </plist>
+              """))
+          open(f"{d}/install.html", "w").write(textwrap.dedent(f"""\
+              <!DOCTYPE html>
+              <html lang="en">
+              <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>Install Family Ledger</title>
+                <style>
+                  body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 60px 20px; background: #f2f2f7; }}
+                  h1 {{ font-size: 24px; margin-bottom: 8px; }}
+                  p {{ color: #8e8e93; margin-bottom: 32px; }}
+                  .btn {{ display: inline-block; background: #1a73e8; color: white; padding: 16px 32px; border-radius: 14px; text-decoration: none; font-size: 17px; font-weight: 600; }}
+                </style>
+              </head>
+              <body>
+                <h1>Family Ledger</h1>
+                <p>Version {v} &middot; iOS 17.4+ &middot; EU devices only</p>
+                <a class="btn" href="itms-services://?action=download-manifest&url={manifest_url}">Install on iPhone</a>
+              </body>
+              </html>
+              """))
+          open("/tmp/gh-pages/index.html", "w").write(textwrap.dedent(f"""\
+              <!DOCTYPE html>
+              <html>
+              <head><meta http-equiv="refresh" content="0; url=releases/{v}/install.html"></head>
+              <body><a href="releases/{v}/install.html">Install latest</a></body>
+              </html>
+              """))
+          PYEOF
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: /tmp/gh-pages
+          keep_files: true

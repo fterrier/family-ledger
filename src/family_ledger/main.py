@@ -9,14 +9,14 @@ from family_ledger.api.health import router as health_router
 from family_ledger.api.importer import router as importer_router
 from family_ledger.api.ledger import router as ledger_router
 from family_ledger.config import get_ledger_config, get_settings
-from family_ledger.db import ping_database
+from family_ledger.db import wait_for_database
 from family_ledger.services import attachment_poller
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
     get_ledger_config()
-    ping_database()
+    wait_for_database()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

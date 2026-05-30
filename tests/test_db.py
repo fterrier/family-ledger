@@ -3,11 +3,13 @@ from __future__ import annotations
 from contextlib import nullcontext
 from types import SimpleNamespace
 from typing import cast
+from unittest.mock import call, patch
 
 import pytest
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
-from family_ledger.db import read_only_transaction
+from family_ledger.db import read_only_transaction, wait_for_database
 
 
 class FakeSession:
@@ -52,3 +54,42 @@ def test_read_only_transaction_requires_inactive_session() -> None:
     with pytest.raises(RuntimeError, match="inactive session"):
         with read_only_transaction(cast(Session, session)):
             pass
+
+
+def _op_error() -> OperationalError:
+    return OperationalError("SELECT 1", {}, Exception("connection refused"))
+
+
+def test_wait_for_database_succeeds_immediately() -> None:
+    with (
+        patch("family_ledger.db.ping_database") as mock_ping,
+        patch("family_ledger.db.time.sleep") as mock_sleep,
+    ):
+        wait_for_database()
+
+    mock_ping.assert_called_once()
+    mock_sleep.assert_not_called()
+
+
+def test_wait_for_database_retries_on_failure() -> None:
+    with (
+        patch(
+            "family_ledger.db.ping_database", side_effect=[_op_error(), _op_error(), None]
+        ) as mock_ping,
+        patch("family_ledger.db.time.sleep") as mock_sleep,
+    ):
+        wait_for_database(max_attempts=5, delay=1.0)
+
+    assert mock_ping.call_count == 3
+    assert mock_sleep.call_args_list == [call(1.0), call(1.0)]
+
+
+def test_wait_for_database_raises_after_max_attempts() -> None:
+    with (
+        patch("family_ledger.db.ping_database", side_effect=_op_error()) as mock_ping,
+        patch("family_ledger.db.time.sleep"),
+    ):
+        with pytest.raises(OperationalError):
+            wait_for_database(max_attempts=3, delay=0.0)
+
+    assert mock_ping.call_count == 3

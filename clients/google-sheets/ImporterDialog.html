@@ -252,6 +252,65 @@
   }
 
   .warnings-list li::before { content: '• '; }
+
+  .search-dropdown-host { position: relative; }
+  .search-dropdown-value {
+    display: flex;
+    align-items: center;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+    min-height: 32px;
+    user-select: none;
+  }
+  .search-dropdown-value-text {
+    flex: 1;
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-dropdown-value-text.placeholder { color: #80868b; }
+  .search-dropdown-trigger {
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 7px solid #5f6368;
+    flex-shrink: 0;
+    margin-left: 6px;
+  }
+  .search-dropdown-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: #fff;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    margin-top: 2px;
+  }
+  .search-dropdown-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: none;
+    border-bottom: 1px solid #dadce0;
+    border-radius: 4px 4px 0 0;
+    font-size: 13px;
+    outline: none;
+  }
+  .search-dropdown-select {
+    display: block;
+    width: 100%;
+    border: none;
+    border-radius: 0 0 4px 4px;
+    font-size: 13px;
+    min-height: 160px;
+  }
 </style>
 </head>
 <body>
@@ -647,13 +706,14 @@
       label.textContent = getImporterFieldLabel_(schema, key);
       div.appendChild(label);
 
-      div.appendChild(buildImporterConfigFieldElement_(
+      var fieldEl = buildImporterConfigFieldElement_(
         key,
         prop,
         valueResolver(importer, key),
         accountOptions,
         Object.assign({}, options || {}, { document: container.ownerDocument })
-      ));
+      );
+      div.appendChild(fieldEl);
 
       var description = getImporterFieldDescription_(schema, key);
       if (description) {
@@ -664,6 +724,10 @@
       }
 
       container.appendChild(div);
+
+      if (prop['x-resource-type'] === 'account') {
+        attachSearchDropdown_(fieldEl, filterAccountOptions_);
+      }
     });
   }
 
@@ -1039,6 +1103,8 @@
     note.textContent = 'Failed to render importer configuration: ' + (err && err.message ? err.message : String(err || 'Unknown error'));
     container.appendChild(note);
   }
+  <?!= includeHtml_('AccountSearch'); ?>
+  <?!= includeHtml_('SearchDropdown'); ?>
 </script>
 </body>
 </html>

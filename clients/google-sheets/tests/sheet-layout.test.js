@@ -374,6 +374,7 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
       },
     },
   });
+  sandbox.buildAccountValidationRule_ = function() { return null; };
   sandbox.applyManagedSheetLayout_ = function(sheet) {
     calls.push({ type: 'layout', sheet: sheet.getName() });
   };

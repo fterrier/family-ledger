@@ -50,10 +50,11 @@ function restoreAllAccountValidations_() {
 
 function refreshManagedLedgerSheetLayouts_() {
   const perf = getActivePerf_();
+  const accountRule = buildAccountValidationRule_();
   forEachRegisteredSheet_(function(sheet, sheetConfig, key) {
     if (perf) perf.start('sheet.layout_' + key);
     applyManagedSheetLayout_(sheet, sheetConfig);
-    refreshAccountValidation_(sheet, sheetConfig);
+    refreshAccountValidation_(sheet, sheetConfig, undefined, accountRule);
     applyActionColumnCheckboxes_(sheet, sheetConfig);
     ensureSheetFilter_(sheet, sheetConfig);
     if (perf) perf.end('sheet.layout_' + key);

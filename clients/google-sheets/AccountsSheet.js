@@ -93,7 +93,7 @@ function refreshAccountValidation_(sheet, sheetConfig, span, cachedRule) {
     return (sheetConfig.columnLayout[h] || {}).validation === 'account';
   });
   if (accountHeaders.length === 0) return;
-  const rule = arguments.length >= 4 ? cachedRule : buildAccountValidationRule_();
+  const rule = cachedRule !== undefined ? cachedRule : buildAccountValidationRule_();
   const ms = managedSheet_(sheet, sheetConfig);
   accountHeaders.forEach(function(h) {
     if (rule) {

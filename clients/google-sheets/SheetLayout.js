@@ -24,24 +24,33 @@ function indexSheetsByName_(spreadsheet) {
   return index;
 }
 
-function restoreAllSheetFilters_() {
+function forEachRegisteredSheet_(callback) {
   const sheetsByName = indexSheetsByName_(SpreadsheetApp.getActiveSpreadsheet());
   Object.keys(FAMILY_LEDGER_SHEET_REGISTRY).forEach(function(key) {
     const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[key];
     const sheet = sheetsByName[sheetConfig.name];
     if (!sheet) return;
+    callback(sheet, sheetConfig, key);
+  });
+}
+
+function restoreAllSheetFilters_() {
+  forEachRegisteredSheet_(function(sheet, sheetConfig) {
     ensureSheetFilter_(sheet, sheetConfig);
   });
   reapplyPersistedQuickFilters_();
 }
 
+function restoreAllAccountValidations_() {
+  const rule = buildAccountValidationRule_();
+  forEachRegisteredSheet_(function(sheet, sheetConfig) {
+    refreshAccountValidation_(sheet, sheetConfig, undefined, rule);
+  });
+}
+
 function refreshManagedLedgerSheetLayouts_() {
   const perf = getActivePerf_();
-  const sheetsByName = indexSheetsByName_(SpreadsheetApp.getActiveSpreadsheet());
-  Object.keys(FAMILY_LEDGER_SHEET_REGISTRY).forEach(function(key) {
-    const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[key];
-    const sheet = sheetsByName[sheetConfig.name];
-    if (!sheet) return;
+  forEachRegisteredSheet_(function(sheet, sheetConfig, key) {
     if (perf) perf.start('sheet.layout_' + key);
     applyManagedSheetLayout_(sheet, sheetConfig);
     refreshAccountValidation_(sheet, sheetConfig);

@@ -275,7 +275,7 @@ class Transaction extends Entity {
           default: dst ? dst.account : null },
         { key: 'amount', label: 'Amount', type: 'number', required: true,
           hint: 'Positive for expenses; negative for incoming money. Same sign convention as the sheet.',
-          default: dst ? parseFloat(dst.units.amount) : Math.abs(parseFloat(src.units.amount)) },
+          default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) },
         { key: 'symbol', label: 'Symbol', type: 'select', required: true,
           'selection-options': allCommodityOpts, default: src.units.symbol },
       ]) };

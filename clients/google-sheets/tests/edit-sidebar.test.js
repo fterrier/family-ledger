@@ -94,6 +94,43 @@ test('getSidebarData (edit, 2-posting) returns simple mode with classified field
   assert.equal(symField['selection-options'].length, 2);
 });
 
+test('getSidebarData (edit, source-only with negative posting) defaults to positive amount in simple mode', () => {
+  const { sandbox } = loadCode();
+  sandbox.apiFetchJson_ = function() {
+    return {
+      name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '',
+      postings: [{ account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } }],
+    };
+  };
+  sandbox.loadAccountOptions_ = function() { return [{ resource_name: 'accounts/cash', display_name: 'Cash' }]; };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' });
+
+  assert.equal(data.mode, 'simple');
+  const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
+  assert.equal(amtField.default, 84.25);
+});
+
+test('getSidebarData (edit, source-only with positive posting) defaults to negative amount in simple mode', () => {
+  // Income/equity: posting=+5524.65 → sheet shows -5524.65 → simple mode must match the sheet
+  const { sandbox } = loadCode();
+  sandbox.apiFetchJson_ = function() {
+    return {
+      name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '',
+      postings: [{ account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' } }],
+    };
+  };
+  sandbox.loadAccountOptions_ = function() { return [{ resource_name: 'accounts/savings', display_name: 'Savings' }]; };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' });
+
+  assert.equal(data.mode, 'simple');
+  const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
+  assert.equal(amtField.default, -5524.65);
+});
+
 test('getSidebarData (edit, 3-posting) returns advanced mode with postings field', () => {
   const { sandbox } = loadCode();
   sandbox.apiFetchJson_ = function() {

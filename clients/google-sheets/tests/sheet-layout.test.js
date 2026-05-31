@@ -313,6 +313,28 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
   assert.equal(rules.includes(keptRule), true);
 });
 
+test('restoreAllAccountValidations_ calls refreshAccountValidation_ for each registered sheet', () => {
+  const calls = [];
+  const sheets = [
+    { getName() { return 'Transactions'; }, getLastRow() { return 1; } },
+    { getName() { return 'Accounts'; }, getLastRow() { return 1; } },
+  ];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { getSheets() { return sheets; } };
+      },
+    },
+  });
+  sandbox.buildAccountValidationRule_ = function() { return null; };
+  sandbox.refreshAccountValidation_ = function(sheet) { calls.push(sheet.getName()); };
+
+  sandbox.restoreAllAccountValidations_();
+
+  assert.ok(calls.includes('Transactions'), 'Transactions must have validation restored');
+  assert.ok(calls.includes('Accounts'), 'Accounts must have validation restored');
+});
+
 test('restoreAllSheetFilters_ calls ensureSheetFilter_ for each sheet then reapplyPersistedQuickFilters_', () => {
   const calls = [];
   const sheets = [

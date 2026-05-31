@@ -86,14 +86,14 @@ function buildAccountValidationRule_() {
     .build();
 }
 
-function refreshAccountValidation_(sheet, sheetConfig, span) {
+function refreshAccountValidation_(sheet, sheetConfig, span, cachedRule) {
   const resolvedSpan = span || { start: 2, count: Math.max((sheet.getLastRow ? sheet.getLastRow() : 1) - 1, 0) };
   if (resolvedSpan.count === 0) return;
   const accountHeaders = sheetConfig.headers.filter(function(h) {
     return (sheetConfig.columnLayout[h] || {}).validation === 'account';
   });
   if (accountHeaders.length === 0) return;
-  const rule = buildAccountValidationRule_();
+  const rule = arguments.length >= 4 ? cachedRule : buildAccountValidationRule_();
   const ms = managedSheet_(sheet, sheetConfig);
   accountHeaders.forEach(function(h) {
     if (rule) {

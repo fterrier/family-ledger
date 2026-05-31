@@ -73,6 +73,7 @@ test('syncLedger fetches accounts and transactions once without resetting layout
     calls.push('refreshManagedLedgerSheetLayouts');
   };
   sandbox.restoreAllSheetFilters_ = function() {};
+  sandbox.restoreAllAccountValidations_ = function() {};
 
   sandbox.syncLedger();
 
@@ -145,6 +146,7 @@ test('syncLedger calls restoreAllSheetFilters_ after writing all sheets', () => 
   sandbox.writeSheet_ = function(sheet) { calls.push({ type: 'writeSheet', sheet: sheet.name }); };
   sandbox.ensureSheetCapacity_ = function() {};
   sandbox.restoreAllSheetFilters_ = function() { calls.push('restoreAllSheetFilters'); };
+  sandbox.restoreAllAccountValidations_ = function() { calls.push('restoreAllAccountValidations'); };
 
   sandbox.syncLedger();
 
@@ -152,6 +154,59 @@ test('syncLedger calls restoreAllSheetFilters_ after writing all sheets', () => 
   const restoreIdx = calls.indexOf('restoreAllSheetFilters');
   assert.ok(restoreIdx !== -1, 'restoreAllSheetFilters_ must be called');
   assert.ok(Math.max(...writeIndices) < restoreIdx, 'filter restore must happen after all sheet writes');
+});
+
+test('syncLedger calls restoreAllAccountValidations_ after writing all sheets', () => {
+  const calls = [];
+  const sheets = {
+    Accounts: { name: 'Accounts', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
+    Balances: { name: 'Balances', setFrozenRows() {} },
+    Commodities: { name: 'Commodities', setFrozenRows() {} },
+    Prices: { name: 'Prices', setFrozenRows() {} },
+    Attachments: { name: 'Attachments', setFrozenRows() {}, getRange() { return { setFormulas() {} }; } },
+    Transactions: { name: 'Transactions', setFrozenRows() {}, getLastRow() { return 3; }, getRange() { return { setFormulas() {} }; } },
+  };
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getId() { return 'spreadsheet-id'; },
+          getSheetByName(name) { return sheets[name] || null; },
+          insertSheet(name) { return sheets[name]; },
+          toast() {},
+        };
+      },
+    },
+  });
+
+  sandbox.ensureEditTriggerInstalled_ = function() {};
+  sandbox.fetchFamilyLedgerPagedResource_ = function(path, resourceKey) {
+    if (resourceKey === 'commodities') return [{ symbol: 'CHF' }];
+    if (resourceKey === 'accounts') return [{ name: 'accounts/checking', account_name: 'Assets:Bank:Checking' }];
+    if (resourceKey === 'balance_assertions') return [];
+    if (resourceKey === 'attachments') return [];
+    if (resourceKey === 'prices') return [];
+    return [{ name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [] }];
+  };
+  sandbox.buildAccountSyncData_ = function() {
+    return { accountRows: [], accountResourceToDisplayName: {}, accountCount: 0 };
+  };
+  sandbox.buildTransactionSyncData_ = function() {
+    return { rows: [], skippedCount: 0, skippedExamples: [] };
+  };
+  sandbox.fetchLedgerDoctorIssuesByTarget_ = function() { return {}; };
+  sandbox.writeFetchedDoctorIssueSheets_ = function() {};
+  sandbox.writeSheet_ = function(sheet) { calls.push({ type: 'writeSheet', sheet: sheet.name }); };
+  sandbox.ensureSheetCapacity_ = function() {};
+  sandbox.restoreAllSheetFilters_ = function() {};
+  sandbox.restoreAllAccountValidations_ = function() { calls.push('restoreAllAccountValidations'); };
+
+  sandbox.syncLedger();
+
+  const writeIndices = calls.map(function(c, i) { return c.type === 'writeSheet' ? i : -1; }).filter(function(i) { return i !== -1; });
+  const validationIdx = calls.indexOf('restoreAllAccountValidations');
+  assert.ok(validationIdx !== -1, 'restoreAllAccountValidations_ must be called');
+  assert.ok(Math.max(...writeIndices) < validationIdx, 'validation restore must happen after all sheet writes');
 });
 
 test('buildTransactionSyncData_ collects skipped examples and leaves issues empty for VLOOKUP', () => {

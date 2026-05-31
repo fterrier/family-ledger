@@ -109,6 +109,8 @@ async def run_import(
     for key, value in form.multi_items():
         if isinstance(value, UploadFile):
             files[key] = await value.read()
+            if value.filename:
+                files[f"__filename__{key}__"] = value.filename.encode()
 
     result = _call_service(
         importer_service.execute_import, session, plugin_name, files, override, settings

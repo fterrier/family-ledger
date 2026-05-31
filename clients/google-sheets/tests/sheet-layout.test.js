@@ -52,6 +52,30 @@ test('writeSheet_ clears account-column validations before writing to prevent st
   assert.ok(clearIdx < setValuesIdx, 'clearDataValidations must happen before setValues');
 });
 
+test('writeSheet_ removes existing filter before writing so hidden rows receive data', () => {
+  const operations = [];
+  const { sandbox } = loadCode();
+  const sheetConfig = sandbox.getSheetConfigByName_('Transactions');
+  const fakeFilter = {
+    remove() { operations.push({ type: 'filterRemove' }); },
+  };
+  const fakeSheet = {
+    getFilter() { return fakeFilter; },
+    clearContents() { operations.push({ type: 'clearContents' }); },
+    getMaxRows() { return 1; },
+    getRange(row, column, numRows, numCols) {
+      return { setValues(values) { operations.push({ type: 'setValues', row }); } };
+    },
+  };
+
+  sandbox.writeSheet_(fakeSheet, sheetConfig, []);
+
+  const removeIdx = operations.findIndex(function(op) { return op.type === 'filterRemove'; });
+  const clearIdx = operations.findIndex(function(op) { return op.type === 'clearContents'; });
+  assert.ok(removeIdx !== -1, 'filter must be removed');
+  assert.ok(removeIdx < clearIdx, 'filter removal must happen before clearContents');
+});
+
 test('ensureSheetCapacity_ expands undersized sheets before writing', () => {
   const operations = [];
   const { sandbox } = loadCode();
@@ -289,34 +313,56 @@ test('ensureSheetConditionalFormatting_ drops stale managed formulas from old co
   assert.equal(rules.includes(keptRule), true);
 });
 
-test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps', () => {
+test('restoreAllSheetFilters_ calls ensureSheetFilter_ for each sheet then reapplyPersistedQuickFilters_', () => {
   const calls = [];
-  const sheets = {
-    Transactions: { name: 'Transactions' },
-    Accounts: { name: 'Accounts' },
-  };
+  const sheets = [
+    { getName() { return 'Transactions'; } },
+    { getName() { return 'Accounts'; } },
+  ];
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() {
-        return {
-          getSheetByName(name) {
-            return sheets[name] || null;
-          },
-        };
+        return { getSheets() { return sheets; } };
+      },
+    },
+  });
+  sandbox.ensureSheetFilter_ = function(sheet) { calls.push({ type: 'filter', sheet: sheet.getName() }); };
+  sandbox.reapplyPersistedQuickFilters_ = function() { calls.push({ type: 'reapply' }); };
+
+  sandbox.restoreAllSheetFilters_();
+
+  const filterCalls = calls.filter(function(c) { return c.type === 'filter'; });
+  assert.ok(filterCalls.some(function(c) { return c.sheet === 'Transactions'; }), 'Transactions must be filtered');
+  assert.ok(filterCalls.some(function(c) { return c.sheet === 'Accounts'; }), 'Accounts must be filtered');
+  const lastFilterIdx = calls.map(function(c) { return c.type; }).lastIndexOf('filter');
+  const reapplyIdx = calls.findIndex(function(c) { return c.type === 'reapply'; });
+  assert.ok(reapplyIdx > lastFilterIdx, 'reapplyPersistedQuickFilters_ must run after all ensureSheetFilter_ calls');
+});
+
+test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps', () => {
+  const calls = [];
+  const sheets = [
+    { getName() { return 'Transactions'; } },
+    { getName() { return 'Accounts'; } },
+  ];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { getSheets() { return sheets; } };
       },
     },
   });
   sandbox.applyManagedSheetLayout_ = function(sheet) {
-    calls.push({ type: 'layout', sheet: sheet.name });
+    calls.push({ type: 'layout', sheet: sheet.getName() });
   };
   sandbox.refreshAccountValidation_ = function(sheet) {
-    calls.push({ type: 'validation', sheet: sheet.name });
+    calls.push({ type: 'validation', sheet: sheet.getName() });
   };
   sandbox.applyActionColumnCheckboxes_ = function(sheet) {
-    calls.push({ type: 'editCheckbox', sheet: sheet.name });
+    calls.push({ type: 'editCheckbox', sheet: sheet.getName() });
   };
   sandbox.ensureSheetFilter_ = function(sheet) {
-    calls.push({ type: 'filter', sheet: sheet.name });
+    calls.push({ type: 'filter', sheet: sheet.getName() });
   };
   sandbox.reapplyPersistedQuickFilters_ = function() {
     calls.push({ type: 'reapplyFilters' });

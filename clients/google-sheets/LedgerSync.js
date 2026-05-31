@@ -114,6 +114,8 @@ function syncLedger() {
 
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
 
+      perf.wrap('sheet.restore_filters', function() { restoreAllSheetFilters_(); });
+
       SpreadsheetApp.getActiveSpreadsheet().toast(
         buildLedgerSyncSummaryMessage_(accountSyncData.accountCount, transactions.length, transactionSyncData, balanceAssertions.length, commodities.length, attachments.length, prices.length),
         'Ledger Sync Complete',

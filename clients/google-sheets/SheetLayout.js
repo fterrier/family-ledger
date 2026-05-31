@@ -16,12 +16,31 @@ function resetSheetLayouts() {
   });
 }
 
-function refreshManagedLedgerSheetLayouts_() {
-  const perf = getActivePerf_();
-  const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+function indexSheetsByName_(spreadsheet) {
+  const index = {};
+  spreadsheet.getSheets().forEach(function(sheet) {
+    index[sheet.getName()] = sheet;
+  });
+  return index;
+}
+
+function restoreAllSheetFilters_() {
+  const sheetsByName = indexSheetsByName_(SpreadsheetApp.getActiveSpreadsheet());
   Object.keys(FAMILY_LEDGER_SHEET_REGISTRY).forEach(function(key) {
     const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[key];
-    const sheet = spreadsheet.getSheetByName(sheetConfig.name);
+    const sheet = sheetsByName[sheetConfig.name];
+    if (!sheet) return;
+    ensureSheetFilter_(sheet, sheetConfig);
+  });
+  reapplyPersistedQuickFilters_();
+}
+
+function refreshManagedLedgerSheetLayouts_() {
+  const perf = getActivePerf_();
+  const sheetsByName = indexSheetsByName_(SpreadsheetApp.getActiveSpreadsheet());
+  Object.keys(FAMILY_LEDGER_SHEET_REGISTRY).forEach(function(key) {
+    const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[key];
+    const sheet = sheetsByName[sheetConfig.name];
     if (!sheet) return;
     if (perf) perf.start('sheet.layout_' + key);
     applyManagedSheetLayout_(sheet, sheetConfig);
@@ -82,6 +101,10 @@ function getOrCreateSheet_(sheetName) {
 
 
 function writeSheet_(sheet, sheetConfig, rows) {
+  // Remove any active filter before writing — GAS range writes skip hidden (filtered) rows,
+  // so setValues/setFormulas would silently omit data for filtered-out rows.
+  const existingFilter = sheet.getFilter ? sheet.getFilter() : null;
+  if (existingFilter) existingFilter.remove();
   sheet.clearContents();
   const managed = managedSheet_(sheet, sheetConfig);
   // Clear existing account-column validations before writing. clearContents() does not remove

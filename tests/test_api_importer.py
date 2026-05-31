@@ -48,6 +48,18 @@ class _CapturingSchemaImporter(_SchemaImporter):
         return ImportResult()
 
 
+class _CapturingFilesImporter(BaseImporter):
+    name = "files_fake"
+    display_name = "Files Fake Importer"
+    last_files: dict[str, bytes] | None = None
+
+    def execute(
+        self, session: Session, files: dict[str, bytes], config: dict, settings: object = None
+    ) -> ImportResult:  # type: ignore[override]
+        _CapturingFilesImporter.last_files = dict(files)
+        return ImportResult()
+
+
 def make_client(
     monkeypatch: pytest.MonkeyPatch,
     importers: dict,
@@ -237,6 +249,19 @@ def test_run_import_rejects_non_object_config_override(
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "invalid_config_override"
+
+
+def test_run_import_passes_filename_to_importer(monkeypatch: pytest.MonkeyPatch) -> None:
+    _CapturingFilesImporter.last_files = None
+    client = make_client(monkeypatch, {"files_fake": _CapturingFilesImporter})
+
+    client.post(
+        "/importers/files_fake:import",
+        files={"file": ("my-statement.pdf", b"data", "application/pdf")},
+    )
+
+    assert _CapturingFilesImporter.last_files is not None
+    assert _CapturingFilesImporter.last_files.get("__filename__file__") == b"my-statement.pdf"
 
 
 def test_run_import_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch) -> None:

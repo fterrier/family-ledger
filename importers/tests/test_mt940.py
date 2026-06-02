@@ -291,6 +291,15 @@ def _diff_projection(rows: list[dict[str, object]]) -> list[dict[str, object]]:
     return projected
 
 
+def test_mt940_importer_file_descriptors_accept_mt940_extension() -> None:
+    descriptors = mt940_importer.Mt940Importer().get_file_descriptors()
+
+    assert len(descriptors) == 1
+    assert ".mt940" in descriptors[0]["accept"]
+    assert ".txt" in descriptors[0]["accept"]
+    assert ".sta" in descriptors[0]["accept"]
+
+
 def test_mt940_importer_schema_requires_account_mappings() -> None:
     schema = mt940_importer.Mt940Importer().get_schema()
 

@@ -509,7 +509,7 @@ class Mt940Importer(BaseImporter):
                 "name": "file",
                 "label": "MT940 file",
                 "description": "MT940 bank statement file",
-                "accept": [".sta", ".txt"],
+                "accept": [".sta", ".txt", ".mt940"],
                 "required": True,
             }
         ]

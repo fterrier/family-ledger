@@ -314,7 +314,7 @@ def _load_account_name_set(session: Session) -> set[str]:
 def _validate_account_mappings(
     session: Session, config: dict[str, Any], entries: list[ParsedStatementEntry]
 ) -> dict[str, str]:
-    raw_mappings = config.get("account_mappings")
+    raw_mappings = config.get("account_mappings", {})
     if not isinstance(raw_mappings, dict):
         raise ValidationError(
             code="invalid_config",
@@ -477,6 +477,7 @@ class Mt940Importer(BaseImporter):
                         "type": "string",
                         "x-resource-type": "account",
                     },
+                    "default": {},
                     "description": "Map MT940 :25: IBAN values to internal account resource names.",
                 },
                 "payee_format": {
@@ -499,7 +500,6 @@ class Mt940Importer(BaseImporter):
                     ),
                 },
             },
-            "required": ["account_mappings"],
             "additionalProperties": False,
         }
 

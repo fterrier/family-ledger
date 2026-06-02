@@ -300,10 +300,11 @@ def test_mt940_importer_file_descriptors_accept_mt940_extension() -> None:
     assert ".sta" in descriptors[0]["accept"]
 
 
-def test_mt940_importer_schema_requires_account_mappings() -> None:
+def test_mt940_importer_schema_account_mappings() -> None:
     schema = mt940_importer.Mt940Importer().get_schema()
 
-    assert schema["required"] == ["account_mappings"]
+    assert "required" not in schema
+    assert schema["properties"]["account_mappings"]["default"] == {}
     assert schema["properties"]["payee_format"]["default"] == "generic"
     assert schema["properties"]["balance_assertion_frequency"]["default"] == "none"
     assert (

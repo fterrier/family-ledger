@@ -41,22 +41,25 @@ def _serialize_importer(
     )
 
 
-def _validate_against_schema(config: dict[str, Any], schema: dict[str, Any]) -> bool:
+def _validate_against_schema(
+    config: dict[str, Any], schema: dict[str, Any]
+) -> jsonschema.exceptions.ValidationError | None:
     if not schema:
-        return True
+        return None
     try:
         jsonschema.validate(config, schema)
-        return True
-    except jsonschema.exceptions.ValidationError:
-        return False
+        return None
+    except jsonschema.exceptions.ValidationError as exc:
+        return exc
 
 
 def _validate_importer_config(config: dict[str, Any], schema: dict[str, Any]) -> None:
-    if _validate_against_schema(config, schema):
+    exc = _validate_against_schema(config, schema)
+    if exc is None:
         return
     raise ValidationError(
         code="invalid_config",
-        message="Config does not match the importer schema",
+        message=f"Config does not match the importer schema: {exc.message}",
     )
 
 

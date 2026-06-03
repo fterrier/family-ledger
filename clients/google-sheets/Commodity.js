@@ -43,7 +43,7 @@ class Commodity extends Entity {
 
   static loadContext_() { return {}; }
 
-  static fromApi(apiEntity, context) {
+  static fromApi_(apiEntity, context) {
     return new Commodity(apiEntity || {}, context);
   }
 
@@ -62,8 +62,8 @@ class Commodity extends Entity {
   static buildSidebarFields_(entityName, _mode) {
     let defaults = { symbol: null };
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', Commodity.apiPath_(entityName));
-      defaults = { symbol: apiEntity.symbol || null };
+      const entity = Commodity.loadFromApi(entityName);
+      defaults = { symbol: entity._api.symbol || null };
     }
     return {
       mode: 'advanced',

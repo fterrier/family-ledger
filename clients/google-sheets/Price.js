@@ -62,7 +62,7 @@ class Price extends Entity {
     return {};
   }
 
-  static fromApi(apiEntity) {
+  static fromApi_(apiEntity) {
     return new Price(apiEntity || {});
   }
 
@@ -86,12 +86,12 @@ class Price extends Entity {
 
     let defaults = {};
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', Price.apiPath_(entityName));
+      const entity = Price.loadFromApi(entityName);
       defaults = {
-        price_date: apiEntity.price_date || null,
-        base_symbol: apiEntity.base_symbol || null,
-        quote_amount: (apiEntity.quote && apiEntity.quote.amount) || null,
-        quote_symbol: (apiEntity.quote && apiEntity.quote.symbol) || null,
+        price_date: entity._api.price_date || null,
+        base_symbol: entity._api.base_symbol || null,
+        quote_amount: (entity._api.quote && entity._api.quote.amount) || null,
+        quote_symbol: (entity._api.quote && entity._api.quote.symbol) || null,
       };
     }
 

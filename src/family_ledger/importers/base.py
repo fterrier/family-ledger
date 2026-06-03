@@ -22,6 +22,7 @@ class EntityCounts(BaseModel):
 
 class ImportResult(BaseModel):
     entities: dict[str, EntityCounts] = Field(default_factory=dict)
+    created_resources: dict[str, list[str]] = Field(default_factory=dict)
     warnings: list[str] = Field(default_factory=list)
 
 

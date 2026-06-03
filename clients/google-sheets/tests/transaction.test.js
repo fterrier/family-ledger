@@ -908,12 +908,12 @@ test('Transaction.fromRows() accepts all narration_source=post rows with null tr
   assert.equal(tx._api.postings[2].narration, 'B');
 });
 
-// --- Transaction.fromApi() ---
+// --- Transaction.fromApi_() ---
 
-test('Transaction.fromApi() constructs entity with correct name and null span', () => {
+test('Transaction.fromApi_() constructs entity with correct name and null span', () => {
   const { Transaction } = loadT_();
 
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_5',
     transaction_date: '2026-04-19',
     payee: 'Test',
@@ -925,10 +925,10 @@ test('Transaction.fromApi() constructs entity with correct name and null span', 
   assert.equal(entity._span, null);
 });
 
-test('Transaction.fromApi() with null entity name returns null from getName()', () => {
+test('Transaction.fromApi_() with null entity name returns null from getName()', () => {
   const { Transaction } = loadT_();
 
-  const entity = Transaction.fromApi({ name: null, transaction_date: '2026-04-19', postings: [] }, ACCOUNT_LOOKUP);
+  const entity = Transaction.fromApi_({ name: null, transaction_date: '2026-04-19', postings: [] }, ACCOUNT_LOOKUP);
 
   assert.equal(entity.getName(), null);
 });
@@ -947,7 +947,7 @@ test('Transaction.toApiPayload_() returns correct shape from internal API state'
       { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
     ],
   };
-  const entity = Transaction.fromApi(api, ACCOUNT_LOOKUP);
+  const entity = Transaction.fromApi_(api, ACCOUNT_LOOKUP);
 
   const payload = entity.toApiPayload_();
 
@@ -960,7 +960,7 @@ test('Transaction.toApiPayload_() returns correct shape from internal API state'
 
 test('Transaction.toApiPayload_() converts null payee/narration correctly', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
     payee: null,
@@ -978,7 +978,7 @@ test('Transaction.toApiPayload_() converts null payee/narration correctly', () =
 
 test('Transaction.setFields() updates transaction_date, payee, and narration', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1',
     transaction_date: '2026-04-19',
     payee: 'Old Payee',
@@ -995,7 +995,7 @@ test('Transaction.setFields() updates transaction_date, payee, and narration', (
 
 test('Transaction.setFields() converts empty payee and narration to null', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', postings: [],
   }, ACCOUNT_LOOKUP);
 
@@ -1007,7 +1007,7 @@ test('Transaction.setFields() converts empty payee and narration to null', () =>
 
 test('Transaction.setFields() ignores unknown fields', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Test', postings: [],
   }, ACCOUNT_LOOKUP);
 
@@ -1022,7 +1022,7 @@ test('Transaction.setFields() ignores unknown fields', () => {
 
 test('Transaction.validate() throws when transaction_date is missing', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1', transaction_date: '', payee: null, narration: null, postings: [],
   }, ACCOUNT_LOOKUP);
 
@@ -1031,7 +1031,7 @@ test('Transaction.validate() throws when transaction_date is missing', () => {
 
 test('Transaction.validate() passes when transaction_date is present', () => {
   const { Transaction } = loadT_();
-  const entity = Transaction.fromApi({
+  const entity = Transaction.fromApi_({
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null, postings: [],
   }, ACCOUNT_LOOKUP);
 

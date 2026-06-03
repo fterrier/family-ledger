@@ -25,7 +25,7 @@ function makeBalanceSheet_(sandbox, rowStore, operations) {
 test('Balance.fromApi produces correct _api shape', () => {
   const { sandbox } = loadCode();
   const ctx = { accountResourceToDisplayName: { 'accounts/checking': '[A] Checking' } };
-  const b = getBalance(sandbox).fromApi(makeBalanceApi(), ctx);
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi(), ctx);
 
   assert.equal(b.getName(), 'balanceAssertions/bal_1');
   assert.equal(b._api.assertion_date, '2026-04-19');
@@ -35,7 +35,7 @@ test('Balance.fromApi produces correct _api shape', () => {
 
 test('Balance.toApiPayload_ excludes name, edit, issues', () => {
   const { sandbox } = loadCode();
-  const b = getBalance(sandbox).fromApi(makeBalanceApi());
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi());
   const payload = b.toApiPayload_();
 
   assert.ok(!('name' in payload));
@@ -48,25 +48,25 @@ test('Balance.toApiPayload_ excludes name, edit, issues', () => {
 
 test('Balance.validate throws when assertion_date is missing', () => {
   const { sandbox } = loadCode();
-  const b = getBalance(sandbox).fromApi(makeBalanceApi({ assertion_date: null }));
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi({ assertion_date: null }));
   assert.throws(function() { b.validate(); }, /date/i);
 });
 
 test('Balance.validate throws when account is missing', () => {
   const { sandbox } = loadCode();
-  const b = getBalance(sandbox).fromApi(makeBalanceApi({ account: null }));
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi({ account: null }));
   assert.throws(function() { b.validate(); }, /account/i);
 });
 
 test('Balance.validate throws when amount is missing', () => {
   const { sandbox } = loadCode();
-  const b = getBalance(sandbox).fromApi(makeBalanceApi({ amount: { amount: null, symbol: 'CHF' } }));
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi({ amount: { amount: null, symbol: 'CHF' } }));
   assert.throws(function() { b.validate(); }, /amount/i);
 });
 
 test('Balance.validate throws when symbol is missing', () => {
   const { sandbox } = loadCode();
-  const b = getBalance(sandbox).fromApi(makeBalanceApi({ amount: { amount: '100', symbol: null } }));
+  const b = getBalance(sandbox).fromApi_(makeBalanceApi({ amount: { amount: '100', symbol: null } }));
   assert.throws(function() { b.validate(); }, /symbol/i);
 });
 

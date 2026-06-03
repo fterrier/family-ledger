@@ -22,7 +22,7 @@ function makeAccountSheet_(sandbox, rowStore, operations) {
 
 test('Account.fromApi produces correct _api shape', () => {
   const { sandbox } = loadCode();
-  const a = getAccount(sandbox).fromApi(makeAccountApi());
+  const a = getAccount(sandbox).fromApi_(makeAccountApi());
 
   assert.equal(a.getName(), 'accounts/zkb');
   assert.equal(a._api.account_name, 'Assets:Family:ZKB:Checking');
@@ -30,7 +30,7 @@ test('Account.fromApi produces correct _api shape', () => {
 
 test('Account.toApiPayload_ includes only account_name', () => {
   const { sandbox } = loadCode();
-  const a = getAccount(sandbox).fromApi(makeAccountApi());
+  const a = getAccount(sandbox).fromApi_(makeAccountApi());
   const payload = a.toApiPayload_();
 
   assert.ok(!('name' in payload));
@@ -41,13 +41,13 @@ test('Account.toApiPayload_ includes only account_name', () => {
 
 test('Account.validate throws when account_name is missing', () => {
   const { sandbox } = loadCode();
-  const a = getAccount(sandbox).fromApi(makeAccountApi({ account_name: null }));
+  const a = getAccount(sandbox).fromApi_(makeAccountApi({ account_name: null }));
   assert.throws(function() { a.validate(); }, /account name/i);
 });
 
 test('Account.validate throws when account_name is empty string', () => {
   const { sandbox } = loadCode();
-  const a = getAccount(sandbox).fromApi(makeAccountApi({ account_name: '' }));
+  const a = getAccount(sandbox).fromApi_(makeAccountApi({ account_name: '' }));
   assert.throws(function() { a.validate(); }, /account name/i);
 });
 
@@ -55,7 +55,7 @@ test('Account.validate throws when account_name is empty string', () => {
 
 test('Account.toRows_ stores display name from formatAccountDisplayName_', () => {
   const { sandbox } = loadCode();
-  const a = getAccount(sandbox).fromApi(makeAccountApi());
+  const a = getAccount(sandbox).fromApi_(makeAccountApi());
   const rows = a.toRows_();
 
   assert.equal(rows.length, 1);

@@ -192,8 +192,7 @@ class Transaction extends Entity {
     return buildTransactionContext_(loadAccountOptions_());
   }
 
-  // Construct from API entity (primary path after an API call).
-  static fromApi(apiEntity, context) {
+  static fromApi_(apiEntity, context) {
     return new Transaction(apiEntity || {}, context);
   }
 

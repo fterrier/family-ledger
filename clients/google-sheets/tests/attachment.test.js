@@ -34,7 +34,7 @@ function makeContext(overrides) {
 
 test('Attachment.fromApi produces correct _api shape', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi());
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi());
 
   assert.equal(a.getName(), 'attachments/att_abc');
   assert.equal(a._api.attachment_date, '2026-01-15');
@@ -45,7 +45,7 @@ test('Attachment.fromApi produces correct _api shape', () => {
 
 test('Attachment.toApiPayload_ includes only the 4 editable fields', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi({ document_url: 'https://example.com/doc' }));
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi({ document_url: 'https://example.com/doc' }));
   const payload = a.toApiPayload_();
 
   assert.equal(payload.account, 'accounts/zkb');
@@ -60,19 +60,19 @@ test('Attachment.toApiPayload_ includes only the 4 editable fields', () => {
 
 test('Attachment.validate throws when attachment_date is missing', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi({ attachment_date: null }));
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi({ attachment_date: null }));
   assert.throws(function() { a.validate(); }, /date/i);
 });
 
 test('Attachment.validate throws when account is missing', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi({ account: null }));
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi({ account: null }));
   assert.throws(function() { a.validate(); }, /account/i);
 });
 
 test('Attachment.validate throws when original_filename is missing', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi({ original_filename: null }));
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi({ original_filename: null }));
   assert.throws(function() { a.validate(); }, /filename/i);
 });
 
@@ -80,7 +80,7 @@ test('Attachment.validate throws when original_filename is missing', () => {
 
 test('Attachment.toRows_ writes plain filename when no document_url', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi(), makeContext());
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi(), makeContext());
   const rows = a.toRows_();
 
   assert.equal(rows.length, 1);
@@ -94,7 +94,7 @@ test('Attachment.toRows_ writes plain filename when no document_url', () => {
 
 test('Attachment.toRows_ writes HYPERLINK formula when document_url is present', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(
+  const a = getAttachment(sandbox).fromApi_(
     makeAttachmentApi({ document_url: 'https://docs.example.com/file.pdf' }),
     makeContext()
   );
@@ -107,7 +107,7 @@ test('Attachment.toRows_ writes HYPERLINK formula when document_url is present',
 
 test('Attachment.toRows_ resolves account resource name to display name via context', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi(), makeContext());
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi(), makeContext());
   const rows = a.toRows_();
 
   assert.equal(rows[0].account, '[A] Family - ZKB - Checking');
@@ -115,7 +115,7 @@ test('Attachment.toRows_ resolves account resource name to display name via cont
 
 test('Attachment.toRows_ falls back to raw account name when not in context', () => {
   const { sandbox } = loadCode();
-  const a = getAttachment(sandbox).fromApi(makeAttachmentApi(), {});
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi(), {});
   const rows = a.toRows_();
 
   assert.equal(rows[0].account, 'accounts/zkb');

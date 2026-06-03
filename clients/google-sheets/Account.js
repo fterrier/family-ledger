@@ -61,7 +61,7 @@ class Account extends Entity {
     return super.writeToSheet_(sheet, existingSpan, rows);
   }
 
-  static fromApi(apiEntity, context) {
+  static fromApi_(apiEntity, context) {
     return new Account(apiEntity || {}, context);
   }
 
@@ -79,11 +79,11 @@ class Account extends Entity {
   static buildSidebarFields_(entityName, _mode) {
     let defaults = {};
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', Account.apiPath_(entityName));
+      const entity = Account.loadFromApi(entityName);
       defaults = {
-        account_name: apiEntity.account_name || null,
-        effective_start_date: apiEntity.effective_start_date || null,
-        effective_end_date: apiEntity.effective_end_date || null,
+        account_name: entity._api.account_name || null,
+        effective_start_date: entity._api.effective_start_date || null,
+        effective_end_date: entity._api.effective_end_date || null,
       };
     }
     return {

@@ -1,8 +1,17 @@
+function runWithPerf_(label, fn) {
+  const perf = createPerf_();
+  setActivePerf_(perf);
+  try {
+    return fn(perf);
+  } finally {
+    clearActivePerf_();
+    perf.log(label);
+  }
+}
+
 function syncLedger() {
   runUserAction_('Sync Ledger', function() {
-    const perf = createPerf_();
-    setActivePerf_(perf);
-    try {
+    runWithPerf_('Sync Ledger', function(perf) {
       ensureEditTriggerInstalled_();
 
       // API fetches auto-record into perf via apiFetch_
@@ -123,13 +132,56 @@ function syncLedger() {
         10
       );
       invalidateAccountOptionsCache_();
-    } finally {
-      clearActivePerf_();
-      perf.log('Sync Ledger');
-    }
+    });
   });
 }
 
+
+var INCREMENTAL_SYNC_MAX_ = 200;
+
+var IMPORT_RESOURCE_TO_SHEET_KEY_ = {
+  transactions: 'transactions',
+  attachments: 'attachments',
+  balance_assertions: 'balances',
+  accounts: 'accounts',
+  prices: 'prices',
+};
+
+function syncLedgerAfterImport(importResult) {
+  const createdResources = (importResult && importResult.created_resources) || {};
+  const totalCreated = Object.keys(createdResources).reduce(function(sum, k) {
+    return sum + (createdResources[k] || []).length;
+  }, 0);
+  if (totalCreated === 0) return;
+  if (totalCreated > INCREMENTAL_SYNC_MAX_) { syncLedger(); return; }
+
+  runWithPerf_('Sync After Import', function(perf) {
+    let insertedCount = 0;
+    Object.keys(createdResources).forEach(function(resourceType) {
+      const sheetKey = IMPORT_RESOURCE_TO_SHEET_KEY_[resourceType];
+      if (!sheetKey) return;
+      const EntityClass = ENTITY_CLASS_REGISTRY[sheetKey];
+      if (!EntityClass) return;
+      const names = createdResources[resourceType];
+      if (!names || names.length === 0) return;
+      const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_REGISTRY[sheetKey].name);
+      perf.wrap('sheet.insert_' + resourceType, function() {
+        names.forEach(function(name) {
+          EntityClass.loadFromApi(name).insertIntoSheet(sheet);
+          insertedCount += 1;
+        });
+      }, names.length + ' entities');
+    });
+
+    if (insertedCount === 0) return;
+    refreshDoctorIssueSheets_({});
+    invalidateAccountOptionsCache_();
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      insertedCount + ' entities added to sheet.',
+      'Import Sync Complete', 10
+    );
+  });
+}
 
 function ensureEditTriggerInstalled_() {
   const spreadsheetId = SpreadsheetApp.getActiveSpreadsheet().getId();
@@ -173,14 +225,7 @@ function buildAccountSyncData_(accounts) {
   const apiDataByName = {};
   accounts.forEach(function(account) { apiDataByName[account.name] = account; });
   const rows = displayEntries.map(function(entry) {
-    const apiData = apiDataByName[entry.resource_name] || {};
-    return {
-      resource_name: entry.resource_name,
-      account_name: entry.display_name,
-      effective_start_date: apiData.effective_start_date || '',
-      effective_end_date: apiData.effective_end_date || '',
-      issues: '',
-    };
+    return Account.fromApi_(apiDataByName[entry.resource_name]).toRows_()[0];
   });
   const accountResourceToDisplayName = {};
   displayEntries.forEach(function(entry) {
@@ -220,33 +265,20 @@ function buildTransactionSyncData_(transactions, accountResourceToDisplayName) {
 }
 
 function buildPriceSyncRows_(prices) {
-  return prices.map(function(price) { return Price.fromApi(price).toRows_()[0]; });
+  return prices.map(function(price) { return Price.fromApi_(price).toRows_()[0]; });
 }
 
 function buildBalanceAssertionSyncRows_(balanceAssertions, accountResourceToDisplayName) {
+  const context = { accountResourceToDisplayName: accountResourceToDisplayName };
   return balanceAssertions.map(function(assertion) {
-    return {
-      resource_name: assertion.name,
-      assertion_date: assertion.assertion_date,
-      account: accountResourceToDisplayName[assertion.account] || assertion.account,
-      amount: assertion.amount.amount,
-      symbol: assertion.amount.symbol,
-      issues: '',
-    };
+    return Balance.fromApi_(assertion, context).toRows_()[0];
   });
 }
 
 function buildAttachmentSyncRows_(attachments, accountResourceToDisplayName) {
+  const context = { accountResourceToDisplayName: accountResourceToDisplayName };
   return attachments.map(function(attachment) {
-    const filenameCell = buildAttachmentFilenameCell_(attachment.document_url, attachment.original_filename);
-    return {
-      resource_name: attachment.name,
-      attachment_date: attachment.attachment_date,
-      account: accountResourceToDisplayName[attachment.account] || attachment.account,
-      original_filename: filenameCell,
-      status: attachment.status || '',
-      issues: '',
-    };
+    return Attachment.fromApi_(attachment, context).toRows_()[0];
   });
 }
 

@@ -107,7 +107,7 @@ test('Entity.save() calls createViaApi_ when _span is null (POST path)', () => {
     throw new Error('updateViaApi_ must not be called on POST');
   };
 
-  const entity = Transaction.fromApi({ ...SAMPLE_API, name: null }, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_({ ...SAMPLE_API, name: null }, SAMPLE_CONTEXT);
   entity.save(fakeSheet);
 
   assert.equal(calls.length, 1);
@@ -125,7 +125,7 @@ test('Entity.save() calls updateViaApi_ when _span is set (PATCH path)', () => {
     return SAMPLE_API;
   };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
   entity.save(fakeSheet);
 
@@ -142,7 +142,7 @@ test('Entity.save() passes correct payload to updateViaApi_', () => {
     return SAMPLE_API;
   };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
   entity.save(fakeSheet);
 
@@ -156,7 +156,7 @@ test('Entity.save() returns span from writeToSheet_', () => {
   Transaction.updateViaApi_ = function() { return SAMPLE_API; };
   Transaction.writeToSheet_ = function() { return { start: 5, count: 2 }; };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
   const result = entity.save(fakeSheet);
 
@@ -169,7 +169,7 @@ test('Entity.save() propagates API error', () => {
     throw new Error('server error');
   };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
 
   assert.throws(() => entity.save(fakeSheet), /server error/);
@@ -180,7 +180,7 @@ test('Entity.save() throws when toRows_ returns null', () => {
   Transaction.updateViaApi_ = function() { return SAMPLE_API; };
   sandbox.flattenTransactionForSheet_ = function() { return null; };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
 
   assert.throws(() => entity.save(fakeSheet), /could not be rendered/);
@@ -191,7 +191,7 @@ test('Entity.save() throws when toRows_ returns empty array', () => {
   Transaction.updateViaApi_ = function() { return SAMPLE_API; };
   sandbox.flattenTransactionForSheet_ = function() { return []; };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
 
   assert.throws(() => entity.save(fakeSheet), /could not be rendered/);
@@ -206,7 +206,7 @@ test('Entity.save() clears RESET_ON_SAVE_FIELDS on rows before writeToSheet_', (
     return { start: 2, count: rows.length };
   };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
   entity.toRows_ = function() {
     return [{ resource_name: 'transactions/txn_1', split_off_amount: 'should_be_cleared' }];
@@ -229,7 +229,7 @@ test('Entity.save() returns null when stale generation detected after API call',
     return SAMPLE_API;
   };
 
-  const entity = Transaction.fromApi(SAMPLE_API, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
   const result = entity.save(fakeSheet);
 
@@ -241,10 +241,82 @@ test('Entity.save() skips generation check when entity has no name', () => {
   const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
   Transaction.createViaApi_ = function() { return SAMPLE_API; };
 
-  const entity = Transaction.fromApi({ ...SAMPLE_API, name: null }, SAMPLE_CONTEXT);
+  const entity = Transaction.fromApi_({ ...SAMPLE_API, name: null }, SAMPLE_CONTEXT);
   const result = entity.save(fakeSheet);
 
   assert.notEqual(result, null);
+});
+
+// --- Entity.insertIntoSheet() ---
+
+test('Entity.insertIntoSheet() writes rows without making any API call', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  let apiCalled = false;
+  Transaction.createViaApi_ = function() { apiCalled = true; return SAMPLE_API; };
+  Transaction.updateViaApi_ = function() { apiCalled = true; return SAMPLE_API; };
+  let capturedSpan = null;
+  Transaction.writeToSheet_ = function(_sheet, existingSpan, rows) {
+    capturedSpan = existingSpan;
+    return { start: 2, count: rows.length };
+  };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  entity._span = { start: 5, count: 1 };
+  entity.insertIntoSheet(fakeSheet);
+
+  assert.equal(apiCalled, false, 'insertIntoSheet must not call any API');
+  assert.equal(capturedSpan, null, 'insertIntoSheet must pass null span so writeToSheet_ inserts as new row');
+});
+
+test('Entity.insertIntoSheet() returns the span from writeToSheet_', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  Transaction.writeToSheet_ = function() { return { start: 7, count: 2 }; };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  const result = entity.insertIntoSheet(fakeSheet);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 7, count: 2 });
+});
+
+test('Entity.insertIntoSheet() clears RESET_ON_SAVE_FIELDS before writeToSheet_', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  let capturedRows = null;
+  Transaction.writeToSheet_ = function(_sheet, _span, rows) {
+    capturedRows = rows;
+    return { start: 2, count: rows.length };
+  };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  entity.toRows_ = function() {
+    return [{ resource_name: 'transactions/txn_1', split_off_amount: 'should_be_cleared' }];
+  };
+  entity.insertIntoSheet(fakeSheet);
+
+  assert.equal(capturedRows[0].split_off_amount, '');
+});
+
+// --- Entity.loadFromApi() ---
+
+test('Entity.loadFromApi() fetches via apiFetchJson_ and constructs entity via fromApi_', () => {
+  const { sandbox, Transaction } = makeSaveEntitySandbox();
+  const calls = [];
+  sandbox.apiFetchJson_ = function(method, path) {
+    calls.push({ method, path });
+    return SAMPLE_API;
+  };
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/checking', display_name: '[A] Checking' },
+      { resource_name: 'accounts/food', display_name: '[X] Food' },
+    ];
+  };
+
+  const entity = Transaction.loadFromApi('transactions/txn_1');
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'get');
+  assert.ok(calls[0].path.includes('transactions/txn_1'));
+  assert.equal(entity.getName(), 'transactions/txn_1');
 });
 
 // --- scanEntityRows_ ---

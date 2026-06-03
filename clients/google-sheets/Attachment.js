@@ -73,7 +73,7 @@ class Attachment extends Entity {
     return { accountResourceToDisplayName: accountResourceToDisplayName, accountDisplayNameToResource: accountDisplayNameToResource };
   }
 
-  static fromApi(apiEntity, context) {
+  static fromApi_(apiEntity, context) {
     return new Attachment(apiEntity || {}, context);
   }
 
@@ -100,12 +100,12 @@ class Attachment extends Entity {
     });
     let defaults = {};
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', Attachment.apiPath_(entityName));
+      const entity = Attachment.loadFromApi(entityName);
       defaults = {
-        attachment_date: apiEntity.attachment_date || null,
-        account: apiEntity.account || null,
-        original_filename: apiEntity.original_filename || null,
-        document_url: apiEntity.document_url || null,
+        attachment_date: entity._api.attachment_date || null,
+        account: entity._api.account || null,
+        original_filename: entity._api.original_filename || null,
+        document_url: entity._api.document_url || null,
       };
     }
     return {

@@ -23,7 +23,7 @@ function makeCommoditySheet_(sandbox, rowStore, operations) {
 
 test('Commodity.fromApi produces correct _api shape', () => {
   const { sandbox } = loadCode();
-  const c = getCommodity(sandbox).fromApi(makeCommodityApi());
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi());
 
   assert.equal(c.getName(), 'commodities/cmd_chf');
   assert.equal(c._api.symbol, 'CHF');
@@ -31,7 +31,7 @@ test('Commodity.fromApi produces correct _api shape', () => {
 
 test('Commodity.toApiPayload_ includes only symbol', () => {
   const { sandbox } = loadCode();
-  const c = getCommodity(sandbox).fromApi(makeCommodityApi());
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi());
   const payload = c.toApiPayload_();
 
   assert.equal(payload.symbol, 'CHF');
@@ -42,13 +42,13 @@ test('Commodity.toApiPayload_ includes only symbol', () => {
 
 test('Commodity.validate throws when symbol is missing', () => {
   const { sandbox } = loadCode();
-  const c = getCommodity(sandbox).fromApi(makeCommodityApi({ symbol: null }));
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi({ symbol: null }));
   assert.throws(function() { c.validate(); }, /symbol/i);
 });
 
 test('Commodity.validate throws when symbol is empty string', () => {
   const { sandbox } = loadCode();
-  const c = getCommodity(sandbox).fromApi(makeCommodityApi({ symbol: '' }));
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi({ symbol: '' }));
   assert.throws(function() { c.validate(); }, /symbol/i);
 });
 
@@ -56,7 +56,7 @@ test('Commodity.validate throws when symbol is empty string', () => {
 
 test('Commodity.toRows_ writes resource_name, symbol and resets edit to false', () => {
   const { sandbox } = loadCode();
-  const c = getCommodity(sandbox).fromApi(makeCommodityApi());
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi());
   const rows = c.toRows_();
 
   assert.equal(rows.length, 1);

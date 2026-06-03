@@ -342,3 +342,134 @@ test('buildAttachmentSyncRows_ maps attachments to sheet rows with hyperlink cel
   assert.ok(rows[0].original_filename.includes('HYPERLINK'), 'stored attachment uses HYPERLINK formula');
   assert.equal(rows[1].original_filename, 'receipt.pdf');
 });
+
+// --- syncLedgerAfterImport ---
+
+function makeSyncAfterImportSandbox() {
+  const toasts = [];
+  const sheets = {
+    Transactions: { name: 'Transactions' },
+    Attachments: { name: 'Attachments' },
+    Balances: { name: 'Balances' },
+    Accounts: { name: 'Accounts' },
+    Prices: { name: 'Prices' },
+  };
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return {
+          getId() { return 'spreadsheet-id'; },
+          getSheetByName(name) { return sheets[name] || null; },
+          insertSheet(name) { return sheets[name]; },
+          toast(message, title) { toasts.push({ title, message }); },
+        };
+      },
+    },
+  });
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.invalidateAccountOptionsCache_ = function() {};
+  return { sandbox, toasts };
+}
+
+test('syncLedgerAfterImport does nothing when created_resources is empty', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  let syncLedgerCalled = false;
+  sandbox.syncLedger = function() { syncLedgerCalled = true; };
+
+  sandbox.syncLedgerAfterImport({ created_resources: {} });
+
+  assert.equal(syncLedgerCalled, false, 'syncLedger must not be called when nothing was created');
+  assert.equal(toasts.length, 0, 'no toast when nothing was created');
+});
+
+test('syncLedgerAfterImport does nothing when created_resources is missing', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  let syncLedgerCalled = false;
+  sandbox.syncLedger = function() { syncLedgerCalled = true; };
+
+  sandbox.syncLedgerAfterImport(null);
+  sandbox.syncLedgerAfterImport({});
+
+  assert.equal(syncLedgerCalled, false);
+  assert.equal(toasts.length, 0);
+});
+
+test('syncLedgerAfterImport falls back to syncLedger when total exceeds INCREMENTAL_SYNC_MAX_', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  let syncLedgerCalled = false;
+  sandbox.syncLedger = function() { syncLedgerCalled = true; };
+
+  const names = Array.from({ length: 201 }, function(_, i) { return 'transactions/txn_' + i; });
+  sandbox.syncLedgerAfterImport({ created_resources: { transactions: names } });
+
+  assert.equal(syncLedgerCalled, true, 'must fall back to full sync for large imports');
+  assert.equal(toasts.length, 0, 'no incremental toast when falling back');
+});
+
+test('syncLedgerAfterImport calls loadFromApi and insertIntoSheet for each created resource', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  sandbox.syncLedger = function() { throw new Error('must not call syncLedger'); };
+
+  const insertCalls = [];
+  const fakeEntity = {
+    insertIntoSheet(sheet) { insertCalls.push({ sheet: sheet.name }); },
+  };
+  const Transaction = sandbox.ENTITY_CLASS_REGISTRY['transactions'];
+  Transaction.loadFromApi = function(name) {
+    insertCalls.push({ type: 'loadFromApi', name });
+    return fakeEntity;
+  };
+
+  sandbox.syncLedgerAfterImport({
+    created_resources: { transactions: ['transactions/txn_1', 'transactions/txn_2'] },
+  });
+
+  const loads = insertCalls.filter(function(c) { return c.type === 'loadFromApi'; });
+  const inserts = insertCalls.filter(function(c) { return c.sheet; });
+  assert.equal(loads.length, 2);
+  assert.equal(loads[0].name, 'transactions/txn_1');
+  assert.equal(loads[1].name, 'transactions/txn_2');
+  assert.equal(inserts.length, 2);
+  assert.equal(inserts[0].sheet, 'Transactions');
+  assert.equal(toasts.length, 1);
+  assert.equal(toasts[0].title, 'Import Sync Complete');
+  assert.ok(toasts[0].message.includes('2 entities'), 'toast should report count');
+});
+
+test('syncLedgerAfterImport handles mixed resource types', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  sandbox.syncLedger = function() { throw new Error('must not call syncLedger'); };
+
+  const insertCalls = [];
+  function makeFakeClass(sheetName) {
+    const fakeEntity = { insertIntoSheet(sheet) { insertCalls.push({ type: 'insert', sheet: sheet.name }); } };
+    return { loadFromApi(name) { insertCalls.push({ type: 'load', name }); return fakeEntity; } };
+  }
+  sandbox.ENTITY_CLASS_REGISTRY['transactions'] = makeFakeClass('Transactions');
+  sandbox.ENTITY_CLASS_REGISTRY['balances'] = makeFakeClass('Balances');
+
+  sandbox.syncLedgerAfterImport({
+    created_resources: {
+      transactions: ['transactions/txn_1'],
+      balance_assertions: ['balance_assertions/ba_1'],
+    },
+  });
+
+  assert.equal(insertCalls.filter(function(c) { return c.type === 'load'; }).length, 2);
+  const insertedSheets = insertCalls.filter(function(c) { return c.type === 'insert'; }).map(function(c) { return c.sheet; });
+  assert.ok(insertedSheets.includes('Transactions'));
+  assert.ok(insertedSheets.includes('Balances'));
+  assert.equal(toasts.length, 1);
+});
+
+test('syncLedgerAfterImport silently skips unknown resource types', () => {
+  const { sandbox, toasts } = makeSyncAfterImportSandbox();
+  sandbox.syncLedger = function() { throw new Error('must not call syncLedger'); };
+
+  assert.doesNotThrow(function() {
+    sandbox.syncLedgerAfterImport({
+      created_resources: { unknown_resource_type: ['foo/bar'] },
+    });
+  });
+  assert.equal(toasts.length, 0, 'no toast when only unknown types with no creates');
+});

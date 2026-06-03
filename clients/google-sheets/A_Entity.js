@@ -90,6 +90,20 @@ class Entity {
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
   updateFromApi_(apiResponse) { throw new Error('Entity.updateFromApi_() not implemented'); }
 
+  // _span null → date-ordered new-row insertion; non-null → in-place update.
+  _commitToSheet_(sheet) {
+    const rows = this.toRows_();
+    if (!rows || rows.length === 0) {
+      throw new Error('Entity could not be rendered into the sheet.');
+    }
+    const resetFields = this.constructor.RESET_ON_SAVE_FIELDS || [];
+    rows.forEach(function(row) {
+      resetFields.forEach(function(f) { row[f] = ''; });
+    });
+    this._span = this.constructor.writeToSheet_(sheet, this._span, rows);
+    return this._span || null;
+  }
+
   // Performs the API call and writes result rows to the sheet.
   // Uses this._span to decide POST (null) vs PATCH (existing span).
   // After save, this._span is updated to the final span.
@@ -106,20 +120,13 @@ class Entity {
     if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
 
     this.updateFromApi_(apiResult);
+    return this._commitToSheet_(sheet);
+  }
 
-    const rows = this.toRows_();
-    if (!rows || rows.length === 0) {
-      throw new Error('Entity could not be rendered into the sheet.');
-    }
-
-    const resetFields = this.constructor.RESET_ON_SAVE_FIELDS || [];
-    rows.forEach(function(row) {
-      resetFields.forEach(function(f) { row[f] = ''; });
-    });
-
-    this._span = this.constructor.writeToSheet_(sheet, existingSpan, rows);
-
-    return this._span || null;
+  // No API call — distinct from save() which POSTs/PATCHes first.
+  insertIntoSheet(sheet) {
+    this._span = null;
+    return this._commitToSheet_(sheet);
   }
 
   // Base API methods — use API_RESOURCE_KEY, UPDATE_MASK, and CREATE_EXTRA_FIELDS.
@@ -151,6 +158,11 @@ class Entity {
     });
   }
 
+  static loadFromApi(name) {
+    const apiData = apiFetchJson_('get', this.apiPath_(name));
+    return this.fromApi_(apiData, this.loadContext_());
+  }
+
   // Subclass must define as static:
   //   SHEET_KEY: string                           — registry key
   //   ENTITY_LABEL: string                        — for error messages
@@ -162,7 +174,7 @@ class Entity {
   //   loadContext_()                              — loads context for fromRows/save
   //   buildSidebarFields_(entityName, mode, currentPostings?) → { mode, fields }
   //   fromRows(rows, context) → Entity
-  //   fromApi(apiEntity, context) → Entity
+  //   fromApi_(apiEntity, context) → Entity       — internal; use loadFromApi() externally
   //   isEditableHeader(header) → boolean
 
   static writeToSheet_(sheet, existingSpan, rows) {
@@ -177,7 +189,7 @@ class Entity {
   // Falls back to loadContext_() when record.context is absent (e.g., add mode).
   static fromJson_(record) {
     const context = record.context || this.loadContext_();
-    const instance = this.fromApi({ name: record.name || null }, context);
+    const instance = this.fromApi_({ name: record.name || null }, context);
     instance._span = record.span || null;
     return instance;
   }

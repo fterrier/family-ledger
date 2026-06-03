@@ -911,7 +911,7 @@
             statusEl.style.display = 'none';
             showResult(importResult);
           })
-          .syncLedger();
+          .syncLedgerAfterImport(response.result);
       })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));

@@ -78,7 +78,7 @@ class Balance extends Entity {
     return { accountResourceToDisplayName: accountResourceToDisplayName, accountDisplayNameToResource: accountDisplayNameToResource };
   }
 
-  static fromApi(apiEntity, context) {
+  static fromApi_(apiEntity, context) {
     return new Balance(apiEntity || {}, context);
   }
 
@@ -108,12 +108,12 @@ class Balance extends Entity {
 
     let defaults = {};
     if (entityName) {
-      const apiEntity = apiFetchJson_('get', Balance.apiPath_(entityName));
+      const entity = Balance.loadFromApi(entityName);
       defaults = {
-        assertion_date: apiEntity.assertion_date || null,
-        account: apiEntity.account || null,
-        amount: (apiEntity.amount && apiEntity.amount.amount) || null,
-        symbol: (apiEntity.amount && apiEntity.amount.symbol) || null,
+        assertion_date: entity._api.assertion_date || null,
+        account: entity._api.account || null,
+        amount: (entity._api.amount && entity._api.amount.amount) || null,
+        symbol: (entity._api.amount && entity._api.amount.symbol) || null,
       };
     }
 

@@ -49,6 +49,13 @@ function findEntityInsertionRow_(sheet, sheetConfig, date) {
   return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
 }
 
+function entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, newDate) {
+  const currentDate = normalizeEntityDate_(
+    managedSheet_(sheet, sheetConfig).getRow(existingSpan.start, [dateHeader])[dateHeader]
+  );
+  return currentDate !== normalizeEntityDate_(newDate);
+}
+
 function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
   if (!rows || rows.length === 0) {
     if (existingSpan) resizeContiguousRows_(sheet, existingSpan, 0);
@@ -57,8 +64,14 @@ function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
   const dateHeader = sheetConfig.headers.find(function(h) {
     return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
   });
+  const needsReposition = !!existingSpan && !!dateHeader &&
+    entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, rows[0][dateHeader]);
   let targetSpan;
   if (!existingSpan) {
+    const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
+    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
+  } else if (needsReposition) {
+    resizeContiguousRows_(sheet, existingSpan, 0);
     const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
     targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
   } else if (existingSpan.count === rows.length) {
@@ -69,8 +82,8 @@ function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
   managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
   // Skip when row count is unchanged — existing rows already carry the correct
   // VLOOKUP formula and validation from the prior write. Only re-apply when rows
-  // were added, removed, or this is a new entity.
-  if (!existingSpan || existingSpan.count !== rows.length) {
+  // were added, removed, repositioned, or this is a new entity.
+  if (!existingSpan || existingSpan.count !== rows.length || needsReposition) {
     refreshAccountValidation_(sheet, sheetConfig, targetSpan);
     if (sheetConfig.issueHeader) {
       managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);

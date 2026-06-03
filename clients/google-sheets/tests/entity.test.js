@@ -574,3 +574,69 @@ test('applyEntityResponseToSheet_ deletes existing span when rows are empty', ()
   const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
   assert.equal(deleteOps.length, 1);
 });
+
+function makeThreeRowStore_() {
+  return new Map([
+    [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-17', payee: 'A',
+          narration: '', narration_source: 'txn', source_account_name: '', destination_account_name: '',
+          amount: '', symbol: '', split_off_amount: '', issues: '' }],
+    [3, { resource_name: 'transactions/txn_b', transaction_date: '2026-04-21', payee: 'B',
+          narration: '', narration_source: 'txn', source_account_name: '', destination_account_name: '',
+          amount: '', symbol: '', split_off_amount: '', issues: '' }],
+    [4, { resource_name: 'transactions/txn_c', transaction_date: '2026-04-25', payee: 'C',
+          narration: '', narration_source: 'txn', source_account_name: '', destination_account_name: '',
+          amount: '', symbol: '', split_off_amount: '', issues: '' }],
+  ]);
+}
+
+test('applyEntityResponseToSheet_ repositions entity when date moves earlier', () => {
+  const operations = [];
+  const rowStore = makeThreeRowStore_();
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-18', name: 'transactions/txn_c' } });
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 4, count: 1 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_c');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
+});
+
+test('applyEntityResponseToSheet_ repositions entity when date moves later', () => {
+  const operations = [];
+  const rowStore = makeThreeRowStore_();
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-24', name: 'transactions/txn_a' } });
+
+  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_b');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_a');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_c');
+});
+
+test('applyEntityResponseToSheet_ does not reposition when date is unchanged', () => {
+  const operations = [];
+  const rowStore = makeThreeRowStore_();
+  rowStore.get(2).source_account_name = '[A] Bank - Checking';
+  rowStore.get(2).destination_account_name = '[X] Food';
+  rowStore.get(2).amount = 84.25;
+  rowStore.get(2).symbol = 'CHF';
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-17', name: 'transactions/txn_a' } });
+
+  sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+
+  const insertOps = operations.filter(function(op) { return op.type === 'insertRowsAfter'; });
+  const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
+  assert.equal(insertOps.length, 0);
+  assert.equal(deleteOps.length, 0);
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_a');
+});

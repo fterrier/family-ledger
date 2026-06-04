@@ -87,26 +87,23 @@ def _import_document_file(
     from datetime import date as date_type
 
     assert isinstance(entry_date, date_type)
-    try:
-        att = attachments_service.create_attachment(
-            ctx.session,
-            account=account_row.name,
-            attachment_date=entry_date,
-            original_filename=filename,
-            media_type=media_type,
-            document_url=None,
-            entity_metadata=entity_metadata,
-        )
+    att_name = ctx.create_attachment(
+        account=account_row.name,
+        attachment_date=entry_date,
+        original_filename=filename,
+        media_type=media_type,
+        document_url=None,
+        entity_metadata=entity_metadata,
+    )
+    if att_name is not None:
         attachments_service.upload_attachment(
             ctx.session,
             settings,
-            attachment_name=att.name,
+            attachment_name=att_name,
             file_data=doc_bytes,
             media_type=media_type,
         )
-        ctx.result.entities.setdefault("attachment", EntityCounts()).created += 1
-        ctx.result.created_resources.setdefault("attachments", []).append(att.name)
-    except ConflictError:
+    else:
         att_row = ctx.session.scalar(
             select(Attachment).where(
                 Attachment.account_id == account_row.id,
@@ -122,7 +119,6 @@ def _import_document_file(
                 file_data=doc_bytes,
                 media_type=media_type,
             )
-        ctx.result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
 
 
 def _import_documents(

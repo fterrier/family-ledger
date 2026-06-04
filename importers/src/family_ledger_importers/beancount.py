@@ -524,6 +524,17 @@ class BeancountImporter(BaseImporter):
 
         # Pad directives — phase 2: balance assertions must be in DB first.
         # One synthetic transaction is created per currency per pad directive.
+        # Pre-fetch all already-imported pad native_id prefixes in one query.
+        imported_pad_prefixes: set[str] = set()
+        if any(isinstance(e, Pad) for e in entries):
+            for sid in ctx.session.scalars(
+                select(TransactionModel.source_native_id).where(
+                    TransactionModel.source_native_id.like("beancount:pad:%")
+                )
+            ).all():
+                if sid:
+                    imported_pad_prefixes.add(sid.rsplit(":", 1)[0] + ":")
+
         for entry in entries:
             if not isinstance(entry, Pad):
                 continue
@@ -533,14 +544,8 @@ class BeancountImporter(BaseImporter):
                 )
                 continue
 
-            # Skip compute_pad() for directives that were already fully imported
             native_id_prefix = f"beancount:pad:{entry.account}:{entry.date.isoformat()}:"
-            already_imported = ctx.session.scalars(
-                select(TransactionModel.source_native_id).where(
-                    TransactionModel.source_native_id.like(native_id_prefix + "%")
-                )
-            ).first()
-            if already_imported is not None:
+            if native_id_prefix in imported_pad_prefixes:
                 continue
 
             try:

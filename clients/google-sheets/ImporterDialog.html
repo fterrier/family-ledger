@@ -112,6 +112,7 @@
   .kv-row { display: flex; gap: 6px; align-items: center; }
   .kv-row input[type="text"] { width: 140px; flex-shrink: 0; }
   .kv-row select { flex: 1; min-width: 0; }
+  .kv-row .search-dropdown-host { flex: 1; min-width: 0; }
 
   .kv-remove {
     padding: 3px 8px;
@@ -451,6 +452,13 @@
     return row;
   }
 
+  function attachImporterKvRowSearchDropdown_(prop, row) {
+    var valProp = prop.additionalProperties || {};
+    if (valProp['x-resource-type'] !== 'account') return;
+    var valueEl = row.querySelector('.kv-value');
+    if (valueEl) attachSearchDropdown_(valueEl, filterAccountOptions_);
+  }
+
   function buildImporterConfigKvListElement_(doc, key, prop, value, accountOptions) {
     var container = doc.createElement('div');
     container.className = 'kv-list';
@@ -461,7 +469,9 @@
     addBtn.className = 'kv-add';
     addBtn.textContent = '+ Add mapping';
     addBtn.addEventListener('click', function() {
-      container.insertBefore(buildImporterConfigKvRow_(doc, prop, '', '', accountOptions), addBtn);
+      var rowEl = buildImporterConfigKvRow_(doc, prop, '', '', accountOptions);
+      container.insertBefore(rowEl, addBtn);
+      attachImporterKvRowSearchDropdown_(prop, rowEl);
     });
     container.appendChild(addBtn);
 
@@ -469,10 +479,14 @@
       ? Object.keys(value).map(function(entryKey) { return [entryKey, value[entryKey]]; })
       : [];
     if (entries.length === 0) {
-      container.insertBefore(buildImporterConfigKvRow_(doc, prop, '', '', accountOptions), addBtn);
+      var blankRow = buildImporterConfigKvRow_(doc, prop, '', '', accountOptions);
+      container.insertBefore(blankRow, addBtn);
+      attachImporterKvRowSearchDropdown_(prop, blankRow);
     } else {
       entries.forEach(function(entry) {
-        container.insertBefore(buildImporterConfigKvRow_(doc, prop, entry[0], entry[1], accountOptions), addBtn);
+        var rowEl = buildImporterConfigKvRow_(doc, prop, entry[0], entry[1], accountOptions);
+        container.insertBefore(rowEl, addBtn);
+        attachImporterKvRowSearchDropdown_(prop, rowEl);
       });
     }
     return container;
@@ -798,11 +812,7 @@
 
   <? if (isImportMode) { ?>
   function getFileDescriptors_() {
-    var descriptors = (currentImporter && currentImporter.file_descriptors) || [];
-    if (!descriptors.length) {
-      return [{ name: 'file', label: 'File', description: '', accept: [], required: true }];
-    }
-    return descriptors;
+    return (currentImporter && currentImporter.file_descriptors) || [];
   }
 
   function updateSubmitButton() {
@@ -1002,10 +1012,10 @@
     document.getElementById('phaseForm').style.display = 'block';
     pendingFiles = {};
     document.getElementById('importerSelect').disabled = false;
-    document.getElementById('submitBtn').disabled = true;
     document.getElementById('submitStatus').style.display = 'none';
     hideError();
     if (currentImporter) renderFileInputs(currentImporter);
+    updateSubmitButton();
   }
   <? } else { ?>
   function onSaveImporterSettings() {

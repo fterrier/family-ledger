@@ -145,6 +145,7 @@ var IMPORT_RESOURCE_TO_SHEET_KEY_ = {
   balance_assertions: 'balances',
   accounts: 'accounts',
   prices: 'prices',
+  commodities: 'commodities',
 };
 
 function syncLedgerAfterImport(importResult) {

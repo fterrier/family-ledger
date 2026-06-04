@@ -6,9 +6,9 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from family_ledger.importers.base import EntityCounts as EntityCounts  # noqa: F401
-from family_ledger.importers.base import EntityErrors as EntityErrors  # noqa: F401
-from family_ledger.importers.base import ImportResult as ImportResult  # noqa: F401
+from family_ledger.importers.result import EntityCounts as EntityCounts  # noqa: F401
+from family_ledger.importers.result import EntityErrors as EntityErrors  # noqa: F401
+from family_ledger.importers.result import ImportResult as ImportResult  # noqa: F401
 
 
 class MoneyValue(BaseModel):

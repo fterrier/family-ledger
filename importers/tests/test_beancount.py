@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session
 
 from family_ledger.config import Settings
-from family_ledger.importers.base import ImportResult
+from family_ledger.importers.base import ImportContext, ImportResult
 from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Price, Transaction
 from family_ledger.models import Posting as PostingModel
 from family_ledger.services.errors import ConflictError, UnavailableError
@@ -132,13 +132,17 @@ def session() -> Generator[Session, None, None]:
 def _run(session: Session, text: str) -> ImportResult:
     from family_ledger_importers.beancount import BeancountImporter
 
-    return BeancountImporter().execute(session, {"ledger_file": text.encode("utf-8")}, {})
+    return BeancountImporter().execute(
+        ImportContext(session), {"ledger_file": text.encode("utf-8")}, {}
+    )
 
 
 def _run_with_config(session: Session, text: str, config: dict[str, object]) -> ImportResult:
     from family_ledger_importers.beancount import BeancountImporter
 
-    return BeancountImporter().execute(session, {"ledger_file": text.encode("utf-8")}, config)
+    return BeancountImporter().execute(
+        ImportContext(session), {"ledger_file": text.encode("utf-8")}, config
+    )
 
 
 def test_beancount_importer_populates_database(session: Session) -> None:
@@ -530,7 +534,7 @@ def _run_two_file(
     files: dict[str, bytes] = {"ledger_file": ledger_text.encode()}
     if documents_zip is not None:
         files["documents_file"] = documents_zip
-    return BeancountImporter().execute(session, files, {}, settings)
+    return BeancountImporter().execute(ImportContext(session), files, {}, settings)
 
 
 def test_beancount_importer_file_descriptors() -> None:

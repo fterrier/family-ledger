@@ -17,12 +17,10 @@ from beancount.core.data import Balance, Close, Document, Open, Pad, Posting, Pr
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
     AccountCreate,
     BalanceAssertionCreate,
-    CommodityCreate,
     ImportMetadata,
     MoneyValue,
     NormalizeMoneyValue,
@@ -32,12 +30,11 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.config import Settings
-from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
+from family_ledger.importers.base import BaseImporter, EntityCounts, ImportContext, ImportResult
 from family_ledger.models import Account, Attachment
 from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import attachments as attachments_service
-from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import (
     ConflictError,
     NotFoundError,
@@ -77,9 +74,8 @@ def _extract_zip_flat(data: bytes) -> tuple[dict[str, bytes], set[str]]:
 
 
 def _import_document_file(
-    session: Session,
+    ctx: ImportContext,
     settings: Settings,
-    result: ImportResult,
     *,
     account_row: Account,
     entry_date: object,
@@ -93,7 +89,7 @@ def _import_document_file(
     assert isinstance(entry_date, date_type)
     try:
         att = attachments_service.create_attachment(
-            session,
+            ctx.session,
             account=account_row.name,
             attachment_date=entry_date,
             original_filename=filename,
@@ -102,15 +98,15 @@ def _import_document_file(
             entity_metadata=entity_metadata,
         )
         attachments_service.upload_attachment(
-            session,
+            ctx.session,
             settings,
             attachment_name=att.name,
             file_data=doc_bytes,
             media_type=media_type,
         )
-        result.entities.setdefault("attachment", EntityCounts()).created += 1
+        ctx.result.entities.setdefault("attachment", EntityCounts()).created += 1
     except ConflictError:
-        att_row = session.scalar(
+        att_row = ctx.session.scalar(
             select(Attachment).where(
                 Attachment.account_id == account_row.id,
                 Attachment.original_filename == filename,
@@ -119,21 +115,20 @@ def _import_document_file(
         )
         if att_row is not None and att_row.status in Attachment.RETRYABLE_STATUSES:
             attachments_service.upload_attachment(
-                session,
+                ctx.session,
                 settings,
                 attachment_name=att_row.name,
                 file_data=doc_bytes,
                 media_type=media_type,
             )
-        result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
+        ctx.result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
 
 
 def _import_documents(
-    session: Session,
+    ctx: ImportContext,
     settings: Settings | None,
     entries: Sequence[object],
     file_map: dict[str, bytes],
-    result: ImportResult,
 ) -> None:
     from datetime import date as date_type
 
@@ -145,7 +140,7 @@ def _import_documents(
         e for e in document_entries if "document_url" not in _extract_beancount_meta(e.meta or {})
     ]
     if file_backed and (settings is None or not settings.paperless_is_configured()):
-        result.warnings.append(
+        ctx.add_warning(
             f"Paperless not configured; {len(file_backed)} Document directive(s) skipped"
         )
 
@@ -155,9 +150,11 @@ def _import_documents(
         document_url = meta.pop("document_url", None)
         entity_metadata: dict[str, Any] = {"beancount": meta} if meta else {}
 
-        account_row = session.scalar(select(Account).where(Account.account_name == entry.account))
+        account_row = ctx.session.scalar(
+            select(Account).where(Account.account_name == entry.account)
+        )
         if account_row is None:
-            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1
             if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                 att_errors.examples.append(f"{entry.account}: account not in ledger")
@@ -166,19 +163,14 @@ def _import_documents(
         if document_url is not None:
             assert isinstance(entry.date, date_type)
             media_type, _ = mimetypes.guess_type(filename)
-            try:
-                attachments_service.create_attachment(
-                    session,
-                    account=account_row.name,
-                    attachment_date=entry.date,
-                    original_filename=filename,
-                    media_type=media_type,
-                    document_url=document_url,
-                    entity_metadata=entity_metadata,
-                )
-                result.entities.setdefault("attachment", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("attachment", EntityCounts()).duplicate += 1
+            ctx.create_attachment(
+                account=account_row.name,
+                attachment_date=entry.date,
+                original_filename=filename,
+                media_type=media_type,
+                document_url=document_url,
+                entity_metadata=entity_metadata,
+            )
             continue
 
         if settings is None or not settings.paperless_is_configured():
@@ -186,7 +178,7 @@ def _import_documents(
 
         doc_bytes = file_map.get(filename.lower())
         if doc_bytes is None:
-            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1
             if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                 att_errors.examples.append(f"{filename}: not found in documents archive")
@@ -195,9 +187,8 @@ def _import_documents(
         media_type, _ = mimetypes.guess_type(filename)
         try:
             _import_document_file(
-                session,
+                ctx,
                 settings,
-                result,
                 account_row=account_row,
                 entry_date=entry.date,
                 filename=filename,
@@ -206,7 +197,7 @@ def _import_documents(
                 entity_metadata=entity_metadata,
             )
         except (UnavailableError, ValidationError, NotFoundError) as exc:
-            att_errors = result.entities.setdefault("attachment", EntityCounts()).errors
+            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
             att_errors.count += 1
             if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                 att_errors.examples.append(f"{filename}: {exc.message}")
@@ -401,7 +392,7 @@ class BeancountImporter(BaseImporter):
 
     def execute(
         self,
-        session: Session,
+        ctx: ImportContext,
         files: dict[str, bytes],
         config: dict[str, Any],
         settings: Settings | None = None,
@@ -426,10 +417,8 @@ class BeancountImporter(BaseImporter):
                 message=f"Beancount parse errors: {messages}",
             )
 
-        result = ImportResult()
-
         for name in sorted(zip_duplicate_basenames):
-            result.warnings.append(
+            ctx.add_warning(
                 f"duplicate basename in documents archive: {name!r}"
                 " — only the last entry will be used"
             )
@@ -441,30 +430,24 @@ class BeancountImporter(BaseImporter):
             if not isinstance(entry, handled_entry_types):
                 unrecognized[type(entry).__name__] += 1
         for type_name, count in sorted(unrecognized.items()):
-            result.warnings.append(f"Unrecognized entry type: {type_name} ({count} occurrences)")
+            ctx.add_warning(f"Unrecognized entry type: {type_name} ({count} occurrences)")
 
         # Accounts
         account_names: dict[str, str] = {}
         for account_name, payload in _build_account_creates(entries).items():
-            try:
-                resource = ledger_service.create_account(session, payload)
-                account_names[account_name] = resource.name
-                result.entities.setdefault("account", EntityCounts()).created += 1
-            except ConflictError:
-                existing = session.scalar(
+            resource_name = ctx.create_account(payload)
+            if resource_name is not None:
+                account_names[account_name] = resource_name
+            else:
+                existing = ctx.session.scalar(
                     select(Account).where(Account.account_name == payload.account_name)
                 )
                 if existing is not None:
                     account_names[account_name] = existing.name
-                result.entities.setdefault("account", EntityCounts()).duplicate += 1
 
         # Commodities
         for symbol in _discover_commodity_symbols(entries):
-            try:
-                ledger_service.create_commodity(session, CommodityCreate(symbol=symbol))
-                result.entities.setdefault("commodity", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("commodity", EntityCounts()).duplicate += 1
+            ctx.ensure_commodity(symbol)
 
         # Transactions
         occurrence_counter: Counter[tuple[object, ...]] = Counter()
@@ -484,7 +467,7 @@ class BeancountImporter(BaseImporter):
                         )
                         posting_payloads.append(_posting_payload(posting, account_names, narration))
                     except ValueError as exc:
-                        txn_errors = result.entities.setdefault(
+                        txn_errors = ctx.result.entities.setdefault(
                             "transaction", EntityCounts()
                         ).errors
                         txn_errors.count += 1
@@ -528,50 +511,36 @@ class BeancountImporter(BaseImporter):
             except ValueError:
                 continue
             except InvalidOperation as exc:
-                txn_errors = result.entities.setdefault("transaction", EntityCounts()).errors
+                txn_errors = ctx.result.entities.setdefault("transaction", EntityCounts()).errors
                 txn_errors.count += 1
                 if len(txn_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                     txn_errors.examples.append(str(exc))
                 continue
-            try:
-                ledger_service.create_transaction(session, payload)
-                result.entities.setdefault("transaction", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("transaction", EntityCounts()).duplicate += 1
+            ctx.create_transaction(payload)
 
         # Prices
         for entry in entries:
             if not isinstance(entry, Price):
                 continue
-            try:
-                ledger_service.create_price(
-                    session,
-                    PriceCreate(
-                        price_date=entry.date,
-                        base_symbol=entry.currency,
-                        quote=_money_value(entry.amount),
-                    ),
+            ctx.create_price(
+                PriceCreate(
+                    price_date=entry.date,
+                    base_symbol=entry.currency,
+                    quote=_money_value(entry.amount),
                 )
-                result.entities.setdefault("price", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("price", EntityCounts()).duplicate += 1
+            )
 
         # Balance assertions
         for entry in entries:
             if not isinstance(entry, Balance):
                 continue
-            try:
-                ledger_service.create_balance_assertion(
-                    session,
-                    BalanceAssertionCreate(
-                        assertion_date=entry.date,
-                        account=account_names[entry.account],
-                        amount=_money_value(entry.amount),
-                    ),
+            ctx.create_balance_assertion(
+                BalanceAssertionCreate(
+                    assertion_date=entry.date,
+                    account=account_names[entry.account],
+                    amount=_money_value(entry.amount),
                 )
-                result.entities.setdefault("balance_assertion", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("balance_assertion", EntityCounts()).duplicate += 1
+            )
 
         # Pad directives — phase 2: balance assertions must be in DB first.
         # One synthetic transaction is created per currency per pad directive.
@@ -579,7 +548,9 @@ class BeancountImporter(BaseImporter):
             if not isinstance(entry, Pad):
                 continue
             if entry.account not in account_names or entry.source_account not in account_names:
-                pad_errors = result.entities.setdefault("pad_transaction", EntityCounts()).errors
+                pad_errors = ctx.result.entities.setdefault(
+                    "pad_transaction", EntityCounts()
+                ).errors
                 pad_errors.count += 1
                 if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                     pad_errors.examples.append(
@@ -591,7 +562,7 @@ class BeancountImporter(BaseImporter):
             native_id_prefix = f"beancount:pad:{entry.account}:{entry.date.isoformat()}:"
             existing_native_ids: set[str] = set(
                 sid
-                for sid in session.scalars(
+                for sid in ctx.session.scalars(
                     select(TransactionModel.source_native_id).where(
                         TransactionModel.source_native_id.like(native_id_prefix + "%")
                     )
@@ -600,16 +571,18 @@ class BeancountImporter(BaseImporter):
             )
             existing_symbols = {sid.rsplit(":", 1)[-1] for sid in existing_native_ids}
             for _ in existing_symbols:
-                result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
+                ctx.result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
             if existing_symbols:
                 continue
 
             try:
                 pad_response = account_balance_service.compute_pad(
-                    session, account_names[entry.account], entry.date
+                    ctx.session, account_names[entry.account], entry.date
                 )
             except Exception as exc:
-                pad_errors = result.entities.setdefault("pad_transaction", EntityCounts()).errors
+                pad_errors = ctx.result.entities.setdefault(
+                    "pad_transaction", EntityCounts()
+                ).errors
                 pad_errors.count += 1
                 if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
                     pad_errors.examples.append(f"{entry.date} pad {entry.account}: {exc}")
@@ -645,12 +618,9 @@ class BeancountImporter(BaseImporter):
                         ),
                     ],
                 )
-                try:
-                    ledger_service.create_transaction(session, pad_payload)
-                    result.entities.setdefault("pad_transaction", EntityCounts()).created += 1
-                except ConflictError:
-                    result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
+                if ctx.create_transaction(pad_payload):
+                    ctx.result.entities.setdefault("pad_transaction", EntityCounts()).created += 1
 
-        _import_documents(session, settings, entries, file_map, result)
+        _import_documents(ctx, settings, entries, file_map)
 
-        return result
+        return ctx.result

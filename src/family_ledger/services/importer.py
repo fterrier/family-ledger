@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import ImporterResource, ListImportersResponse
 from family_ledger.config import Settings
-from family_ledger.importers.base import ImportResult
+from family_ledger.importers.base import ImportContext, ImportResult
 from family_ledger.importers.registry import get_importer, get_importers
 from family_ledger.models.importer import Importer
 from family_ledger.services.errors import NotFoundError, ValidationError
@@ -120,7 +120,8 @@ def execute_import(
             code="importer_not_found",
             message=f"Importer '{plugin_name}' is not installed",
         )
+    importer = importer_cls()
     stored_config = _load_stored_config(session, plugin_name)
-    schema = importer_cls().get_schema()
-    merged = _resolve_importer_config(stored_config, config_override, schema)
-    return importer_cls().execute(session, files, merged, settings)
+    merged = _resolve_importer_config(stored_config, config_override, importer.get_schema())
+    ctx = ImportContext(session)
+    return importer.execute(ctx, files, merged, settings)

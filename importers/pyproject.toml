@@ -10,11 +10,14 @@ requires-python = ">=3.12"
 dependencies = [
   "beancount>=3.2.0",
   "family-ledger",
+  "ibflex>=1.1",
   "mt-940>=4.30,<5.0",
+  "requests>=2.0",
 ]
 
 [project.entry-points."family_ledger.importers"]
 beancount = "family_ledger_importers.beancount:BeancountImporter"
+ibkr = "family_ledger_importers.ibkr:IbkrImporter"
 mt940 = "family_ledger_importers.mt940:Mt940Importer"
 
 [tool.setuptools.package-dir]

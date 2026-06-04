@@ -15,16 +15,14 @@ from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
     BalanceAssertionCreate,
-    CommodityCreate,
     ImportMetadata,
     MoneyValue,
     PostingNormalizePayload,
     TransactionNormalizeData,
 )
-from family_ledger.importers.base import BaseImporter, EntityCounts, ImportResult
-from family_ledger.models import Account, Commodity
-from family_ledger.services import ledger as ledger_service
-from family_ledger.services.errors import ConflictError, ValidationError
+from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
+from family_ledger.models import Account
+from family_ledger.services.errors import ValidationError
 
 FIN_MESSAGE_PATTERN = re.compile(r"\{1:.*?-\}", re.DOTALL)
 CONTROL_TOKEN_PATTERN = re.compile(r"\?[A-Z0-9]{1,4}:[^\s]*")
@@ -347,14 +345,6 @@ def _validate_account_mappings(
     return mappings
 
 
-def _ensure_commodity(session: Session, symbol: str) -> bool:
-    existing = session.scalar(select(Commodity.name).where(Commodity.symbol == symbol))
-    if existing is not None:
-        return False
-    ledger_service.create_commodity(session, payload=CommodityCreate(symbol=symbol))
-    return True
-
-
 def _compute_entry_source_native_id(entry: ParsedStatementEntry, occurrence: int) -> str:
     content = {
         "date": entry.effective_transaction_date.isoformat(),
@@ -516,7 +506,7 @@ class Mt940Importer(BaseImporter):
 
     def execute(
         self,
-        session: Session,
+        ctx: ImportContext,
         files: dict[str, bytes],
         config: dict[str, Any],
         settings: object = None,
@@ -526,19 +516,15 @@ class Mt940Importer(BaseImporter):
         if not entries:
             raise ValidationError(code="invalid_mt940", message="No MT940 statements found")
 
-        account_mappings = _validate_account_mappings(session, config, entries)
+        account_mappings = _validate_account_mappings(ctx.session, config, entries)
         payee_format = str(config.get("payee_format") or "generic")
         balance_assertion_frequency = str(config.get("balance_assertion_frequency") or "none")
-        result = ImportResult()
 
         for symbol in sorted(
             {entry.currency for entry in entries if entry.currency}
             | {balance.closing_currency for balance in balances if balance.closing_currency}
         ):
-            if _ensure_commodity(session, symbol):
-                result.entities.setdefault("commodity", EntityCounts()).created += 1
-            else:
-                result.entities.setdefault("commodity", EntityCounts()).duplicate += 1
+            ctx.ensure_commodity(symbol)
 
         occurrence_counter: Counter[tuple[object, ...]] = Counter()
         for entry in entries:
@@ -556,20 +542,12 @@ class Mt940Importer(BaseImporter):
             payload = _build_transaction_payload(
                 entry, account_mappings[entry.account_iban], payee_format, source_native_id
             )
-            try:
-                ledger_service.create_transaction(session, payload)
-                result.entities.setdefault("transaction", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("transaction", EntityCounts()).duplicate += 1
+            ctx.create_transaction(payload)
 
         for balance in _select_statement_balances(balances, balance_assertion_frequency):
             payload = _build_balance_assertion_payload(
                 balance, account_mappings[balance.account_iban]
             )
-            try:
-                ledger_service.create_balance_assertion(session, payload)
-                result.entities.setdefault("balance_assertion", EntityCounts()).created += 1
-            except ConflictError:
-                result.entities.setdefault("balance_assertion", EntityCounts()).duplicate += 1
+            ctx.create_balance_assertion(payload)
 
-        return result
+        return ctx.result

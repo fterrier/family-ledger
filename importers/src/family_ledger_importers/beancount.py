@@ -30,7 +30,7 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.config import Settings
-from family_ledger.importers.base import BaseImporter, EntityCounts, ImportContext, ImportResult
+from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
 from family_ledger.models import Account, Attachment
 from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import account_balance as account_balance_service
@@ -43,7 +43,6 @@ from family_ledger.services.errors import (
 )
 
 SUPPORTED_ENTRY_TYPES = (Open, Close, CommodityEntry, Transaction, Price, Balance, Pad)
-MAX_SKIPPED_EXAMPLES_PER_REASON = 10
 POSTING_COMMENT_CONFIG_KEY = "import_posting_comments_as_narration"
 POSTING_LINE_PATTERN = re.compile(r"^\s+[^;\s].*")
 _BEANCOUNT_INTERNAL_META_KEYS = frozenset({"filename", "lineno"})
@@ -151,10 +150,7 @@ def _import_documents(
             select(Account).where(Account.account_name == entry.account)
         )
         if account_row is None:
-            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
-            att_errors.count += 1
-            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                att_errors.examples.append(f"{entry.account}: account not in ledger")
+            ctx.add_entity_error("attachment", f"{entry.account}: account not in ledger")
             continue
 
         if document_url is not None:
@@ -175,10 +171,7 @@ def _import_documents(
 
         doc_bytes = file_map.get(filename.lower())
         if doc_bytes is None:
-            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
-            att_errors.count += 1
-            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                att_errors.examples.append(f"{filename}: not found in documents archive")
+            ctx.add_entity_error("attachment", f"{filename}: not found in documents archive")
             continue
 
         media_type, _ = mimetypes.guess_type(filename)
@@ -194,10 +187,7 @@ def _import_documents(
                 entity_metadata=entity_metadata,
             )
         except (UnavailableError, ValidationError, NotFoundError) as exc:
-            att_errors = ctx.result.entities.setdefault("attachment", EntityCounts()).errors
-            att_errors.count += 1
-            if len(att_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                att_errors.examples.append(f"{filename}: {exc.message}")
+            ctx.add_entity_error("attachment", f"{filename}: {exc.message}")
 
 
 def _load_beancount_string(text: str):  # type: ignore[no-untyped-def]
@@ -464,14 +454,10 @@ class BeancountImporter(BaseImporter):
                         )
                         posting_payloads.append(_posting_payload(posting, account_names, narration))
                     except ValueError as exc:
-                        txn_errors = ctx.result.entities.setdefault(
-                            "transaction", EntityCounts()
-                        ).errors
-                        txn_errors.count += 1
-                        if len(txn_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                            txn_errors.examples.append(
-                                f"{entry.date} {entry.payee or ''} {entry.narration or ''}: {exc}"
-                            )
+                        ctx.add_entity_error(
+                            "transaction",
+                            f"{entry.date} {entry.payee or ''} {entry.narration or ''}: {exc}",
+                        )
                         raise
                 beancount_meta = _extract_beancount_meta(getattr(entry, "meta", None) or {})
                 entity_metadata: dict[str, Any] = (
@@ -508,10 +494,7 @@ class BeancountImporter(BaseImporter):
             except ValueError:
                 continue
             except InvalidOperation as exc:
-                txn_errors = ctx.result.entities.setdefault("transaction", EntityCounts()).errors
-                txn_errors.count += 1
-                if len(txn_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                    txn_errors.examples.append(str(exc))
+                ctx.add_entity_error("transaction", str(exc))
                 continue
             ctx.create_transaction(payload)
 
@@ -545,14 +528,9 @@ class BeancountImporter(BaseImporter):
             if not isinstance(entry, Pad):
                 continue
             if entry.account not in account_names or entry.source_account not in account_names:
-                pad_errors = ctx.result.entities.setdefault(
-                    "pad_transaction", EntityCounts()
-                ).errors
-                pad_errors.count += 1
-                if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                    pad_errors.examples.append(
-                        f"{entry.date} pad {entry.account}: account not found"
-                    )
+                ctx.add_entity_error(
+                    "pad_transaction", f"{entry.date} pad {entry.account}: account not found"
+                )
                 continue
 
             # Count already-imported pad transactions for this directive as duplicates
@@ -568,7 +546,7 @@ class BeancountImporter(BaseImporter):
             )
             existing_symbols = {sid.rsplit(":", 1)[-1] for sid in existing_native_ids}
             for _ in existing_symbols:
-                ctx.result.entities.setdefault("pad_transaction", EntityCounts()).duplicate += 1
+                ctx.record_duplicate("pad_transaction")
             if existing_symbols:
                 continue
 
@@ -577,12 +555,7 @@ class BeancountImporter(BaseImporter):
                     ctx.session, account_names[entry.account], entry.date
                 )
             except Exception as exc:
-                pad_errors = ctx.result.entities.setdefault(
-                    "pad_transaction", EntityCounts()
-                ).errors
-                pad_errors.count += 1
-                if len(pad_errors.examples) < MAX_SKIPPED_EXAMPLES_PER_REASON:
-                    pad_errors.examples.append(f"{entry.date} pad {entry.account}: {exc}")
+                ctx.add_entity_error("pad_transaction", f"{entry.date} pad {entry.account}: {exc}")
                 continue
 
             for pad_entry in pad_response.entries:
@@ -616,7 +589,7 @@ class BeancountImporter(BaseImporter):
                     ],
                 )
                 if ctx.create_transaction(pad_payload):
-                    ctx.result.entities.setdefault("pad_transaction", EntityCounts()).created += 1
+                    ctx.record_created("pad_transaction")
 
         _import_documents(ctx, settings, entries, file_map)
 

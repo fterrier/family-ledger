@@ -49,6 +49,18 @@ class ImportContext:
     def add_warning(self, message: str) -> None:
         self._result.warnings.append(message)
 
+    def add_entity_error(self, entity_key: str, example: str | None = None) -> None:
+        errors = self._result.entities.setdefault(entity_key, EntityCounts()).errors
+        errors.count += 1
+        if example is not None and len(errors.examples) < 10:
+            errors.examples.append(example)
+
+    def record_created(self, entity_key: str) -> None:
+        self._result.entities.setdefault(entity_key, EntityCounts()).created += 1
+
+    def record_duplicate(self, entity_key: str) -> None:
+        self._result.entities.setdefault(entity_key, EntityCounts()).duplicate += 1
+
     def _track(self, entity_key: str, resource_key: str, creator: Callable[[], Any]) -> str | None:
         """Call creator(), record the result's .name in entities and created_resources.
         Returns the resource name if created, None if duplicate (ConflictError).

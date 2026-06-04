@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Any
 
 import mt940
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
@@ -21,8 +20,8 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
-from family_ledger.models import Account
 from family_ledger.services.errors import ValidationError
+from family_ledger_importers.utils import load_account_name_set
 
 FIN_MESSAGE_PATTERN = re.compile(r"\{1:.*?-\}", re.DOTALL)
 CONTROL_TOKEN_PATTERN = re.compile(r"\?[A-Z0-9]{1,4}:[^\s]*")
@@ -305,10 +304,6 @@ def _parse_mt940_text(text: str) -> tuple[list[ParsedStatementEntry], list[Parse
     return entries, balances
 
 
-def _load_account_name_set(session: Session) -> set[str]:
-    return set(session.scalars(select(Account.name)).all())
-
-
 def _validate_account_mappings(
     session: Session, config: dict[str, Any], entries: list[ParsedStatementEntry]
 ) -> dict[str, str]:
@@ -319,7 +314,7 @@ def _validate_account_mappings(
             message="MT940 importer requires account_mappings to be a mapping",
         )
     mappings: dict[str, str] = {}
-    known_accounts = _load_account_name_set(session)
+    known_accounts = load_account_name_set(session)
     for iban, resource_name in raw_mappings.items():
         if not isinstance(iban, str) or not iban.strip():
             raise ValidationError(code="invalid_config", message="MT940 mapping keys must be IBANs")

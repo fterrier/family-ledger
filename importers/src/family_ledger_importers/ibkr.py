@@ -10,7 +10,6 @@ from decimal import Decimal
 from typing import Any
 
 from ibflex import Types, enums, parser
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
@@ -21,8 +20,8 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
-from family_ledger.models import Account
 from family_ledger.services.errors import ValidationError
+from family_ledger_importers.utils import load_account_name_set
 
 _FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 _FETCH_MAX_RETRIES = 15
@@ -90,10 +89,6 @@ def _parse_flex_statement(xml_data: bytes) -> Types.FlexStatement:
     return statements[0]
 
 
-def _load_account_name_set(session: Session) -> set[str]:
-    return set(session.scalars(select(Account.name)).all())
-
-
 def _collect_required_account(
     errors: list[str], account_key: str, resource_name: str | None, known_accounts: set[str]
 ) -> str:
@@ -111,7 +106,7 @@ def _resolve_accounts(
     config: dict[str, Any],
     statement: Types.FlexStatement,
 ) -> tuple[_ResolvedAccounts, list[str]]:
-    known_accounts = _load_account_name_set(session)
+    known_accounts = load_account_name_set(session)
     errors: list[str] = []
     warnings: list[str] = []
 

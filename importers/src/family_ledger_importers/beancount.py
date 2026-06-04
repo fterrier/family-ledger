@@ -105,6 +105,7 @@ def _import_document_file(
             media_type=media_type,
         )
         ctx.result.entities.setdefault("attachment", EntityCounts()).created += 1
+        ctx.result.created_resources.setdefault("attachments", []).append(att.name)
     except ConflictError:
         att_row = ctx.session.scalar(
             select(Attachment).where(

@@ -49,16 +49,16 @@ class ImportContext:
     def add_warning(self, message: str) -> None:
         self._result.warnings.append(message)
 
-    def add_entity_error(self, entity_key: str, example: str | None = None) -> None:
+    def _add_entity_error(self, entity_key: str, example: str | None = None) -> None:
         errors = self._result.entities.setdefault(entity_key, EntityCounts()).errors
         errors.count += 1
         if example is not None and len(errors.examples) < 10:
             errors.examples.append(example)
 
-    def record_created(self, entity_key: str) -> None:
+    def _record_created(self, entity_key: str) -> None:
         self._result.entities.setdefault(entity_key, EntityCounts()).created += 1
 
-    def record_duplicate(self, entity_key: str) -> None:
+    def _record_duplicate(self, entity_key: str) -> None:
         self._result.entities.setdefault(entity_key, EntityCounts()).duplicate += 1
 
     def _track(self, entity_key: str, resource_key: str, creator: Callable[[], Any]) -> str | None:
@@ -84,6 +84,17 @@ class ImportContext:
             )
             is not None
         )
+
+    def create_pad_transaction(self, payload: TransactionNormalizeData) -> bool:
+        """Create a PAD-derived transaction and additionally track it under 'pad_transaction'.
+        Returns True if created, False if duplicate.
+        """
+        created = self.create_transaction(payload)
+        if created:
+            self._record_created("pad_transaction")
+        else:
+            self._record_duplicate("pad_transaction")
+        return created
 
     def create_balance_assertion(self, payload: BalanceAssertionCreate) -> bool:
         """Returns True if created, False if duplicate."""

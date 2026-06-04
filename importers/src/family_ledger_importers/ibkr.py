@@ -39,7 +39,6 @@ class _ResolvedAccounts:
     profit_loss: str
     interest: str
     withholding_tax: str
-    transfer: str
 
 
 def _fetch_flex_xml(token: str, query_id: str) -> bytes:
@@ -165,9 +164,6 @@ def _resolve_accounts(
     withholding_tax = _collect_required_account(
         errors, "withholding_tax_account", config.get("withholding_tax_account"), known_accounts
     )
-    transfer = _collect_required_account(
-        errors, "transfer_account", config.get("transfer_account"), known_accounts
-    )
 
     if errors:
         raise ValidationError(
@@ -207,7 +203,6 @@ def _resolve_accounts(
         profit_loss=profit_loss,
         interest=interest,
         withholding_tax=withholding_tax,
-        transfer=transfer,
     )
     return resolved, warnings
 
@@ -370,9 +365,19 @@ def _build_cash_transaction(
         narration = description or "IBKR Fee"
         meta_key = "fee"
     elif tx.type == enums.CashAction.DEPOSITWITHDRAW:
-        counterpart = accounts.transfer
-        narration = description or "Transfer"
-        meta_key = "transfer"
+        return TransactionNormalizeData(
+            transaction_date=tx_date,
+            payee=None,
+            narration=description or "Transfer",
+            entity_metadata={"ibkr": {"transfer": True, "transaction_id": tx.transactionID}},
+            import_metadata=ImportMetadata(source_native_id=f"ibkr:{tx.transactionID}"),
+            postings=[
+                PostingNormalizePayload(
+                    account=cash_account,
+                    units=MoneyValue(amount=amount, symbol=currency),
+                ),
+            ],
+        )
     else:
         return None
 
@@ -753,10 +758,6 @@ class IbkrImporter(BaseImporter):
                 "withholding_tax_account": {
                     **single_account,
                     "description": "Account for US withholding taxes on dividends.",
-                },
-                "transfer_account": {
-                    **single_account,
-                    "description": "Counterpart account for cash deposits and withdrawals.",
                 },
             },
             "additionalProperties": False,

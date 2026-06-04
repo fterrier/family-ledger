@@ -109,7 +109,6 @@ def _base_accounts(session: Session) -> dict[str, Any]:
         "withholding_tax_account": _create_account(
             session, "Assets:AccountsReceivable:Taxes:USWithholding"
         ),
-        "transfer_account": _create_account(session, "Equity:Opening"),
         "stock_accounts": {},
         "dividend_accounts": {},
         "token": "test-token",
@@ -461,9 +460,9 @@ def test_deposit_creates_two_posting_transaction(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Transfer of CHF Cash"
-    postings = {p.account.account_name: p.units_amount for p in tx.postings}
-    assert postings.get("Assets:Liquid:IBKR:Depot:CHF") == Decimal("5000.00")
-    assert "Equity:Opening" in postings
+    assert len(tx.postings) == 1
+    assert tx.postings[0].account.account_name == "Assets:Liquid:IBKR:Depot:CHF"
+    assert tx.postings[0].units_amount == Decimal("5000.00")
 
 
 def test_withdrawal_transaction(session: Session) -> None:

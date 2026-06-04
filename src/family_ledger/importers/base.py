@@ -24,6 +24,8 @@ from family_ledger.services import attachments as attachments_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import ConflictError
 
+_MAX_ERROR_EXAMPLES = 10
+
 
 class ImportContext:
     """Harness passed to importers: wraps the DB session and accumulates ImportResult.
@@ -52,7 +54,7 @@ class ImportContext:
     def _add_entity_error(self, entity_key: str, example: str | None = None) -> None:
         errors = self._result.entities.setdefault(entity_key, EntityCounts()).errors
         errors.count += 1
-        if example is not None and len(errors.examples) < 10:
+        if example is not None and len(errors.examples) < _MAX_ERROR_EXAMPLES:
             errors.examples.append(example)
 
     def _record_created(self, entity_key: str) -> None:

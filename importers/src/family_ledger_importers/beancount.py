@@ -533,21 +533,14 @@ class BeancountImporter(BaseImporter):
                 )
                 continue
 
-            # Count already-imported pad transactions for this directive as duplicates
+            # Skip compute_pad() for directives that were already fully imported
             native_id_prefix = f"beancount:pad:{entry.account}:{entry.date.isoformat()}:"
-            existing_native_ids: set[str] = set(
-                sid
-                for sid in ctx.session.scalars(
-                    select(TransactionModel.source_native_id).where(
-                        TransactionModel.source_native_id.like(native_id_prefix + "%")
-                    )
-                ).all()
-                if sid is not None
-            )
-            existing_symbols = {sid.rsplit(":", 1)[-1] for sid in existing_native_ids}
-            for _ in existing_symbols:
-                ctx._record_duplicate("pad_transaction")
-            if existing_symbols:
+            already_imported = ctx.session.scalars(
+                select(TransactionModel.source_native_id).where(
+                    TransactionModel.source_native_id.like(native_id_prefix + "%")
+                )
+            ).first()
+            if already_imported is not None:
                 continue
 
             try:

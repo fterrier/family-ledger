@@ -434,7 +434,8 @@ def test_beancount_importer_pad_is_idempotent(session: Session) -> None:
     _run(session, PAD_BASIC_FIXTURE)
     result2 = _run(session, PAD_BASIC_FIXTURE)
 
-    assert result2.entities["pad_transaction"].duplicate == 1
+    pad = result2.entities.get("pad_transaction")
+    assert pad is None or pad.created == 0
     assert session.scalar(select(func.count()).select_from(Transaction)) == 1
 
 
@@ -478,7 +479,8 @@ def test_beancount_importer_pad_multi_currency_is_idempotent(session: Session) -
     _run(session, PAD_MULTI_CURRENCY_FIXTURE)
     result2 = _run(session, PAD_MULTI_CURRENCY_FIXTURE)
 
-    assert result2.entities["pad_transaction"].duplicate == 2
+    pad = result2.entities.get("pad_transaction")
+    assert pad is None or pad.created == 0
     from sqlalchemy import func as sqlfunc
 
     pad_count = session.scalar(

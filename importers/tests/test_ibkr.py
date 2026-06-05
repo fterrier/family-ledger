@@ -782,6 +782,33 @@ def test_balance_assertions_stock_open_positions(session: Session) -> None:
     assert vti_assertions[0].assertion_date == date(2024, 2, 1)
 
 
+def test_balance_assertions_stock_lot_and_symbol_rows_not_double_counted(
+    session: Session,
+) -> None:
+    # IBKR reports can include both Lot-level rows and a Symbol-level summary row.
+    # The total should match the symbol row, not the sum of all rows.
+    config = _base_accounts(session)
+    vti_stock = _create_account(session, "Assets:SemiLiquid:Shares:IBKR:VTI")
+    config["stock_accounts"]["VTI"] = vti_stock
+
+    xml = _flex_xml(
+        open_positions="""
+        <OpenPosition symbol="VTI" currency="USD" position="50" markPrice="220.50"
+          reportDate="2024-01-31" levelOfDetail="Lot" />
+        <OpenPosition symbol="VTI" currency="USD" position="50" markPrice="220.50"
+          reportDate="2024-01-31" levelOfDetail="Lot" />
+        <OpenPosition symbol="VTI" currency="USD" position="100" markPrice="220.50"
+          reportDate="2024-01-31" levelOfDetail="Symbol" />
+        """,
+    )
+
+    _run(session, xml, config)
+    assertions = _balance_assertions(session)
+    vti_assertions = [a for a in assertions if a.symbol == "VTI"]
+    assert len(vti_assertions) == 1
+    assert vti_assertions[0].amount == Decimal("100")
+
+
 def test_balance_assertions_zero_position_for_configured_absent_stocks(session: Session) -> None:
     config = _base_accounts(session)
     vti_stock = _create_account(session, "Assets:SemiLiquid:Shares:IBKR:VTI")

@@ -662,10 +662,15 @@ def _build_stock_balance_assertions(
     open_positions = statement.OpenPositions or ()
     open_symbols: set[str] = set()
 
-    # Aggregate per-lot rows into total position per symbol
+    # Aggregate per-lot rows into total position per symbol.
+    # IBKR reports can include both Lot-level rows (one per tax lot) and a Symbol-level summary
+    # row for the same position. Summing all would double-count; use only Lot rows when present.
+    has_lot_rows = any((pos.levelOfDetail or "").upper() == "LOT" for pos in open_positions)
     aggregated: dict[str, Decimal] = defaultdict(Decimal)
     for pos in open_positions:
         symbol = (pos.symbol or "").upper()
+        if has_lot_rows and (pos.levelOfDetail or "").upper() != "LOT":
+            continue
         if symbol in accounts.stocks:
             aggregated[symbol] += pos.position or Decimal(0)
 

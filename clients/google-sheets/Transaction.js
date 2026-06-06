@@ -17,15 +17,6 @@ class Transaction extends Entity {
     return flattenTransactionForSheet_(this._api, this._context.accountResourceToDisplayName || {});
   }
 
-  toApiPayload_() {
-    return {
-      transaction_date: this._api.transaction_date,
-      payee: this._api.payee || null,
-      narration: this._api.narration || null,
-      postings: this._api.postings,
-    };
-  }
-
   validate() {
     if (!this._api.transaction_date) throw new Error('Transaction date is required.');
     if (!Array.isArray(this._api.postings)) throw new Error('Transaction must have postings.');
@@ -93,9 +84,14 @@ class Transaction extends Entity {
     }
 
     if (header === 'destination_account_name') {
-      const account = this._context.accountDisplayNameToResource[String(value || '').trim()];
-      if (!account) throw new Error('Unknown account_name: ' + value);
+      const trimmedValue = normalizeOptionalSheetText_(value);
       const destOffset = anchorRow - this._span.start;
+      if (!trimmedValue) {
+        this._api.postings[1 + destOffset].account = null;
+        return;
+      }
+      const account = this._context.accountDisplayNameToResource[trimmedValue];
+      if (!account) throw new Error('Unknown account_name: ' + value);
       this._api.postings[1 + destOffset].account = account;
       return;
     }
@@ -155,7 +151,12 @@ class Transaction extends Entity {
       }
 
       if (destinations.length === 0) {
-        throw new Error('Split is unavailable until a destination account is set.');
+        const source = this._api.postings[0];
+        this._api.postings.push({
+          account: null,
+          units: { amount: String(Math.abs(parseFloat(source.units.amount))), symbol: source.units.symbol },
+          narration: null,
+        });
       }
       const splitAmount = parseFloat(instruction);
       const posting = this._api.postings[postingIndex];
@@ -186,6 +187,21 @@ class Transaction extends Entity {
 
   static isEditableHeader(h) {
     return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
+  }
+
+  // Defer the API call when the split is still in progress: multiple uncategorized rows,
+  // or a mix of categorized and uncategorized. A single uncategorized row (source-only)
+  // is valid and saved immediately — toApiPayload_() strips the null destination.
+  save(sheet) {
+    const postings = this._api.postings || [];
+    let nullDests = 0, nonNullDests = 0;
+    for (let i = 1; i < postings.length; i++) {
+      if (postings[i].account) nonNullDests++; else nullDests++;
+    }
+    if (nullDests > 1 || (nullDests > 0 && nonNullDests > 0)) {
+      return this._commitToSheet_(sheet);
+    }
+    return super.save(sheet);
   }
 
   static loadContext_() {
@@ -487,14 +503,14 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
   const sourceAccount = accountDisplayNameToResource[sourceAccountName];
   if (!sourceAccount) throw new Error('Unknown account_name: ' + sourceAccountName);
   const destinationRows = [];
-  const blankDestinationRowNumbers = [];
+  const blankRows = [];
   const amounts = [];
 
   rows.forEach(function(row, index) {
     const displayRow = row.__rowNumber || index + 2;
-    const destinationAccountName = String(row.destination_account_name || '').trim();
+    const destinationAccountName = normalizeOptionalSheetText_(row.destination_account_name);
     if (!destinationAccountName) {
-      blankDestinationRowNumbers.push(displayRow);
+      blankRows.push(row);
     }
 
     const amount = row.amount;
@@ -515,17 +531,17 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
     amounts.push(amount);
   });
 
-  if (blankDestinationRowNumbers.length > 0 && destinationRows.length > 0) {
-    issues.push(
-      'Rows for this transaction must either all have destination accounts or all leave destination_account_name blank.'
-    );
-  }
-  if (blankDestinationRowNumbers.length > 1) {
-    issues.push('A source-only transaction can only have one visible row.');
-  }
-
   if (issues.length > 0) {
     throw new Error(issues.join('\n'));
+  }
+
+  // Reconstruct null-account postings for blank-destination rows when the transaction is
+  // mixed (some rows categorized, some not) or has multiple uncategorized rows. A single
+  // uncategorized row with no other destinations stays source-only (no destination posting).
+  if (blankRows.length > 0 && (destinationRows.length > 0 || blankRows.length > 1)) {
+    blankRows.forEach(function(row) {
+      destinationRows.push({ account: null, amount: row.amount, narration: null });
+    });
   }
 
   const totalAmount = amounts.reduce(function(a, b) { return a + b; }, 0);

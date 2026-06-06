@@ -566,16 +566,24 @@ test('buildTransactionPatchPayload_ emits source-only transaction when destinati
   });
 });
 
-test('buildTransactionPatchPayload_ rejects mixed blank and non-blank destinations', () => {
+test('buildTransactionPatchPayload_ allows mixed blank and non-blank destinations as null-account postings', () => {
   const { sandbox } = loadCode();
 
-  assert.throws(() => sandbox.buildTransactionPatchPayload_([
+  const payload = sandbox.buildTransactionPatchPayload_([
     { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '', amount: 50, symbol: 'CHF', __rowNumber: 2 },
     { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', source_account_name: '[A] Bank - Checking', destination_account_name: '[X] Food', amount: 34.25, symbol: 'CHF', __rowNumber: 3 },
   ], {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
-  }), /must either all have destination accounts or all leave destination_account_name blank/);
+  });
+
+  assert.equal(payload.postings.length, 3);
+  assert.equal(payload.postings[0].account, 'accounts/source');
+  assert.equal(parseFloat(payload.postings[0].units.amount), -84.25);
+  assert.equal(payload.postings[1].account, 'accounts/food');
+  assert.equal(parseFloat(payload.postings[1].units.amount), 34.25);
+  assert.equal(payload.postings[2].account, null);
+  assert.equal(parseFloat(payload.postings[2].units.amount), 50);
 });
 
 test('buildTransactionPatchPayload_ accepts negative destination amounts for income rows', () => {
@@ -842,10 +850,10 @@ test('Transaction.fromRows() throws on unknown destination account name', () => 
   }], ACCOUNT_LOOKUP, { start: 2, count: 1 }), /Unknown account_name/);
 });
 
-test('Transaction.fromRows() throws on mixed blank and non-blank destinations', () => {
+test('Transaction.fromRows() with mixed blank and non-blank destinations builds null-account posting for blank row', () => {
   const { Transaction } = loadT_();
 
-  assert.throws(() => Transaction.fromRows([
+  const tx = Transaction.fromRows([
     {
       resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Test', narration: 'Test',
       narration_source: 'txn', source_account_name: '[A] Checking', destination_account_name: '',
@@ -856,13 +864,20 @@ test('Transaction.fromRows() throws on mixed blank and non-blank destinations', 
       narration_source: 'txn', source_account_name: '[A] Checking', destination_account_name: '[X] Food',
       amount: 34.25, symbol: 'CHF', __rowNumber: 3,
     },
-  ], ACCOUNT_LOOKUP, { start: 2, count: 2 }), /must either all have destination accounts or all leave destination_account_name blank/);
+  ], ACCOUNT_LOOKUP, { start: 2, count: 2 });
+
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[0].account, 'accounts/checking');
+  assert.equal(parseFloat(tx._api.postings[0].units.amount), -84.25);
+  assert.equal(tx._api.postings[1].account, 'accounts/food');
+  assert.equal(tx._api.postings[2].account, null);
+  assert.equal(parseFloat(tx._api.postings[2].units.amount), 50);
 });
 
-test('Transaction.fromRows() throws when multiple rows have blank destinations', () => {
+test('Transaction.fromRows() with multiple blank-destination rows builds null-account postings', () => {
   const { Transaction } = loadT_();
 
-  assert.throws(() => Transaction.fromRows([
+  const tx = Transaction.fromRows([
     {
       resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Test', narration: 'Test',
       narration_source: 'txn', source_account_name: '[A] Checking', destination_account_name: '',
@@ -873,7 +888,15 @@ test('Transaction.fromRows() throws when multiple rows have blank destinations',
       narration_source: 'txn', source_account_name: '[A] Checking', destination_account_name: '',
       amount: 34.25, symbol: 'CHF', __rowNumber: 3,
     },
-  ], ACCOUNT_LOOKUP, { start: 2, count: 2 }), /source-only transaction can only have one visible row/);
+  ], ACCOUNT_LOOKUP, { start: 2, count: 2 });
+
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[0].account, 'accounts/checking');
+  assert.equal(parseFloat(tx._api.postings[0].units.amount), -84.25);
+  assert.equal(tx._api.postings[1].account, null);
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 50);
+  assert.equal(tx._api.postings[2].account, null);
+  assert.equal(parseFloat(tx._api.postings[2].units.amount), 34.25);
 });
 
 test('Transaction.fromRows() throws on invalid (NaN) amount', () => {
@@ -954,7 +977,7 @@ test('Transaction.toApiPayload_() returns correct shape from internal API state'
   assert.equal(payload.transaction_date, '2026-04-19');
   assert.equal(payload.payee, 'Migros');
   assert.equal(payload.narration, 'Groceries');
-  assert.equal(payload.postings, api.postings);
+  assert.deepEqual(JSON.parse(JSON.stringify(payload.postings)), JSON.parse(JSON.stringify(api.postings)));
   assert.equal('name' in payload, false);
 });
 
@@ -972,6 +995,98 @@ test('Transaction.toApiPayload_() converts null payee/narration correctly', () =
 
   assert.equal(payload.payee, null);
   assert.equal(payload.narration, null);
+});
+
+test('Transaction.save() with multiple null-account destinations skips API call and commits to sheet', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) { apiCalls.push({ method, path }); return {}; };
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: null, units: { amount: '50', symbol: 'CHF' } },
+      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
+    ],
+  }, { start: 2, count: 2 });
+  const committed = [];
+  tx._commitToSheet_ = function(sheet) { committed.push(sheet); return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 0, 'no API call for in-progress split');
+  assert.equal(committed.length, 1, '_commitToSheet_ called once');
+});
+
+test('Transaction.save() with mixed null and non-null destinations skips API call', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) { apiCalls.push({ method, path }); return {}; };
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
+    ],
+  }, { start: 2, count: 2 });
+  const committed = [];
+  tx._commitToSheet_ = function(sheet) { committed.push(sheet); return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 0, 'no API call for partially categorized split');
+  assert.equal(committed.length, 1, '_commitToSheet_ called once');
+});
+
+test('Transaction.save() with single null-account destination calls API as source-only', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    const posted = payload.transaction;
+    return { name: 'transactions/txn_1', transaction_date: posted.transaction_date, payee: null, narration: null, postings: posted.postings };
+  };
+  const props = {};
+  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: null, units: { amount: '84.25', symbol: 'CHF' } },
+    ],
+  }, { start: 2, count: 1 });
+  const committed = [];
+  tx._commitToSheet_ = function(sheet) { committed.push(sheet); return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 1, 'API called for single uncategorized row');
+  const sentPostings = apiCalls[0].payload.transaction.postings;
+  assert.equal(sentPostings.length, 1, 'only source posting sent');
+  assert.equal(sentPostings[0].account, 'accounts/checking');
+  assert.equal(committed.length, 1, '_commitToSheet_ called after API');
+});
+
+test('Transaction.updateFromApi_() without null-account destinations uses API response', () => {
+  const { Transaction } = loadT_();
+  const entity = Transaction.fromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
+    ],
+  }, ACCOUNT_LOOKUP);
+
+  entity.updateFromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Updated', narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
+    ],
+  });
+
+  assert.equal(entity._api.payee, 'Updated');
 });
 
 // --- Transaction.setFields() ---
@@ -1297,6 +1412,13 @@ test("Transaction.applyEdit('destination_account_name') throws on unknown accoun
   );
 });
 
+test("Transaction.applyEdit('destination_account_name') blank value sets account to null", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('destination_account_name', '', '[X] Food', 2);
+  assert.equal(tx._api.postings[1].account, null);
+});
+
 // amount
 
 test("Transaction.applyEdit('amount') inserts split posting with leftover amount", () => {
@@ -1383,16 +1505,20 @@ test("Transaction.applyEdit('split_off_amount') throws when split equals origina
   );
 });
 
-test("Transaction.applyEdit('split_off_amount') numeric throws for source-only transaction", () => {
+test("Transaction.applyEdit('split_off_amount') numeric on source-only creates two null-account postings", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, {
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
-    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
+    postings: [{ account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } }],
   });
-  assert.throws(
-    () => tx.applyEdit('split_off_amount', '0.5', '', 2),
-    /Split is unavailable until a destination account is set/
-  );
+  tx.applyEdit('split_off_amount', '0.5', '', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].account, null);
+  assert.equal(tx._api.postings[1].units.amount, '1');
+  assert.equal(tx._api.postings[2].account, null);
+  assert.equal(tx._api.postings[2].units.amount, '0.5');
+  // source posting unchanged
+  assert.equal(tx._api.postings[0].units.amount, '-1.5');
 });
 
 test("Transaction.applyEdit('split_off_amount') empty instruction is a no-op", () => {

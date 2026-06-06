@@ -218,12 +218,12 @@ def update_transaction(
     request: UpdateTransactionRequest,
     session: DbSession,
 ) -> TransactionResource:
-    # TODO: Implement update_mask semantics instead of ignoring it for full replacement.
     return _call_service(
         ledger_service.update_transaction,
         session,
         transaction,
         request.transaction,
+        request.update_mask,
     )
 
 

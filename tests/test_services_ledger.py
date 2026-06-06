@@ -225,6 +225,111 @@ def test_update_transaction_preserves_identity_and_rewrites_postings(session: Se
     assert updated.narration == "Food split"
 
 
+def test_update_transaction_with_mask_preserves_unlisted_metadata(
+    session: Session,
+) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    created = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            import_metadata=ImportMetadata(source_native_id="source-1"),
+            entity_metadata={"bank": "UBS", "raw_id": "tx-42"},
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    assert created.import_metadata is not None
+    assert created.import_metadata.source_native_id == "source-1"
+    assert created.entity_metadata == {"bank": "UBS", "raw_id": "tx-42"}
+
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries updated",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+        update_mask="transaction_date,payee,narration,postings",
+    )
+
+    assert updated.import_metadata is not None
+    assert updated.import_metadata.source_native_id == "source-1"
+    assert updated.entity_metadata == {"bank": "UBS", "raw_id": "tx-42"}
+    assert updated.narration == "Groceries updated"
+
+
+def test_update_transaction_with_mask_clears_masked_field(
+    session: Session,
+) -> None:
+    seed_basic_transaction_dependencies(session)
+
+    created = ledger_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee="Migros",
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    updated = ledger_service.update_transaction(
+        session,
+        created.name,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            payee=None,
+            narration="Groceries",
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+        update_mask="transaction_date,payee,narration,postings",
+    )
+
+    assert updated.payee is None
+
+
 def test_update_transaction_round_trips_posting_narration(session: Session) -> None:
     seed_basic_transaction_dependencies(session)
 

@@ -180,41 +180,56 @@ def persist_transaction(
     session: Session,
     payload: TransactionData,
     transaction: Transaction | None = None,
+    update_mask: str | None = None,
 ) -> Transaction:
-    account_map = resolve_accounts(session, payload.postings)
+    is_create = transaction is None
+    mask = set(update_mask.split(",")) if (update_mask and not is_create) else None
 
-    if transaction is None:
+    def _masked(field: str) -> bool:
+        return mask is None or field in mask
+
+    # Resolve accounts before session.add so the SELECT doesn't autoflush a
+    # partially-initialised transaction and trigger constraint violations.
+    account_map = resolve_accounts(session, payload.postings) if _masked("postings") else {}
+
+    if is_create:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
         session.add(transaction)
 
-    transaction.transaction_date = payload.transaction_date
-    transaction.payee = payload.payee
-    transaction.narration = payload.narration
-    transaction.entity_metadata = payload.entity_metadata
-    transaction.source_native_id = (
-        payload.import_metadata.source_native_id if payload.import_metadata else None
-    )
-    transaction.postings.clear()
-    if transaction.id is not None:
-        # Flush orphaned postings before reusing posting_order values on replacement updates.
-        session.flush()
-
-    for index, posting in enumerate(payload.postings, start=1):
-        account = account_map[resource_name("accounts", posting.account)]
-        transaction.postings.append(
-            Posting(
-                account=account,
-                posting_order=index,
-                units_amount=posting.units.amount,
-                units_symbol=posting.units.symbol,
-                narration=posting.narration,
-                cost_per_unit=None if posting.cost is None else posting.cost.amount,
-                cost_symbol=None if posting.cost is None else posting.cost.symbol,
-                price_per_unit=None if posting.price is None else posting.price.amount,
-                price_symbol=None if posting.price is None else posting.price.symbol,
-                entity_metadata=posting.entity_metadata,
-            )
+    if _masked("transaction_date"):
+        transaction.transaction_date = payload.transaction_date
+    if _masked("payee"):
+        transaction.payee = payload.payee
+    if _masked("narration"):
+        transaction.narration = payload.narration
+    if _masked("entity_metadata"):
+        transaction.entity_metadata = payload.entity_metadata
+    if _masked("import_metadata"):
+        transaction.source_native_id = (
+            payload.import_metadata.source_native_id if payload.import_metadata else None
         )
+    if _masked("postings"):
+        transaction.postings.clear()
+        if transaction.id is not None:
+            # Flush orphaned postings before reusing posting_order values on replacement updates.
+            session.flush()
+
+        for index, posting in enumerate(payload.postings, start=1):
+            account = account_map[resource_name("accounts", posting.account)]
+            transaction.postings.append(
+                Posting(
+                    account=account,
+                    posting_order=index,
+                    units_amount=posting.units.amount,
+                    units_symbol=posting.units.symbol,
+                    narration=posting.narration,
+                    cost_per_unit=None if posting.cost is None else posting.cost.amount,
+                    cost_symbol=None if posting.cost is None else posting.cost.symbol,
+                    price_per_unit=None if posting.price is None else posting.price.amount,
+                    price_symbol=None if posting.price is None else posting.price.symbol,
+                    entity_metadata=posting.entity_metadata,
+                )
+            )
 
     return transaction
 
@@ -370,10 +385,11 @@ def update_transaction(
     session: Session,
     transaction: str,
     payload: TransactionCreate | TransactionNormalizeData,
+    update_mask: str | None = None,
 ) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
     normalized = normalize_and_validate_transaction_payload(session, payload)
-    persist_transaction(session, normalized, transaction=transaction_row)
+    persist_transaction(session, normalized, transaction=transaction_row, update_mask=update_mask)
     commit_or_raise(session)
     persisted = session.scalar(
         select(Transaction)

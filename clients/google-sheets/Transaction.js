@@ -22,10 +22,6 @@ class Transaction extends Entity {
     if (!Array.isArray(this._api.postings)) throw new Error('Transaction must have postings.');
   }
 
-  updateFromApi_(apiResponse) {
-    this._api = apiResponse;
-  }
-
   // Sidebar: set fields from either simple-mode keys (source_account, destination_account,
   // amount, symbol) or a raw postings array. applyEdit('amount') is a different path that
   // triggers a posting split on inline sheet edits.
@@ -187,6 +183,19 @@ class Transaction extends Entity {
 
   static isEditableHeader(h) {
     return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
+  }
+
+  toApiPayload_() {
+    return {
+      transaction_date: this._api.transaction_date,
+      payee: this._api.payee || null,
+      narration: this._api.narration || null,
+      postings: (this._api.postings || []).filter(function(p, i) { return i === 0 || p.account; }),
+    };
+  }
+
+  updateFromApi_(apiResponse) {
+    this._api = apiResponse;
   }
 
   // Defer the API call when the split is still in progress: multiple uncategorized rows,

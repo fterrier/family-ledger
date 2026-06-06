@@ -384,6 +384,19 @@ def test_export_beancount_emits_operating_currency_header(export_session: Sessio
     assert 'option "operating_currency" "CHF"' in output
 
 
+def test_export_beancount_emits_tolerance_options(export_session: Session) -> None:
+    output = export_beancount(export_session, _EXPORT_CONFIG)
+    assert 'option "inferred_tolerance_default" "CHF:0.01"' in output
+
+
+def test_export_beancount_no_tolerance_options_when_empty(export_session: Session) -> None:
+    config = LedgerConfig.model_validate(
+        {"default_currency": "CHF", "default_tolerance": "0.000001", "tolerance": {}}
+    )
+    output = export_beancount(export_session, config)
+    assert "inferred_tolerance_default" not in output
+
+
 def test_export_beancount_emits_commodity_directives(export_session: Session) -> None:
     export_session.add(Commodity(name="commodities/cmd_chf", symbol="CHF"))
     export_session.add(Commodity(name="commodities/cmd_usd", symbol="USD"))

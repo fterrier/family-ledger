@@ -180,6 +180,10 @@ def export_beancount(
     sections: list[str] = []
 
     options = [f'option "operating_currency" "{config.default_currency}"']
+    for symbol in sorted(config.tolerance):
+        options.append(
+            f'option "inferred_tolerance_default" "{symbol}:{_d(config.tolerance[symbol])}"'
+        )
     sections.append("\n".join(options))
 
     if commodities:

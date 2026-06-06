@@ -102,6 +102,7 @@ class Entity {
   toRows_() { throw new Error('Entity.toRows_() not implemented'); }
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
   updateFromApi_(apiResponse) { throw new Error('Entity.updateFromApi_() not implemented'); }
+  willDeferSave_() { return false; }
 
   // _span null → date-ordered new-row insertion; non-null → in-place update.
   _commitToSheet_(sheet) {
@@ -262,7 +263,7 @@ function handleEntitySheetEdit_(e) {
     return;
   }
 
-  const isDeferring = typeof entity.willDeferSave_ === 'function' && entity.willDeferSave_();
+  const isDeferring = entity.willDeferSave_();
   SpreadsheetApp.getActiveSpreadsheet().toast(
     isDeferring ? 'Deferring save…' : 'Saving ' + EntityClass.ENTITY_LABEL + '…',
     'Family Ledger', 60

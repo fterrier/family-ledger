@@ -194,22 +194,25 @@ class Transaction extends Entity {
     };
   }
 
+  // Null-account postings are stripped by toApiPayload_() before the API call; re-attach
+  // them so blank-destination rows remain visible in the sheet after save.
   updateFromApi_(apiResponse) {
+    const nullPostings = (this._api.postings || []).slice(1).filter(function(p) { return !p.account; });
     this._api = apiResponse;
+    if (nullPostings.length > 0) {
+      this._api.postings = this._api.postings.concat(nullPostings);
+    }
   }
 
-  // Defer the API call when the split is still in progress: multiple uncategorized rows,
-  // or a mix of categorized and uncategorized. A single uncategorized row (source-only)
-  // is valid and saved immediately — toApiPayload_() strips the null destination.
+  // True when the split has 2+ destinations and all are still blank — API call deferred
+  // until at least one destination is categorized (so doctor can see partial balance).
+  willDeferSave_() {
+    const dests = (this._api.postings || []).slice(1);
+    return dests.length > 1 && dests.every(function(p) { return !p.account; });
+  }
+
   save(sheet) {
-    const postings = this._api.postings || [];
-    let nullDests = 0;
-    for (let i = 1; i < postings.length; i++) {
-      if (!postings[i].account) nullDests++;
-    }
-    if (nullDests > 1 || (nullDests > 0 && nullDests < postings.length - 1)) {
-      return this._commitToSheet_(sheet);
-    }
+    if (this.willDeferSave_()) return this._commitToSheet_(sheet);
     return super.save(sheet);
   }
 

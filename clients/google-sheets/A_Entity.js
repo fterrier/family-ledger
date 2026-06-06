@@ -262,7 +262,11 @@ function handleEntitySheetEdit_(e) {
     return;
   }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast('Saving ' + EntityClass.ENTITY_LABEL + '…', 'Family Ledger', 60);
+  const isDeferring = typeof entity.willDeferSave_ === 'function' && entity.willDeferSave_();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    isDeferring ? 'Deferring save…' : 'Saving ' + EntityClass.ENTITY_LABEL + '…',
+    'Family Ledger', 60
+  );
 
   try {
     entity.save(sheet);
@@ -275,13 +279,17 @@ function handleEntitySheetEdit_(e) {
     refreshDoctorIssueSheets_(entity._context.accountResourceToDisplayName || {});
   } catch (error) {
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (error.message || String(error)),
+      (isDeferring ? 'Sheet updated' : EntityClass.ENTITY_LABEL + ' saved') +
+      '. Failed to refresh issues: ' + (error.message || String(error)),
       'Family Ledger', 5
     );
     return;
   }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    isDeferring ? 'Pending — set remaining destinations.' : EntityClass.ENTITY_LABEL + ' saved.',
+    'Family Ledger', 3
+  );
 }
 
 // Raw row scan — ±25-row window, returns { span, entityName, rows } with __rowNumber annotations.

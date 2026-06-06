@@ -203,11 +203,11 @@ class Transaction extends Entity {
   // is valid and saved immediately — toApiPayload_() strips the null destination.
   save(sheet) {
     const postings = this._api.postings || [];
-    let nullDests = 0, nonNullDests = 0;
+    let nullDests = 0;
     for (let i = 1; i < postings.length; i++) {
-      if (postings[i].account) nonNullDests++; else nullDests++;
+      if (!postings[i].account) nullDests++;
     }
-    if (nullDests > 1 || (nullDests > 0 && nonNullDests > 0)) {
+    if (nullDests > 1 || (nullDests > 0 && nullDests < postings.length - 1)) {
       return this._commitToSheet_(sheet);
     }
     return super.save(sheet);

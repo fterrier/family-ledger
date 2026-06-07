@@ -192,7 +192,11 @@ class Transaction extends Entity {
     const nullsByRank = [];
     let rank = 0;
     for (let i = 1; i < original.length; i++) {
-      if (original[i].account) { rank++; } else { nullsByRank.push({ rank: rank, posting: original[i] }); }
+      if (original[i].account) {
+        rank++;
+      } else {
+        nullsByRank.push({ rank: rank, posting: original[i] });
+      }
     }
     this._api = apiResponse;
     if (nullsByRank.length === 0) return;

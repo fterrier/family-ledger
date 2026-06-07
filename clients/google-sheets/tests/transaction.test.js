@@ -548,7 +548,7 @@ test('buildTransactionPatchPayload_ treats differing split row narration as post
   ]);
 });
 
-test('buildTransactionPatchPayload_ emits source-only transaction when destination is blank', () => {
+test('buildTransactionPatchPayload_ emits null-account posting for single blank destination', () => {
   const { sandbox } = loadCode();
   const payload = sandbox.buildTransactionPatchPayload_([{
     resource_name: 'transactions/txn_1', narration_source: 'txn', transaction_date: '2025-12-31', payee: '',
@@ -558,15 +558,14 @@ test('buildTransactionPatchPayload_ emits source-only transaction when destinati
     '[A] Bank - Checking': 'accounts/source',
   });
 
-  assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
-    transaction_date: '2025-12-31',
-    payee: null,
-    narration: 'Guthabenzins: Guthabenzins',
-    postings: [{ account: 'accounts/source', units: { amount: '-1.5', symbol: 'CHF' } }],
-  });
+  assert.equal(payload.postings.length, 2);
+  assert.equal(payload.postings[0].account, 'accounts/source');
+  assert.equal(payload.postings[0].units.amount, '-1.5');
+  assert.equal(payload.postings[1].account, null);
+  assert.equal(payload.postings[1].units.amount, '1.5');
 });
 
-test('buildTransactionPatchPayload_ allows mixed blank and non-blank destinations as null-account postings', () => {
+test('buildTransactionPatchPayload_ preserves visual row order: blank row before categorized row', () => {
   const { sandbox } = loadCode();
 
   const payload = sandbox.buildTransactionPatchPayload_([
@@ -580,10 +579,11 @@ test('buildTransactionPatchPayload_ allows mixed blank and non-blank destination
   assert.equal(payload.postings.length, 3);
   assert.equal(payload.postings[0].account, 'accounts/source');
   assert.equal(parseFloat(payload.postings[0].units.amount), -84.25);
-  assert.equal(payload.postings[1].account, 'accounts/food');
-  assert.equal(parseFloat(payload.postings[1].units.amount), 34.25);
-  assert.equal(payload.postings[2].account, null);
-  assert.equal(parseFloat(payload.postings[2].units.amount), 50);
+  // Visual order preserved: blank row 2 is postings[1], categorized row 3 is postings[2]
+  assert.equal(payload.postings[1].account, null);
+  assert.equal(parseFloat(payload.postings[1].units.amount), 50);
+  assert.equal(payload.postings[2].account, 'accounts/food');
+  assert.equal(parseFloat(payload.postings[2].units.amount), 34.25);
 });
 
 test('buildTransactionPatchPayload_ accepts negative destination amounts for income rows', () => {
@@ -869,9 +869,10 @@ test('Transaction.fromRows() with mixed blank and non-blank destinations builds 
   assert.equal(tx._api.postings.length, 3);
   assert.equal(tx._api.postings[0].account, 'accounts/checking');
   assert.equal(parseFloat(tx._api.postings[0].units.amount), -84.25);
-  assert.equal(tx._api.postings[1].account, 'accounts/food');
-  assert.equal(tx._api.postings[2].account, null);
-  assert.equal(parseFloat(tx._api.postings[2].units.amount), 50);
+  // Visual order preserved: blank row 2 → postings[1], categorized row 3 → postings[2]
+  assert.equal(tx._api.postings[1].account, null);
+  assert.equal(parseFloat(tx._api.postings[1].units.amount), 50);
+  assert.equal(tx._api.postings[2].account, 'accounts/food');
 });
 
 test('Transaction.fromRows() with multiple blank-destination rows builds null-account postings', () => {
@@ -1136,6 +1137,31 @@ test('Transaction.updateFromApi_() re-attaches null-account postings after API r
   assert.equal(entity._api.postings.length, 3, 'null posting re-attached');
   assert.equal(entity._api.postings[2].account, null);
   assert.equal(entity._api.postings[2].units.amount, '34.25');
+});
+
+test('Transaction.updateFromApi_() preserves original position of null posting between categorized rows', () => {
+  const { Transaction } = loadT_();
+  const entity = Transaction.fromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+    ],
+  }, ACCOUNT_LOOKUP);
+
+  entity.updateFromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-50', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+    ],
+  });
+
+  assert.equal(entity._api.postings.length, 3);
+  assert.equal(entity._api.postings[1].account, null, 'null stays between source and food');
+  assert.equal(entity._api.postings[1].units.amount, '34.25');
+  assert.equal(entity._api.postings[2].account, 'accounts/food');
 });
 
 // --- Transaction.setFields() ---
@@ -1496,16 +1522,37 @@ test("Transaction.applyEdit('amount') treats numeric 0 as valid new amount", () 
   assert.equal(tx._api.postings[2].units.amount, '84.25');
 });
 
-test("Transaction.applyEdit('amount') throws for source-only transaction", () => {
+test("Transaction.applyEdit('amount') splits source-only transaction into two null-account postings", () => {
+  const { sandbox } = loadCode();
+
+  const tx = makeTx(sandbox, {
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } },
+      { account: null, units: { amount: '1.5', symbol: 'CHF' } },
+    ],
+  });
+  tx.applyEdit('amount', '1', '1.5', 2);
+  assert.equal(tx._api.postings.length, 3);
+  assert.equal(tx._api.postings[1].account, null);
+  assert.equal(tx._api.postings[1].units.amount, '1');
+  assert.equal(tx._api.postings[2].account, null);
+  assert.equal(tx._api.postings[2].units.amount, '0.5');
+  assert.equal(tx._api.postings[0].units.amount, '-1.5');
+});
+
+test("Transaction.applyEdit('destination_account_name') clearing on single-row transaction with null posting is a no-op", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, {
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
-    postings: [{ account: 'accounts/checking', units: { amount: '1.5', symbol: 'CHF' } }],
-  });
-  assert.throws(
-    () => tx.applyEdit('amount', '1', '1.5', 2),
-    /Amount cannot be edited until a destination account is set/
-  );
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-50', symbol: 'CHF' } },
+      { account: null, units: { amount: '50', symbol: 'CHF' } },
+    ],
+  }, { start: 2, count: 1 });
+  tx.applyEdit('destination_account_name', '', '', 2);
+  assert.equal(tx._api.postings.length, 2);
+  assert.equal(tx._api.postings[1].account, null);
 });
 
 test("Transaction.applyEdit('amount') throws for invalid (NaN) new amount", () => {
@@ -1556,9 +1603,13 @@ test("Transaction.applyEdit('split_off_amount') throws when split equals origina
 
 test("Transaction.applyEdit('split_off_amount') numeric on source-only creates two null-account postings", () => {
   const { sandbox } = loadCode();
+
   const tx = makeTx(sandbox, {
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
-    postings: [{ account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } }],
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } },
+      { account: null, units: { amount: '1.5', symbol: 'CHF' } },
+    ],
   });
   tx.applyEdit('split_off_amount', '0.5', '', 2);
   assert.equal(tx._api.postings.length, 3);

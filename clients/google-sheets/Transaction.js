@@ -93,10 +93,6 @@ class Transaction extends Entity {
     }
 
     if (header === 'amount') {
-      const destinations = this._api.postings.slice(1);
-      if (destinations.length === 0) {
-        throw new Error('Amount cannot be edited until a destination account is set.');
-      }
       const newAmount = parseFloat(value);
       const oldAmount = parseFloat(oldValue);
       if (isNaN(oldAmount)) return;
@@ -120,11 +116,11 @@ class Transaction extends Entity {
       const instruction = String(value ?? '').trim();
       if (!instruction) return;
 
-      const destinations = this._api.postings.slice(1);
       const destOffset = anchorRow - this._span.start;
       const postingIndex = 1 + destOffset;
 
       if (instruction === 'x' || instruction === 'X' || instruction === '-') {
+        const destinations = this._api.postings.slice(1);
         if (destinations.length === 0) return;
         if (destinations.length === 1) {
           this._api.postings = [this._api.postings[0]];
@@ -145,14 +141,6 @@ class Transaction extends Entity {
         return;
       }
 
-      if (destinations.length === 0) {
-        const source = this._api.postings[0];
-        this._api.postings.push({
-          account: null,
-          units: { amount: String(Math.abs(parseFloat(source.units.amount))), symbol: source.units.symbol },
-          narration: null,
-        });
-      }
       const splitAmount = parseFloat(instruction);
       const posting = this._api.postings[postingIndex];
       const originalAmount = parseFloat(posting.units.amount);
@@ -198,13 +186,26 @@ class Transaction extends Entity {
   }
 
   // Null-account postings are stripped by toApiPayload_() before the API call; re-attach
-  // them so blank-destination rows remain visible in the sheet after save.
+  // them at their original positions so blank-destination rows remain visible in the sheet.
   updateFromApi_(apiResponse) {
-    const nullPostings = (this._api.postings || []).slice(1).filter(function(p) { return !p.account; });
-    this._api = apiResponse;
-    if (nullPostings.length > 0) {
-      this._api.postings = this._api.postings.concat(nullPostings);
+    const original = this._api.postings || [];
+    const nullsByRank = [];
+    let rank = 0;
+    for (let i = 1; i < original.length; i++) {
+      if (original[i].account) { rank++; } else { nullsByRank.push({ rank: rank, posting: original[i] }); }
     }
+    this._api = apiResponse;
+    if (nullsByRank.length === 0) return;
+    const dests = this._api.postings.slice(1);
+    const postings = [this._api.postings[0]];
+    let nullIdx = 0;
+    for (let i = 0; i <= dests.length; i++) {
+      while (nullIdx < nullsByRank.length && nullsByRank[nullIdx].rank === i) {
+        postings.push(nullsByRank[nullIdx++].posting);
+      }
+      if (i < dests.length) postings.push(dests[i]);
+    }
+    this._api.postings = postings;
   }
 
   static loadContext_() {
@@ -506,15 +507,11 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
   const sourceAccount = accountDisplayNameToResource[sourceAccountName];
   if (!sourceAccount) throw new Error('Unknown account_name: ' + sourceAccountName);
   const destinationRows = [];
-  const blankRows = [];
   const amounts = [];
 
   rows.forEach(function(row, index) {
     const displayRow = row.__rowNumber || index + 2;
     const destinationAccountName = normalizeOptionalSheetText_(row.destination_account_name);
-    if (!destinationAccountName) {
-      blankRows.push(row);
-    }
 
     const amount = row.amount;
     if (typeof amount !== 'number' || isNaN(amount)) {
@@ -530,21 +527,14 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
         amount: amount,
         narration: normalizePostingNarrationFromSheetRow_(row, narration, isSplitTransaction),
       });
+    } else {
+      destinationRows.push({ account: null, amount: amount, narration: null });
     }
     amounts.push(amount);
   });
 
   if (issues.length > 0) {
     throw new Error(issues.join('\n'));
-  }
-
-  // Reconstruct null-account postings for blank-destination rows when the transaction is
-  // mixed (some rows categorized, some not) or has multiple uncategorized rows. A single
-  // uncategorized row with no other destinations stays source-only (no destination posting).
-  if (blankRows.length > 0 && (destinationRows.length > 0 || blankRows.length > 1)) {
-    blankRows.forEach(function(row) {
-      destinationRows.push({ account: null, amount: row.amount, narration: null });
-    });
   }
 
   const totalAmount = amounts.reduce(function(a, b) { return a + b; }, 0);

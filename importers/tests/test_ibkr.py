@@ -762,6 +762,21 @@ def test_balance_assertions_cash(session: Session) -> None:
     assert by_symbol["CHF"].amount == Decimal("5000.00")
 
 
+def test_balance_assertions_cash_high_precision_rounded(session: Session) -> None:
+    # High-precision endingCash (e.g. 25360.62081451) must be rounded to cents;
+    # verbatim precision sets beancount tolerance to ~5e-8, tighter than FX rounding.
+    config = _base_accounts(session)
+
+    xml = _flex_xml(
+        cash_report='<CashReportCurrency currency="USD" endingCash="25360.62081451" />',
+    )
+
+    _run(session, xml, config)
+    assertions = _balance_assertions(session)
+    usd = next(a for a in assertions if a.symbol == "USD")
+    assert usd.amount == Decimal("25360.62")
+
+
 def test_balance_assertions_stock_open_positions(session: Session) -> None:
     config = _base_accounts(session)
     vti_stock = _create_account(session, "Assets:SemiLiquid:Shares:IBKR:VTI")

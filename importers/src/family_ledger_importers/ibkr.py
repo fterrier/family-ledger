@@ -26,6 +26,7 @@ from family_ledger_importers.utils import load_account_name_set
 _FLEX_BASE_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService"
 _FETCH_MAX_RETRIES = 15
 _FETCH_RETRY_DELAY_SECONDS = 2
+_CASH_BALANCE_PRECISION = Decimal("0.01")
 
 
 @dataclass(frozen=True)
@@ -644,7 +645,9 @@ def _build_cash_balance_assertions(
             BalanceAssertionCreate(
                 assertion_date=assertion_date,
                 account=accounts.cash[currency],
-                amount=MoneyValue(amount=report.endingCash, symbol=currency),
+                amount=MoneyValue(
+                    amount=report.endingCash.quantize(_CASH_BALANCE_PRECISION), symbol=currency
+                ),
                 entity_metadata={
                     "ibkr": {"currency": currency, "ending_cash": str(report.endingCash)}
                 },

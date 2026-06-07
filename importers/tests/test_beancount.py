@@ -491,6 +491,62 @@ def test_beancount_importer_pad_multi_currency_is_idempotent(session: Session) -
     assert pad_count == 2
 
 
+# A later-dated pad appearing before earlier-dated pads in the file should still
+# produce the correct amount because pads are processed in date order.
+#
+# Scenario mirrors the real scukas.beancount bug: a closing pad (2026-06-01)
+# is placed early in the file, before an intermediate opening pad (2026-01-01).
+# Without date-ordered processing, compute_pad for 2026-06-01 runs before the
+# 2026-01-01 pad exists and produces +97.00 (wrong) instead of -3.00 (correct).
+PAD_OUT_OF_ORDER_FIXTURE = """
+2020-01-01 open Assets:Checking
+2020-01-01 open Equity:Opening
+2020-01-01 open Equity:Rounding
+2020-01-01 commodity CHF
+
+; Later-dated closing pad — appears FIRST in the file.
+2026-06-01 pad Assets:Checking Equity:Rounding
+2026-06-02 balance Assets:Checking 0 CHF
+
+; Earlier-dated opening pad — appears SECOND in the file.
+2026-01-01 pad Assets:Checking Equity:Opening
+2026-01-02 balance Assets:Checking 100.00 CHF
+
+2026-05-15 * "Charge"
+  Assets:Checking  -97.00 CHF
+  Equity:Rounding
+"""
+
+
+def test_beancount_importer_pad_out_of_order_in_file(session: Session) -> None:
+    result = _run(session, PAD_OUT_OF_ORDER_FIXTURE)
+
+    assert result.entities["pad_transaction"].created == 2
+
+    pad_txs = session.scalars(
+        select(Transaction).where(Transaction.narration == "Padding entry")
+    ).all()
+    pad_by_date = {tx.transaction_date.isoformat(): tx for tx in pad_txs}
+
+    # 2026-01-01 pad: opens the account to 100.00 CHF.
+    jan_pad = pad_by_date["2026-01-01"]
+    jan_postings = session.scalars(
+        select(PostingModel).where(PostingModel.transaction_id == jan_pad.id)
+    ).all()
+    jan_checking = next(p for p in jan_postings if p.account.account_name == "Assets:Checking")
+    assert jan_checking.units_amount == Decimal("100.00")
+
+    # 2026-06-01 pad: correct amount is -3.00 (100.00 opening - 97.00 charge = 3.00 residual).
+    # Without date-ordered processing this would be +97.00 because the 2026-01-01 pad
+    # wouldn't exist yet when compute_pad runs for 2026-06-01.
+    jun_pad = pad_by_date["2026-06-01"]
+    jun_postings = session.scalars(
+        select(PostingModel).where(PostingModel.transaction_id == jun_pad.id)
+    ).all()
+    jun_checking = next(p for p in jun_postings if p.account.account_name == "Assets:Checking")
+    assert jun_checking.units_amount == Decimal("-3.00")
+
+
 # ---------------------------------------------------------------------------
 # Archive (ZIP / TAR) import tests
 # ---------------------------------------------------------------------------

@@ -535,9 +535,10 @@ class BeancountImporter(BaseImporter):
                 if sid:
                     imported_pad_prefixes.add(sid.rsplit(":", 1)[0] + ":")
 
-        for entry in entries:
-            if not isinstance(entry, Pad):
-                continue
+        for entry in sorted(
+            (e for e in entries if isinstance(e, Pad)),
+            key=lambda e: (e.date, e.account),
+        ):
             if entry.account not in account_names or entry.source_account not in account_names:
                 ctx._add_entity_error(
                     "pad_transaction", f"{entry.date} pad {entry.account}: account not found"

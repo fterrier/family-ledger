@@ -997,10 +997,16 @@ test('Transaction.toApiPayload_() converts null payee/narration correctly', () =
   assert.equal(payload.narration, null);
 });
 
-test('Transaction.save() with all-blank destinations defers API call', () => {
+test('Transaction.save() with all-blank destinations calls API with source only and preserves null postings', () => {
   const { sandbox } = loadCode();
   const apiCalls = [];
-  sandbox.apiFetchJson_ = function(method, path, payload) { apiCalls.push({ method, path }); return {}; };
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    const posted = payload.transaction;
+    return { name: 'transactions/txn_1', transaction_date: posted.transaction_date, payee: null, narration: null, postings: posted.postings };
+  };
+  const props = {};
+  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
   const tx = makeTx(sandbox, {
     name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
     postings: [
@@ -1014,8 +1020,11 @@ test('Transaction.save() with all-blank destinations defers API call', () => {
 
   tx.save({});
 
-  assert.equal(apiCalls.length, 0, 'no API call when all destinations are blank');
-  assert.equal(committed.length, 1, '_commitToSheet_ called once');
+  assert.equal(apiCalls.length, 1, 'API called even when all destinations are blank');
+  const sentPostings = apiCalls[0].payload.transaction.postings;
+  assert.equal(sentPostings.length, 1, 'only source posting sent');
+  assert.equal(tx._api.postings.length, 3, 'null postings preserved in _api after save');
+  assert.equal(committed.length, 1, '_commitToSheet_ called after API');
 });
 
 test('Transaction.save() with mixed null and non-null destinations calls API and preserves null posting', () => {
@@ -1081,38 +1090,6 @@ test('Transaction.save() with single null-account destination calls API as sourc
   assert.equal(committed.length, 1, '_commitToSheet_ called after API');
 });
 
-test('Transaction.willDeferSave_() returns true only when 2+ destinations are all blank', () => {
-  const { Transaction } = loadT_();
-
-  const allBlank = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: null, units: { amount: '50', symbol: 'CHF' } },
-      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-  assert.equal(allBlank.willDeferSave_(), true, 'defers when all 2 dests are blank');
-
-  const mixed = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
-      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-  assert.equal(mixed.willDeferSave_(), false, 'does not defer when at least one dest is set');
-
-  const singleBlank = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: null, units: { amount: '84.25', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-  assert.equal(singleBlank.willDeferSave_(), false, 'does not defer for single blank dest');
-});
 
 test('Transaction.updateFromApi_() uses API response when no null-account postings', () => {
   const { Transaction } = loadT_();

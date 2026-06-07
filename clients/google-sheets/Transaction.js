@@ -162,7 +162,7 @@ class Transaction extends Entity {
       }
       posting.units.amount = String(originalAmount - splitAmount);
       this._api.postings.splice(postingIndex + 1, 0, {
-        account: posting.account,
+        account: null,
         units: { amount: String(splitAmount), symbol: posting.units.symbol },
         narration: null,
       });
@@ -202,18 +202,6 @@ class Transaction extends Entity {
     if (nullPostings.length > 0) {
       this._api.postings = this._api.postings.concat(nullPostings);
     }
-  }
-
-  // True when the split has 2+ destinations and all are still blank — API call deferred
-  // until at least one destination is categorized (so doctor can see partial balance).
-  willDeferSave_() {
-    const dests = (this._api.postings || []).slice(1);
-    return dests.length > 1 && dests.every(function(p) { return !p.account; });
-  }
-
-  save(sheet) {
-    if (this.willDeferSave_()) return this._commitToSheet_(sheet);
-    return super.save(sheet);
   }
 
   static loadContext_() {

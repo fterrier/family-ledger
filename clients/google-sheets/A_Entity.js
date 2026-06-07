@@ -102,7 +102,6 @@ class Entity {
   toRows_() { throw new Error('Entity.toRows_() not implemented'); }
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
   updateFromApi_(apiResponse) { throw new Error('Entity.updateFromApi_() not implemented'); }
-  willDeferSave_() { return false; }
 
   // _span null → date-ordered new-row insertion; non-null → in-place update.
   _commitToSheet_(sheet) {
@@ -263,11 +262,7 @@ function handleEntitySheetEdit_(e) {
     return;
   }
 
-  const isDeferring = entity.willDeferSave_();
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    isDeferring ? 'Deferring save…' : 'Saving ' + EntityClass.ENTITY_LABEL + '…',
-    'Family Ledger', 60
-  );
+  SpreadsheetApp.getActiveSpreadsheet().toast('Saving ' + EntityClass.ENTITY_LABEL + '…', 'Family Ledger', 60);
 
   try {
     entity.save(sheet);
@@ -280,17 +275,13 @@ function handleEntitySheetEdit_(e) {
     refreshDoctorIssueSheets_(entity._context.accountResourceToDisplayName || {});
   } catch (error) {
     SpreadsheetApp.getActiveSpreadsheet().toast(
-      (isDeferring ? 'Sheet updated' : EntityClass.ENTITY_LABEL + ' saved') +
-      '. Failed to refresh issues: ' + (error.message || String(error)),
+      EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (error.message || String(error)),
       'Family Ledger', 5
     );
     return;
   }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(
-    isDeferring ? 'Pending — set remaining destinations.' : EntityClass.ENTITY_LABEL + ' saved.',
-    'Family Ledger', 3
-  );
+  SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
 }
 
 // Raw row scan — ±25-row window, returns { span, entityName, rows } with __rowNumber annotations.

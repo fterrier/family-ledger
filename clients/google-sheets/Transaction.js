@@ -112,8 +112,7 @@ class Transaction extends Entity {
         units: { amount: String(oldAmount - newAmount), symbol: posting.units.symbol },
         narration: null,
       });
-      const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
-      this._api.postings[0].units.amount = String(-total);
+      this._rebalanceSource_();
       return;
     }
 
@@ -166,10 +165,14 @@ class Transaction extends Entity {
         units: { amount: String(splitAmount), symbol: posting.units.symbol },
         narration: null,
       });
-      const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
-      this._api.postings[0].units.amount = String(-total);
+      this._rebalanceSource_();
       return;
     }
+  }
+
+  _rebalanceSource_() {
+    const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
+    this._api.postings[0].units.amount = String(-total);
   }
 
   // — Static config —

@@ -127,6 +127,7 @@ def _sync_documents(
 ) -> None:
     documents_dir.mkdir(parents=True, exist_ok=True)
     can_download = settings is not None and settings.paperless_is_configured()
+    skipped: list[tuple[Attachment, UnavailableError]] = []
     for att in attachments:
         dest = documents_dir / att.original_filename
         if dest.exists() and not force:
@@ -136,7 +137,27 @@ def _sync_documents(
                 content = paperless_service.download_document(settings, att.document_url)  # type: ignore[arg-type]
                 dest.write_bytes(content)
             except UnavailableError as exc:
-                _log.warning("skipping %s: %s", att.original_filename, exc)
+                skipped.append((att, exc))
+
+    if not skipped:
+        return
+
+    first_exc = skipped[0][1]
+    cause = str(first_exc.__cause__) if first_exc.__cause__ else None
+    summary = f"{first_exc.message} — {len(skipped)} document(s) skipped"
+    if cause:
+        summary += f" ({cause})"
+    _log.warning(summary)
+    for att, exc in skipped:
+        download_url = att.document_url.rstrip("/") + "/download/"  # type: ignore[union-attr]
+        _log.warning(
+            "  %s (%s, %s): %s — GET %s",
+            att.original_filename,
+            att.attachment_date,
+            att.account.account_name,
+            exc.message,
+            download_url,
+        )
 
 
 def export_beancount(

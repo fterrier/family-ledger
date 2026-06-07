@@ -744,6 +744,8 @@ def test_sync_documents_skips_existing_without_force(tmp_path: Path) -> None:
 def test_sync_documents_warns_and_continues_on_unavailable(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    import logging
+
     from family_ledger.services.errors import UnavailableError
 
     att1 = _mk_attachment(
@@ -765,8 +767,6 @@ def test_sync_documents_warns_and_continues_on_unavailable(
         return b"PDF"
 
     settings = _make_paperless_settings()
-    import logging
-
     with (
         patch("family_ledger.services.paperless.download_document", side_effect=_dl_side_effect),
         caplog.at_level(logging.WARNING, logger="family_ledger.scripts.export_beancount"),
@@ -775,4 +775,48 @@ def test_sync_documents_warns_and_continues_on_unavailable(
 
     assert not (tmp_path / "fail.pdf").exists()
     assert (tmp_path / "ok.pdf").read_bytes() == b"PDF"
-    assert any("fail.pdf" in r.message for r in caplog.records)
+    messages = [r.message for r in caplog.records]
+    # Summary line emitted once
+    assert sum(1 for m in messages if "Paperless is unreachable" in m and "skipped" in m) == 1
+    # Per-file detail line includes filename, date, account, and download URL
+    detail = next(m for m in messages if "fail.pdf" in m and "Assets:Bank" in m)
+    assert "2026-05-01" in detail
+    assert "https://paperless.example.com/api/documents/1/download/" in detail
+
+
+def test_sync_documents_emits_single_summary_for_multiple_failures(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    from family_ledger.services.errors import UnavailableError
+
+    atts = [
+        _mk_attachment(
+            account_name="Assets:Bank",
+            attachment_date=date(2026, 5, i),
+            original_filename=f"fail{i}.pdf",
+            document_url=f"https://paperless.example.com/api/documents/{i}/",
+        )
+        for i in range(1, 4)
+    ]
+
+    settings = _make_paperless_settings()
+    with (
+        patch(
+            "family_ledger.services.paperless.download_document",
+            side_effect=UnavailableError(
+                code="paperless_unreachable", message="Paperless is unreachable"
+            ),
+        ),
+        caplog.at_level(logging.WARNING, logger="family_ledger.scripts.export_beancount"),
+    ):
+        _sync_documents(atts, tmp_path, settings)
+
+    messages = [r.message for r in caplog.records]
+    # Exactly one summary line mentioning all 3 skips
+    summary_lines = [m for m in messages if "3 document(s) skipped" in m]
+    assert len(summary_lines) == 1
+    # Three per-file detail lines
+    detail_lines = [m for m in messages if "fail" in m and "Assets:Bank" in m]
+    assert len(detail_lines) == 3

@@ -9,19 +9,25 @@ import pytest
 from family_ledger_importers import viseca as viseca_module
 from family_ledger_importers.viseca import (
     ParsedVisecaEntry,
+    ParsedVisecaSection,
+    ParsedVisecaStatement,
     VisecaImporter,
     _compute_amount,
     _parse_rows,
+    _parse_statement,
 )
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.importers.base import ImportContext
-from family_ledger.models import Account, Base, Commodity, Transaction
+from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Transaction
 
 VISA_ACCOUNT_NAME = "Liabilities:Cumulus:Visa"
 VISA_ACCOUNT_RESOURCE = "accounts/visa"
-VISECA_CONFIG = {"account": VISA_ACCOUNT_RESOURCE}
+VISA2_ACCOUNT_NAME = "Liabilities:Cumulus:Visa2"
+VISA2_ACCOUNT_RESOURCE = "accounts/visa2"
+
+VISECA_CONFIG = {"cards": {"0000": VISA_ACCOUNT_RESOURCE}}
 
 FILENAME = b"visebpp_20250414_400_51-55_1107568108543212_886.pdf"
 
@@ -48,9 +54,30 @@ def session() -> Generator[Session, None, None]:
                 entity_metadata={},
             )
         )
+        s.add(
+            Account(
+                name=VISA2_ACCOUNT_RESOURCE,
+                account_name=VISA2_ACCOUNT_NAME,
+                effective_start_date=date(2020, 1, 1),
+                effective_end_date=None,
+                entity_metadata={},
+            )
+        )
         s.add(Commodity(name="commodities/CHF", symbol="CHF", entity_metadata={}))
         s.commit()
         yield s
+
+
+def _make_stmt(
+    entries: list[ParsedVisecaEntry],
+    card_last4: str = "0000",
+    total_due_chf: Decimal | None = None,
+) -> ParsedVisecaStatement:
+    return ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[ParsedVisecaSection(card_last4, entries, None)],
+        total_due_chf=total_due_chf,
+    )
 
 
 def _run(
@@ -59,7 +86,8 @@ def _run(
     config: dict = VISECA_CONFIG,
     settings=None,
 ) -> None:
-    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=entries):
+    stmt = _make_stmt(entries)
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
         VisecaImporter().execute(
             ImportContext(session),
             {"file": b"fake-pdf", "__filename__file__": FILENAME},
@@ -71,11 +99,11 @@ def _run(
 # --- Schema / descriptor tests ---
 
 
-def test_get_schema_requires_account() -> None:
+def test_get_schema_requires_cards() -> None:
     schema = VisecaImporter().get_schema()
 
-    assert "account" in schema["required"]
-    assert schema["properties"]["account"]["x-resource-type"] == "account"
+    assert "cards" in schema["required"]
+    assert "additionalProperties" in schema["properties"]["cards"]
 
 
 def test_get_file_descriptors_returns_single_pdf_descriptor() -> None:
@@ -187,6 +215,89 @@ def test_parse_rows_multiple_transactions() -> None:
     assert entries[1].value_date == "11.03.25"
 
 
+# --- _parse_statement unit tests ---
+
+
+def test_parse_statement_detects_card_sections() -> None:
+    rows = [
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("15.02.25", "17.02.25", "OPENAI", "", "", "20.25"),
+        ("10.03.25", "11.03.25", "HEROKU", "", "", "6.35"),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "26.60"),
+        ("", "", "Montant dû", "", "", "26.60"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert len(stmt.sections) == 1
+    assert stmt.sections[0].card_last4 == "3644"
+    assert len(stmt.sections[0].entries) == 2
+    assert stmt.sections[0].total_chf == Decimal("26.60")
+
+
+def test_parse_statement_captures_total_due() -> None:
+    rows = [
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("15.02.25", "17.02.25", "OPENAI", "", "", "20.25"),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "20.25"),
+        ("", "", "Montant dû", "", "", "20.25"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert stmt.total_due_chf == Decimal("20.25")
+
+
+def test_parse_statement_preamble_entries_before_card_section() -> None:
+    rows = [
+        ("06.03.25", "15.02.25", "Votre paiement - Merci", "", "", "31.75 -"),
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("15.02.25", "17.02.25", "OPENAI", "", "", "20.25"),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "20.25"),
+        ("", "", "Montant dû", "", "", "20.25"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert len(stmt.preamble_entries) == 1
+    assert stmt.preamble_entries[0].details == "Votre paiement - Merci"
+    assert len(stmt.sections[0].entries) == 1
+
+
+def test_parse_statement_two_card_sections() -> None:
+    rows = [
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("15.02.25", "17.02.25", "OPENAI", "", "", "20.25"),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "20.25"),
+        ("4435 92X", "X XXXX", "5293 Carte de crédit Cumulus, Other Person", "", "", ""),
+        ("10.03.25", "11.03.25", "HEROKU", "", "", "6.35"),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 5293", "", "", "6.35"),
+        ("", "", "Montant dû", "", "", "26.60"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert len(stmt.sections) == 2
+    assert stmt.sections[0].card_last4 == "3644"
+    assert stmt.sections[0].total_chf == Decimal("20.25")
+    assert stmt.sections[1].card_last4 == "5293"
+    assert stmt.sections[1].total_chf == Decimal("6.35")
+    assert stmt.total_due_chf == Decimal("26.60")
+
+
+def test_parse_statement_thousand_separator_in_total() -> None:
+    rows = [
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "1'900.70"),
+        ("", "", "Montant dû", "", "", "1'900.70"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert stmt.sections[0].total_chf == Decimal("1900.70")
+    assert stmt.total_due_chf == Decimal("1900.70")
+
+
 # --- _compute_amount unit tests ---
 
 
@@ -213,23 +324,45 @@ def test_execute_raises_if_account_not_found(session: Session) -> None:
     from family_ledger.services.errors import ValidationError
 
     with pytest.raises(ValidationError) as exc_info:
-        with patch.object(viseca_module, "_parse_pdf_bytes", return_value=[]):
-            VisecaImporter().execute(
-                ImportContext(session),
-                {"file": b""},
-                {"account": "accounts/nonexistent"},
-            )
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b""},
+            {"cards": {"3644": "accounts/nonexistent"}},
+        )
 
     assert exc_info.value.code == "account_not_found"
 
 
-def test_execute_raises_invalid_config_if_account_key_missing(session: Session) -> None:
+def test_execute_raises_invalid_config_if_cards_missing(session: Session) -> None:
     from family_ledger.services.errors import ValidationError
 
     with pytest.raises(ValidationError) as exc_info:
         VisecaImporter().execute(ImportContext(session), {"file": b""}, {})
 
     assert exc_info.value.code == "invalid_config"
+
+
+def test_execute_raises_on_unknown_card(session: Session) -> None:
+    from family_ledger.services.errors import ValidationError
+
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection("9999", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], None)
+        ],
+        total_due_chf=None,
+    )
+
+    with pytest.raises(ValidationError) as exc_info:
+        with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+            VisecaImporter().execute(
+                ImportContext(session),
+                {"file": b"fake-pdf", "__filename__file__": FILENAME},
+                {"cards": {"3644": VISA_ACCOUNT_RESOURCE}},
+            )
+
+    assert exc_info.value.code == "unknown_card"
+    assert "9999" in exc_info.value.message
 
 
 def test_execute_creates_single_posting_transactions(session: Session) -> None:
@@ -278,10 +411,11 @@ def test_execute_transaction_amounts_are_positive_for_credits(session: Session) 
 
 def test_execute_deduplication_skips_second_import(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
+    stmt = _make_stmt(entries)
 
     _run(session, entries)
     ctx = ImportContext(session)
-    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=entries):
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
         result = VisecaImporter().execute(
             ctx,
             {"file": b"fake-pdf", "__filename__file__": FILENAME},
@@ -294,10 +428,11 @@ def test_execute_deduplication_skips_second_import(session: Session) -> None:
 
 def test_execute_creates_attachment_when_settings_provided(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
+    stmt = _make_stmt(entries)
     settings = MagicMock()
 
     with (
-        patch.object(viseca_module, "_parse_pdf_bytes", return_value=entries),
+        patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt),
         patch("family_ledger_importers.viseca.attachment_service.upload_attachment"),
     ):
         ctx = ImportContext(session)
@@ -314,10 +449,11 @@ def test_execute_creates_attachment_when_settings_provided(session: Session) -> 
 
 def test_execute_statement_date_parsed_from_filename(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
+    stmt = _make_stmt(entries)
     settings = MagicMock()
 
     with (
-        patch.object(viseca_module, "_parse_pdf_bytes", return_value=entries),
+        patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt),
         patch("family_ledger_importers.viseca.attachment_service.upload_attachment"),
     ):
         VisecaImporter().execute(
@@ -331,3 +467,118 @@ def test_execute_statement_date_parsed_from_filename(session: Session) -> None:
 
     att = session.scalars(select(Attachment)).one()
     assert att.attachment_date == date(2025, 4, 14)
+
+
+# --- Balance assertion tests ---
+
+
+def test_execute_creates_balance_assertion_for_single_card(session: Session) -> None:
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection(
+                "0000", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], Decimal("20.25")
+            )
+        ],
+        total_due_chf=Decimal("20.25"),
+    )
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            VISECA_CONFIG,
+        )
+
+    bal = session.scalars(select(BalanceAssertion)).one()
+    assert bal.assertion_date == date(2025, 4, 14)
+    assert bal.amount == Decimal("-20.25")
+    assert bal.symbol == "CHF"
+
+
+def test_execute_no_balance_assertion_when_total_absent(session: Session) -> None:
+    entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
+    _run(session, entries)  # _make_stmt always uses total_due_chf=None
+
+    count = session.scalar(select(func.count()).select_from(BalanceAssertion))
+    assert count == 0
+
+
+def test_execute_single_balance_assertion_when_cards_share_account(session: Session) -> None:
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection(
+                "3644", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], Decimal("20.25")
+            ),
+            ParsedVisecaSection(
+                "5293", [ParsedVisecaEntry("11.03.25", "6.35", "HEROKU")], Decimal("6.35")
+            ),
+        ],
+        total_due_chf=Decimal("26.60"),
+    )
+    config = {"cards": {"3644": VISA_ACCOUNT_RESOURCE, "5293": VISA_ACCOUNT_RESOURCE}}
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            config,
+        )
+
+    bals = session.scalars(select(BalanceAssertion)).all()
+    assert len(bals) == 1
+    assert bals[0].amount == Decimal("-26.60")
+
+
+def test_execute_per_card_balance_assertions_for_multi_account(session: Session) -> None:
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection(
+                "3644", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], Decimal("20.25")
+            ),
+            ParsedVisecaSection(
+                "5293", [ParsedVisecaEntry("11.03.25", "6.35", "HEROKU")], Decimal("6.35")
+            ),
+        ],
+        total_due_chf=Decimal("26.60"),
+    )
+    config = {"cards": {"3644": VISA_ACCOUNT_RESOURCE, "5293": VISA2_ACCOUNT_RESOURCE}}
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            config,
+        )
+
+    bals = session.scalars(select(BalanceAssertion)).all()
+    assert len(bals) == 2
+    amounts = {bal.account.name: bal.amount for bal in bals}
+    assert amounts[VISA_ACCOUNT_RESOURCE] == Decimal("-20.25")
+    assert amounts[VISA2_ACCOUNT_RESOURCE] == Decimal("-6.35")
+
+
+def test_execute_routes_transactions_per_card(session: Session) -> None:
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection("3644", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], None),
+            ParsedVisecaSection("5293", [ParsedVisecaEntry("11.03.25", "6.35", "HEROKU")], None),
+        ],
+        total_due_chf=None,
+    )
+    config = {"cards": {"3644": VISA_ACCOUNT_RESOURCE, "5293": VISA2_ACCOUNT_RESOURCE}}
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            config,
+        )
+
+    txns = session.scalars(select(Transaction).options(selectinload(Transaction.postings))).all()
+    assert len(txns) == 2
+    account_names = {txn.postings[0].account.name for txn in txns}
+    assert account_names == {VISA_ACCOUNT_RESOURCE, VISA2_ACCOUNT_RESOURCE}

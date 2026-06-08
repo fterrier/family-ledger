@@ -12,6 +12,7 @@ from typing import Any
 from camelot.io import read_pdf as camelot_read_pdf
 
 from family_ledger.api.schemas import (
+    BalanceAssertionCreate,
     ImportMetadata,
     MoneyValue,
     PostingNormalizePayload,
@@ -25,6 +26,9 @@ from family_ledger_importers.utils import load_account_name_set
 
 _DATE_PATTERN = re.compile(r"^\d\d\.\d\d\.\d\d$")
 _FILENAME_DATE_PATTERN = re.compile(r"visebpp_(\d{8})_")
+_CARD_INFO_RE = re.compile(r"^\d{4}\s")
+_TOTAL_CARTE_RE = re.compile(r"Total carte .+ (\d{4})$")
+_MONTANT_DU_RE = re.compile(r"^[Mm]ontant\s+d[uû]$")
 
 
 @dataclass(frozen=True)
@@ -32,6 +36,20 @@ class ParsedVisecaEntry:
     value_date: str
     amount_str: str  # raw amount; trailing " -" = credit, "'" = thousand separator
     details: str
+
+
+@dataclass(frozen=True)
+class ParsedVisecaSection:
+    card_last4: str
+    entries: list[ParsedVisecaEntry]
+    total_chf: Decimal | None  # from "Total carte" row; positive = amount charged to this card
+
+
+@dataclass(frozen=True)
+class ParsedVisecaStatement:
+    preamble_entries: list[ParsedVisecaEntry]  # entries before first card section (e.g. payments)
+    sections: list[ParsedVisecaSection]
+    total_due_chf: Decimal | None  # from "Montant dû"; positive = total amount owed
 
 
 def _parse_rows(
@@ -81,7 +99,81 @@ def _parse_rows(
     return entries
 
 
-def _parse_pdf_bytes(data: bytes) -> list[ParsedVisecaEntry]:
+def _parse_statement(
+    all_rows: list[tuple[str, str, str, str, str, str]],
+) -> ParsedVisecaStatement:
+    """Parse all PDF rows into a structured statement with card sections and balance.
+
+    Detects card info rows to split transactions per card, captures per-card
+    "Total carte" totals, and reads the "Montant dû" grand total.
+    """
+    preamble: list[ParsedVisecaEntry] = []
+    raw_sections: list[tuple[str, list[ParsedVisecaEntry], Decimal | None]] = []
+    total_due_chf: Decimal | None = None
+
+    current_card_last4: str | None = None
+    current_section_entries: list[ParsedVisecaEntry] = []
+
+    last_value_date: str | None = None
+    last_amount_str: str | None = None
+    last_details: str = ""
+
+    def flush_entry() -> None:
+        nonlocal last_value_date, last_amount_str, last_details
+        if last_value_date is not None:
+            target = current_section_entries if current_card_last4 is not None else preamble
+            target.append(
+                ParsedVisecaEntry(
+                    value_date=last_value_date,
+                    amount_str=last_amount_str or "",
+                    details=last_details,
+                )
+            )
+        last_value_date = None
+        last_amount_str = None
+        last_details = ""
+
+    for date_col, value_date, details, _, _, amount_chf in all_rows:
+        date_col = date_col.strip()
+        amount_chf = amount_chf.strip()
+        details = details.strip()
+
+        if _CARD_INFO_RE.match(date_col):
+            flush_entry()
+            if current_card_last4 is not None:
+                raw_sections.append((current_card_last4, current_section_entries, None))
+            current_card_last4 = details[:4]
+            current_section_entries = []
+        elif not date_col and amount_chf and _TOTAL_CARTE_RE.search(details):
+            flush_entry()
+            if current_card_last4 is not None:
+                total = Decimal(amount_chf.replace("'", "").strip())
+                raw_sections.append((current_card_last4, current_section_entries, total))
+                current_card_last4 = None
+                current_section_entries = []
+        elif not date_col and amount_chf and _MONTANT_DU_RE.match(details):
+            total_due_chf = Decimal(amount_chf.replace("'", "").strip())
+        elif _DATE_PATTERN.match(date_col):
+            flush_entry()
+            last_value_date = value_date.strip()
+            last_amount_str = amount_chf
+            last_details = details
+        elif not date_col and not amount_chf:
+            if details and last_value_date is not None:
+                last_details = (last_details + " " + details).strip()
+
+    flush_entry()
+    if current_card_last4 is not None:
+        raw_sections.append((current_card_last4, current_section_entries, None))
+
+    return ParsedVisecaStatement(
+        preamble_entries=preamble,
+        sections=[ParsedVisecaSection(l4, entries, total) for l4, entries, total in raw_sections],
+        total_due_chf=total_due_chf,
+    )
+
+
+def _parse_pdf_bytes(data: bytes) -> ParsedVisecaStatement:
     # camelot requires a file path, not a file-like object
     with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
         tmp.write(data)
@@ -92,7 +184,7 @@ def _parse_pdf_bytes(data: bytes) -> list[ParsedVisecaEntry]:
         os.unlink(tmp_path)
 
 
-def _parse_pdf_path(filepath: str) -> list[ParsedVisecaEntry]:
+def _parse_pdf_path(filepath: str) -> ParsedVisecaStatement:
     columns = ["100,132,400,472,523"]
     # Page 1 has a taller header; pages 2+ start higher on the page
     first_page_tables = camelot_read_pdf(
@@ -112,15 +204,14 @@ def _parse_pdf_path(filepath: str) -> list[ParsedVisecaEntry]:
         split_text=True,
     )
 
-    entries: list[ParsedVisecaEntry] = []
+    all_rows: list[tuple] = []
     for table in [*first_page_tables, *other_page_tables]:
         df = table.df
         if df.columns.size != 6:
             continue
-        rows = [tuple(row) for _, row in df.iterrows()]
-        entries.extend(_parse_rows(rows))  # type: ignore[arg-type]
+        all_rows.extend(tuple(row) for _, row in df.iterrows())
 
-    return entries
+    return _parse_statement(all_rows)  # type: ignore[arg-type]
 
 
 def _compute_amount(amount_str: str) -> Decimal:
@@ -159,12 +250,12 @@ class VisecaImporter(BaseImporter):
     def get_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "required": ["account"],
+            "required": ["cards"],
             "properties": {
-                "account": {
-                    "type": "string",
-                    "title": "Cumulus Visa account resource name",
-                    "x-resource-type": "account",
+                "cards": {
+                    "type": "object",
+                    "title": "Per-card accounts (map of last-4 digits → account)",
+                    "additionalProperties": {"type": "string", "x-resource-type": "account"},
                 },
             },
             "additionalProperties": False,
@@ -188,15 +279,29 @@ class VisecaImporter(BaseImporter):
         config: dict[str, Any],
         settings: Settings | None = None,
     ) -> ImportResult:
-        account_name = config.get("account")
-        if not account_name:
-            raise ValidationError(code="invalid_config", message="'account' is required")
+        cards_config: dict[str, str] = config.get("cards") or {}
 
-        if account_name not in load_account_name_set(ctx.session):
+        if not cards_config:
             raise ValidationError(
-                code="account_not_found",
-                message=f"Account not found: {account_name}",
+                code="invalid_config",
+                message="'cards' is required and must map card last-4 digits to account names",
             )
+
+        def get_account(last4: str) -> str:
+            if last4 not in cards_config:
+                raise ValidationError(
+                    code="unknown_card",
+                    message=f"Card ending in '{last4}' has no account in 'cards' config.",
+                )
+            return cards_config[last4]
+
+        account_set = load_account_name_set(ctx.session)
+        for acc in set(cards_config.values()):
+            if acc not in account_set:
+                raise ValidationError(
+                    code="account_not_found",
+                    message=f"Account not found: {acc}",
+                )
 
         file_data = files.get("file", b"")
         filename = (files.get("__filename__file__") or b"").decode() or "statement.pdf"
@@ -210,7 +315,7 @@ class VisecaImporter(BaseImporter):
 
         if settings is not None:
             att_name = ctx.create_attachment(
-                account=account_name,
+                account=next(iter(cards_config.values())),
                 attachment_date=stmt_date,
                 original_filename=filename,
                 media_type="application/pdf",
@@ -226,8 +331,40 @@ class VisecaImporter(BaseImporter):
                     media_type="application/pdf",
                 )
 
-        entries = _parse_pdf_bytes(file_data)
-        for entry in entries:
-            ctx.create_transaction(_build_transaction(entry, account_name))
+        stmt = _parse_pdf_bytes(file_data)
+
+        preamble_account = cards_config.get(stmt.sections[0].card_last4) if stmt.sections else None
+        if preamble_account:
+            for entry in stmt.preamble_entries:
+                ctx.create_transaction(_build_transaction(entry, preamble_account))
+
+        for section in stmt.sections:
+            card_account = get_account(section.card_last4)
+            for entry in section.entries:
+                ctx.create_transaction(_build_transaction(entry, card_account))
+
+        if stmt.total_due_chf is not None:
+            all_same_account = len(set(cards_config.values())) == 1
+            if all_same_account:
+                common = next(iter(cards_config.values()))
+                ctx.create_balance_assertion(
+                    BalanceAssertionCreate(
+                        assertion_date=stmt_date,
+                        account=common,
+                        amount=MoneyValue(amount=-stmt.total_due_chf, symbol="CHF"),
+                        entity_metadata={"viseca": {}},
+                    )
+                )
+            else:
+                for section in stmt.sections:
+                    if section.total_chf is not None:
+                        ctx.create_balance_assertion(
+                            BalanceAssertionCreate(
+                                assertion_date=stmt_date,
+                                account=get_account(section.card_last4),
+                                amount=MoneyValue(amount=-section.total_chf, symbol="CHF"),
+                                entity_metadata={"viseca": {}},
+                            )
+                        )
 
         return ctx.result

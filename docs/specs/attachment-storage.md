@@ -20,8 +20,22 @@ Public attachment fields:
 - `status`
 - `document_url`
 - `entity_metadata`
+- `storage_metadata`
 
-The API does not expose backend-specific lifecycle metadata such as task identifiers, polling timestamps, or raw provider errors.
+`storage_metadata` is a read-only informational object populated by the storage backend. Its schema is not part of the API contract but the known fields are:
+
+| Field | Type | When present |
+|---|---|---|
+| `document_id` | int | attachment is `stored` via Paperless |
+| `duplicate_of` | int | Paperless reported the file already existed |
+| `task_id` | string | ingestion task in progress |
+| `submitted_at` | ISO timestamp | upload was submitted |
+| `last_checked_at` | ISO timestamp | poller last polled the task |
+| `completed_at` | ISO timestamp | ingestion reached a terminal state |
+
+The `document_id` field is the most actionable: it is the Paperless document identifier referenced when downloading documents during Beancount export.
+
+The API does not expose raw provider errors or the storage backend identifier.
 
 ## API Shape
 
@@ -74,16 +88,7 @@ Returns `202 Accepted` with the updated attachment resource once the external in
 
 The attachment record is canonical ledger state. The binary file is not stored by family-ledger itself.
 
-The implementation stores backend-specific operational state internally, including:
-
-- storage backend identifier
-- external ingestion task handle
-- polling timestamps
-- timeout deadline
-- final backend document identifier
-- backend error details
-
-Those fields are internal implementation detail and are not part of the public resource contract.
+The implementation stores backend-specific operational state including the storage backend identifier, ingestion task handle, polling timestamps, and timeout deadline. These are surfaced in read-only form through `storage_metadata` (see Public Contract above). The storage backend identifier itself is not exposed.
 
 ## Status Model
 
@@ -138,7 +143,7 @@ Success mapping:
 - `result_data.document_id` → final document id
 - `result_data.duplicate_of` → use the existing Paperless document id; configured tags are applied to that document
 
-The final `document_url` is derived from the resulting Paperless document resource.
+The final `document_url` is derived from the resulting Paperless document resource and uses the web UI path format: `{base_url}/documents/{id}` (no `/api/` prefix, no trailing slash). If `FAMILY_LEDGER_PAPERLESS_EXTERNAL_BASE_URL` is set, it is used as the base instead of `FAMILY_LEDGER_PAPERLESS_BASE_URL`. This allows linking to an externally-accessible URL (e.g. a Tailscale hostname) while the API communicates with Paperless on an internal address.
 
 ## Background Processing
 

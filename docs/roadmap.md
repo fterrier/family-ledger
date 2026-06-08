@@ -16,6 +16,8 @@ This document tracks planned work, verified implementation state, and deferred s
 - modular importer system via Python entry points
 - Beancount importer with `source_native_id` and `document_url` round-trip fields
 - MT940 importer
+- IBKR (Interactive Brokers) importer via Flex XML reports
+- Viseca One Card PDF importer with per-card account config and balance assertions
 - Google Sheets client: Accounts, Transactions, Balances, Commodities, Attachments, Issues sheets
 - Google Sheets: inline transaction editing (payee, narration, destination account, amount, splits)
 - Google Sheets: Quick Add Transaction sidebar (simple and advanced modes)
@@ -28,6 +30,8 @@ This document tracks planned work, verified implementation state, and deferred s
 - API: `weight` field returned per posting in transaction responses (computed from cost/price/units)
 - API: `GET /prices` list endpoint with pagination
 - Google Sheets: Prices sheet — synced on every ledger sync, with create/edit/delete sidebar
+- Google Sheets: incremental sync after import — only newly created resources are inserted for imports ≤ 200 entities; larger imports fall back to full sync
+- Google Sheets: split on uncategorized/source-only rows — splitting creates a blank-destination posting; all edits (including partial states) are sent to the API immediately for real-time doctor visibility
 - Synology deployment: Docker Compose stack running on Synology NAS with periodic Beancount export via `export-ledger` script
 
 ### Not Implemented
@@ -35,9 +39,8 @@ This document tracks planned work, verified implementation state, and deferred s
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
-- IBKR, payslip, and Visa Cumulus importers
+- payslip and Visa Cumulus importers
 - `document` Beancount import directive support
-- snapshot export after import
 
 ## Planned Work
 
@@ -72,7 +75,6 @@ After a successful `POST /importers/{importer}:import` run, export the full ledg
 
 ### Importers
 
-- IBKR (Interactive Brokers activity statement)
 - Payslip (PDF payslip parser)
 - Visa Cumulus (CSV statement)
 

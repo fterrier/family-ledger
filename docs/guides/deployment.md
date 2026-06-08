@@ -21,6 +21,7 @@ If you want attachment uploads, configure Paperless-ngx access:
 
 Optional tuning:
 
+- `FAMILY_LEDGER_PAPERLESS_EXTERNAL_BASE_URL` — if Paperless is on an internal address but stored `document_url` links should use an external URL (e.g. a Tailscale hostname), set this to the external base URL; defaults to `PAPERLESS_BASE_URL`
 - `FAMILY_LEDGER_PAPERLESS_TAG_IDS` — comma-separated Paperless tag IDs applied to every uploaded attachment
 - `FAMILY_LEDGER_PAPERLESS_API_VERSION` defaults to `10`; set to `9` if your Paperless instance does not support version 10
 - `FAMILY_LEDGER_PAPERLESS_POLL_INTERVAL_SECONDS` defaults to `30`

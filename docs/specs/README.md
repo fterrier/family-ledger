@@ -9,3 +9,4 @@ Canonical current behavior lives here.
 - `import-system.md`: importer discovery, config, and execution model
 - `google-sheets-client.md`: current Sheets client workflows and constraints
 - `account-balance-and-pad.md`: balance assertion, doctor, and pad semantics
+- `beancount-export.md`: `export-beancount` CLI and output format

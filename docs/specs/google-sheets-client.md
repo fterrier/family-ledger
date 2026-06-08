@@ -114,12 +114,32 @@ Read-only technical fields such as `resource_name`, `narration_source`, and `las
 The client auto-saves supported edits at transaction scope.
 
 - save reconstructs a full transaction payload and sends `PATCH /transactions/{transaction}`
+- **all edits are sent to the API immediately**, including partial states with blank-destination rows — the doctor service can flag the unbalanced remainder in real time
 - successful saves refresh the rendered rows when needed
 - doctor issues are refreshed after sync and after each successful save
 - doctor-derived issues appear in the visible `issues` column and trigger row highlighting
 - transient save errors use `status=error` and hidden `last_error` without doctor highlighting
 
 A manual retry is available by opening the edit sidebar and saving again from there.
+
+### Splitting and blank destinations
+
+A posting row with no destination account is a **blank-destination posting** — it represents an unallocated amount awaiting categorization.
+
+- splitting a source-only (uncategorized) row creates a blank-destination row instead of copying the source account
+- clearing a destination account in an existing split reverts that row to blank-destination state
+- `null`-account postings are filtered out before the API payload is built; the API never receives an invalid posting
+- while blank-destination rows exist the transaction is sent to the API with only the non-null postings, allowing the doctor to flag the remaining unbalanced amount
+
+## Post-Import Sync
+
+After a successful import the client performs an **incremental sync** instead of a full sheet rebuild:
+
+- the backend includes `created_resources` in the import result — the list of resource names created during the run
+- for imports of up to 200 new entities the client fetches and inserts only those resources into the appropriate sheets in date order
+- for larger imports the client falls back to a full sync
+
+This keeps the sheet responsive after typical imports while still handling bulk initial loads correctly.
 
 ## Quick Filter
 

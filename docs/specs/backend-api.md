@@ -124,7 +124,7 @@ Attachments are canonical ledger records that reference documents stored by an e
 
 `POST /attachments/{attachment}:upload` accepts `multipart/form-data` with a `file` field (and optional `title`). It uploads the file to the configured document backend and returns `202 Accepted`. Allowed from any attachment status; always resets to `pending_storage`.
 
-The public attachment resource exposes only canonical fields:
+The public attachment resource exposes these fields:
 
 - `name`
 - `account`
@@ -134,6 +134,7 @@ The public attachment resource exposes only canonical fields:
 - `status`
 - `document_url`
 - `entity_metadata`
+- `storage_metadata` — read-only informational object from the storage backend (see [attachment-storage.md](attachment-storage.md) for the field schema)
 
 Attachment status values:
 

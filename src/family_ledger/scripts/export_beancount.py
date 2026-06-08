@@ -126,26 +126,25 @@ def _sync_documents(
     force: bool = False,
 ) -> None:
     documents_dir.mkdir(parents=True, exist_ok=True)
-    can_download = settings is not None and settings.paperless_is_configured()
     skipped: list[tuple[Attachment, UnavailableError, int]] = []
+    if settings is None or not settings.paperless_is_configured():
+        return
     for att in attachments:
         dest = documents_dir / att.original_filename
         if dest.exists() and not force:
             continue
-        if not can_download:
-            continue
-        document_id = (
+        raw_id = (
             (att.storage_metadata or {}).get("document_id")
             if att.storage_backend == paperless_service.BACKEND_NAME
             else None
         )
-        if document_id is None:
+        if not isinstance(raw_id, int):
             continue
         try:
-            content = paperless_service.download_document(settings, document_id)  # type: ignore[arg-type]
+            content = paperless_service.download_document(settings, raw_id)
             dest.write_bytes(content)
         except UnavailableError as exc:
-            skipped.append((att, exc, document_id))
+            skipped.append((att, exc, raw_id))
 
     if not skipped:
         return
@@ -198,7 +197,7 @@ def export_beancount(
     attachments = session.scalars(
         select(Attachment)
         .options(selectinload(Attachment.account))
-        .where(Attachment.status == "stored")
+        .where(Attachment.status == Attachment.STATUS_STORED)
         .order_by(Attachment.attachment_date, Attachment.name)
     ).all()
 

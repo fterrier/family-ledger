@@ -83,7 +83,7 @@ def test_create_attachment_with_url_returns_stored(monkeypatch: pytest.MonkeyPat
                 "account": account,
                 "attachment_date": "2026-05-19",
                 "original_filename": "statement.pdf",
-                "document_url": "https://paperless.example.com/api/documents/42/",
+                "document_url": "https://paperless.example.com/documents/42",
             }
         },
     )
@@ -91,7 +91,7 @@ def test_create_attachment_with_url_returns_stored(monkeypatch: pytest.MonkeyPat
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == "stored"
-    assert body["document_url"] == "https://paperless.example.com/api/documents/42/"
+    assert body["document_url"] == "https://paperless.example.com/documents/42"
 
 
 def test_create_attachment_duplicate_returns_409(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -302,14 +302,14 @@ def test_patch_attachment_with_document_url_sets_stored(monkeypatch: pytest.Monk
                 "account": account,
                 "attachment_date": "2026-05-19",
                 "original_filename": "statement.pdf",
-                "document_url": "https://paperless.example.com/api/documents/42/",
+                "document_url": "https://paperless.example.com/documents/42",
             }
         },
     )
 
     assert patch_resp.status_code == 200
     assert patch_resp.json()["status"] == "stored"
-    assert patch_resp.json()["document_url"] == "https://paperless.example.com/api/documents/42/"
+    assert patch_resp.json()["document_url"] == "https://paperless.example.com/documents/42"
 
 
 def test_patch_attachment_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch) -> None:

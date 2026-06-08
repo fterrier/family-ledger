@@ -8,6 +8,7 @@ import pytest
 from family_ledger.config import Settings
 from family_ledger.services import paperless
 from family_ledger.services.errors import UnavailableError
+from family_ledger.services.paperless import extract_document_id
 
 
 def test_upload_document_includes_configured_tag_ids(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -416,3 +417,24 @@ def test_get_task_result_supports_legacy_list_response(monkeypatch: pytest.Monke
         error_code="success",
         error_message="Success. New document id 2217 created",
     )
+
+
+# ---------------------------------------------------------------------------
+# extract_document_id
+# ---------------------------------------------------------------------------
+
+
+def test_extract_document_id_web_ui_url() -> None:
+    assert extract_document_id("http://paperless:8000/documents/2155") == 2155
+
+
+def test_extract_document_id_web_ui_url_trailing_slash() -> None:
+    assert extract_document_id("https://paperless.example.com/documents/42/") == 42
+
+
+def test_extract_document_id_also_matches_legacy_api_url() -> None:
+    assert extract_document_id("https://paperless.example.com/api/documents/42/") == 42
+
+
+def test_extract_document_id_unrecognised_url() -> None:
+    assert extract_document_id("https://example.com/other/path") is None

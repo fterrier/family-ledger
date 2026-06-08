@@ -88,12 +88,12 @@ def test_create_attachment_with_url_persists_stored(
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
         entity_metadata={},
     )
 
     assert created.status == Attachment.STATUS_STORED
-    assert created.document_url == "https://paperless.example.com/api/documents/42/"
+    assert created.document_url == "https://paperless.example.com/documents/42"
 
 
 def test_upload_attachment_transitions_to_pending_storage(
@@ -147,9 +147,7 @@ def test_upload_attachment_allowed_from_any_status(
             media_type="application/pdf",
             status=initial_status,
             document_url=(
-                "https://paperless.example.com/api/documents/1/"
-                if initial_status == "stored"
-                else None
+                "https://paperless.example.com/documents/1" if initial_status == "stored" else None
             ),
             storage_backend="paperless",
             storage_deadline_at=datetime(2026, 5, 19, 12, 0, 0),
@@ -257,7 +255,7 @@ def test_process_pending_attachment_marks_stored_from_document_id(
     assert processed == 1
     session.refresh(attachment)
     assert attachment.status == Attachment.STATUS_STORED
-    assert attachment.document_url == "https://paperless.example.com/api/documents/42/"
+    assert attachment.document_url == "https://paperless.example.com/documents/42"
     assert attachment.storage_metadata["document_id"] == 42
 
 
@@ -302,7 +300,7 @@ def test_process_pending_attachment_marks_stored_from_duplicate_of(
 
     session.refresh(attachment)
     assert attachment.status == Attachment.STATUS_STORED
-    assert attachment.document_url == "https://paperless.example.com/api/documents/84/"
+    assert attachment.document_url == "https://paperless.example.com/documents/84"
     assert attachment.storage_metadata["duplicate_of"] == 84
     assert captured == [(84, [12])]
 
@@ -552,12 +550,12 @@ def test_update_attachment_with_document_url_sets_stored_status(session: Session
         attachment_date=date(2026, 5, 19),
         original_filename="statement.pdf",
         media_type="application/pdf",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
         entity_metadata={},
     )
 
     assert updated.status == Attachment.STATUS_STORED
-    assert updated.document_url == "https://paperless.example.com/api/documents/42/"
+    assert updated.document_url == "https://paperless.example.com/documents/42"
 
 
 def test_update_attachment_raises_not_found(session: Session) -> None:

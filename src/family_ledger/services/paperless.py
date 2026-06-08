@@ -15,7 +15,7 @@ TERMINAL_TASK_STATUSES = {"success", "failure", "revoked"}
 LEGACY_TERMINAL_TASK_STATUSES = {"SUCCESS", "FAILURE", "REVOKED"}
 
 BACKEND_NAME = "paperless"
-_DOCUMENT_ID_RE = re.compile(r"/api/documents/(\d+)/")
+_DOCUMENT_ID_RE = re.compile(r"/documents/(\d+)")
 
 
 def extract_document_id(document_url: str) -> int | None:
@@ -59,7 +59,7 @@ def build_task_url(settings: Settings, task_id: str) -> str:
 def build_document_url(settings: Settings, document_id: int) -> str:
     base_url, _token = _require_paperless_settings(settings)
     external_url = (settings.paperless_external_base_url or base_url).rstrip("/")
-    return f"{external_url}/api/documents/{document_id}/"
+    return f"{external_url}/documents/{document_id}"
 
 
 def upload_document(

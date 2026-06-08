@@ -292,7 +292,7 @@ def _mk_attachment(
     account_name: str,
     attachment_date: date,
     original_filename: str,
-    document_url: str | None = "https://paperless.example.com/api/documents/42/",
+    document_url: str | None = "https://paperless.example.com/documents/42",
     entity_metadata: dict | None = None,
 ) -> Attachment:
     att = Attachment(
@@ -318,7 +318,7 @@ def test_format_document_basic() -> None:
     )
     out = _format_document(att)
     assert out.startswith('2026-05-19 document Assets:Bank:Checking "statement.pdf"')
-    assert '  document_url: "https://paperless.example.com/api/documents/42/"' in out
+    assert '  document_url: "https://paperless.example.com/documents/42"' in out
 
 
 def test_format_document_emits_entity_metadata() -> None:
@@ -571,7 +571,7 @@ def test_export_beancount_emits_document_directives_for_stored_attachments(
         name="attachments/att_1",
         filename="statement.pdf",
         status="stored",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
     export_session.add(att)
     export_session.commit()
@@ -627,7 +627,7 @@ def test_export_beancount_uses_documents_dir_in_directive(
         name="attachments/att_1",
         filename="statement.pdf",
         status="stored",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
     export_session.add(att)
     export_session.commit()
@@ -662,7 +662,7 @@ def test_export_beancount_skips_download_if_file_exists(
         name="attachments/att_1",
         filename="statement.pdf",
         status="stored",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
     export_session.add(att)
     export_session.commit()
@@ -693,7 +693,7 @@ def test_export_beancount_no_download_without_settings(
         name="attachments/att_1",
         filename="statement.pdf",
         status="stored",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
     export_session.add(att)
     export_session.commit()
@@ -719,7 +719,7 @@ def test_sync_documents_force_download_overwrites_existing(tmp_path: Path) -> No
         account_name="Assets:Bank",
         attachment_date=date(2026, 5, 1),
         original_filename="statement.pdf",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
 
     settings = _make_paperless_settings()
@@ -738,7 +738,7 @@ def test_sync_documents_skips_existing_without_force(tmp_path: Path) -> None:
         account_name="Assets:Bank",
         attachment_date=date(2026, 5, 1),
         original_filename="statement.pdf",
-        document_url="https://paperless.example.com/api/documents/42/",
+        document_url="https://paperless.example.com/documents/42",
     )
 
     settings = _make_paperless_settings()
@@ -760,13 +760,13 @@ def test_sync_documents_warns_and_continues_on_unavailable(
         account_name="Assets:Bank",
         attachment_date=date(2026, 5, 1),
         original_filename="fail.pdf",
-        document_url="https://paperless.example.com/api/documents/1/",
+        document_url="https://paperless.example.com/documents/1",
     )
     att2 = _mk_attachment(
         account_name="Assets:Bank",
         attachment_date=date(2026, 5, 1),
         original_filename="ok.pdf",
-        document_url="https://paperless.example.com/api/documents/2/",
+        document_url="https://paperless.example.com/documents/2",
     )
 
     def _dl_side_effect(settings, document_id):
@@ -804,7 +804,7 @@ def test_sync_documents_emits_single_summary_for_multiple_failures(
             account_name="Assets:Bank",
             attachment_date=date(2026, 5, i),
             original_filename=f"fail{i}.pdf",
-            document_url=f"https://paperless.example.com/api/documents/{i}/",
+            document_url=f"https://paperless.example.com/documents/{i}",
         )
         for i in range(1, 4)
     ]

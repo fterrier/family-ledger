@@ -298,6 +298,17 @@ def test_parse_statement_thousand_separator_in_total() -> None:
     assert stmt.total_due_chf == Decimal("1900.70")
 
 
+def test_parse_statement_credit_total_has_negative_sign() -> None:
+    rows = [
+        ("4435 92X", "X XXXX", "3644 Carte de crédit Cumulus, F Terrier", "", "", ""),
+        ("", "", "Total carte Carte de crédit Cumulus 4435 92XX XXXX 3644", "", "", "50.05 -"),
+    ]
+
+    stmt = _parse_statement(rows)  # type: ignore[arg-type]
+
+    assert stmt.sections[0].total_chf == Decimal("-50.05")
+
+
 # --- _compute_amount unit tests ---
 
 

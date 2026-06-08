@@ -100,7 +100,11 @@ def _parse_rows(
 
 
 def _strip_thousands(s: str) -> Decimal:
-    return Decimal(s.replace("'", "").strip())
+    """Parse a CHF total amount; trailing ' -' means credit (owed to customer → negative)."""
+    normalized = s.replace("'", "").strip()
+    if normalized.endswith("-"):
+        return -Decimal(normalized[:-1].strip())
+    return Decimal(normalized)
 
 
 def _parse_statement(

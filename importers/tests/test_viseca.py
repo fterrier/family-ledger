@@ -433,6 +433,16 @@ def test_execute_transaction_dates_use_value_date(session: Session) -> None:
     assert txn.transaction_date == date(2025, 2, 17)
 
 
+def test_execute_transaction_details_set_as_payee(session: Session) -> None:
+    entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI SUBSCR")]
+
+    _run(session, entries)
+
+    txn = session.scalars(select(Transaction)).one()
+    assert txn.payee == "OPENAI SUBSCR"
+    assert txn.narration is None
+
+
 def test_execute_transaction_amounts_are_negative_for_expenses(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
 

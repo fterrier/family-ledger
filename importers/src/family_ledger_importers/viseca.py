@@ -289,20 +289,6 @@ class VisecaImporter(BaseImporter):
     ) -> ImportResult:
         cards_config: dict[str, str] = config.get("cards") or {}
 
-        if not cards_config:
-            raise ValidationError(
-                code="invalid_config",
-                message="'cards' is required and must map card last-4 digits to account names",
-            )
-
-        def get_account(last4: str) -> str:
-            if last4 not in cards_config:
-                raise ValidationError(
-                    code="unknown_card",
-                    message=f"Card ending in '{last4}' has no account in 'cards' config.",
-                )
-            return cards_config[last4]
-
         unique_accounts = set(cards_config.values())
         account_set = load_account_name_set(ctx.session)
         for acc in unique_accounts:
@@ -322,8 +308,19 @@ class VisecaImporter(BaseImporter):
 
         ctx.ensure_commodity("CHF")
 
-        first_account = next(iter(cards_config.values()))
-        if settings is not None:
+        stmt = _parse_pdf_bytes(file_data)
+
+        missing_cards = [s.card_last4 for s in stmt.sections if s.card_last4 not in cards_config]
+        if missing_cards:
+            cards_str = ", ".join(f"'{c}'" for c in missing_cards)
+            raise ValidationError(
+                code="unknown_card",
+                message=f"Cards ending in {cards_str} have no account in 'cards' config.",
+            )
+
+        first_account = cards_config[stmt.sections[0].card_last4] if stmt.sections else None
+
+        if settings is not None and first_account is not None:
             att_name = ctx.create_attachment(
                 account=first_account,
                 attachment_date=stmt_date,
@@ -341,19 +338,16 @@ class VisecaImporter(BaseImporter):
                     media_type="application/pdf",
                 )
 
-        stmt = _parse_pdf_bytes(file_data)
-
-        preamble_account = get_account(stmt.sections[0].card_last4) if stmt.sections else None
-        if preamble_account:
+        if first_account is not None:
             for entry in stmt.preamble_entries:
-                ctx.create_transaction(_build_transaction(entry, preamble_account))
+                ctx.create_transaction(_build_transaction(entry, first_account))
 
         for section in stmt.sections:
-            card_account = get_account(section.card_last4)
+            card_account = cards_config[section.card_last4]
             for entry in section.entries:
                 ctx.create_transaction(_build_transaction(entry, card_account))
 
-        if stmt.total_due_chf is not None:
+        if stmt.total_due_chf is not None and first_account is not None:
             if len(unique_accounts) == 1:
                 ctx.create_balance_assertion(
                     BalanceAssertionCreate(
@@ -369,7 +363,7 @@ class VisecaImporter(BaseImporter):
                         ctx.create_balance_assertion(
                             BalanceAssertionCreate(
                                 assertion_date=stmt_date,
-                                account=get_account(section.card_last4),
+                                account=cards_config[section.card_last4],
                                 amount=MoneyValue(amount=-section.total_chf, symbol="CHF"),
                                 entity_metadata={"viseca": {}},
                             )

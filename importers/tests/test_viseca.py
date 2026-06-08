@@ -333,13 +333,44 @@ def test_execute_raises_if_account_not_found(session: Session) -> None:
     assert exc_info.value.code == "account_not_found"
 
 
-def test_execute_raises_invalid_config_if_cards_missing(session: Session) -> None:
+def test_execute_raises_unknown_card_if_cards_missing(session: Session) -> None:
     from family_ledger.services.errors import ValidationError
 
+    stmt = _make_stmt([], card_last4="3644")
     with pytest.raises(ValidationError) as exc_info:
-        VisecaImporter().execute(ImportContext(session), {"file": b""}, {})
+        with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+            VisecaImporter().execute(
+                ImportContext(session),
+                {"file": b"fake-pdf", "__filename__file__": FILENAME},
+                {},
+            )
 
-    assert exc_info.value.code == "invalid_config"
+    assert exc_info.value.code == "unknown_card"
+    assert "3644" in exc_info.value.message
+
+
+def test_execute_raises_unknown_card_lists_all_missing(session: Session) -> None:
+    from family_ledger.services.errors import ValidationError
+
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection("3644", [], None),
+            ParsedVisecaSection("5293", [], None),
+        ],
+        total_due_chf=None,
+    )
+    with pytest.raises(ValidationError) as exc_info:
+        with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+            VisecaImporter().execute(
+                ImportContext(session),
+                {"file": b"fake-pdf", "__filename__file__": FILENAME},
+                {},
+            )
+
+    assert exc_info.value.code == "unknown_card"
+    assert "3644" in exc_info.value.message
+    assert "5293" in exc_info.value.message
 
 
 def test_execute_raises_on_unknown_card(session: Session) -> None:

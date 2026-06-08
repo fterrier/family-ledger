@@ -9,6 +9,7 @@ description = "Importer implementations for family-ledger"
 requires-python = ">=3.12"
 dependencies = [
   "beancount>=3.2.0",
+  "camelot-py>=0.11",
   "family-ledger",
   "ibflex>=1.1",
   "mt-940>=4.30,<5.0",
@@ -19,6 +20,7 @@ dependencies = [
 beancount = "family_ledger_importers.beancount:BeancountImporter"
 ibkr = "family_ledger_importers.ibkr:IbkrImporter"
 mt940 = "family_ledger_importers.mt940:Mt940Importer"
+viseca = "family_ledger_importers.viseca:VisecaImporter"
 
 [tool.setuptools.package-dir]
 "" = "src"

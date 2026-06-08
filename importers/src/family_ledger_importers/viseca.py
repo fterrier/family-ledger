@@ -314,7 +314,9 @@ class VisecaImporter(BaseImporter):
 
         stmt = _parse_pdf_bytes(file_data)
 
-        missing_cards = [s.card_last4 for s in stmt.sections if s.card_last4 not in cards_config]
+        missing_cards = sorted(
+            {s.card_last4 for s in stmt.sections if s.card_last4 not in cards_config}
+        )
         if missing_cards:
             cards_str = ", ".join(f"'{c}'" for c in missing_cards)
             raise ValidationError(

@@ -99,10 +99,10 @@ def _run(
 # --- Schema / descriptor tests ---
 
 
-def test_get_schema_requires_cards() -> None:
+def test_get_schema_has_cards_property() -> None:
     schema = VisecaImporter().get_schema()
 
-    assert "cards" in schema["required"]
+    assert "cards" in schema["properties"]
     assert "additionalProperties" in schema["properties"]["cards"]
 
 

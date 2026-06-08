@@ -259,7 +259,6 @@ class VisecaImporter(BaseImporter):
     def get_schema(self) -> dict[str, Any]:
         return {
             "type": "object",
-            "required": ["cards"],
             "properties": {
                 "cards": {
                     "type": "object",
@@ -344,7 +343,7 @@ class VisecaImporter(BaseImporter):
 
         stmt = _parse_pdf_bytes(file_data)
 
-        preamble_account = cards_config.get(stmt.sections[0].card_last4) if stmt.sections else None
+        preamble_account = get_account(stmt.sections[0].card_last4) if stmt.sections else None
         if preamble_account:
             for entry in stmt.preamble_entries:
                 ctx.create_transaction(_build_transaction(entry, preamble_account))

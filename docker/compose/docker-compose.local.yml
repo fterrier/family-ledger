@@ -1,0 +1,4 @@
+services:
+  api:
+    build: ../../
+    image: family-ledger:local

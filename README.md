@@ -83,6 +83,20 @@ docker compose -f docker/compose/docker-compose.yml --env-file docker/compose/.e
 
 Migrations run automatically on startup.
 
+## Building from Source
+
+To run from a local build instead of the published image, add the local override:
+
+```bash
+docker compose \
+  -f docker/compose/docker-compose.yml \
+  -f docker/compose/docker-compose.local.yml \
+  --env-file docker/compose/.env \
+  up --build -d
+```
+
+The override (`docker-compose.local.yml`) sets `build: ../../` and tags the image as `family-ledger:local`.
+
 ## Client Access
 
 ### Google Sheets

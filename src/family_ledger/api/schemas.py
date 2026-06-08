@@ -130,6 +130,7 @@ class AttachmentResource(AttachmentData):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
+    storage_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ListAttachmentsResponse(BaseModel):

@@ -66,9 +66,9 @@ def test_create_attachment_without_url_returns_pending_upload(
         "status": "pending_upload",
         "document_url": None,
         "entity_metadata": {"source": "bank"},
+        "storage_metadata": {},
     }
     assert body["name"].startswith("attachments/att_")
-    assert "storage_metadata" not in body
     assert "storage_backend" not in body
 
 

@@ -99,6 +99,10 @@ def _parse_rows(
     return entries
 
 
+def _strip_thousands(s: str) -> Decimal:
+    return Decimal(s.replace("'", "").strip())
+
+
 def _parse_statement(
     all_rows: list[tuple[str, str, str, str, str, str]],
 ) -> ParsedVisecaStatement:
@@ -108,7 +112,7 @@ def _parse_statement(
     "Total carte" totals, and reads the "Montant dû" grand total.
     """
     preamble: list[ParsedVisecaEntry] = []
-    raw_sections: list[tuple[str, list[ParsedVisecaEntry], Decimal | None]] = []
+    sections: list[ParsedVisecaSection] = []
     total_due_chf: Decimal | None = None
 
     current_card_last4: str | None = None
@@ -141,18 +145,23 @@ def _parse_statement(
         if _CARD_INFO_RE.match(date_col):
             flush_entry()
             if current_card_last4 is not None:
-                raw_sections.append((current_card_last4, current_section_entries, None))
+                sections.append(
+                    ParsedVisecaSection(current_card_last4, current_section_entries, None)
+                )
             current_card_last4 = details[:4]
             current_section_entries = []
         elif not date_col and amount_chf and _TOTAL_CARTE_RE.search(details):
             flush_entry()
             if current_card_last4 is not None:
-                total = Decimal(amount_chf.replace("'", "").strip())
-                raw_sections.append((current_card_last4, current_section_entries, total))
+                sections.append(
+                    ParsedVisecaSection(
+                        current_card_last4, current_section_entries, _strip_thousands(amount_chf)
+                    )
+                )
                 current_card_last4 = None
                 current_section_entries = []
         elif not date_col and amount_chf and _MONTANT_DU_RE.match(details):
-            total_due_chf = Decimal(amount_chf.replace("'", "").strip())
+            total_due_chf = _strip_thousands(amount_chf)
         elif _DATE_PATTERN.match(date_col):
             flush_entry()
             last_value_date = value_date.strip()
@@ -164,11 +173,11 @@ def _parse_statement(
 
     flush_entry()
     if current_card_last4 is not None:
-        raw_sections.append((current_card_last4, current_section_entries, None))
+        sections.append(ParsedVisecaSection(current_card_last4, current_section_entries, None))
 
     return ParsedVisecaStatement(
         preamble_entries=preamble,
-        sections=[ParsedVisecaSection(l4, entries, total) for l4, entries, total in raw_sections],
+        sections=sections,
         total_due_chf=total_due_chf,
     )
 
@@ -295,8 +304,9 @@ class VisecaImporter(BaseImporter):
                 )
             return cards_config[last4]
 
+        unique_accounts = set(cards_config.values())
         account_set = load_account_name_set(ctx.session)
-        for acc in set(cards_config.values()):
+        for acc in unique_accounts:
             if acc not in account_set:
                 raise ValidationError(
                     code="account_not_found",
@@ -313,9 +323,10 @@ class VisecaImporter(BaseImporter):
 
         ctx.ensure_commodity("CHF")
 
+        first_account = next(iter(cards_config.values()))
         if settings is not None:
             att_name = ctx.create_attachment(
-                account=next(iter(cards_config.values())),
+                account=first_account,
                 attachment_date=stmt_date,
                 original_filename=filename,
                 media_type="application/pdf",
@@ -344,13 +355,11 @@ class VisecaImporter(BaseImporter):
                 ctx.create_transaction(_build_transaction(entry, card_account))
 
         if stmt.total_due_chf is not None:
-            all_same_account = len(set(cards_config.values())) == 1
-            if all_same_account:
-                common = next(iter(cards_config.values()))
+            if len(unique_accounts) == 1:
                 ctx.create_balance_assertion(
                     BalanceAssertionCreate(
                         assertion_date=stmt_date,
-                        account=common,
+                        account=first_account,
                         amount=MoneyValue(amount=-stmt.total_due_chf, symbol="CHF"),
                         entity_metadata={"viseca": {}},
                     )

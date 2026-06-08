@@ -55,6 +55,11 @@ def create_attachment(
 ) -> AttachmentResource:
     account_row = resolve_account(session, account)
     status = Attachment.STATUS_STORED if document_url else Attachment.STATUS_PENDING_UPLOAD
+    storage_metadata: dict[str, Any] = {}
+    if document_url is not None:
+        doc_id = paperless.extract_document_id(document_url)
+        if doc_id is not None:
+            storage_metadata["document_id"] = doc_id
     attachment = Attachment(
         name=generate_resource_name("attachments", "att"),
         account=account_row,
@@ -63,10 +68,10 @@ def create_attachment(
         media_type=media_type,
         status=status,
         document_url=document_url,
-        storage_backend="paperless",
+        storage_backend=paperless.BACKEND_NAME,
         storage_deadline_at=utcnow(),
         entity_metadata=entity_metadata,
-        storage_metadata={},
+        storage_metadata=storage_metadata,
     )
     session.add(attachment)
     commit_or_raise(session)
@@ -175,6 +180,12 @@ def update_attachment(
     attachment_row.entity_metadata = entity_metadata
     if document_url is not None:
         attachment_row.status = Attachment.STATUS_STORED
+        doc_id = paperless.extract_document_id(document_url)
+        if doc_id is not None:
+            attachment_row.storage_backend = paperless.BACKEND_NAME
+            metadata = dict(attachment_row.storage_metadata or {})
+            metadata["document_id"] = doc_id
+            attachment_row.storage_metadata = metadata
     commit_or_raise(session)
     session.refresh(attachment_row)
     return serialize_attachment(attachment_row)

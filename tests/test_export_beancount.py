@@ -26,10 +26,18 @@ from family_ledger.scripts.export_beancount import (
     _sync_documents,
     export_beancount,
 )
+from family_ledger.services import paperless as paperless_service
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _mk_paperless_storage_metadata(document_url: str | None) -> dict:
+    if document_url is None:
+        return {}
+    doc_id = paperless_service.extract_document_id(document_url)
+    return {"document_id": doc_id} if doc_id is not None else {}
 
 
 def _mk_account(account_name: str) -> Account:
@@ -294,9 +302,9 @@ def _mk_attachment(
         media_type="application/pdf",
         status="stored",
         document_url=document_url,
-        storage_backend="paperless",
+        storage_backend=paperless_service.BACKEND_NAME,
         entity_metadata=entity_metadata or {},
-        storage_metadata={},
+        storage_metadata=_mk_paperless_storage_metadata(document_url),
     )
     att.account = _mk_account(account_name)
     return att
@@ -538,10 +546,10 @@ def _make_attachment(
         media_type="application/pdf",
         status=status,
         document_url=document_url,
-        storage_backend="paperless",
+        storage_backend=paperless_service.BACKEND_NAME,
         storage_deadline_at=datetime(2026, 6, 1, tzinfo=timezone.utc).replace(tzinfo=None),
         entity_metadata={},
-        storage_metadata={},
+        storage_metadata=_mk_paperless_storage_metadata(document_url),
     )
     att.account = account
     return att
@@ -761,8 +769,8 @@ def test_sync_documents_warns_and_continues_on_unavailable(
         document_url="https://paperless.example.com/api/documents/2/",
     )
 
-    def _dl_side_effect(settings, url):
-        if "1/" in url:
+    def _dl_side_effect(settings, document_id):
+        if document_id == 1:
             raise UnavailableError(code="paperless_unreachable", message="Paperless is unreachable")
         return b"PDF"
 
@@ -778,10 +786,10 @@ def test_sync_documents_warns_and_continues_on_unavailable(
     messages = [r.message for r in caplog.records]
     # Summary line emitted once
     assert sum(1 for m in messages if "Paperless is unreachable" in m and "skipped" in m) == 1
-    # Per-file detail line includes filename, date, account, and download URL
+    # Per-file detail line includes filename, date, account, and document_id
     detail = next(m for m in messages if "fail.pdf" in m and "Assets:Bank" in m)
     assert "2026-05-01" in detail
-    assert "https://paperless.example.com/api/documents/1/download/" in detail
+    assert "document_id=1" in detail
 
 
 def test_sync_documents_emits_single_summary_for_multiple_failures(

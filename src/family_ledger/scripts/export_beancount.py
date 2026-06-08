@@ -127,17 +127,25 @@ def _sync_documents(
 ) -> None:
     documents_dir.mkdir(parents=True, exist_ok=True)
     can_download = settings is not None and settings.paperless_is_configured()
-    skipped: list[tuple[Attachment, UnavailableError]] = []
+    skipped: list[tuple[Attachment, UnavailableError, int]] = []
     for att in attachments:
         dest = documents_dir / att.original_filename
         if dest.exists() and not force:
             continue
-        if can_download and att.document_url is not None:
-            try:
-                content = paperless_service.download_document(settings, att.document_url)  # type: ignore[arg-type]
-                dest.write_bytes(content)
-            except UnavailableError as exc:
-                skipped.append((att, exc))
+        if not can_download:
+            continue
+        document_id = (
+            (att.storage_metadata or {}).get("document_id")
+            if att.storage_backend == paperless_service.BACKEND_NAME
+            else None
+        )
+        if document_id is None:
+            continue
+        try:
+            content = paperless_service.download_document(settings, document_id)  # type: ignore[arg-type]
+            dest.write_bytes(content)
+        except UnavailableError as exc:
+            skipped.append((att, exc, document_id))
 
     if not skipped:
         return
@@ -148,15 +156,14 @@ def _sync_documents(
     if cause:
         summary += f" ({cause})"
     _log.warning(summary)
-    for att, exc in skipped:
-        download_url = att.document_url.rstrip("/") + "/download/"  # type: ignore[union-attr]
+    for att, exc, doc_id in skipped:
         _log.warning(
-            "  %s (%s, %s): %s — GET %s",
+            "  %s (%s, %s): %s — document_id=%s",
             att.original_filename,
             att.attachment_date,
             att.account.account_name,
             exc.message,
-            download_url,
+            doc_id,
         )
 
 

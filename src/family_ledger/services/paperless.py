@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlencode
@@ -12,6 +13,14 @@ from family_ledger.services.errors import UnavailableError
 REQUEST_TIMEOUT_SECONDS = 30.0
 TERMINAL_TASK_STATUSES = {"success", "failure", "revoked"}
 LEGACY_TERMINAL_TASK_STATUSES = {"SUCCESS", "FAILURE", "REVOKED"}
+
+BACKEND_NAME = "paperless"
+_DOCUMENT_ID_RE = re.compile(r"/api/documents/(\d+)/")
+
+
+def extract_document_id(document_url: str) -> int | None:
+    match = _DOCUMENT_ID_RE.search(document_url)
+    return int(match.group(1)) if match else None
 
 
 @dataclass(frozen=True)
@@ -49,7 +58,8 @@ def build_task_url(settings: Settings, task_id: str) -> str:
 
 def build_document_url(settings: Settings, document_id: int) -> str:
     base_url, _token = _require_paperless_settings(settings)
-    return f"{base_url}/api/documents/{document_id}/"
+    external_url = (settings.paperless_external_base_url or base_url).rstrip("/")
+    return f"{external_url}/api/documents/{document_id}/"
 
 
 def upload_document(
@@ -135,8 +145,9 @@ def add_tags_to_document(settings: Settings, document_id: int, tag_ids: list[int
         ) from exc
 
 
-def download_document(settings: Settings, document_url: str) -> bytes:
-    download_url = document_url.rstrip("/") + "/download/"
+def download_document(settings: Settings, document_id: int) -> bytes:
+    base_url, _token = _require_paperless_settings(settings)
+    download_url = f"{base_url}/api/documents/{document_id}/download/"
     try:
         response = httpx.get(
             download_url,

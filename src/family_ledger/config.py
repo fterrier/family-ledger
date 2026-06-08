@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     db_password: str | None = None
     ledger_config_path: Path = Path("config/ledger.yaml")
     paperless_base_url: str | None = None
+    paperless_external_base_url: str | None = None
     paperless_token: str | None = None
     paperless_tag_ids: list[int] = Field(default_factory=list)
     paperless_api_version: int = 10

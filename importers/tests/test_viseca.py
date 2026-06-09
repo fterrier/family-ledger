@@ -545,7 +545,7 @@ def test_execute_creates_balance_assertion_for_single_card(session: Session) -> 
         )
 
     bal = session.scalars(select(BalanceAssertion)).one()
-    assert bal.assertion_date == date(2025, 4, 14)
+    assert bal.assertion_date == date(2025, 4, 15)
     assert bal.amount == Decimal("-20.25")
     assert bal.symbol == "CHF"
 

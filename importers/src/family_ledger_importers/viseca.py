@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -345,10 +345,11 @@ class VisecaImporter(BaseImporter):
                 ctx.create_transaction(_build_transaction(entry, card_account))
 
         if stmt.total_due_chf is not None and first_account is not None:
+            balance_date = stmt_date + timedelta(days=1)
             if len(unique_accounts) == 1:
                 ctx.create_balance_assertion(
                     BalanceAssertionCreate(
-                        assertion_date=stmt_date,
+                        assertion_date=balance_date,
                         account=first_account,
                         amount=MoneyValue(amount=-stmt.total_due_chf, symbol="CHF"),
                         entity_metadata={"viseca": {}},
@@ -359,7 +360,7 @@ class VisecaImporter(BaseImporter):
                     if section.total_chf is not None:
                         ctx.create_balance_assertion(
                             BalanceAssertionCreate(
-                                assertion_date=stmt_date,
+                                assertion_date=balance_date,
                                 account=cards_config[section.card_last4],
                                 amount=MoneyValue(amount=-section.total_chf, symbol="CHF"),
                                 entity_metadata={"viseca": {}},

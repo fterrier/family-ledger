@@ -20,9 +20,7 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.config import Settings
 from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
-from family_ledger.services import attachments as attachment_service
 from family_ledger.services.errors import ValidationError
-from family_ledger_importers.utils import load_account_name_set
 
 _DATE_PATTERN = re.compile(r"^\d\d\.\d\d\.\d\d$")
 _FILENAME_DATE_PATTERN = re.compile(r"visebpp_(\d{8})_")
@@ -294,7 +292,7 @@ class VisecaImporter(BaseImporter):
         cards_config: dict[str, str] = config.get("cards") or {}
 
         unique_accounts = set(cards_config.values())
-        account_set = load_account_name_set(ctx.session)
+        account_set = ctx.load_account_names()
         for acc in unique_accounts:
             if acc not in account_set:
                 raise ValidationError(
@@ -326,23 +324,16 @@ class VisecaImporter(BaseImporter):
 
         first_account = cards_config[stmt.sections[0].card_last4] if stmt.sections else None
 
-        if settings is not None and first_account is not None:
-            att_name = ctx.create_attachment(
+        if first_account is not None:
+            ctx.create_and_upload_attachment(
                 account=first_account,
                 attachment_date=stmt_date,
                 original_filename=filename,
                 media_type="application/pdf",
                 document_url=None,
                 entity_metadata={"viseca": {}},
+                file_data=file_data,
             )
-            if att_name is not None:
-                attachment_service.upload_attachment(
-                    ctx.session,
-                    settings,
-                    attachment_name=att_name,
-                    file_data=file_data,
-                    media_type="application/pdf",
-                )
 
         if first_account is not None:
             for entry in stmt.preamble_entries:

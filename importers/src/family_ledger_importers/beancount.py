@@ -16,7 +16,6 @@ from beancount.core.amount import Amount
 from beancount.core.data import Balance, Close, Document, Open, Pad, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
-from sqlalchemy import select
 
 from family_ledger.api.schemas import (
     AccountCreate,
@@ -31,10 +30,6 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.config import Settings
 from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
-from family_ledger.models import Account, Attachment
-from family_ledger.models import Transaction as TransactionModel
-from family_ledger.services import account_balance as account_balance_service
-from family_ledger.services import attachments as attachments_service
 from family_ledger.services.errors import (
     ConflictError,
     NotFoundError,
@@ -74,9 +69,8 @@ def _extract_zip_flat(data: bytes) -> tuple[dict[str, bytes], set[str]]:
 
 def _import_document_file(
     ctx: ImportContext,
-    settings: Settings,
     *,
-    account_row: Account,
+    account_name: str,
     entry_date: object,
     filename: str,
     doc_bytes: bytes,
@@ -86,43 +80,19 @@ def _import_document_file(
     from datetime import date as date_type
 
     assert isinstance(entry_date, date_type)
-    att_name = ctx.create_attachment(
-        account=account_row.name,
+    ctx.create_and_upload_attachment(
+        account=account_name,
         attachment_date=entry_date,
         original_filename=filename,
         media_type=media_type,
         document_url=None,
         entity_metadata=entity_metadata,
+        file_data=doc_bytes,
     )
-    if att_name is not None:
-        attachments_service.upload_attachment(
-            ctx.session,
-            settings,
-            attachment_name=att_name,
-            file_data=doc_bytes,
-            media_type=media_type,
-        )
-    else:
-        att_row = ctx.session.scalar(
-            select(Attachment).where(
-                Attachment.account_id == account_row.id,
-                Attachment.original_filename == filename,
-                Attachment.attachment_date == entry_date,
-            )
-        )
-        if att_row is not None and att_row.status in Attachment.RETRYABLE_STATUSES:
-            attachments_service.upload_attachment(
-                ctx.session,
-                settings,
-                attachment_name=att_row.name,
-                file_data=doc_bytes,
-                media_type=media_type,
-            )
 
 
 def _import_documents(
     ctx: ImportContext,
-    settings: Settings | None,
     entries: Sequence[object],
     file_map: dict[str, bytes],
 ) -> None:
@@ -132,10 +102,11 @@ def _import_documents(
     if not document_entries:
         return
 
+    skip_file_backed = not ctx.paperless_is_configured()
     file_backed = [
         e for e in document_entries if "document_url" not in _extract_beancount_meta(e.meta or {})
     ]
-    if file_backed and (settings is None or not settings.paperless_is_configured()):
+    if skip_file_backed and file_backed:
         ctx.add_warning(
             f"Paperless not configured; {len(file_backed)} Document directive(s) skipped"
         )
@@ -146,10 +117,8 @@ def _import_documents(
         document_url = meta.pop("document_url", None)
         entity_metadata: dict[str, Any] = {"beancount": meta} if meta else {}
 
-        account_row = ctx.session.scalar(
-            select(Account).where(Account.account_name == entry.account)
-        )
-        if account_row is None:
+        account_name = ctx.get_account_by_name(entry.account)
+        if account_name is None:
             ctx._add_entity_error("attachment", f"{entry.account}: account not in ledger")
             continue
 
@@ -157,7 +126,7 @@ def _import_documents(
             assert isinstance(entry.date, date_type)
             media_type, _ = mimetypes.guess_type(filename)
             ctx.create_attachment(
-                account=account_row.name,
+                account=account_name,
                 attachment_date=entry.date,
                 original_filename=filename,
                 media_type=media_type,
@@ -166,7 +135,7 @@ def _import_documents(
             )
             continue
 
-        if settings is None or not settings.paperless_is_configured():
+        if skip_file_backed:
             continue
 
         doc_bytes = file_map.get(filename.lower())
@@ -178,8 +147,7 @@ def _import_documents(
         try:
             _import_document_file(
                 ctx,
-                settings,
-                account_row=account_row,
+                account_name=account_name,
                 entry_date=entry.date,
                 filename=filename,
                 doc_bytes=doc_bytes,
@@ -426,11 +394,9 @@ class BeancountImporter(BaseImporter):
             if resource_name is not None:
                 account_names[account_name] = resource_name
             else:
-                existing = ctx.session.scalar(
-                    select(Account).where(Account.account_name == payload.account_name)
-                )
+                existing = ctx.get_account_by_name(payload.account_name)
                 if existing is not None:
-                    account_names[account_name] = existing.name
+                    account_names[account_name] = existing
 
         # Commodities
         for symbol in _discover_commodity_symbols(entries):
@@ -527,13 +493,8 @@ class BeancountImporter(BaseImporter):
         # Pre-fetch all already-imported pad native_id prefixes in one query.
         imported_pad_prefixes: set[str] = set()
         if any(isinstance(e, Pad) for e in entries):
-            for sid in ctx.session.scalars(
-                select(TransactionModel.source_native_id).where(
-                    TransactionModel.source_native_id.like("beancount:pad:%")
-                )
-            ).all():
-                if sid:
-                    imported_pad_prefixes.add(sid.rsplit(":", 1)[0] + ":")
+            for sid in ctx.find_source_native_ids("beancount:pad:%"):
+                imported_pad_prefixes.add(sid.rsplit(":", 1)[0] + ":")
 
         for entry in sorted(
             (e for e in entries if isinstance(e, Pad)),
@@ -550,9 +511,7 @@ class BeancountImporter(BaseImporter):
                 continue
 
             try:
-                pad_response = account_balance_service.compute_pad(
-                    ctx.session, account_names[entry.account], entry.date
-                )
+                pad_response = ctx.compute_pad(account_names[entry.account], entry.date)
             except Exception as exc:
                 ctx._add_entity_error("pad_transaction", f"{entry.date} pad {entry.account}: {exc}")
                 continue
@@ -589,6 +548,6 @@ class BeancountImporter(BaseImporter):
                 )
                 ctx.create_pad_transaction(pad_payload)
 
-        _import_documents(ctx, settings, entries, file_map)
+        _import_documents(ctx, entries, file_map)
 
         return ctx.result

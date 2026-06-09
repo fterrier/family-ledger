@@ -123,5 +123,5 @@ def execute_import(
     importer = importer_cls()
     stored_config = _load_stored_config(session, plugin_name)
     merged = _resolve_importer_config(stored_config, config_override, importer.get_schema())
-    ctx = ImportContext(session)
+    ctx = ImportContext(session, settings)
     return importer.execute(ctx, files, merged, settings)

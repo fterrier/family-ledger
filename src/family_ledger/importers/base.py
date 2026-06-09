@@ -6,12 +6,13 @@ from datetime import date
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
     AccountCreate,
     BalanceAssertionCreate,
     CommodityCreate,
+    PadResponse,
     PriceCreate,
     TransactionNormalizeData,
 )
@@ -19,7 +20,9 @@ from family_ledger.config import Settings
 from family_ledger.importers.result import EntityCounts as EntityCounts  # noqa: F401
 from family_ledger.importers.result import EntityErrors as EntityErrors  # noqa: F401
 from family_ledger.importers.result import ImportResult as ImportResult  # noqa: F401
-from family_ledger.models import Commodity
+from family_ledger.models import Account, Attachment, Commodity
+from family_ledger.models import Transaction as TransactionModel
+from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import attachments as attachments_service
 from family_ledger.services import ledger as ledger_service
 from family_ledger.services.errors import ConflictError
@@ -35,8 +38,9 @@ class ImportContext:
     always populated so the Sheets incremental sync receives the correct resource names.
     """
 
-    def __init__(self, session: Session) -> None:
+    def __init__(self, session: Session, settings: Settings | None = None) -> None:
         self._session = session
+        self._settings = settings
         self._result = ImportResult()
         self._seen_commodity_symbols: set[str] = set()
 
@@ -152,6 +156,91 @@ class ImportContext:
                 entity_metadata=entity_metadata,
             ),
         )
+
+    def create_and_upload_attachment(
+        self,
+        *,
+        account: str,
+        attachment_date: date,
+        original_filename: str,
+        media_type: str | None,
+        document_url: str | None,
+        entity_metadata: dict[str, Any],
+        file_data: bytes | None = None,
+        title: str | None = None,
+    ) -> str | None:
+        """Create attachment and upload file data if settings are configured.
+
+        On duplicate, retries the upload if the existing attachment is in a retryable
+        failed state. Returns the resource name if created, None if duplicate.
+        """
+        att_name = self.create_attachment(
+            account=account,
+            attachment_date=attachment_date,
+            original_filename=original_filename,
+            media_type=media_type,
+            document_url=document_url,
+            entity_metadata=entity_metadata,
+        )
+        if file_data is None or self._settings is None:
+            return att_name
+        upload_name = att_name
+        if upload_name is None:
+            att_row = self._session.scalar(
+                select(Attachment)
+                .options(selectinload(Attachment.account))
+                .join(Attachment.account)
+                .where(
+                    Account.name == account,
+                    Attachment.original_filename == original_filename,
+                    Attachment.attachment_date == attachment_date,
+                )
+            )
+            if att_row is not None and att_row.status in Attachment.RETRYABLE_STATUSES:
+                upload_name = att_row.name
+        if upload_name is not None:
+            attachments_service.upload_attachment(
+                self._session,
+                self._settings,
+                attachment_name=upload_name,
+                file_data=file_data,
+                media_type=media_type,
+                title=title,
+            )
+        return att_name
+
+    def paperless_is_configured(self) -> bool:
+        """Return True if Paperless-ngx upload is configured in settings."""
+        return self._settings is not None and self._settings.paperless_is_configured()
+
+    def load_account_names(self) -> set[str]:
+        """Return the set of all account resource names."""
+        return set(self._session.scalars(select(Account.name)).all())
+
+    def get_account_by_name(self, account_name: str) -> str | None:
+        """Look up an account resource name by its ledger account name (e.g. 'Assets:Cash').
+
+        Returns the resource name (e.g. 'accounts/cash') or None if not found.
+        """
+        return self._session.scalar(
+            select(Account.name).where(Account.account_name == account_name)
+        )
+
+    def find_source_native_ids(self, pattern: str) -> set[str]:
+        """Return source_native_id values for transactions matching the given LIKE pattern."""
+        return {
+            sid
+            for sid in self._session.scalars(
+                select(TransactionModel.source_native_id).where(
+                    TransactionModel.source_native_id.like(pattern)
+                )
+            ).all()
+            if sid is not None
+        }
+
+    def compute_pad(self, account_name: str, pad_date: date) -> PadResponse:
+        """Compute PAD balancing transaction amounts for the given account and date."""
+        return account_balance_service.compute_pad(self._session, account_name, pad_date)
 
     def ensure_commodity(self, symbol: str) -> bool:
         """Ensure a commodity exists. Returns True if newly created, False if it already existed."""

@@ -592,7 +592,7 @@ def _run_two_file(
     files: dict[str, bytes] = {"ledger_file": ledger_text.encode()}
     if documents_zip is not None:
         files["documents_file"] = documents_zip
-    return BeancountImporter().execute(ImportContext(session), files, {}, settings)
+    return BeancountImporter().execute(ImportContext(session, settings), files, {}, settings)
 
 
 def test_beancount_importer_file_descriptors() -> None:

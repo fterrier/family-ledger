@@ -482,12 +482,13 @@ def test_execute_creates_attachment_when_settings_provided(session: Session) -> 
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
     stmt = _make_stmt(entries)
     settings = MagicMock()
+    settings.paperless_is_configured.return_value = True
 
     with (
         patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt),
-        patch("family_ledger_importers.viseca.attachment_service.upload_attachment"),
+        patch("family_ledger.importers.base.attachments_service.upload_attachment"),
     ):
-        ctx = ImportContext(session)
+        ctx = ImportContext(session, settings)
         result = VisecaImporter().execute(
             ctx,
             {"file": b"fake-pdf", "__filename__file__": FILENAME},
@@ -503,13 +504,14 @@ def test_execute_statement_date_parsed_from_filename(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
     stmt = _make_stmt(entries)
     settings = MagicMock()
+    settings.paperless_is_configured.return_value = True
 
     with (
         patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt),
-        patch("family_ledger_importers.viseca.attachment_service.upload_attachment"),
+        patch("family_ledger.importers.base.attachments_service.upload_attachment"),
     ):
         VisecaImporter().execute(
-            ImportContext(session),
+            ImportContext(session, settings),
             {"file": b"fake-pdf", "__filename__file__": FILENAME},
             VISECA_CONFIG,
             settings,

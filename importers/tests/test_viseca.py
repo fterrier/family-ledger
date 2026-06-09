@@ -552,10 +552,33 @@ def test_execute_creates_balance_assertion_for_single_card(session: Session) -> 
 
 def test_execute_no_balance_assertion_when_total_absent(session: Session) -> None:
     entries = [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")]
-    _run(session, entries)  # _make_stmt always uses total_due_chf=None
+    _run(session, entries)  # _make_stmt has total_due_chf=None and section.total_chf=None
 
     count = session.scalar(select(func.count()).select_from(BalanceAssertion))
     assert count == 0
+
+
+def test_execute_balance_assertion_falls_back_to_section_total(session: Session) -> None:
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection(
+                "0000", [ParsedVisecaEntry("17.02.25", "20.25", "OPENAI")], Decimal("20.25")
+            )
+        ],
+        total_due_chf=None,  # "Montant dû" row absent (some PDF layouts)
+    )
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            VISECA_CONFIG,
+        )
+
+    bal = session.scalars(select(BalanceAssertion)).one()
+    assert bal.assertion_date == date(2025, 4, 15)
+    assert bal.amount == Decimal("-20.25")
 
 
 def test_execute_single_balance_assertion_when_cards_share_account(session: Session) -> None:

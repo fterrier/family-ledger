@@ -344,17 +344,25 @@ class VisecaImporter(BaseImporter):
             for entry in section.entries:
                 ctx.create_transaction(_build_transaction(entry, card_account))
 
-        if stmt.total_due_chf is not None and first_account is not None:
+        if first_account is not None:
             balance_date = stmt_date + timedelta(days=1)
             if len(unique_accounts) == 1:
-                ctx.create_balance_assertion(
-                    BalanceAssertionCreate(
-                        assertion_date=balance_date,
-                        account=first_account,
-                        amount=MoneyValue(amount=-stmt.total_due_chf, symbol="CHF"),
-                        entity_metadata={"viseca": {}},
+                balance_amount = stmt.total_due_chf
+                if (
+                    balance_amount is None
+                    and stmt.sections
+                    and stmt.sections[0].total_chf is not None
+                ):
+                    balance_amount = stmt.sections[0].total_chf
+                if balance_amount is not None:
+                    ctx.create_balance_assertion(
+                        BalanceAssertionCreate(
+                            assertion_date=balance_date,
+                            account=first_account,
+                            amount=MoneyValue(amount=-balance_amount, symbol="CHF"),
+                            entity_metadata={"viseca": {}},
+                        )
                     )
-                )
             else:
                 for section in stmt.sections:
                     if section.total_chf is not None:

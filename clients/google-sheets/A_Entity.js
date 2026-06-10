@@ -13,13 +13,24 @@ function normalizeEntityDate_(value) {
   return String(value || '').trim();
 }
 
+function getDateHeader_(sheetConfig) {
+  return sheetConfig.headers.find(function(h) {
+    return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
+  });
+}
+
+function applySpanValidation_(sheet, sheetConfig, span) {
+  refreshAccountValidation_(sheet, sheetConfig, span);
+  if (sheetConfig.issueHeader) {
+    managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
+  }
+}
+
 function buildEntityAnchors_(sheet, sheetConfig) {
   const lastRow = sheet.getLastRow();
   const anchors = [];
   if (lastRow <= 1) return anchors;
-  const dateHeader = sheetConfig.headers.find(function(h) {
-    return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
-  });
+  const dateHeader = getDateHeader_(sheetConfig);
   if (!dateHeader) return anchors;
   const rows = managedSheet_(sheet, sheetConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', dateHeader]);
   let current = null;
@@ -39,14 +50,17 @@ function buildEntityAnchors_(sheet, sheetConfig) {
   return anchors;
 }
 
-function findEntityInsertionRow_(sheet, sheetConfig, date) {
+function findInsertionRowFromAnchors_(anchors, date) {
   const normalizedDate = normalizeEntityDate_(date);
-  const anchors = buildEntityAnchors_(sheet, sheetConfig);
-  for (let index = 0; index < anchors.length; index += 1) {
-    if (anchors[index].entityDate > normalizedDate) return anchors[index].span.start;
+  for (let i = 0; i < anchors.length; i++) {
+    if (anchors[i].entityDate > normalizedDate) return anchors[i].span.start;
   }
-  const lastAnchor = anchors[anchors.length - 1];
-  return lastAnchor ? lastAnchor.span.start + lastAnchor.span.count : 2;
+  const last = anchors[anchors.length - 1];
+  return last ? last.span.start + last.span.count : 2;
+}
+
+function findEntityInsertionRow_(sheet, sheetConfig, date) {
+  return findInsertionRowFromAnchors_(buildEntityAnchors_(sheet, sheetConfig), date);
 }
 
 function entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, newDate) {
@@ -57,7 +71,7 @@ function entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, ne
 }
 
 // Inserts N new entities into the sheet in one batch.
-// entityGroups: [{ rows: [...], entityDate: 'yyyy-MM-dd'|null }, ...] sorted ascending.
+// entityGroups: [{ rows: [...], entityDate: 'yyyy-MM-dd'|null }, ...] (any order).
 // Returns an array of spans (one per date-range group), so _commitToSheet_ can capture _span.
 function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
   if (!entityGroups || entityGroups.length === 0) return [];
@@ -71,43 +85,34 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
     const insertRow = Math.max(sheet.getLastRow(), 1) + 1;
     const span = resizeContiguousRows_(sheet, { start: insertRow, count: 0 }, allRows.length);
     managedSheet_(sheet, sheetConfig).setRows(span, allRows);
-    refreshAccountValidation_(sheet, sheetConfig, span);
-    if (sheetConfig.issueHeader) {
-      managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
-    }
+    applySpanValidation_(sheet, sheetConfig, span);
     return [span];
   }
 
+  // Sort ascending so earlier groups insert first; offset accounting then works top-to-bottom.
+  entityGroups = entityGroups.slice().sort(function(a, b) {
+    return (a.entityDate || '') < (b.entityDate || '') ? -1 : 1;
+  });
+
   // ONE anchor read for the entire batch.
   const anchors = buildEntityAnchors_(sheet, sheetConfig);
+  const insertionRows = entityGroups.map(function(g) {
+    return findInsertionRowFromAnchors_(anchors, g.entityDate);
+  });
 
-  function originalInsertionRow(date) {
-    const d = normalizeEntityDate_(date);
-    for (let i = 0; i < anchors.length; i++) {
-      if (anchors[i].entityDate > d) return anchors[i].span.start;
-    }
-    const last = anchors[anchors.length - 1];
-    return last ? last.span.start + last.span.count : 2;
-  }
-
-  // Process groups in order (earliest first); track cumulative row offset from prior insertions.
+  // Process clusters sharing the same insertion row; track cumulative offset from prior inserts.
   let offset = 0;
   let i = 0;
   while (i < entityGroups.length) {
-    const baseRow = originalInsertionRow(entityGroups[i].entityDate);
     let j = i + 1;
-    while (j < entityGroups.length &&
-           originalInsertionRow(entityGroups[j].entityDate) === baseRow) j++;
+    while (j < entityGroups.length && insertionRows[j] === insertionRows[i]) j++;
     const allRows = [];
     for (let k = i; k < j; k++) {
       entityGroups[k].rows.forEach(function(r) { allRows.push(r); });
     }
-    const span = resizeContiguousRows_(sheet, { start: baseRow + offset, count: 0 }, allRows.length);
+    const span = resizeContiguousRows_(sheet, { start: insertionRows[i] + offset, count: 0 }, allRows.length);
     managedSheet_(sheet, sheetConfig).setRows(span, allRows);
-    refreshAccountValidation_(sheet, sheetConfig, span);
-    if (sheetConfig.issueHeader) {
-      managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
-    }
+    applySpanValidation_(sheet, sheetConfig, span);
     spans.push(span);
     offset += allRows.length;
     i = j;
@@ -121,9 +126,7 @@ function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
     resizeContiguousRows_(sheet, existingSpan, 0);
     return null;
   }
-  const dateHeader = sheetConfig.headers.find(function(h) {
-    return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
-  });
+  const dateHeader = getDateHeader_(sheetConfig);
   const needsReposition = !!dateHeader &&
     entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, rows[0][dateHeader]);
   let targetSpan;
@@ -141,10 +144,7 @@ function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
   // VLOOKUP formula and validation from the prior write. Only re-apply when rows
   // were added, removed, or repositioned.
   if (existingSpan.count !== rows.length || needsReposition) {
-    refreshAccountValidation_(sheet, sheetConfig, targetSpan);
-    if (sheetConfig.issueHeader) {
-      managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
-    }
+    applySpanValidation_(sheet, sheetConfig, targetSpan);
   }
   return targetSpan;
 }
@@ -175,10 +175,8 @@ class Entity {
     if (this._span) {
       this._span = applyEntityUpdateToSheet_(sheet, sheetConfig, this._span, rows);
     } else {
-      const dateHeader = sheetConfig.headers.find(function(h) {
-        return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
-      });
-      const entityDate = dateHeader && rows.length > 0 ? normalizeEntityDate_(rows[0][dateHeader]) : null;
+      const dateHeader = getDateHeader_(sheetConfig);
+      const entityDate = dateHeader ? normalizeEntityDate_(rows[0][dateHeader]) : null;
       const spans = batchInsertEntitiesIntoSheet_([{ rows: rows, entityDate: entityDate }], sheet, sheetConfig);
       this._span = spans.length > 0 ? spans[0] : null;
     }

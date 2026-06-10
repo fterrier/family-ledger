@@ -167,9 +167,7 @@ function syncLedgerAfterImport(importResult) {
       if (!names || names.length === 0) return;
       const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_REGISTRY[sheetKey].name);
       const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[sheetKey];
-      const dateHeader = sheetConfig.headers.find(function(h) {
-        return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
-      });
+      const dateHeader = getDateHeader_(sheetConfig);
       perf.wrap('sheet.insert_' + resourceType, function() {
         // Phase 1: load all entity data (N GETs — ~2s for 10 entities; acceptable)
         const context = EntityClass.loadContext_();
@@ -185,13 +183,8 @@ function syncLedgerAfterImport(importResult) {
             entityDate: dateHeader ? normalizeEntityDate_(rows[0][dateHeader]) : null,
           });
         });
-        // Phase 2: sort by date and batch-insert (one anchor read for all N)
+        // Phase 2: batch-insert (one anchor read for all N; batchInsertEntitiesIntoSheet_ sorts internally)
         if (entityGroups.length) {
-          if (entityGroups.some(function(g) { return !!g.entityDate; })) {
-            entityGroups.sort(function(a, b) {
-              return (a.entityDate || '') < (b.entityDate || '') ? -1 : 1;
-            });
-          }
           batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig);
           insertedCount += entityGroups.length;
         }

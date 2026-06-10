@@ -406,31 +406,32 @@ test('syncLedgerAfterImport falls back to syncLedger when total exceeds INCREMEN
   assert.equal(toasts.length, 0, 'no incremental toast when falling back');
 });
 
-test('syncLedgerAfterImport calls loadFromApi and insertIntoSheet for each created resource', () => {
+test('syncLedgerAfterImport calls batchInsertEntitiesIntoSheet_ once with all created entities', () => {
   const { sandbox, toasts } = makeSyncAfterImportSandbox();
   sandbox.syncLedger = function() { throw new Error('must not call syncLedger'); };
 
-  const insertCalls = [];
-  const fakeEntity = {
-    insertIntoSheet(sheet) { insertCalls.push({ sheet: sheet.name }); },
+  const batchCalls = [];
+  sandbox.batchInsertEntitiesIntoSheet_ = function(groups, sheet) {
+    batchCalls.push({ count: groups.length, sheet: sheet.name });
+    return [];
   };
   const Transaction = sandbox.ENTITY_CLASS_REGISTRY['transactions'];
-  Transaction.loadFromApi = function(name) {
-    insertCalls.push({ type: 'loadFromApi', name });
-    return fakeEntity;
+  Transaction.loadContext_ = function() { return {}; };
+  Transaction.fromApi_ = function(apiData) {
+    return { toRows_() { return [{ resource_name: apiData.name, transaction_date: '2026-04-19' }]; } };
+  };
+  sandbox.apiFetchJson_ = function(_method, path) {
+    const name = path.replace(/^\/transactions\//, 'transactions/');
+    return { name: name, transaction_date: '2026-04-19', postings: [] };
   };
 
   sandbox.syncLedgerAfterImport({
     created_resources: { transactions: ['transactions/txn_1', 'transactions/txn_2'] },
   });
 
-  const loads = insertCalls.filter(function(c) { return c.type === 'loadFromApi'; });
-  const inserts = insertCalls.filter(function(c) { return c.sheet; });
-  assert.equal(loads.length, 2);
-  assert.equal(loads[0].name, 'transactions/txn_1');
-  assert.equal(loads[1].name, 'transactions/txn_2');
-  assert.equal(inserts.length, 2);
-  assert.equal(inserts[0].sheet, 'Transactions');
+  assert.equal(batchCalls.length, 1, 'batchInsertEntitiesIntoSheet_ must be called once for the whole batch');
+  assert.equal(batchCalls[0].count, 2, 'both entities must be passed in a single call');
+  assert.equal(batchCalls[0].sheet, 'Transactions');
   assert.equal(toasts.length, 1);
   assert.equal(toasts[0].title, 'Import Sync Complete');
   assert.ok(toasts[0].message.includes('2 entities'), 'toast should report count');
@@ -440,25 +441,35 @@ test('syncLedgerAfterImport handles mixed resource types', () => {
   const { sandbox, toasts } = makeSyncAfterImportSandbox();
   sandbox.syncLedger = function() { throw new Error('must not call syncLedger'); };
 
-  const insertCalls = [];
-  function makeFakeClass(sheetName) {
-    const fakeEntity = { insertIntoSheet(sheet) { insertCalls.push({ type: 'insert', sheet: sheet.name }); } };
-    return { loadFromApi(name) { insertCalls.push({ type: 'load', name }); return fakeEntity; } };
+  const batchCalls = [];
+  sandbox.batchInsertEntitiesIntoSheet_ = function(groups, sheet) {
+    batchCalls.push({ count: groups.length, sheet: sheet.name });
+    return [];
+  };
+  sandbox.apiFetchJson_ = function(_method, path) {
+    return { name: path.slice(1), transaction_date: '2026-04-19', assertion_date: '2026-04-30', postings: [] };
+  };
+  function makeFakeEntityClass(sheetKey) {
+    const RealClass = sandbox.ENTITY_CLASS_REGISTRY[sheetKey];
+    RealClass.loadContext_ = function() { return {}; };
+    RealClass.fromApi_ = function(apiData) {
+      return { toRows_() { return [{ resource_name: apiData.name }]; } };
+    };
   }
-  sandbox.ENTITY_CLASS_REGISTRY['transactions'] = makeFakeClass('Transactions');
-  sandbox.ENTITY_CLASS_REGISTRY['balances'] = makeFakeClass('Balances');
+  makeFakeEntityClass('transactions');
+  makeFakeEntityClass('balances');
 
   sandbox.syncLedgerAfterImport({
     created_resources: {
       transactions: ['transactions/txn_1'],
-      balance_assertions: ['balance_assertions/ba_1'],
+      balance_assertions: ['balanceAssertions/ba_1'],
     },
   });
 
-  assert.equal(insertCalls.filter(function(c) { return c.type === 'load'; }).length, 2);
-  const insertedSheets = insertCalls.filter(function(c) { return c.type === 'insert'; }).map(function(c) { return c.sheet; });
-  assert.ok(insertedSheets.includes('Transactions'));
-  assert.ok(insertedSheets.includes('Balances'));
+  const sheets = batchCalls.map(function(c) { return c.sheet; });
+  assert.ok(sheets.includes('Transactions'));
+  assert.ok(sheets.includes('Balances'));
+  assert.equal(batchCalls.length, 2, 'one batch call per resource type');
   assert.equal(toasts.length, 1);
 });
 

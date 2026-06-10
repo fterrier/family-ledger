@@ -166,11 +166,35 @@ function syncLedgerAfterImport(importResult) {
       const names = createdResources[resourceType];
       if (!names || names.length === 0) return;
       const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_REGISTRY[sheetKey].name);
+      const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[sheetKey];
+      const dateHeader = sheetConfig.headers.find(function(h) {
+        return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
+      });
       perf.wrap('sheet.insert_' + resourceType, function() {
+        // Phase 1: load all entity data (N GETs — ~2s for 10 entities; acceptable)
+        const context = EntityClass.loadContext_();
+        const resetFields = EntityClass.RESET_ON_SAVE_FIELDS || [];
+        const entityGroups = [];
         names.forEach(function(name) {
-          EntityClass.loadFromApi(name).insertIntoSheet(sheet);
-          insertedCount += 1;
+          const apiData = apiFetchJson_('get', EntityClass.apiPath_(name));
+          const rows = EntityClass.fromApi_(apiData, context).toRows_();
+          if (!rows || rows.length === 0) return;
+          rows.forEach(function(row) { resetFields.forEach(function(f) { row[f] = ''; }); });
+          entityGroups.push({
+            rows: rows,
+            entityDate: dateHeader ? normalizeEntityDate_(rows[0][dateHeader]) : null,
+          });
         });
+        // Phase 2: sort by date and batch-insert (one anchor read for all N)
+        if (entityGroups.length) {
+          if (entityGroups.some(function(g) { return !!g.entityDate; })) {
+            entityGroups.sort(function(a, b) {
+              return (a.entityDate || '') < (b.entityDate || '') ? -1 : 1;
+            });
+          }
+          batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig);
+          insertedCount += entityGroups.length;
+        }
       }, names.length + ' entities');
     });
 

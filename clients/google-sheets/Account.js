@@ -56,9 +56,8 @@ class Account extends Entity {
 
   static loadContext_() { return {}; }
 
-  static writeToSheet_(sheet, existingSpan, rows) {
+  static afterSheetWrite_() {
     invalidateAccountOptionsCache_();
-    return super.writeToSheet_(sheet, existingSpan, rows);
   }
 
   static fromApi_(apiEntity, context) {

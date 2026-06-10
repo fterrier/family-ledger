@@ -100,7 +100,9 @@ function deleteEntity(entity) {
   return runUserAction_('Delete ' + EntityClass.ENTITY_LABEL, function() {
     apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
     const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
-    EntityClass.writeToSheet_(sheet, entity.span, []);
+    const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
+    applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
+    EntityClass.afterSheetWrite_();
     const context = entity.context || EntityClass.loadContext_();
     refreshDoctorIssueSheets_(context.accountResourceToDisplayName || {});
     SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' deleted.', 'Family Ledger', 5);

@@ -90,8 +90,12 @@ function makeSaveEntitySandbox() {
   const Transaction = getTransaction(sandbox);
   const rowStore = new Map();
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
-  Transaction.writeToSheet_ = function(_sheet, _existingSpan, rows) {
+  sandbox.applyEntityUpdateToSheet_ = function(_sheet, _config, _span, rows) {
     return { start: 2, count: rows.length };
+  };
+  sandbox.batchInsertEntitiesIntoSheet_ = function(groups) {
+    const totalRows = groups.reduce(function(n, g) { return n + g.rows.length; }, 0);
+    return [{ start: 2, count: totalRows }];
   };
   return { sandbox, Transaction, fakeSheet };
 }
@@ -151,10 +155,10 @@ test('Entity.save() passes correct payload to updateViaApi_', () => {
   assert.ok(Array.isArray(capturedPayload.postings));
 });
 
-test('Entity.save() returns span from writeToSheet_', () => {
+test('Entity.save() returns span from _commitToSheet_', () => {
   const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
   Transaction.updateViaApi_ = function() { return SAMPLE_API; };
-  Transaction.writeToSheet_ = function() { return { start: 5, count: 2 }; };
+  sandbox.applyEntityUpdateToSheet_ = function() { return { start: 5, count: 2 }; };
 
   const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
   entity._span = { start: 2, count: 1 };
@@ -197,11 +201,11 @@ test('Entity.save() throws when toRows_ returns empty array', () => {
   assert.throws(() => entity.save(fakeSheet), /could not be rendered/);
 });
 
-test('Entity.save() clears RESET_ON_SAVE_FIELDS on rows before writeToSheet_', () => {
+test('Entity.save() clears RESET_ON_SAVE_FIELDS on rows before _commitToSheet_', () => {
   const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
   Transaction.updateViaApi_ = function() { return SAMPLE_API; };
   let capturedRows = null;
-  Transaction.writeToSheet_ = function(_sheet, _existingSpan, rows) {
+  sandbox.applyEntityUpdateToSheet_ = function(_sheet, _config, _span, rows) {
     capturedRows = rows;
     return { start: 2, count: rows.length };
   };
@@ -218,9 +222,9 @@ test('Entity.save() clears RESET_ON_SAVE_FIELDS on rows before writeToSheet_', (
 
 test('Entity.save() returns null when stale generation detected after API call', () => {
   const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
-  let writeToSheetCalled = false;
-  Transaction.writeToSheet_ = function() {
-    writeToSheetCalled = true;
+  let commitCalled = false;
+  sandbox.applyEntityUpdateToSheet_ = function() {
+    commitCalled = true;
     return { start: 2, count: 1 };
   };
   Transaction.updateViaApi_ = function() {
@@ -234,7 +238,7 @@ test('Entity.save() returns null when stale generation detected after API call',
   const result = entity.save(fakeSheet);
 
   assert.equal(result, null);
-  assert.equal(writeToSheetCalled, false);
+  assert.equal(commitCalled, false);
 });
 
 test('Entity.save() skips generation check when entity has no name', () => {
@@ -245,54 +249,6 @@ test('Entity.save() skips generation check when entity has no name', () => {
   const result = entity.save(fakeSheet);
 
   assert.notEqual(result, null);
-});
-
-// --- Entity.insertIntoSheet() ---
-
-test('Entity.insertIntoSheet() writes rows without making any API call', () => {
-  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
-  let apiCalled = false;
-  Transaction.createViaApi_ = function() { apiCalled = true; return SAMPLE_API; };
-  Transaction.updateViaApi_ = function() { apiCalled = true; return SAMPLE_API; };
-  let capturedSpan = null;
-  Transaction.writeToSheet_ = function(_sheet, existingSpan, rows) {
-    capturedSpan = existingSpan;
-    return { start: 2, count: rows.length };
-  };
-
-  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
-  entity._span = { start: 5, count: 1 };
-  entity.insertIntoSheet(fakeSheet);
-
-  assert.equal(apiCalled, false, 'insertIntoSheet must not call any API');
-  assert.equal(capturedSpan, null, 'insertIntoSheet must pass null span so writeToSheet_ inserts as new row');
-});
-
-test('Entity.insertIntoSheet() returns the span from writeToSheet_', () => {
-  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
-  Transaction.writeToSheet_ = function() { return { start: 7, count: 2 }; };
-
-  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
-  const result = entity.insertIntoSheet(fakeSheet);
-
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 7, count: 2 });
-});
-
-test('Entity.insertIntoSheet() clears RESET_ON_SAVE_FIELDS before writeToSheet_', () => {
-  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
-  let capturedRows = null;
-  Transaction.writeToSheet_ = function(_sheet, _span, rows) {
-    capturedRows = rows;
-    return { start: 2, count: rows.length };
-  };
-
-  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
-  entity.toRows_ = function() {
-    return [{ resource_name: 'transactions/txn_1', split_off_amount: 'should_be_cleared' }];
-  };
-  entity.insertIntoSheet(fakeSheet);
-
-  assert.equal(capturedRows[0].split_off_amount, '');
 });
 
 // --- Entity.loadFromApi() ---
@@ -423,7 +379,7 @@ test('findEntityInsertionRow_ inserts before first greater date and after same-d
   assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-22'), 6);
 });
 
-// --- applyEntityResponseToSheet_ ---
+// --- batchInsertEntitiesIntoSheet_ (new insert) / applyEntityUpdateToSheet_ (existing) ---
 
 function makeReplacementRows_(sandbox, overrides) {
   overrides = overrides || {};
@@ -435,7 +391,7 @@ function makeReplacementRows_(sandbox, overrides) {
   return rows;
 }
 
-test('applyEntityResponseToSheet_ inserts new entity mid-sheet at date-sorted position', () => {
+test('batchInsertEntitiesIntoSheet_ inserts new entity mid-sheet at date-sorted position', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
@@ -446,14 +402,17 @@ test('applyEntityResponseToSheet_ inserts new entity mid-sheet at date-sorted po
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-20', name: 'transactions/txn_new' } });
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+  const spans = sandbox.batchInsertEntitiesIntoSheet_(
+    [{ rows: replacementRows, entityDate: sandbox.normalizeEntityDate_(replacementRows[0].transaction_date) }],
+    fakeSheet, txConfig
+  );
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(spans[0])), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
 });
 
-test('applyEntityResponseToSheet_ appends new entity when date is after all existing', () => {
+test('batchInsertEntitiesIntoSheet_ appends new entity when date is after all existing', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_a', transaction_date: '2026-04-19', payee: 'A' }],
@@ -463,13 +422,16 @@ test('applyEntityResponseToSheet_ appends new entity when date is after all exis
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-25', name: 'transactions/txn_new' } });
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+  const spans = sandbox.batchInsertEntitiesIntoSheet_(
+    [{ rows: replacementRows, entityDate: sandbox.normalizeEntityDate_(replacementRows[0].transaction_date) }],
+    fakeSheet, txConfig
+  );
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(spans[0])), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_new');
 });
 
-test('applyEntityResponseToSheet_ writes to row 2 when sheet is empty', () => {
+test('batchInsertEntitiesIntoSheet_ writes to row 2 when sheet is empty', () => {
   const operations = [];
   const rowStore = new Map();
   const { sandbox } = loadCode();
@@ -477,13 +439,16 @@ test('applyEntityResponseToSheet_ writes to row 2 when sheet is empty', () => {
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox);
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, null, replacementRows);
+  const spans = sandbox.batchInsertEntitiesIntoSheet_(
+    [{ rows: replacementRows, entityDate: sandbox.normalizeEntityDate_(replacementRows[0].transaction_date) }],
+    fakeSheet, txConfig
+  );
 
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(spans[0])), { start: 2, count: 1 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
 });
 
-test('applyEntityResponseToSheet_ deletes excess rows when posting count decreases', () => {
+test('applyEntityUpdateToSheet_ deletes excess rows when posting count decreases', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
@@ -499,7 +464,7 @@ test('applyEntityResponseToSheet_ deletes excess rows when posting count decreas
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox);
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 2 }, replacementRows);
+  const result = sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 2, count: 2 }, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 1 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
@@ -508,7 +473,7 @@ test('applyEntityResponseToSheet_ deletes excess rows when posting count decreas
   assert.equal(deleteOps.length, 1);
 });
 
-test('applyEntityResponseToSheet_ inserts rows when posting count increases', () => {
+test('applyEntityUpdateToSheet_ inserts rows when posting count increases', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros',
@@ -531,7 +496,7 @@ test('applyEntityResponseToSheet_ inserts rows when posting count increases', ()
   });
   replacementRows.forEach(function(row) { row.split_off_amount = ''; });
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+  const result = sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 2, count: 2 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_1');
@@ -541,7 +506,7 @@ test('applyEntityResponseToSheet_ inserts rows when posting count increases', ()
   assert.equal(insertOps.length, 1);
 });
 
-test('applyEntityResponseToSheet_ updates rows in-place when span count matches', () => {
+test('applyEntityUpdateToSheet_ updates rows in-place when span count matches', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old Payee',
@@ -553,12 +518,12 @@ test('applyEntityResponseToSheet_ updates rows in-place when span count matches'
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox);
 
-  sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+  sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
 
   assert.equal(rowStore.get(2).payee, 'Migros');
 });
 
-test('applyEntityResponseToSheet_ deletes existing span when rows are empty', () => {
+test('applyEntityUpdateToSheet_ deletes existing span when rows are empty', () => {
   const operations = [];
   const rowStore = new Map([
     [2, { resource_name: 'balanceAssertions/bal_1', assertion_date: '2026-04-19' }],
@@ -568,7 +533,7 @@ test('applyEntityResponseToSheet_ deletes existing span when rows are empty', ()
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations, 'Balances');
   const balConfig = sandbox.getSheetConfigByName_('Balances');
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, balConfig, { start: 2, count: 1 }, []);
+  const result = sandbox.applyEntityUpdateToSheet_(fakeSheet, balConfig, { start: 2, count: 1 }, []);
 
   assert.equal(result, null);
   const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });
@@ -589,7 +554,7 @@ function makeThreeRowStore_() {
   ]);
 }
 
-test('applyEntityResponseToSheet_ repositions entity when date moves earlier', () => {
+test('applyEntityUpdateToSheet_ repositions entity when date moves earlier', () => {
   const operations = [];
   const rowStore = makeThreeRowStore_();
   const { sandbox } = loadCode();
@@ -597,14 +562,14 @@ test('applyEntityResponseToSheet_ repositions entity when date moves earlier', (
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-18', name: 'transactions/txn_c' } });
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 4, count: 1 }, replacementRows);
+  const result = sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 4, count: 1 }, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
   assert.equal(rowStore.get(3).resource_name, 'transactions/txn_c');
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_b');
 });
 
-test('applyEntityResponseToSheet_ repositions entity when date moves later', () => {
+test('applyEntityUpdateToSheet_ repositions entity when date moves later', () => {
   const operations = [];
   const rowStore = makeThreeRowStore_();
   const { sandbox } = loadCode();
@@ -612,7 +577,7 @@ test('applyEntityResponseToSheet_ repositions entity when date moves later', () 
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-24', name: 'transactions/txn_a' } });
 
-  const result = sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+  const result = sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
 
   assert.deepEqual(JSON.parse(JSON.stringify(result)), { start: 3, count: 1 });
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_b');
@@ -620,7 +585,7 @@ test('applyEntityResponseToSheet_ repositions entity when date moves later', () 
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_c');
 });
 
-test('applyEntityResponseToSheet_ does not reposition when date is unchanged', () => {
+test('applyEntityUpdateToSheet_ does not reposition when date is unchanged', () => {
   const operations = [];
   const rowStore = makeThreeRowStore_();
   rowStore.get(2).source_account_name = '[A] Bank - Checking';
@@ -632,7 +597,7 @@ test('applyEntityResponseToSheet_ does not reposition when date is unchanged', (
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
   const replacementRows = makeReplacementRows_(sandbox, { txn: { transaction_date: '2026-04-17', name: 'transactions/txn_a' } });
 
-  sandbox.applyEntityResponseToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
+  sandbox.applyEntityUpdateToSheet_(fakeSheet, txConfig, { start: 2, count: 1 }, replacementRows);
 
   const insertOps = operations.filter(function(op) { return op.type === 'insertRowsAfter'; });
   const deleteOps = operations.filter(function(op) { return op.type === 'deleteRows'; });

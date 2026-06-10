@@ -56,21 +56,78 @@ function entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, ne
   return currentDate !== normalizeEntityDate_(newDate);
 }
 
-function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
+// Inserts N new entities into the sheet in one batch.
+// entityGroups: [{ rows: [...], entityDate: 'yyyy-MM-dd'|null }, ...] sorted ascending.
+// Returns an array of spans (one per date-range group), so _commitToSheet_ can capture _span.
+function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
+  if (!entityGroups || entityGroups.length === 0) return [];
+
+  const hasDates = entityGroups.some(function(g) { return !!g.entityDate; });
+  const spans = [];
+
+  if (!hasDates) {
+    const allRows = [];
+    entityGroups.forEach(function(g) { g.rows.forEach(function(r) { allRows.push(r); }); });
+    const insertRow = Math.max(sheet.getLastRow(), 1) + 1;
+    const span = resizeContiguousRows_(sheet, { start: insertRow, count: 0 }, allRows.length);
+    managedSheet_(sheet, sheetConfig).setRows(span, allRows);
+    refreshAccountValidation_(sheet, sheetConfig, span);
+    if (sheetConfig.issueHeader) {
+      managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
+    }
+    return [span];
+  }
+
+  // ONE anchor read for the entire batch.
+  const anchors = buildEntityAnchors_(sheet, sheetConfig);
+
+  function originalInsertionRow(date) {
+    const d = normalizeEntityDate_(date);
+    for (let i = 0; i < anchors.length; i++) {
+      if (anchors[i].entityDate > d) return anchors[i].span.start;
+    }
+    const last = anchors[anchors.length - 1];
+    return last ? last.span.start + last.span.count : 2;
+  }
+
+  // Process groups in order (earliest first); track cumulative row offset from prior insertions.
+  let offset = 0;
+  let i = 0;
+  while (i < entityGroups.length) {
+    const baseRow = originalInsertionRow(entityGroups[i].entityDate);
+    let j = i + 1;
+    while (j < entityGroups.length &&
+           originalInsertionRow(entityGroups[j].entityDate) === baseRow) j++;
+    const allRows = [];
+    for (let k = i; k < j; k++) {
+      entityGroups[k].rows.forEach(function(r) { allRows.push(r); });
+    }
+    const span = resizeContiguousRows_(sheet, { start: baseRow + offset, count: 0 }, allRows.length);
+    managedSheet_(sheet, sheetConfig).setRows(span, allRows);
+    refreshAccountValidation_(sheet, sheetConfig, span);
+    if (sheetConfig.issueHeader) {
+      managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
+    }
+    spans.push(span);
+    offset += allRows.length;
+    i = j;
+  }
+  return spans;
+}
+
+// Updates an existing entity in the sheet: resize, reposition if date changed, or write in-place.
+function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
   if (!rows || rows.length === 0) {
-    if (existingSpan) resizeContiguousRows_(sheet, existingSpan, 0);
+    resizeContiguousRows_(sheet, existingSpan, 0);
     return null;
   }
   const dateHeader = sheetConfig.headers.find(function(h) {
     return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
   });
-  const needsReposition = !!existingSpan && !!dateHeader &&
+  const needsReposition = !!dateHeader &&
     entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, rows[0][dateHeader]);
   let targetSpan;
-  if (!existingSpan) {
-    const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
-    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
-  } else if (needsReposition) {
+  if (needsReposition) {
     resizeContiguousRows_(sheet, existingSpan, 0);
     const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
     targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
@@ -82,8 +139,8 @@ function applyEntityResponseToSheet_(sheet, sheetConfig, existingSpan, rows) {
   managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
   // Skip when row count is unchanged — existing rows already carry the correct
   // VLOOKUP formula and validation from the prior write. Only re-apply when rows
-  // were added, removed, repositioned, or this is a new entity.
-  if (!existingSpan || existingSpan.count !== rows.length || needsReposition) {
+  // were added, removed, or repositioned.
+  if (existingSpan.count !== rows.length || needsReposition) {
     refreshAccountValidation_(sheet, sheetConfig, targetSpan);
     if (sheetConfig.issueHeader) {
       managedSheet_(sheet, sheetConfig).setColumnFormulas(targetSpan, sheetConfig.issueHeader, buildIssueLookupFormula_);
@@ -103,7 +160,8 @@ class Entity {
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
   updateFromApi_(apiResponse) { throw new Error('Entity.updateFromApi_() not implemented'); }
 
-  // _span null → date-ordered new-row insertion; non-null → in-place update.
+  // _span null → date-ordered new-row insertion via batchInsertEntitiesIntoSheet_.
+  // _span non-null → in-place update via applyEntityUpdateToSheet_.
   _commitToSheet_(sheet) {
     const rows = this.toRows_();
     if (!rows || rows.length === 0) {
@@ -113,7 +171,18 @@ class Entity {
     rows.forEach(function(row) {
       resetFields.forEach(function(f) { row[f] = ''; });
     });
-    this._span = this.constructor.writeToSheet_(sheet, this._span, rows);
+    const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[this.constructor.SHEET_KEY];
+    if (this._span) {
+      this._span = applyEntityUpdateToSheet_(sheet, sheetConfig, this._span, rows);
+    } else {
+      const dateHeader = sheetConfig.headers.find(function(h) {
+        return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
+      });
+      const entityDate = dateHeader && rows.length > 0 ? normalizeEntityDate_(rows[0][dateHeader]) : null;
+      const spans = batchInsertEntitiesIntoSheet_([{ rows: rows, entityDate: entityDate }], sheet, sheetConfig);
+      this._span = spans.length > 0 ? spans[0] : null;
+    }
+    this.constructor.afterSheetWrite_();
     return this._span || null;
   }
 
@@ -133,12 +202,6 @@ class Entity {
     if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
 
     this.updateFromApi_(apiResult);
-    return this._commitToSheet_(sheet);
-  }
-
-  // No API call — distinct from save() which POSTs/PATCHes first.
-  insertIntoSheet(sheet) {
-    this._span = null;
     return this._commitToSheet_(sheet);
   }
 
@@ -183,16 +246,14 @@ class Entity {
   //   UPDATE_MASK: string                         — comma-separated fields for PATCH
   //   RESOURCE_IDENTITY: { header, multiRow }     — identity column + grouping
   //   RESET_ON_SAVE_FIELDS: string[]              — action columns cleared on save
-  //   writeToSheet_(sheet, existingSpan, rows)    — positions + writes stamped rows
   //   loadContext_()                              — loads context for fromRows/save
   //   buildSidebarFields_(entityName, mode, currentPostings?) → { mode, fields }
   //   fromRows(rows, context) → Entity
   //   fromApi_(apiEntity, context) → Entity       — internal; use loadFromApi() externally
   //   isEditableHeader(header) → boolean
 
-  static writeToSheet_(sheet, existingSpan, rows) {
-    return applyEntityResponseToSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[this.SHEET_KEY], existingSpan, rows);
-  }
+  // Called after any sheet write (save or delete). No-op by default; subclasses override.
+  static afterSheetWrite_() {}
 
   // Default: 'edit' checkbox opens the generic edit sidebar.
   // Subclasses may override for custom action headers.

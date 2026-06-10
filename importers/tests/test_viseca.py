@@ -581,6 +581,42 @@ def test_execute_balance_assertion_falls_back_to_section_total(session: Session)
     assert bal.amount == Decimal("-20.25")
 
 
+def test_execute_balance_assertion_falls_back_to_sum_of_all_section_totals(
+    session: Session,
+) -> None:
+    # Simulates a multi-card statement where "Montant dû" is absent and section totals
+    # are negative (net refunds exceed charges). Fallback must sum all non-None sections,
+    # not just sections[0].
+    stmt = ParsedVisecaStatement(
+        preamble_entries=[],
+        sections=[
+            ParsedVisecaSection(
+                "3644",
+                [ParsedVisecaEntry("14.04.26", "149.50 -", "ARMEDANGELS")],
+                Decimal("-50.05"),
+            ),
+            ParsedVisecaSection("5293", [], None),  # intermediate section, no final total
+            ParsedVisecaSection(
+                "5293",
+                [ParsedVisecaEntry("23.04.26", "160.35", "PORTRAITMASTERS")],
+                Decimal("-344.45"),
+            ),
+        ],
+        total_due_chf=None,
+    )
+    config = {"cards": {"3644": VISA_ACCOUNT_RESOURCE, "5293": VISA_ACCOUNT_RESOURCE}}
+
+    with patch.object(viseca_module, "_parse_pdf_bytes", return_value=stmt):
+        VisecaImporter().execute(
+            ImportContext(session),
+            {"file": b"fake-pdf", "__filename__file__": FILENAME},
+            config,
+        )
+
+    bal = session.scalars(select(BalanceAssertion)).one()
+    assert bal.amount == Decimal("394.50")
+
+
 def test_execute_single_balance_assertion_when_cards_share_account(session: Session) -> None:
     stmt = ParsedVisecaStatement(
         preamble_entries=[],

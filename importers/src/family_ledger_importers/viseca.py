@@ -348,12 +348,10 @@ class VisecaImporter(BaseImporter):
             balance_date = stmt_date + timedelta(days=1)
             if len(unique_accounts) == 1:
                 balance_amount = stmt.total_due_chf
-                if (
-                    balance_amount is None
-                    and stmt.sections
-                    and stmt.sections[0].total_chf is not None
-                ):
-                    balance_amount = stmt.sections[0].total_chf
+                if balance_amount is None and stmt.sections:
+                    section_totals = [s.total_chf for s in stmt.sections if s.total_chf is not None]
+                    if section_totals:
+                        balance_amount = sum(section_totals, Decimal(0))
                 if balance_amount is not None:
                     ctx.create_balance_assertion(
                         BalanceAssertionCreate(

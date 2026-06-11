@@ -400,29 +400,15 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
     const sourcePosting = transaction.postings[group.sourceIndex];
     const sourceAccountName = lookup[sourcePosting.account] || sourcePosting.account;
     const sourceWeight = postingWeight_(sourcePosting);
+    const sourceAmount = parseFloat(sourceWeight.amount);
 
-    if (group.destinationIndexes.length === 0) {
-      const postingNarration = String(sourcePosting.narration || '');
-      rows.push({
-        resource_name: transaction.name,
-        narration_source: postingNarration ? 'post' : 'txn',
-        transaction_date: transaction.transaction_date,
-        payee: transaction.payee || '',
-        narration: effectiveSheetNarration_(transactionNarration, postingNarration),
-        source_account_name: sourceAccountName,
-        destination_account_name: '',
-        amount: -parseFloat(sourceWeight.amount),
-        split_off_amount: '',
-        symbol: sourceWeight.symbol,
-        hasCostPrice: group.hasCostPrice,
-      });
-      return;
-    }
-
+    let destSum = 0;
     group.destinationIndexes.forEach(function(destinationIndex) {
       const posting = transaction.postings[destinationIndex];
       const postingNarration = String(posting.narration || '');
       const weight = postingWeight_(posting);
+      const amount = parseFloat(weight.amount);
+      destSum += amount;
       rows.push({
         resource_name: transaction.name,
         narration_source: postingNarration ? 'post' : 'txn',
@@ -431,12 +417,29 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         narration: effectiveSheetNarration_(transactionNarration, postingNarration),
         source_account_name: sourceAccountName,
         destination_account_name: lookup[posting.account] || posting.account,
-        amount: parseFloat(weight.amount),
+        amount: amount,
         split_off_amount: '',
         symbol: weight.symbol,
         hasCostPrice: group.hasCostPrice,
       });
     });
+
+    const remainder = -(sourceAmount + destSum);
+    if (Math.abs(remainder) > 1e-9) {
+      rows.push({
+        resource_name: transaction.name,
+        narration_source: 'txn',
+        transaction_date: transaction.transaction_date,
+        payee: transaction.payee || '',
+        narration: transactionNarration,
+        source_account_name: sourceAccountName,
+        destination_account_name: '',
+        amount: remainder,
+        split_off_amount: '',
+        symbol: sourceWeight.symbol,
+        hasCostPrice: group.hasCostPrice,
+      });
+    }
   });
 
   return rows;

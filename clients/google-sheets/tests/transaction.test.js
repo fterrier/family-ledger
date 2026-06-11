@@ -448,6 +448,71 @@ test('flattenTransactionForSheet_ hasCostPrice false when no posting has cost or
   assert.equal(rows[0].hasCostPrice, false);
 });
 
+test('flattenTransactionForSheet_ unbalanced 2-posting: adds blank destination row for remainder', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Shop',
+    narration: 'Partial split',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '60', symbol: 'CHF' } },
+    ],
+  }, { 'accounts/checking': '[A] Checking', 'accounts/food': '[X] Food' });
+
+  assert.equal(rows.length, 2);
+  assert.equal(rows[0].destination_account_name, '[X] Food');
+  assert.equal(rows[0].amount, 60);
+  assert.equal(rows[1].destination_account_name, '');
+  assert.equal(rows[1].amount, 40);
+  assert.equal(rows[1].source_account_name, '[A] Checking');
+  assert.equal(rows[1].symbol, 'CHF');
+});
+
+test('flattenTransactionForSheet_ balanced 2-posting transaction produces exactly 1 row', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Shop',
+    narration: 'Balanced',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '100', symbol: 'CHF' } },
+    ],
+  }, { 'accounts/checking': '[A] Checking', 'accounts/food': '[X] Food' });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].destination_account_name, '[X] Food');
+});
+
+test('flattenTransactionForSheet_ unbalanced 3-posting: adds blank destination row after the two explicit destinations', () => {
+  const { sandbox } = loadCode();
+
+  const rows = sandbox.flattenTransactionForSheet_({
+    name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Shop',
+    narration: 'Multi split unbalanced',
+    postings: [
+      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' } },
+      { account: 'accounts/food', units: { amount: '40', symbol: 'CHF' } },
+      { account: 'accounts/restaurant', units: { amount: '30', symbol: 'CHF' } },
+    ],
+  }, { 'accounts/checking': '[A] Checking', 'accounts/food': '[X] Food', 'accounts/restaurant': '[X] Restaurant' });
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0].destination_account_name, '[X] Food');
+  assert.equal(rows[0].amount, 40);
+  assert.equal(rows[1].destination_account_name, '[X] Restaurant');
+  assert.equal(rows[1].amount, 30);
+  assert.equal(rows[2].destination_account_name, '');
+  assert.equal(rows[2].amount, 30);
+});
+
 // --- buildTransactionPatchPayload_ ---
 
 test('buildTransactionPatchPayload_ rebuilds canonical PATCH payload in sheet row order', () => {

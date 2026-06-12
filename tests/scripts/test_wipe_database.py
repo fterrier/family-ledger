@@ -8,8 +8,8 @@ from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
 
 from family_ledger.importers.base import BaseImporter, ImportResult
-from family_ledger.models import Account, Base
-from family_ledger.scripts.wipe_database import wipe_database
+from family_ledger.models import Account, Base, Commodity, Transaction
+from family_ledger.scripts.wipe_database import wipe_database, wipe_entities
 from family_ledger.services.importer import list_importers
 
 
@@ -69,3 +69,44 @@ def test_list_importers_works_after_wipe(engine, monkeypatch: pytest.MonkeyPatch
     assert len(result.importers) == 1
     assert result.importers[0].plugin_name == "fake"
     assert result.importers[0].config == {}
+
+
+def test_wipe_entities_single(engine, session: Session) -> None:
+    commodities = Base.metadata.tables["commodities"]
+    with engine.begin() as conn:
+        conn.execute(commodities.insert().values(name="commodities/CHF", symbol="CHF"))
+    session.add(
+        Account(
+            name="accounts/test",
+            account_name="Assets:Test",
+            effective_start_date=date(2020, 1, 1),
+        )
+    )
+    session.commit()
+
+    wipe_entities(["commodity"], engine)
+
+    with Session(engine) as s:
+        assert s.scalar(select(Commodity)) is None
+        assert s.scalar(select(Account)) is not None
+
+
+def test_wipe_entities_multiple_in_order(engine, session: Session) -> None:
+    commodities = Base.metadata.tables["commodities"]
+    transactions = Base.metadata.tables["transactions"]
+    with engine.begin() as conn:
+        conn.execute(commodities.insert().values(name="commodities/CHF", symbol="CHF"))
+        conn.execute(
+            transactions.insert().values(
+                name="transactions/1",
+                transaction_date=date(2024, 1, 1),
+                source_native_id="zkb_pdf:X1",
+                entity_metadata="{}",
+            )
+        )
+
+    wipe_entities(["transaction", "commodity"], engine)
+
+    with Session(engine) as s:
+        assert s.scalar(select(Transaction)) is None
+        assert s.scalar(select(Commodity)) is None

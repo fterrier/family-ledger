@@ -216,6 +216,7 @@ def test_create_and_get_commodity() -> None:
     assert get_response.json() == {
         "name": create_response["name"],
         "symbol": "CHF",
+        "ticker": None,
         "entity_metadata": {},
     }
 

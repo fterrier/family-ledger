@@ -16,6 +16,7 @@ from beancount.core.amount import Amount
 from beancount.core.data import Balance, Close, Document, Open, Pad, Posting, Price, Transaction
 from beancount.core.data import Commodity as CommodityEntry
 from beancount.parser import parser
+from sqlalchemy import select
 
 from family_ledger.api.schemas import (
     AccountCreate,
@@ -30,6 +31,7 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.config import Settings
 from family_ledger.importers.base import BaseImporter, ImportContext, ImportResult
+from family_ledger.models import Commodity
 from family_ledger.services.errors import (
     ConflictError,
     NotFoundError,
@@ -281,6 +283,29 @@ def _build_account_creates(entries: Sequence[object]) -> dict[str, AccountCreate
     return accounts
 
 
+def _json_safe(v: Any) -> Any:
+    """Convert beancount metadata values to JSON-serializable types."""
+    from datetime import date as _date
+
+    if isinstance(v, Decimal):
+        return str(v)
+    if isinstance(v, _date):
+        return v.isoformat()
+    return v
+
+
+def _extract_commodity_metadata(entries: Sequence[object]) -> dict[str, dict[str, Any]]:
+    """Return {symbol: user_metadata} for commodity directives that carry metadata."""
+    result: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if isinstance(entry, CommodityEntry):
+            raw = _extract_beancount_meta(entry.meta or {})
+            meta = {k: _json_safe(v) for k, v in raw.items()}
+            if meta:
+                result[entry.currency] = meta
+    return result
+
+
 def _discover_commodity_symbols(entries: Sequence[object]) -> list[str]:
     symbols: set[str] = set()
     for entry in entries:
@@ -401,6 +426,27 @@ class BeancountImporter(BaseImporter):
         # Commodities
         for symbol in _discover_commodity_symbols(entries):
             ctx.ensure_commodity(symbol)
+
+        commodity_meta = _extract_commodity_metadata(entries)
+        if commodity_meta:
+            rows_by_symbol = {
+                row.symbol: row
+                for row in ctx.session.scalars(
+                    select(Commodity).where(Commodity.symbol.in_(commodity_meta.keys()))
+                )
+            }
+            for symbol, meta in commodity_meta.items():
+                row = rows_by_symbol.get(symbol)
+                if row is not None:
+                    ticker = meta.get("ticker") or meta.get("yahoo_ticker")
+                    if ticker:
+                        row.ticker = ticker
+                    remaining = {
+                        k: v for k, v in meta.items() if k not in ("ticker", "yahoo_ticker")
+                    }
+                    if remaining:
+                        row.entity_metadata = {**row.entity_metadata, **remaining}
+            ctx.session.commit()
 
         # Transactions
         occurrence_counter: Counter[tuple[object, ...]] = Counter()

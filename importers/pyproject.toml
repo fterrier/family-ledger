@@ -20,7 +20,9 @@ dependencies = [
 beancount = "family_ledger_importers.beancount:BeancountImporter"
 ibkr = "family_ledger_importers.ibkr:IbkrImporter"
 mt940 = "family_ledger_importers.mt940:Mt940Importer"
+prices = "family_ledger_importers.prices:PriceImporter"
 viseca = "family_ledger_importers.viseca:VisecaImporter"
+zkb_pdf = "family_ledger_importers.zkb_pdf:ZkbPdfImporter"
 
 [tool.setuptools.package-dir]
 "" = "src"

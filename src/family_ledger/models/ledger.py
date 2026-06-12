@@ -52,6 +52,7 @@ class Commodity(Base):
     id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(Text, unique=True)
     symbol: Mapped[str] = mapped_column(Text, unique=True)
+    ticker: Mapped[str | None] = mapped_column(Text, nullable=True)
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
 
 

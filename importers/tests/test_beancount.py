@@ -907,3 +907,54 @@ def test_beancount_importer_document_with_url_warns_only_for_file_backed_entries
     # Warning should mention 1 document skipped (the file-backed one), not 2
     assert any("1 Document directive(s) skipped" in w for w in result.warnings)
     assert result.entities["attachment"].created == 1
+
+
+# ---------------------------------------------------------------------------
+# Commodity metadata propagation
+# ---------------------------------------------------------------------------
+
+_COMMODITY_META_FIXTURE = """
+2020-01-01 open Assets:Broker NESN
+2020-01-01 open Equity:Opening-Balances
+2020-01-01 commodity CHF
+2020-01-01 commodity NESN
+  yahoo_ticker: "NESN.SW"
+  sector: "Consumer Staples"
+
+2026-04-01 * "Buy NESN"
+  Assets:Broker          1 NESN {100.00 CHF}
+  Equity:Opening-Balances
+"""
+
+_COMMODITY_META_UPDATED_FIXTURE = """
+2020-01-01 open Assets:Broker NESN
+2020-01-01 open Equity:Opening-Balances
+2020-01-01 commodity CHF
+2020-01-01 commodity NESN
+  yahoo_ticker: "NESN.SW"
+  sector: "Food"
+
+2026-04-01 * "Buy NESN"
+  Assets:Broker          1 NESN {100.00 CHF}
+  Equity:Opening-Balances
+"""
+
+
+def test_beancount_importer_stores_commodity_metadata(session: Session) -> None:
+    _run(session, _COMMODITY_META_FIXTURE)
+
+    nesn = session.scalar(select(Commodity).where(Commodity.symbol == "NESN"))
+    assert nesn is not None
+    assert nesn.ticker == "NESN.SW"  # yahoo_ticker maps to top-level ticker field
+    assert nesn.entity_metadata == {"sector": "Consumer Staples"}
+
+
+def test_beancount_importer_merges_commodity_metadata_on_reimport(session: Session) -> None:
+    _run(session, _COMMODITY_META_FIXTURE)
+    _run(session, _COMMODITY_META_UPDATED_FIXTURE)
+
+    nesn = session.scalar(select(Commodity).where(Commodity.symbol == "NESN"))
+    assert nesn is not None
+    assert nesn.ticker == "NESN.SW"
+    assert nesn.entity_metadata.get("sector") == "Food"
+    assert "yahoo_ticker" not in nesn.entity_metadata

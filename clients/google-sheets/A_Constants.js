@@ -281,6 +281,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       insertionOrder: true,
     },
+    ticker: {
+      width: 120,
+      role: 'readonly',
+      note: 'Market ticker used for price fetching, e.g. NESN.SW, USDCHF=X.',
+      alignment: 'left',
+    },
   }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
   prices: buildSheetConfig_('prices', FAMILY_LEDGER_SHEET_NAMES.prices, {
     edit: {

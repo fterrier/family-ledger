@@ -59,6 +59,7 @@ class AccountCreate(AccountData):
 
 class CommodityData(BaseModel):
     symbol: str
+    ticker: str | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

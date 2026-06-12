@@ -84,11 +84,14 @@ test('Commodity.buildSidebarFields_ returns mode:advanced and null default for a
   const result = getCommodity(sandbox).buildSidebarFields_(null, 'simple');
 
   assert.equal(result.mode, 'advanced');
-  assert.equal(result.fields.length, 1);
+  assert.equal(result.fields.length, 2);
   assert.equal(result.fields[0].key, 'symbol');
   assert.equal(result.fields[0].type, 'text');
   assert.equal(result.fields[0].required, true);
   assert.equal(result.fields[0].default, null);
+  assert.equal(result.fields[1].key, 'ticker');
+  assert.equal(result.fields[1].required, false);
+  assert.equal(result.fields[1].default, null);
 });
 
 test('Commodity.buildSidebarFields_ fetches symbol from API for edit mode', () => {
@@ -169,7 +172,7 @@ test('submitEntity edits existing commodity via PATCH with symbol update_mask', 
 
   assert.equal(patchBody.commodity.symbol, 'CHFX');
   assert.ok(!('entity_metadata' in patchBody.commodity), 'entity_metadata should not be sent');
-  assert.equal(patchBody.update_mask, 'symbol');
+  assert.equal(patchBody.update_mask, 'symbol,ticker');
   const updated = rowStore.get(2);
   assert.equal(updated.symbol, 'CHFX');
 });

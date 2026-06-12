@@ -162,6 +162,103 @@ test('getSidebarData for non-Transaction entity does not set allowModeSwitch', (
   assert.ok(!data.allowModeSwitch, 'allowModeSwitch should be falsy for Account');
 });
 
+// --- mode switching (server side of onToggleMode) ---
+
+test('getSidebarData (add, simple→advanced) passes currentPostings into postings field and keeps text defaults null', () => {
+  // Simulates: user fills in simple form, clicks Advanced editor →
+  // Client calls getSidebarData(entity, 'advanced', collectedPostings)
+  const { sandbox } = loadCode();
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: 'Cash' }];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const simplePostings = [
+    { account: 'accounts/cash', units: { amount: '-50', symbol: 'CHF' } },
+  ];
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'advanced', simplePostings);
+
+  assert.equal(data.mode, 'advanced');
+  assert.equal(data.allowModeSwitch, true);
+
+  // Text field defaults are null in add mode (values are preserved client-side)
+  const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
+  assert.equal(dateField.default, null);
+  const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
+  assert.equal(payeeField.default, null);
+  const narrationField = data.fields.find(function(f) { return f.key === 'narration'; });
+  assert.equal(narrationField.default, null);
+
+  // Postings collected from the simple form are forwarded into the postings field
+  const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
+  assert.ok(postingsField, 'postings field present');
+  assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), simplePostings);
+});
+
+test('getSidebarData (add, advanced→simple) classifies currentPostings back to simple form', () => {
+  // Simulates: user in advanced mode with a 2-posting transaction clicks ← Simple form
+  const { sandbox } = loadCode();
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/cash', display_name: 'Cash' },
+      { resource_name: 'accounts/food', display_name: 'Food' },
+    ];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const advancedPostings = [
+    { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
+  ];
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'simple', advancedPostings);
+
+  assert.equal(data.mode, 'simple');
+
+  const srcField = data.fields.find(function(f) { return f.key === 'source_account'; });
+  assert.equal(srcField.default, 'accounts/cash');
+  const dstField = data.fields.find(function(f) { return f.key === 'destination_account'; });
+  assert.equal(dstField.default, 'accounts/food');
+  const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
+  assert.equal(amtField.default, 84.25);
+});
+
+test('getSidebarData (edit, advanced mode) uses currentPostings when provided instead of API postings', () => {
+  // Simulates: user edits a transaction that opened in simple mode, switches to advanced
+  // The client sends the postings it collected from simple mode, not the raw API ones
+  const { sandbox } = loadCode();
+  const apiPostings = [
+    { account: 'accounts/cash', units: { amount: '-100', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '100', symbol: 'CHF' } },
+  ];
+  const clientPostings = [
+    { account: 'accounts/cash', units: { amount: '-50', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+  ];
+  sandbox.apiFetchJson_ = function() {
+    return { name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', postings: apiPostings };
+  };
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: 'Cash' }, { resource_name: 'accounts/food', display_name: 'Food' }];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'advanced', clientPostings);
+
+  assert.equal(data.mode, 'advanced');
+
+  // Text field defaults still come from the API (edit mode)
+  const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
+  assert.equal(dateField.default, '2026-04-19');
+  const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
+  assert.equal(payeeField.default, 'Migros');
+
+  // But postings come from the client, not the API
+  const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
+  assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), clientPostings);
+});
+
 // --- submitEntity ---
 
 test('submitEntity (add) inserts new row before a later transaction', () => {

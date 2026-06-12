@@ -377,11 +377,18 @@
     } else {
       currentPostings = collectSimpleAsPostings_();
     }
+    var savedValues = collectFieldValues();
     var toggleLink = document.getElementById('toggleModeLink');
     if (toggleLink) toggleLink.textContent = 'Loading…';
     document.getElementById('errorBox').style.display = 'none';
     google.script.run
-      .withSuccessHandler(function(data) { initForm(data); })
+      .withSuccessHandler(function(data) {
+        initForm(data);
+        Object.keys(savedValues).forEach(function(key) {
+          var el = document.getElementById('field_' + key);
+          if (el) el.value = savedValues[key];
+        });
+      })
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
         if (toggleLink) toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';

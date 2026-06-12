@@ -146,12 +146,6 @@ class PriceImporter(BaseImporter):
                         "Falls back to the prior trading day for weekends and holidays."
                     ),
                 },
-                "base_currency": {
-                    "type": "string",
-                    "description": (
-                        "Home currency for forex pairs. Defaults to the ledger default_currency."
-                    ),
-                },
             },
             "additionalProperties": False,
         }
@@ -174,8 +168,7 @@ class PriceImporter(BaseImporter):
                 message=f"config.date must be YYYY-MM-DD, got: {raw_date!r}",
             ) from exc
 
-        raw_base = config.get("base_currency")
-        base_currency: str = str(raw_base) if raw_base else get_ledger_config().default_currency
+        base_currency: str = get_ledger_config().default_currency
 
         pairs = discover_price_pairs(ctx.session, base_currency)
 

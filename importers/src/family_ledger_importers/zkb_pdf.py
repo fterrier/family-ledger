@@ -50,7 +50,7 @@ _SKIP_LINE_RE = re.compile(
     r"|Lautend auf"
     r"|Zürich,"
     r"|OY\d"
-    r"|2026\d{4}"
+    r"|\d{8}"
     r"|Zürcher Kantonalbank"
     r"|Versand\s"
     r"|\d+/\d+$"

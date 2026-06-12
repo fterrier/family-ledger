@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-# MT940 control tokens like "?10:XXXX" embedded in ZKB description lines.
+# ZKB description lines may embed control tokens like "?10:XXXX" (MT940 format).
 CONTROL_TOKEN_PATTERN = re.compile(r"\?[A-Z0-9]{1,4}:[^\s]*")
 
 

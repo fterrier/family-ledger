@@ -124,14 +124,6 @@ def test_get_schema_has_account_mappings() -> None:
     assert schema["properties"]["account_mappings"]["type"] == "object"
 
 
-def test_get_schema_has_balance_assertion_and_currency() -> None:
-    schema = ZkbPdfImporter().get_schema()
-
-    assert "balance_assertion" in schema["properties"]
-    assert schema["properties"]["balance_assertion"]["default"] is True
-    assert "currency" in schema["properties"]
-
-
 def test_get_file_descriptors_returns_pdf() -> None:
     descriptors = ZkbPdfImporter().get_file_descriptors()
 
@@ -341,11 +333,6 @@ def test_extract_metadata_parses_currency_from_pdf() -> None:
     assert currency == "CHF"
 
 
-def test_extract_metadata_currency_override() -> None:
-    _, _, _, currency = _extract_metadata(SAMPLE_PDF_TEXT, currency_override="EUR")
-    assert currency == "EUR"
-
-
 def test_extract_metadata_missing_currency_raises() -> None:
     text = (
         "IBAN CH57 0070 0114 9014 2704 5\nAuszug per 28.02.2026"
@@ -437,14 +424,6 @@ def test_balance_assertion_metadata(session: Session) -> None:
     assert ba.entity_metadata["zkb_pdf"]["statement_date"] == "2026-02-28"
 
 
-def test_balance_assertion_disabled(session: Session) -> None:
-    config = {**BASE_CONFIG, "balance_assertion": False}
-    _run(session, config=config)
-
-    count = session.execute(select(BalanceAssertion)).first()
-    assert count is None
-
-
 def test_reimport_is_idempotent(session: Session) -> None:
     entry = _make_entry(ref="Z260348427385")
     stmt = _make_stmt([entry])
@@ -477,23 +456,3 @@ def test_account_mapping_unknown_account_raises(session: Session) -> None:
     config = {"account_mappings": {IBAN: "accounts/nonexistent"}}
     with pytest.raises(Exception, match="not found"):
         _run(session, config=config, stmt=_make_stmt([_make_entry()]))
-
-
-def test_currency_override_in_config(session: Session) -> None:
-    entry = _make_entry(amount=Decimal("-10.00"), currency="EUR")
-    stmt = ParsedZkbStatement(
-        entries=[entry],
-        account_iban=IBAN,
-        statement_date=date(2026, 2, 28),
-        closing_amount=Decimal("100.00"),
-        closing_currency="EUR",
-    )
-
-    with session.begin_nested():
-        session.add(Commodity(name="commodities/EUR", symbol="EUR", entity_metadata={}))
-
-    config = {**BASE_CONFIG, "currency": "EUR"}
-    _run(session, config=config, stmt=stmt)
-
-    txn = session.execute(select(Transaction)).scalar_one()
-    assert txn.postings[0].units_symbol == "EUR"

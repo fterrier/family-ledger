@@ -115,9 +115,7 @@ def _format_payee(description: str) -> str | None:
     return format_zkb_payee([cleaned]) if cleaned else None
 
 
-def _extract_metadata(
-    text: str, currency_override: str | None = None
-) -> tuple[str, date, Decimal, str]:
+def _extract_metadata(text: str) -> tuple[str, date, Decimal, str]:
     iban_m = _IBAN_RE.search(text)
     if not iban_m:
         raise ValidationError(code="invalid_zkb_pdf", message="IBAN not found in ZKB PDF")
@@ -135,16 +133,10 @@ def _extract_metadata(
         )
     closing_amount = _parse_amount(balance_m.group(1))
 
-    if currency_override:
-        currency = currency_override
-    else:
-        currency_m = _CURRENCY_RE.search(text)
-        if not currency_m:
-            raise ValidationError(
-                code="invalid_zkb_pdf",
-                message="Currency not found in ZKB PDF; set 'currency' in importer config",
-            )
-        currency = currency_m.group(1)
+    currency_m = _CURRENCY_RE.search(text)
+    if not currency_m:
+        raise ValidationError(code="invalid_zkb_pdf", message="Currency not found in ZKB PDF")
+    currency = currency_m.group(1)
 
     return iban, stmt_date, closing_amount, currency
 
@@ -163,7 +155,6 @@ def _parse_text_lines(
     entries: list[ParsedZkbEntry] = []
     prev_saldo: Decimal | None = None
 
-    # State for the entry being accumulated
     current_date_str: str | None = None
     current_valuta_str: str | None = None
     current_saldo_str: str | None = None
@@ -176,10 +167,6 @@ def _parse_text_lines(
         txn_date = _parse_date_2y(current_date_str)
         new_saldo = _parse_amount(current_saldo_str)
         if prev_saldo is None:
-            current_date_str = None
-            current_valuta_str = None
-            current_saldo_str = None
-            current_desc = ""
             return
         amount = new_saldo - prev_saldo
         prev_saldo = new_saldo
@@ -223,11 +210,9 @@ def _parse_text_lines(
             continue
 
         if _SKIP_LINE_RE.match(line):
-            # Page header/footer/summary line — flush pending entry without appending.
             flush()
             continue
 
-        # Continuation line: append to current description.
         if current_date_str is not None:
             current_desc = (current_desc + " " + line).strip()
 
@@ -237,18 +222,21 @@ def _parse_text_lines(
 
 def _extract_pdf_text(data: bytes) -> str:
     doc = pdfium.PdfDocument(data)
-    pages_text: list[str] = []
-    for page in doc:
-        textpage = page.get_textpage()
-        pages_text.append(textpage.get_text_range())
-        textpage.close()
-        page.close()
-    return "\n".join(pages_text)
+    try:
+        pages_text: list[str] = []
+        for page in doc:
+            textpage = page.get_textpage()
+            pages_text.append(textpage.get_text_range())
+            textpage.close()
+            page.close()
+        return "\n".join(pages_text)
+    finally:
+        doc.close()
 
 
-def _parse_pdf_bytes(data: bytes, currency_override: str | None = None) -> ParsedZkbStatement:
+def _parse_pdf_bytes(data: bytes) -> ParsedZkbStatement:
     raw_text = _extract_pdf_text(data)
-    iban, stmt_date, closing_amount, currency = _extract_metadata(raw_text, currency_override)
+    iban, stmt_date, closing_amount, currency = _extract_metadata(raw_text)
     lines = raw_text.splitlines()
     entries = _parse_text_lines(lines, iban, currency)
     return ParsedZkbStatement(
@@ -354,18 +342,6 @@ class ZkbPdfImporter(BaseImporter):
                     "default": {},
                     "description": "Map ZKB IBAN to internal account resource name.",
                 },
-                "balance_assertion": {
-                    "type": "boolean",
-                    "default": True,
-                    "description": "Create a balance assertion for the statement closing date.",
-                },
-                "currency": {
-                    "type": "string",
-                    "description": (
-                        "Override currency (e.g. 'CHF'). "
-                        "Parsed automatically from the PDF when not set."
-                    ),
-                },
             },
             "additionalProperties": False,
         }
@@ -389,11 +365,9 @@ class ZkbPdfImporter(BaseImporter):
         settings: object = None,
     ) -> ImportResult:
         file_data = files.get("file", b"")
-        currency_override = config.get("currency") or None
-        stmt = _parse_pdf_bytes(file_data, currency_override=currency_override)
+        stmt = _parse_pdf_bytes(file_data)
 
         account_mappings = _validate_account_mappings(ctx, config, stmt.account_iban)
-        balance_assertion = bool(config.get("balance_assertion", True))
 
         ctx.ensure_commodity(stmt.closing_currency)
 
@@ -407,24 +381,23 @@ class ZkbPdfImporter(BaseImporter):
                 key = (entry.effective_date, entry.account_iban, entry.amount, entry.currency)
                 count = occurrence_counter[key]
                 source_native_id = _compute_source_native_id(entry, count)
-                occurrence_counter[key] = count + 1
+                occurrence_counter[key] += 1
 
             payload = _build_transaction_payload(entry, account_resource, source_native_id)
             ctx.create_transaction(payload)
 
-        if balance_assertion:
-            ctx.create_balance_assertion(
-                BalanceAssertionCreate(
-                    assertion_date=stmt.statement_date + timedelta(days=1),
-                    account=account_resource,
-                    amount=MoneyValue(amount=stmt.closing_amount, symbol=stmt.closing_currency),
-                    entity_metadata={
-                        "zkb_pdf": {
-                            "account_iban": stmt.account_iban,
-                            "statement_date": stmt.statement_date.isoformat(),
-                        }
-                    },
-                )
+        ctx.create_balance_assertion(
+            BalanceAssertionCreate(
+                assertion_date=stmt.statement_date + timedelta(days=1),
+                account=account_resource,
+                amount=MoneyValue(amount=stmt.closing_amount, symbol=stmt.closing_currency),
+                entity_metadata={
+                    "zkb_pdf": {
+                        "account_iban": stmt.account_iban,
+                        "statement_date": stmt.statement_date.isoformat(),
+                    }
+                },
             )
+        )
 
         return ctx.result

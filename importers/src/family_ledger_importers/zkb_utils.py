@@ -50,6 +50,17 @@ def _join_parts(parts: list[str]) -> str | None:
     return joined or None
 
 
+def _assemble_descriptor_body(
+    descriptor: str, body_prefix: str, rest: list[str], fallback_lines: list[str]
+) -> str | None:
+    body_parts = [_clean_description_line(body_prefix)] if body_prefix.strip() else []
+    body_parts.extend(rest)
+    body = _join_parts(body_parts)
+    if not descriptor or not body:
+        return normalize_description(fallback_lines)
+    return body + " - " + descriptor
+
+
 def format_zkb_payee(lines: list[str]) -> str | None:
     """Format a ZKB description into 'Body - Descriptor' order.
 
@@ -64,32 +75,13 @@ def format_zkb_payee(lines: list[str]) -> str | None:
         return None
     first_line = deduped[0]
     if first_line.startswith("Einkauf "):
-        descriptor = first_line.strip()
-        body_parts = []
         if "," in first_line:
             descriptor, first_body = first_line.split(",", 1)
-            descriptor = descriptor.strip()
-            if first_body.strip():
-                body_parts.append(_clean_description_line(first_body))
-            body_parts.extend(deduped[1:])
-        elif len(deduped) > 1:
-            body_parts.extend(deduped[1:])
-        else:
-            return normalize_description(lines)
-        body = _join_parts(body_parts)
-        if not descriptor or not body:
-            return normalize_description(lines)
-        return body + " - " + descriptor
+            return _assemble_descriptor_body(descriptor.strip(), first_body, deduped[1:], lines)
+        if len(deduped) > 1:
+            return _assemble_descriptor_body(first_line.strip(), "", deduped[1:], lines)
+        return normalize_description(lines)
     if ":" not in first_line:
         return normalize_description(lines)
     descriptor, first_body = first_line.split(":", 1)
-    descriptor = descriptor.strip()
-    body_prefix = _clean_description_line(first_body)
-    body_parts = []
-    if body_prefix:
-        body_parts.append(body_prefix)
-    body_parts.extend(deduped[1:])
-    body = _join_parts(body_parts)
-    if not descriptor or not body:
-        return normalize_description(lines)
-    return body + " - " + descriptor
+    return _assemble_descriptor_body(descriptor.strip(), first_body, deduped[1:], lines)

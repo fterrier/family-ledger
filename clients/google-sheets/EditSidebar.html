@@ -386,7 +386,7 @@
         initForm(data);
         Object.keys(savedValues).forEach(function(key) {
           var el = document.getElementById('field_' + key);
-          if (el) el.value = savedValues[key];
+          if (el) setFieldValue_(el, savedValues[key]);
         });
       })
       .withFailureHandler(function(err) {

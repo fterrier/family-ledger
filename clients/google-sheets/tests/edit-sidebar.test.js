@@ -165,8 +165,6 @@ test('getSidebarData for non-Transaction entity does not set allowModeSwitch', (
 // --- mode switching (server side of onToggleMode) ---
 
 test('getSidebarData (add, simple→advanced) passes currentPostings into postings field and keeps text defaults null', () => {
-  // Simulates: user fills in simple form, clicks Advanced editor →
-  // Client calls getSidebarData(entity, 'advanced', collectedPostings)
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() {
     return [{ resource_name: 'accounts/cash', display_name: 'Cash' }];
@@ -190,14 +188,12 @@ test('getSidebarData (add, simple→advanced) passes currentPostings into postin
   const narrationField = data.fields.find(function(f) { return f.key === 'narration'; });
   assert.equal(narrationField.default, null);
 
-  // Postings collected from the simple form are forwarded into the postings field
   const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
   assert.ok(postingsField, 'postings field present');
   assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), simplePostings);
 });
 
 test('getSidebarData (add, advanced→simple) classifies currentPostings back to simple form', () => {
-  // Simulates: user in advanced mode with a 2-posting transaction clicks ← Simple form
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() {
     return [
@@ -225,8 +221,6 @@ test('getSidebarData (add, advanced→simple) classifies currentPostings back to
 });
 
 test('getSidebarData (edit, advanced mode) uses currentPostings when provided instead of API postings', () => {
-  // Simulates: user edits a transaction that opened in simple mode, switches to advanced
-  // The client sends the postings it collected from simple mode, not the raw API ones
   const { sandbox } = loadCode();
   const apiPostings = [
     { account: 'accounts/cash', units: { amount: '-100', symbol: 'CHF' } },
@@ -254,7 +248,6 @@ test('getSidebarData (edit, advanced mode) uses currentPostings when provided in
   const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
   assert.equal(payeeField.default, 'Migros');
 
-  // But postings come from the client, not the API
   const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
   assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), clientPostings);
 });

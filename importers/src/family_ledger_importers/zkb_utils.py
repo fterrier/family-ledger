@@ -61,14 +61,22 @@ def _assemble_descriptor_body(
     return body + " - " + descriptor
 
 
+# "Belastung (N) SubType" where SubType is a known ZKB payment category.
+# The optional (N) index is present for standing orders and eBill batches.
+_BELASTUNG_SUBTYPE_RE = re.compile(
+    r"^(Belastung\s+(?:\(\d+\)\s+)?(?:Mobile Banking|Dauerauftrag|eBill))(?:\s+(.+))?$"
+)
+
+
 def format_zkb_payee(lines: list[str]) -> str | None:
     """Format a ZKB description into 'Body - Descriptor' order.
 
     Accepts a list of raw description lines (MT940 multi-line) or a single-element
-    list containing a pre-joined string (PDF). Handles three ZKB description shapes:
-    - "Einkauf ..., Body" → "Body - Einkauf ..."
-    - "Descriptor: Body"  → "Body - Descriptor"  (TWINT, eBanking, Salär, etc.)
-    - anything else       → normalized as-is
+    list containing a pre-joined string (PDF). Handles four ZKB description shapes:
+    - "Einkauf ..., Body"          → "Body - Einkauf ..."
+    - "Belastung (N) SubType Body" → "Body - Belastung (N) SubType"
+    - "Descriptor: Body"           → "Body - Descriptor"  (TWINT, Salär, etc.)
+    - anything else                → normalized as-is
     """
     deduped = _dedupe_description_lines(lines)
     if not deduped:
@@ -81,6 +89,9 @@ def format_zkb_payee(lines: list[str]) -> str | None:
         if len(deduped) > 1:
             return _assemble_descriptor_body(first_line.strip(), "", deduped[1:], lines)
         return normalize_description(lines)
+    m = _BELASTUNG_SUBTYPE_RE.match(first_line)
+    if m:
+        return _assemble_descriptor_body(m.group(1), m.group(2) or "", deduped[1:], lines)
     if ":" not in first_line:
         return normalize_description(lines)
     descriptor, first_body = first_line.split(":", 1)

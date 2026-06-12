@@ -563,6 +563,32 @@ def test_format_payee_supports_einkauf_ordering() -> None:
     assert payee == "Sample Store 1234 Sample City - Einkauf Bank Debit Card Nr. xxxx 4462"
 
 
+def test_format_payee_supports_mobile_banking_ordering() -> None:
+    payee = mt940_importer._format_payee(  # pyright: ignore[reportAttributeAccessIssue]
+        [
+            "Belastung (1) Mobile Banking",
+            "Stadt Zürich Schulgesundheitsdienst 8027 Zürich CH",
+        ],
+        "zkb",
+    )
+
+    assert (
+        payee == "Stadt Zürich Schulgesundheitsdienst 8027 Zürich CH - Belastung (1) Mobile Banking"
+    )
+
+
+def test_format_payee_supports_dauerauftrag_ordering() -> None:
+    payee = mt940_importer._format_payee(  # pyright: ignore[reportAttributeAccessIssue]
+        [
+            "Belastung (2) Dauerauftrag",
+            "ERSIAN AG Schaeronmoosstrasse 77 8052 Zürich CH",
+        ],
+        "zkb",
+    )
+
+    assert payee == "ERSIAN AG Schaeronmoosstrasse 77 8052 Zürich CH - Belastung (2) Dauerauftrag"
+
+
 def _run_fixture(session: Session, fixture: str, config: dict[str, Any]) -> None:
     mt940_importer.Mt940Importer().execute(
         ImportContext(session), {"file": fixture.encode("utf-8")}, config

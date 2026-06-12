@@ -181,7 +181,23 @@ def test_format_payee_strips_numeric_auftrags_nr() -> None:
 def test_format_payee_with_continuation() -> None:
     desc = "Belastung (1) eBill, Auftrags-Nr. Z260348427385 Viseca Payment Services AG 8050 Zürich"
     result = _format_payee(desc)
-    assert result == "Belastung (1) eBill Viseca Payment Services AG 8050 Zürich"
+    assert result == "Viseca Payment Services AG 8050 Zürich - Belastung (1) eBill"
+
+
+def test_format_payee_mobile_banking() -> None:
+    desc = "Belastung (1) Mobile Banking Stadt Zürich Schulgesundheitsdienst 8027 Zürich CH"
+    assert (
+        _format_payee(desc)
+        == "Stadt Zürich Schulgesundheitsdienst 8027 Zürich CH - Belastung (1) Mobile Banking"
+    )
+
+
+def test_format_payee_dauerauftrag() -> None:
+    desc = "Belastung (2) Dauerauftrag ERSIAN AG Schaeronmoosstrasse 77 8052 Zürich CH"
+    assert (
+        _format_payee(desc)
+        == "ERSIAN AG Schaeronmoosstrasse 77 8052 Zürich CH - Belastung (2) Dauerauftrag"
+    )
 
 
 def test_format_payee_no_auftrags_nr_unchanged() -> None:

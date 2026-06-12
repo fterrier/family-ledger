@@ -210,7 +210,6 @@ def _parse_text_lines(
             continue
 
         if _SKIP_LINE_RE.match(line):
-            flush()
             continue
 
         if current_date_str is not None:

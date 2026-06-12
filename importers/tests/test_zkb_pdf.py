@@ -327,6 +327,28 @@ def test_parse_lines_page_header_not_appended() -> None:
     assert "Konto-Nr" not in entries[1].description
 
 
+def test_parse_lines_continuation_after_page_break() -> None:
+    # Continuation line for the last transaction appears on the next page,
+    # after a QR-code footer and page header — must not be lost.
+    lines = [
+        "31.01.26 Saldovortrag 0.00 80'190.63",
+        "02.02.26 Belastung (1) eBill, Auftrags-Nr. Z260348427385 2'992.55 02.02.26 77'198.08",
+        # QR-code footer (last line of page N)
+        "ANAMHKENFLALFLAJGKAJDIELEJFJEOGNEIGK AJCJFIGDAOKPNANJJKAAIKCMIMFGOMGAABLK",
+        # Page header on next page
+        "Konto-Nr. 1149-1427.045",
+        "Datum Geschäftsvorgang Preis Belastung Gutschrift Valuta Saldo",
+        # Continuation of the eBill entry — must be captured despite the page break
+        "Viseca Payment Services AG Hagenholzstrasse 56 8050 Zürich CH",
+        "Additionen 0.00 2'992.55 0.00",
+        "Schlusssaldo zu Ihren Lasten 77'198.08",
+    ]
+    entries = _parse_text_lines(lines, IBAN, "CHF")
+
+    assert len(entries) == 1
+    assert "Viseca Payment Services AG" in entries[0].description
+
+
 # --- _extract_metadata unit tests ---
 
 SAMPLE_PDF_TEXT = """

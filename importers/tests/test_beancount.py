@@ -918,7 +918,7 @@ _COMMODITY_META_FIXTURE = """
 2020-01-01 open Equity:Opening-Balances
 2020-01-01 commodity CHF
 2020-01-01 commodity NESN
-  yahoo_ticker: "NESN.SW"
+  ticker: "NESN.SW"
   sector: "Consumer Staples"
 
 2026-04-01 * "Buy NESN"
@@ -931,7 +931,7 @@ _COMMODITY_META_UPDATED_FIXTURE = """
 2020-01-01 open Equity:Opening-Balances
 2020-01-01 commodity CHF
 2020-01-01 commodity NESN
-  yahoo_ticker: "NESN.SW"
+  ticker: "NESN.SW"
   sector: "Food"
 
 2026-04-01 * "Buy NESN"
@@ -945,7 +945,7 @@ def test_beancount_importer_stores_commodity_metadata(session: Session) -> None:
 
     nesn = session.scalar(select(Commodity).where(Commodity.symbol == "NESN"))
     assert nesn is not None
-    assert nesn.ticker == "NESN.SW"  # yahoo_ticker maps to top-level ticker field
+    assert nesn.ticker == "NESN.SW"
     assert nesn.entity_metadata == {"sector": "Consumer Staples"}
 
 
@@ -957,4 +957,3 @@ def test_beancount_importer_merges_commodity_metadata_on_reimport(session: Sessi
     assert nesn is not None
     assert nesn.ticker == "NESN.SW"
     assert nesn.entity_metadata.get("sector") == "Food"
-    assert "yahoo_ticker" not in nesn.entity_metadata

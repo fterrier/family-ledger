@@ -9,6 +9,7 @@ import re
 import zipfile
 from collections import Counter
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -79,9 +80,7 @@ def _import_document_file(
     media_type: str | None,
     entity_metadata: dict[str, Any],
 ) -> None:
-    from datetime import date as date_type
-
-    assert isinstance(entry_date, date_type)
+    assert isinstance(entry_date, date)
     ctx.create_and_upload_attachment(
         account=account_name,
         attachment_date=entry_date,
@@ -98,8 +97,6 @@ def _import_documents(
     entries: Sequence[object],
     file_map: dict[str, bytes],
 ) -> None:
-    from datetime import date as date_type
-
     document_entries = [e for e in entries if isinstance(e, Document)]
     if not document_entries:
         return
@@ -125,7 +122,7 @@ def _import_documents(
             continue
 
         if document_url is not None:
-            assert isinstance(entry.date, date_type)
+            assert isinstance(entry.date, date)
             media_type, _ = mimetypes.guess_type(filename)
             ctx.create_attachment(
                 account=account_name,
@@ -285,11 +282,9 @@ def _build_account_creates(entries: Sequence[object]) -> dict[str, AccountCreate
 
 def _json_safe(v: Any) -> Any:
     """Convert beancount metadata values to JSON-serializable types."""
-    from datetime import date as _date
-
     if isinstance(v, Decimal):
         return str(v)
-    if isinstance(v, _date):
+    if isinstance(v, date):
         return v.isoformat()
     return v
 
@@ -438,12 +433,10 @@ class BeancountImporter(BaseImporter):
             for symbol, meta in commodity_meta.items():
                 row = rows_by_symbol.get(symbol)
                 if row is not None:
-                    ticker = meta.get("ticker") or meta.get("yahoo_ticker")
+                    ticker = meta.get("ticker")
                     if ticker:
                         row.ticker = ticker
-                    remaining = {
-                        k: v for k, v in meta.items() if k not in ("ticker", "yahoo_ticker")
-                    }
+                    remaining = {k: v for k, v in meta.items() if k != "ticker"}
                     if remaining:
                         row.entity_metadata = {**row.entity_metadata, **remaining}
             ctx.session.commit()

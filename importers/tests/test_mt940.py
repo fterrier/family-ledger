@@ -340,7 +340,7 @@ def test_parse_mt940_text_uses_library_fields_for_dates_and_refs() -> None:
 
 
 def test_normalize_description_collapses_duplicates() -> None:
-    payee = mt940_importer._normalize_description(["Guthabenzins", "Guthabenzins"])
+    payee = mt940_importer.normalize_description(["Guthabenzins", "Guthabenzins"])
 
     assert payee == "Guthabenzins"
 

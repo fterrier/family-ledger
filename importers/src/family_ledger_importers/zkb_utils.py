@@ -61,8 +61,8 @@ def _assemble_descriptor_body(
     return body + " - " + descriptor
 
 
-# "Belastung (N) SubType" where SubType is a known ZKB payment category.
-# The optional (N) index is present for standing orders and eBill batches.
+# Matches "Belastung (N) SubType" for known ZKB payment categories.
+# The optional (N) numeric index appears on some transaction types.
 _BELASTUNG_SUBTYPE_RE = re.compile(
     r"^(Belastung\s+(?:\(\d+\)\s+)?(?:Mobile Banking|Dauerauftrag|eBill))(?:\s+(.+))?$"
 )
@@ -89,9 +89,10 @@ def format_zkb_payee(lines: list[str]) -> str | None:
         if len(deduped) > 1:
             return _assemble_descriptor_body(first_line.strip(), "", deduped[1:], lines)
         return normalize_description(lines)
-    m = _BELASTUNG_SUBTYPE_RE.match(first_line)
-    if m:
-        return _assemble_descriptor_body(m.group(1), m.group(2) or "", deduped[1:], lines)
+    if first_line.startswith("Belastung "):
+        m = _BELASTUNG_SUBTYPE_RE.match(first_line)
+        if m:
+            return _assemble_descriptor_body(m.group(1), m.group(2) or "", deduped[1:], lines)
     if ":" not in first_line:
         return normalize_description(lines)
     descriptor, first_body = first_line.split(":", 1)

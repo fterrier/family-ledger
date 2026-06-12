@@ -67,6 +67,10 @@ _BELASTUNG_SUBTYPE_RE = re.compile(
     r"^(Belastung\s+(?:\(\d+\)\s+)?(?:Mobile Banking|Dauerauftrag|eBill))(?:\s+(.+))?$"
 )
 
+# Matches "Einkauf ... Nr. xxxx DDDD" card descriptors without a comma separator.
+# PDF statements join descriptor and merchant on one line; the card Nr. is the split point.
+_EINKAUF_CARD_NR_RE = re.compile(r"^(Einkauf\s+.+?\s+Nr\.\s+\S+\s+\d+)(?:\s+(.+))?$")
+
 
 def format_zkb_payee(lines: list[str]) -> str | None:
     """Format a ZKB description into 'Body - Descriptor' order.
@@ -74,6 +78,7 @@ def format_zkb_payee(lines: list[str]) -> str | None:
     Accepts a list of raw description lines (MT940 multi-line) or a single-element
     list containing a pre-joined string (PDF). Handles four ZKB description shapes:
     - "Einkauf ..., Body"          → "Body - Einkauf ..."
+    - "Einkauf ... Nr. DDDD Body"  → "Body - Einkauf ... Nr. DDDD"  (PDF card txns)
     - "Belastung (N) SubType Body" → "Body - Belastung (N) SubType"
     - "Descriptor: Body"           → "Body - Descriptor"  (TWINT, Salär, etc.)
     - anything else                → normalized as-is
@@ -86,6 +91,9 @@ def format_zkb_payee(lines: list[str]) -> str | None:
         if "," in first_line:
             descriptor, first_body = first_line.split(",", 1)
             return _assemble_descriptor_body(descriptor.strip(), first_body, deduped[1:], lines)
+        m = _EINKAUF_CARD_NR_RE.match(first_line)
+        if m:
+            return _assemble_descriptor_body(m.group(1), m.group(2) or "", deduped[1:], lines)
         if len(deduped) > 1:
             return _assemble_descriptor_body(first_line.strip(), "", deduped[1:], lines)
         return normalize_description(lines)

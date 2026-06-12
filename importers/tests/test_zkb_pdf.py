@@ -200,8 +200,16 @@ def test_format_payee_dauerauftrag() -> None:
     )
 
 
-def test_format_payee_no_auftrags_nr_unchanged() -> None:
-    desc = "Einkauf ZKB Visa Debit Card Nr. xxxx 4462 Coop-3304 ZH-Albisriede"
+def test_format_payee_einkauf_card_pdf_single_line() -> None:
+    desc = "Einkauf ZKB Visa Debit Card Nr. xxxx 4462 Babus Bakery Coffeeh 0000 Zuerich"
+    assert (
+        _format_payee(desc)
+        == "Babus Bakery Coffeeh 0000 Zuerich - Einkauf ZKB Visa Debit Card Nr. xxxx 4462"
+    )
+
+
+def test_format_payee_einkauf_card_no_body_unchanged() -> None:
+    desc = "Einkauf ZKB Visa Debit Card Nr. xxxx 4462"
     assert _format_payee(desc) == desc
 
 

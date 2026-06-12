@@ -11,15 +11,12 @@ from family_ledger.models import Base
 # Maps CLI entity names to their SQLAlchemy table objects.
 # Posting is excluded: it cascades from transaction.
 _ENTITY_TABLES = {
-    name: table
-    for name, table in {
-        "account": Base.metadata.tables["accounts"],
-        "commodity": Base.metadata.tables["commodities"],
-        "transaction": Base.metadata.tables["transactions"],
-        "price": Base.metadata.tables["prices"],
-        "balance_assertion": Base.metadata.tables["balance_assertions"],
-        "attachment": Base.metadata.tables["attachments"],
-    }.items()
+    "account": Base.metadata.tables["accounts"],
+    "commodity": Base.metadata.tables["commodities"],
+    "transaction": Base.metadata.tables["transactions"],
+    "price": Base.metadata.tables["prices"],
+    "balance_assertion": Base.metadata.tables["balance_assertions"],
+    "attachment": Base.metadata.tables["attachments"],
 }
 VALID_ENTITIES = set(_ENTITY_TABLES)
 

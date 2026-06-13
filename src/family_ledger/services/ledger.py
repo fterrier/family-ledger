@@ -477,6 +477,21 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
     return serialize_price(price_row)
 
 
+def update_price(session: Session, price: str, payload: PriceCreate) -> PriceResource:
+    resource = resource_name("prices", price)
+    price_row = session.scalar(select(Price).where(Price.name == resource))
+    if price_row is None:
+        raise NotFoundError(code="price_not_found", message="Price not found")
+    validate_symbols_exist(session, {payload.base_symbol, payload.quote.symbol})
+    price_row.price_date = payload.price_date
+    price_row.base_symbol = payload.base_symbol
+    price_row.quote_symbol = payload.quote.symbol
+    price_row.price_per_unit = payload.quote.amount
+    commit_or_raise(session)
+    session.refresh(price_row)
+    return serialize_price(price_row)
+
+
 def list_prices_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListPricesResponse:

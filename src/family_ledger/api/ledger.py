@@ -31,6 +31,7 @@ from family_ledger.api.schemas import (
     UpdateAccountRequest,
     UpdateBalanceAssertionRequest,
     UpdateCommodityRequest,
+    UpdatePriceRequest,
     UpdateTransactionRequest,
 )
 from family_ledger.db import get_db_session, read_only_transaction
@@ -263,6 +264,15 @@ def create_price(request: CreatePriceRequest, session: DbSession) -> PriceResour
 @router.get("/prices/{price:path}", response_model=PriceResource)
 def get_price(price: str, session: DbSession) -> PriceResource:
     return _call_service(ledger_service.get_price_by_name, session, price)
+
+
+@router.patch("/prices/{price:path}", response_model=PriceResource)
+def update_price(
+    price: str,
+    request: UpdatePriceRequest,
+    session: DbSession,
+) -> PriceResource:
+    return _call_service(ledger_service.update_price, session, price, request.price)
 
 
 @router.get("/balance-assertions", response_model=ListBalanceAssertionsResponse)

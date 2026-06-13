@@ -1346,6 +1346,71 @@ def test_create_and_get_price() -> None:
     assert get_response.json()["base_symbol"] == "USD"
 
 
+def test_update_price() -> None:
+    client = make_client()
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    body = client.post(
+        "/prices",
+        json={
+            "price": {
+                "price_date": "2026-04-19",
+                "base_symbol": "USD",
+                "quote": {"amount": "0.92", "symbol": "CHF"},
+            }
+        },
+    ).json()
+    name = body["name"]
+
+    patch_response = client.patch(
+        f"/{name}",
+        json={
+            "price": {
+                "price_date": "2026-04-20",
+                "base_symbol": "USD",
+                "quote": {"amount": "0.95", "symbol": "CHF"},
+            },
+            "update_mask": "price_date,base_symbol,quote",
+        },
+    )
+    assert patch_response.status_code == 200
+    updated = patch_response.json()
+    assert updated["price_date"] == "2026-04-20"
+    assert Decimal(updated["quote"]["amount"]) == Decimal("0.95")
+    assert updated["name"] == name
+
+
+def test_update_price_rejects_unknown_symbol() -> None:
+    client = make_client()
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    body = client.post(
+        "/prices",
+        json={
+            "price": {
+                "price_date": "2026-04-19",
+                "base_symbol": "USD",
+                "quote": {"amount": "0.92", "symbol": "CHF"},
+            }
+        },
+    ).json()
+
+    patch_response = client.patch(
+        f"/{body['name']}",
+        json={
+            "price": {
+                "price_date": "2026-04-19",
+                "base_symbol": "UNKNOWN",
+                "quote": {"amount": "0.92", "symbol": "CHF"},
+            },
+            "update_mask": "price_date,base_symbol,quote",
+        },
+    )
+    assert patch_response.status_code == 400
+
+
 def test_create_balance_assertion() -> None:
     client = make_client()
 

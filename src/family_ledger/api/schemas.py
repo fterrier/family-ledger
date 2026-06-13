@@ -90,6 +90,11 @@ class PriceCreate(PriceData):
     pass
 
 
+class UpdatePriceRequest(BaseModel):
+    price: PriceCreate
+    update_mask: str | None = None
+
+
 class ListPricesResponse(BaseModel):
     prices: list[PriceResource]
     next_page_token: str | None = None

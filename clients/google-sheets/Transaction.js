@@ -298,6 +298,17 @@ class Transaction extends Entity {
       default: transactionDefaults.tags || null,
     };
 
+    const sourceAccountField = { key: 'source_account', label: 'Source account', type: 'account-search', required: true };
+    const destinationAccountField = {
+      key: 'destination_account', label: 'Destination account', type: 'account-search',
+      hint: 'Optional. Leave blank for a source-only transaction.',
+    };
+    const amountField = {
+      key: 'amount', label: 'Amount', type: 'number', required: true,
+      hint: 'Positive for expenses; negative for incoming money. Same sign convention as the sheet.',
+    };
+    const symbolField = { key: 'symbol', label: 'Symbol', type: 'select', required: true };
+
     const advancedReturn = function(ps) {
       return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(ps || []), tagsField]) };
     };
@@ -320,25 +331,12 @@ class Transaction extends Entity {
 
       const src = postings[groups[0].sourceIndex];
       const dst = groups[0].destinationIndexes.length > 0 ? postings[groups[0].destinationIndexes[0]] : null;
-      const sourceAccountField = {
-        key: 'source_account', label: 'Source account', type: 'account-search', required: true,
-        hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account,
-      };
-      const destinationAccountField = {
-        key: 'destination_account', label: 'Destination account', type: 'account-search',
-        hint: 'Optional. Leave blank for a source-only transaction.',
-        'selection-options': allAccountOpts, default: dst ? dst.account : null,
-      };
-      const amountField = {
-        key: 'amount', label: 'Amount', type: 'number', required: true,
-        hint: 'Positive for expenses; negative for incoming money. Same sign convention as the sheet.',
-        default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount),
-      };
-      const symbolField = {
-        key: 'symbol', label: 'Symbol', type: 'select', required: true,
-        'selection-options': allCommodityOpts, default: src.units.symbol,
-      };
-      return simpleReturn([sourceAccountField, destinationAccountField, amountField, symbolField]);
+      return simpleReturn([
+        Object.assign({}, sourceAccountField, { hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account }),
+        Object.assign({}, destinationAccountField, { 'selection-options': allAccountOpts, default: dst ? dst.account : null }),
+        Object.assign({}, amountField, { default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) }),
+        Object.assign({}, symbolField, { 'selection-options': allCommodityOpts, default: src.units.symbol }),
+      ]);
     }
 
     // Add mode: simple form with configured shortlists
@@ -347,25 +345,12 @@ class Transaction extends Entity {
     const destOpts   = toOpts(allRaw.filter(function(o) { return settings.destinationAccounts.indexOf(o.resource_name) !== -1; }));
     const symOpts    = buildQuickAddSymbolOptions_(listCommodityOptions_(), settings.symbols)
                          .map(function(o) { return { value: o.symbol, label: o.symbol }; });
-    const sourceAccountField = {
-      key: 'source_account', label: 'Source account', type: 'account-search', required: true,
-      hint: 'Required. Only the configured quick-add source account shortlist is shown.',
-      'selection-options': sourceOpts, default: settings.defaultSourceAccount || null,
-    };
-    const destinationAccountField = {
-      key: 'destination_account', label: 'Destination account', type: 'account-search',
-      hint: 'Optional. Leave blank to create a source-only transaction.',
-      'selection-options': destOpts, default: null,
-    };
-    const amountField = {
-      key: 'amount', label: 'Amount', type: 'number', required: true,
-      hint: 'Required. Positive for expenses; negative for incoming money. Same sign convention as the sheet.',
-    };
-    const symbolField = {
-      key: 'symbol', label: 'Symbol', type: 'select', required: true, hint: 'Required.',
-      'selection-options': symOpts, default: settings.defaultSymbol || null,
-    };
-    return simpleReturn([sourceAccountField, destinationAccountField, amountField, symbolField]);
+    return simpleReturn([
+      Object.assign({}, sourceAccountField, { hint: 'Required. Only the configured quick-add source account shortlist is shown.', 'selection-options': sourceOpts, default: settings.defaultSourceAccount || null }),
+      Object.assign({}, destinationAccountField, { hint: 'Optional. Leave blank to create a source-only transaction.', 'selection-options': destOpts, default: null }),
+      Object.assign({}, amountField, { hint: 'Required. ' + amountField.hint }),
+      Object.assign({}, symbolField, { hint: 'Required.', 'selection-options': symOpts, default: settings.defaultSymbol || null }),
+    ]);
   }
 
   static activateAfterCreate_(sheet, span) {

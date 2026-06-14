@@ -143,6 +143,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
       alignment: 'right',
     },
+    tags: {
+      width: 130,
+      role: 'readonly',
+      note: 'Read-only comma-separated tags for this transaction.',
+      alignment: 'left',
+    },
     issues: {
       width: 600,
       role: 'system',
@@ -159,7 +165,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     },
   }, {
     hiddenHeaders: ['resource_name', 'narration_source', 'hasCostPrice'],
-    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
+    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol', 'tags'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
     edit: {

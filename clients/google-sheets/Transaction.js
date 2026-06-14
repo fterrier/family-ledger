@@ -391,6 +391,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
   if (groups === null) return null;
 
   const transactionNarration = String(transaction.narration || '');
+  const tagsText = (transaction.tags || []).join(', ');
   const lookup = accountResourceToDisplayName || {};
 
   if (groups.length === 0) {
@@ -405,6 +406,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
       amount: '',
       split_off_amount: '',
       symbol: '',
+      tags: tagsText,
     }];
   }
 
@@ -423,6 +425,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         amount: '',
         split_off_amount: '',
         symbol: group.symbol,
+        tags: tagsText,
         hasCostPrice: group.hasCostPrice,
       });
       return;
@@ -451,6 +454,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         amount: amount,
         split_off_amount: '',
         symbol: weight.symbol,
+        tags: tagsText,
         hasCostPrice: group.hasCostPrice,
       });
     });
@@ -468,6 +472,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         amount: remainder,
         split_off_amount: '',
         symbol: sourceWeight.symbol,
+        tags: tagsText,
         hasCostPrice: group.hasCostPrice,
       });
     }

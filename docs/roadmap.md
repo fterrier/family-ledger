@@ -14,12 +14,14 @@ This document tracks planned work, verified implementation state, and deferred s
 - Beancount export CLI (`export-beancount`): commodities, accounts (open/close), prices, transactions with cost/price annotations, balance assertions, `document` directives for stored attachments, metadata round-trip
 - attachment lifecycle with async Paperless-ngx integration and background poller
 - modular importer system via Python entry points
-- Beancount importer with `source_native_id` and `document_url` round-trip fields
-- MT940 importer
+- Beancount importer with `source_native_id`, `document_url` round-trip fields, and `document` directive import (`_import_documents`)
+- MT940 importer — supports `provider_prefix` config to customise `source_native_id` prefix (e.g. `zkb` for ZKB files)
+- ZKB PDF Kontoauszug importer
 - IBKR (Interactive Brokers) importer via Flex XML reports
 - Viseca One Card PDF importer with per-card account config and balance assertions
+- Yahoo Finance price importer (`prices` entry point) — auto-discovers commodity pairs, resolves tickers from `entity_metadata.yahoo_ticker`
 - Google Sheets client: Accounts, Transactions, Balances, Commodities, Attachments, Issues sheets
-- Google Sheets: inline transaction editing (payee, narration, destination account, amount, splits)
+- Google Sheets: inline transaction editing (payee, narration, destination account, amount, splits); complex-posting transactions (cost/price) guard posting-modifying edits with a toast and allow payee/narration edits via narrow update mask
 - Google Sheets: Quick Add Transaction sidebar (simple and advanced modes)
 - Google Sheets: Quick Filter with date range (year buttons + custom range) and account hierarchy filter
 - Google Sheets: Importer Settings and Import Data dialog
@@ -28,7 +30,7 @@ This document tracks planned work, verified implementation state, and deferred s
 - Google Sheets: all transactions displayed using weight-based model; cost/price transactions show settlement-currency amounts and are editable via the sidebar postings editor (cost and price per posting, individual toggles, account search with date filtering, move/reorder controls)
 - Google Sheets: source account determined by posting order — first posting of each weight-symbol group is always the source; posting order in the ledger file is the control mechanism
 - API: `weight` field returned per posting in transaction responses (computed from cost/price/units)
-- API: `GET /prices` list endpoint with pagination
+- API: `GET /prices` list endpoint with pagination; `PATCH /prices/{price}` update endpoint
 - Google Sheets: Prices sheet — synced on every ledger sync, with create/edit/delete sidebar
 - Google Sheets: incremental sync after import — only newly created resources are inserted for imports ≤ 200 entities; larger imports fall back to full sync
 - Google Sheets: split on uncategorized/source-only rows — splitting creates a blank-destination posting; all edits (including partial states) are sent to the API immediately for real-time doctor visibility
@@ -39,8 +41,6 @@ This document tracks planned work, verified implementation state, and deferred s
 - provenance metadata on sheet saves
 - closing periods (edit gating + doctor scoping)
 - snapshot export after import
-- payslip and Visa Cumulus importers
-- `document` Beancount import directive support
 
 ## Planned Work
 
@@ -73,20 +73,6 @@ Open design question: whether the close date lives in Sheets document properties
 
 After a successful `POST /importers/{importer}:import` run, export the full ledger to a timestamped Beancount file (e.g. `backups/YYYY-MM-DDTHH:MM:SS-post-import.beancount`). Provides a recoverable checkpoint tied to each import event.
 
-### Importers
-
-- Payslip (PDF payslip parser)
-- Visa Cumulus (CSV statement)
-
-### Infrastructure
-
-**Beancount export parity**
-
-Validate the `export-beancount` output against the original ledger in `projects/accounting` to confirm semantic equivalence before fully migrating to the new stack.
-
-**`document` Beancount import directive**
-
-Handle `document` directives when importing a Beancount file, creating attachment records linked to the referenced document URL.
 
 ## Deferred (no current plans)
 

@@ -313,7 +313,7 @@ class Transaction extends Entity {
       return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(ps || []), tagsField]) };
     };
     const simpleReturn = function(extraFields) {
-      return { mode: 'simple', allowModeSwitch: true, fields: textFields.concat(extraFields).concat([tagsField]) };
+      return { mode: 'simple', allowModeSwitch: true, fields: textFields.concat(extraFields) };
     };
 
     if (mode === 'advanced') {
@@ -336,6 +336,7 @@ class Transaction extends Entity {
         Object.assign({}, destinationAccountField, { 'selection-options': allAccountOpts, default: dst ? dst.account : null }),
         Object.assign({}, amountField, { default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) }),
         Object.assign({}, symbolField, { 'selection-options': allCommodityOpts, default: src.units.symbol }),
+        tagsField,
       ]);
     }
 
@@ -347,9 +348,10 @@ class Transaction extends Entity {
                          .map(function(o) { return { value: o.symbol, label: o.symbol }; });
     return simpleReturn([
       Object.assign({}, sourceAccountField, { hint: 'Required. Only the configured quick-add source account shortlist is shown.', 'selection-options': sourceOpts, default: settings.defaultSourceAccount || null }),
-      Object.assign({}, destinationAccountField, { hint: 'Optional. Leave blank to create a source-only transaction.', 'selection-options': destOpts, default: null }),
-      Object.assign({}, amountField, { hint: 'Required. ' + amountField.hint }),
-      Object.assign({}, symbolField, { hint: 'Required.', 'selection-options': symOpts, default: settings.defaultSymbol || null }),
+      Object.assign({}, destinationAccountField, { 'selection-options': destOpts, default: null }),
+      amountField,
+      Object.assign({}, symbolField, { 'selection-options': symOpts, default: settings.defaultSymbol || null }),
+      tagsField,
     ]);
   }
 

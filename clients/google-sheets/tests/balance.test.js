@@ -277,15 +277,13 @@ test('submitEntity (edit) PATCHes correct payload and updates row in place', () 
   assert.equal(rowStore.get(2).amount, '1500.00');
 });
 
-test('submitEntity (edit) returns null on API failure', () => {
-  const alerts = [];
+test('submitEntity (edit) throws on API failure', () => {
   const rowStore = new Map([
     [2, { resource_name: 'balanceAssertions/bal_1', assertion_date: '2026-04-19', account: '[A] Checking', amount: 1000, symbol: 'CHF', edit: false, issues: '' }],
   ]);
   const { sandbox } = loadCode({
     SpreadsheetApp: {
       getActiveSpreadsheet() { return { toast() {} }; },
-      getUi() { return { alert(title, msg, _btn) { alerts.push({ title, msg }); }, ButtonSet: { OK: 0 } }; },
     },
   });
   const fakeSheet = makeBalanceSheet_(sandbox, rowStore, []);
@@ -293,13 +291,10 @@ test('submitEntity (edit) returns null on API failure', () => {
   sandbox.loadAccountOptions_ = function() { return []; };
   sandbox.apiFetchJson_ = function() { throw new Error('api_error: something went wrong'); };
 
-  const result = sandbox.submitEntity(
+  assert.throws(() => sandbox.submitEntity(
     { classKey: 'balances', name: 'balanceAssertions/bal_1', span: { start: 2, count: 1 } },
     { assertion_date: '2026-04-19', account: 'accounts/checking', amount: '1000', symbol: 'CHF' },
-  );
-
-  assert.equal(result, null);
-  assert.ok(alerts.length > 0, 'expected alert on error');
+  ), /api_error/);
 });
 
 // --- deleteEntity ---

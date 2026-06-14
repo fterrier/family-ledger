@@ -1321,7 +1321,7 @@ test('Transaction static config has correct values', () => {
   assert.equal(Transaction.RESOURCE_IDENTITY.header, 'resource_name');
   assert.equal(Transaction.RESOURCE_IDENTITY.multiRow, true);
   assert.deepEqual(JSON.parse(JSON.stringify(Transaction.RESET_ON_SAVE_FIELDS)), ['split_off_amount']);
-  assert.equal(Transaction.UPDATE_MASK, 'transaction_date,payee,narration,postings');
+  assert.equal(Transaction.UPDATE_MASK, 'transaction_date,payee,narration,postings,tags');
 });
 
 // --- flattenTransactionForSheet_ date round-trip ---
@@ -1937,7 +1937,7 @@ test('Transaction.save() uses full update_mask for destination_account edit on n
   tx.save({});
 
   assert.equal(apiCalls.length, 1);
-  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration,postings');
+  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration,postings,tags');
 });
 
 // --- handleEntitySheetEdit_ ---

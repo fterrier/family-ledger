@@ -19,7 +19,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 13, values: [sheetConfig.headers] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [sheetConfig.headers] },
   ]);
 });
 
@@ -106,8 +106,8 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
     {
       sheetName: 'Transactions',
       initialColumns: 8,
-      expectedInsert: { column: 8, howMany: 5 },
-      expectedHide: [2, 6, 13],
+      expectedInsert: { column: 8, howMany: 6 },
+      expectedHide: [2, 6, 14],
     },
     {
       sheetName: 'Accounts',
@@ -176,7 +176,7 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   const { sandbox } = loadCode();
   const fakeSheet = {
     getName() { return 'Transactions'; },
-    getMaxColumns() { return 13; },
+    getMaxColumns() { return 14; },
     getLastRow() { return 5; },
     getMaxRows() { return 5; },
     showColumns(column, count) { operations.push({ type: 'show', column, count }); },
@@ -186,10 +186,10 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   sandbox.applySheetHiddenColumns_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'show', column: 1, count: 13 },
+    { type: 'show', column: 1, count: 14 },
     { type: 'hide', column: 2 },
     { type: 'hide', column: 6 },
-    { type: 'hide', column: 13 },
+    { type: 'hide', column: 14 },
   ]);
 });
 
@@ -212,8 +212,8 @@ test('applySheetDirectFormatting_ applies grouped formatting from config metadat
   sandbox.applySheetDirectFormatting_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   const leftAlign = operations.find((op) => op.type === 'rangeListAlign' && op.notations.includes('G1:G5'));
-  const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('L1:L5'));
-  const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('L1:L5'));
+  const issuesWrap = operations.find((op) => op.type === 'rangeListWrap' && op.notations.includes('M1:M5'));
+  const issuesWrapStrategy = operations.find((op) => op.type === 'rangeListWrapStrategy' && op.notations.includes('M1:M5'));
   const dateFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('C2:C5'));
   const amountFormat = operations.find((op) => op.type === 'rangeListNumberFormat' && op.notations.includes('J2:J5'));
   assert.equal(leftAlign.value, 'left');
@@ -255,7 +255,7 @@ test('ensureSheetConditionalFormatting_ keeps only issue-state background rules 
   const rules = operations.find((op) => op.type === 'setConditionalFormatRules').rules;
   const backgroundRules = rules.filter((rule) => rule.background);
   assert.deepEqual(JSON.parse(JSON.stringify(backgroundRules.map((rule) => ({ formula: rule.formula, background: rule.background })))), [
-    { formula: '=$L2<>""', background: '#fee2e2' },
+    { formula: '=$M2<>""', background: '#fee2e2' },
   ]);
 });
 

@@ -144,7 +144,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'right',
     },
     tags: {
-      width: 130,
+      width: 90,
       role: 'readonly',
       note: 'Read-only comma-separated tags for this transaction.',
       alignment: 'left',

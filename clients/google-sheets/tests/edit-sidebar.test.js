@@ -299,8 +299,7 @@ test('submitEntity (add) inserts new row before a later transaction', () => {
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2');
 });
 
-test('submitEntity (edit) shows toast and returns null on PATCH failure', () => {
-  const toasts = [];
+test('submitEntity (edit) throws on PATCH failure', () => {
   const rowStore = new Map([
     [2, {
       resource_name: 'transactions/txn_1',
@@ -317,8 +316,7 @@ test('submitEntity (edit) shows toast and returns null on PATCH failure', () => 
   ]);
   const { sandbox } = loadCode({
     SpreadsheetApp: {
-      getActiveSpreadsheet() { return { toast(message, title, seconds) { toasts.push({ message, title, seconds }); }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
-      getUi() { return { alert() {}, ButtonSet: { OK: 0 } }; },
+      getActiveSpreadsheet() { return { toast() {}, getSpreadsheetTimeZone() { return 'UTC'; } }; },
     },
   });
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
@@ -330,14 +328,12 @@ test('submitEntity (edit) shows toast and returns null on PATCH failure', () => 
     throw new Error('transaction_unbalanced: not balanced');
   };
 
-  const result = sandbox.submitEntity({ classKey: 'transactions', name: 'transactions/txn_1', span: { start: 2, count: 1 } }, {
+  assert.throws(() => sandbox.submitEntity({ classKey: 'transactions', name: 'transactions/txn_1', span: { start: 2, count: 1 } }, {
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',
     postings: [{ account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } }],
-  });
-
-  assert.equal(result, null);
+  }), /transaction_unbalanced/);
 });
 
 test('submitEntity (edit) sends correct 2-posting PATCH payload', () => {
@@ -378,7 +374,7 @@ test('submitEntity (edit) sends correct 2-posting PATCH payload', () => {
   const patchCall = apiCalls.find(c => c.method === 'patch');
   assert.ok(patchCall, 'expected PATCH call');
   assert.equal(patchCall.path, '/transactions/txn_1');
-  assert.equal(patchCall.payload.update_mask, 'transaction_date,payee,narration,postings');
+  assert.equal(patchCall.payload.update_mask, 'transaction_date,payee,narration,postings,tags');
   assert.deepEqual(JSON.parse(JSON.stringify(patchCall.payload.transaction.postings)), [
     { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
     { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
@@ -424,7 +420,7 @@ test('submitEntity (edit) sends raw postings for 3+ posting transaction', () => 
 
   const patchCall = apiCalls.find(c => c.method === 'patch');
   assert.ok(patchCall, 'expected PATCH call');
-  assert.equal(patchCall.payload.update_mask, 'transaction_date,payee,narration,postings');
+  assert.equal(patchCall.payload.update_mask, 'transaction_date,payee,narration,postings,tags');
   assert.deepEqual(JSON.parse(JSON.stringify(patchCall.payload.transaction.postings)), RAW_3_POSTINGS);
 });
 

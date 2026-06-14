@@ -348,7 +348,7 @@ class Transaction extends Entity {
                          .map(function(o) { return { value: o.symbol, label: o.symbol }; });
     return simpleReturn([
       Object.assign({}, sourceAccountField, { hint: 'Required. Only the configured quick-add source account shortlist is shown.', 'selection-options': sourceOpts, default: settings.defaultSourceAccount || null }),
-      Object.assign({}, destinationAccountField, { 'selection-options': destOpts, default: null }),
+      Object.assign({}, destinationAccountField, { 'selection-options': destOpts }),
       amountField,
       Object.assign({}, symbolField, { 'selection-options': symOpts, default: settings.defaultSymbol || null }),
       tagsField,

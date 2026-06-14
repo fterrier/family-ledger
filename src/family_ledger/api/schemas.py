@@ -205,10 +205,8 @@ class TransactionNormalizeData(BaseModel):
     @classmethod
     def validate_tags(cls, v: list[str]) -> list[str]:
         for tag in v:
-            if not tag:
-                raise ValueError("tags must not contain empty strings")
             if not _TAG_RE.match(tag):
-                raise ValueError(f"tag '{tag}' must not contain whitespace")
+                raise ValueError(f"tag '{tag}' must not be empty or contain whitespace")
         return v
 
 

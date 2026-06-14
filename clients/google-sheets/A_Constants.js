@@ -89,7 +89,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       insertionOrder: true,
     },
     payee: {
-      width: 280,
+      width: 300,
       role: 'editable',
       note: 'Editable payee. Applies to the whole transaction.',
       alignment: 'left',

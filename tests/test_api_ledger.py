@@ -929,6 +929,79 @@ def test_get_and_list_transactions_do_not_inline_issues() -> None:
     assert "issues" not in listed.json()["transactions"][0]
 
 
+def test_create_transaction_with_tags() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "tags": ["salary2023", "bonus"],
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+                    {"account": food["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["tags"] == ["salary2023", "bonus"]
+
+
+def test_create_transaction_rejects_tag_with_whitespace() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "tags": ["bad tag"],
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+                    {"account": food["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_create_transaction_rejects_empty_tag() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "tags": [""],
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+                    {"account": food["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 422
+
+
 def test_ledger_doctor_reports_unbalanced_transactions() -> None:
     client = make_client()
 

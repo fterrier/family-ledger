@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import re
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from family_ledger.importers.result import EntityCounts as EntityCounts  # noqa: F401
 from family_ledger.importers.result import EntityErrors as EntityErrors  # noqa: F401
 from family_ledger.importers.result import ImportResult as ImportResult  # noqa: F401
+
+_TAG_RE = re.compile(r"^\S+$")
 
 
 class MoneyValue(BaseModel):
@@ -197,6 +200,16 @@ class TransactionNormalizeData(BaseModel):
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
     import_metadata: ImportMetadata | None = None
     postings: list[PostingNormalizePayload]
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: list[str]) -> list[str]:
+        for tag in v:
+            if not tag:
+                raise ValueError("tags must not contain empty strings")
+            if not _TAG_RE.match(tag):
+                raise ValueError(f"tag '{tag}' must not contain whitespace")
+        return v
 
 
 class NormalizeTransactionRequest(BaseModel):

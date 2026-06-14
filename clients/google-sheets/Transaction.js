@@ -30,6 +30,10 @@ class Transaction extends Entity {
       this._api.transaction_date = normalizeEntityDate_(fields.transaction_date);
     if ('payee' in fields) this._api.payee = fields.payee || null;
     if ('narration' in fields) this._api.narration = fields.narration || null;
+    if ('tags' in fields) {
+      const raw = String(fields.tags || '').trim();
+      this._api.tags = raw ? raw.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+    }
     if ('postings' in fields) {
       this._api.postings = fields.postings;
     } else if ('source_account' in fields) {
@@ -174,7 +178,7 @@ class Transaction extends Entity {
   static get RESOURCE_IDENTITY() { return { header: 'resource_name', multiRow: true }; }
   static get RESET_ON_SAVE_FIELDS() { return ['split_off_amount']; }
   static get API_RESOURCE_KEY() { return 'transaction'; }
-  static get UPDATE_MASK() { return 'transaction_date,payee,narration,postings'; }
+  static get UPDATE_MASK() { return 'transaction_date,payee,narration,postings,tags'; }
   static get NARROW_UPDATE_MASK() { return 'transaction_date,payee,narration'; }
   static get ENTITY_LABEL() { return 'transaction'; }
 
@@ -192,6 +196,7 @@ class Transaction extends Entity {
       payee: this._api.payee || null,
       narration: this._api.narration || null,
       postings: (this._api.postings || []).filter(function(p, i) { return i === 0 || p.account; }),
+      tags: this._api.tags || [],
     };
   }
 
@@ -279,6 +284,7 @@ class Transaction extends Entity {
         transaction_date: transaction.transaction_date || '',
         payee:    transaction.payee    || '',
         narration: transaction.narration || '',
+        tags: (transaction.tags || []).join(','),
       };
     }
 
@@ -286,8 +292,14 @@ class Transaction extends Entity {
       return Object.assign({}, f, { default: transactionDefaults[f.key] || null });
     });
 
+    const tagsField = {
+      key: 'tags', label: 'Tags', type: 'text',
+      hint: 'Comma-separated tags, no spaces within a tag (e.g. salary2023,bonus).',
+      default: transactionDefaults.tags || null,
+    };
+
     if (mode === 'advanced') {
-      return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings || [])]) };
+      return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings || []), tagsField]) };
     }
 
     if (postings !== null) {
@@ -296,7 +308,7 @@ class Transaction extends Entity {
       const groups = classifyTransactionGroups_({ postings: postings }, accountResourceToDisplayName);
 
       if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].sourceIndex === null || groups[0].destinationIndexes.length > 1) {
-        return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings)]) };
+        return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings), tagsField]) };
       }
 
       const src = postings[groups[0].sourceIndex];
@@ -312,6 +324,7 @@ class Transaction extends Entity {
           default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) },
         { key: 'symbol', label: 'Symbol', type: 'select', required: true,
           'selection-options': allCommodityOpts, default: src.units.symbol },
+        tagsField,
       ]) };
     }
 
@@ -332,6 +345,7 @@ class Transaction extends Entity {
         hint: 'Required. Positive for expenses; negative for incoming money. Same sign convention as the sheet.' },
       { key: 'symbol', label: 'Symbol', type: 'select', required: true, hint: 'Required.',
         'selection-options': symOpts, default: settings.defaultSymbol || null },
+      tagsField,
     ]) };
   }
 

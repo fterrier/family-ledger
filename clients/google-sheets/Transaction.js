@@ -298,7 +298,7 @@ class Transaction extends Entity {
       default: transactionDefaults.tags || null,
     };
 
-    const sourceAccountField = { key: 'source_account', label: 'Source account', type: 'account-search', required: true };
+    const sourceAccountField = { key: 'source_account', label: 'Source account', type: 'account-search', required: true, hint: 'Source account for this transaction.' };
     const destinationAccountField = {
       key: 'destination_account', label: 'Destination account', type: 'account-search',
       hint: 'Optional. Leave blank for a source-only transaction.',
@@ -332,7 +332,7 @@ class Transaction extends Entity {
       const src = postings[groups[0].sourceIndex];
       const dst = groups[0].destinationIndexes.length > 0 ? postings[groups[0].destinationIndexes[0]] : null;
       return simpleReturn([
-        Object.assign({}, sourceAccountField, { hint: 'Source account for this transaction.', 'selection-options': allAccountOpts, default: src.account }),
+        Object.assign({}, sourceAccountField, { 'selection-options': allAccountOpts, default: src.account }),
         Object.assign({}, destinationAccountField, { 'selection-options': allAccountOpts, default: dst ? dst.account : null }),
         Object.assign({}, amountField, { default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) }),
         Object.assign({}, symbolField, { 'selection-options': allCommodityOpts, default: src.units.symbol }),
@@ -347,7 +347,7 @@ class Transaction extends Entity {
     const symOpts    = buildQuickAddSymbolOptions_(listCommodityOptions_(), settings.symbols)
                          .map(function(o) { return { value: o.symbol, label: o.symbol }; });
     return simpleReturn([
-      Object.assign({}, sourceAccountField, { hint: 'Required. Only the configured quick-add source account shortlist is shown.', 'selection-options': sourceOpts, default: settings.defaultSourceAccount || null }),
+      Object.assign({}, sourceAccountField, { 'selection-options': sourceOpts, default: settings.defaultSourceAccount || null }),
       Object.assign({}, destinationAccountField, { 'selection-options': destOpts }),
       amountField,
       Object.assign({}, symbolField, { 'selection-options': symOpts, default: settings.defaultSymbol || null }),

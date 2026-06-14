@@ -294,12 +294,16 @@ class Transaction extends Entity {
 
     const tagsField = {
       key: 'tags', label: 'Tags', type: 'text',
-      hint: 'Comma-separated tags, no spaces within a tag (e.g. salary2023,bonus).',
+      hint: 'Comma-separated tags, no spaces within a tag.',
       default: transactionDefaults.tags || null,
     };
 
+    const advancedReturn = function(ps) {
+      return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(ps || []), tagsField]) };
+    };
+
     if (mode === 'advanced') {
-      return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings || []), tagsField]) };
+      return advancedReturn(postings);
     }
 
     if (postings !== null) {
@@ -308,7 +312,7 @@ class Transaction extends Entity {
       const groups = classifyTransactionGroups_({ postings: postings }, accountResourceToDisplayName);
 
       if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].sourceIndex === null || groups[0].destinationIndexes.length > 1) {
-        return { mode: 'advanced', allowModeSwitch: true, fields: textFields.concat([postingsField(postings), tagsField]) };
+        return advancedReturn(postings);
       }
 
       const src = postings[groups[0].sourceIndex];

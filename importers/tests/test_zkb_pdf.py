@@ -413,7 +413,7 @@ def test_source_native_id_uses_ref(session: Session) -> None:
     _run(session, [entry])
 
     txn = session.execute(select(Transaction)).scalar_one()
-    assert txn.source_native_id == "zkb_pdf:Z260348427385"
+    assert txn.source_native_id == "zkb:Z260348427385"
 
 
 def test_source_native_id_fingerprint_when_no_ref(session: Session) -> None:
@@ -421,7 +421,7 @@ def test_source_native_id_fingerprint_when_no_ref(session: Session) -> None:
     _run(session, [entry])
 
     txn = session.execute(select(Transaction)).scalar_one()
-    assert txn.source_native_id is not None and txn.source_native_id.startswith("zkb_pdf:fp:")
+    assert txn.source_native_id is not None and txn.source_native_id.startswith("zkb:fp:")
 
 
 def test_entity_metadata_structure(session: Session) -> None:

@@ -254,7 +254,9 @@ def _validate_account_mappings(
     return mappings
 
 
-def _compute_entry_source_native_id(entry: ParsedStatementEntry, occurrence: int) -> str:
+def _compute_entry_source_native_id(
+    entry: ParsedStatementEntry, occurrence: int, provider_prefix: str
+) -> str:
     content = {
         "date": entry.effective_transaction_date.isoformat(),
         "account_iban": entry.account_iban,
@@ -263,7 +265,7 @@ def _compute_entry_source_native_id(entry: ParsedStatementEntry, occurrence: int
         "occurrence": occurrence,
     }
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
-    return f"mt940:fp:{digest.hexdigest()}"
+    return f"{provider_prefix}:fp:{digest.hexdigest()}"
 
 
 def _build_balance_assertion_payload(
@@ -398,6 +400,14 @@ class Mt940Importer(BaseImporter):
                         "monthly uses the first statement in each month."
                     ),
                 },
+                "provider_prefix": {
+                    "type": "string",
+                    "default": "mt940",
+                    "description": (
+                        "Provider-specific prefix for source_native_id values "
+                        "(e.g. 'zkb' for ZKB MT940 files)."
+                    ),
+                },
             },
             "additionalProperties": False,
         }
@@ -428,6 +438,7 @@ class Mt940Importer(BaseImporter):
         account_mappings = _validate_account_mappings(ctx, config, entries)
         payee_format = str(config.get("payee_format") or "generic")
         balance_assertion_frequency = str(config.get("balance_assertion_frequency") or "none")
+        provider_prefix = str(config.get("provider_prefix") or "mt940")
 
         for symbol in sorted(
             {entry.currency for entry in entries if entry.currency}
@@ -438,7 +449,7 @@ class Mt940Importer(BaseImporter):
         occurrence_counter: Counter[tuple[object, ...]] = Counter()
         for entry in entries:
             if entry.ref is not None:
-                source_native_id = f"mt940:{entry.ref}"
+                source_native_id = f"{provider_prefix}:{entry.ref}"
             else:
                 key = (
                     entry.effective_transaction_date,
@@ -446,7 +457,9 @@ class Mt940Importer(BaseImporter):
                     entry.amount,
                     entry.currency,
                 )
-                source_native_id = _compute_entry_source_native_id(entry, occurrence_counter[key])
+                source_native_id = _compute_entry_source_native_id(
+                    entry, occurrence_counter[key], provider_prefix
+                )
                 occurrence_counter[key] += 1
             payload = _build_transaction_payload(
                 entry, account_mappings[entry.account_iban], payee_format, source_native_id

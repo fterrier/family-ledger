@@ -292,7 +292,7 @@ def _compute_source_native_id(entry: ParsedZkbEntry, occurrence: int) -> str:
         "occurrence": occurrence,
     }
     digest = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode())
-    return f"zkb_pdf:fp:{digest.hexdigest()}"
+    return f"zkb:fp:{digest.hexdigest()}"
 
 
 def _build_transaction_payload(
@@ -375,7 +375,7 @@ class ZkbPdfImporter(BaseImporter):
         occurrence_counter: Counter[tuple[date, str, Decimal, str]] = Counter()
         for entry in stmt.entries:
             if entry.ref is not None:
-                source_native_id = f"zkb_pdf:{entry.ref}"
+                source_native_id = f"zkb:{entry.ref}"
             else:
                 key = (entry.effective_date, entry.account_iban, entry.amount, entry.currency)
                 count = occurrence_counter[key]

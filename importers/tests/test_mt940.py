@@ -652,6 +652,22 @@ def test_mt940_importer_fallback_source_native_id_is_deterministic(
     assert first_ids == second_ids
 
 
+def test_mt940_importer_provider_prefix_overrides_default(session: Session) -> None:
+    account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
+    config = {
+        "account_mappings": {"CH5612300000000100111": account_resource},
+        "provider_prefix": "zkb",
+    }
+
+    _run_fixture(session, DUPLICATE_ENTRIES_FIXTURE, config)
+
+    transactions = session.scalars(select(Transaction).order_by(Transaction.id)).all()
+    assert all(
+        t.source_native_id is not None and str(t.source_native_id).startswith("zkb:fp:")
+        for t in transactions
+    )
+
+
 def test_mt940_importer_deduplicates_on_reimport(session: Session) -> None:
     account_resource = _create_account(session, "Assets:Liquid:ZKB:Checking:Family")
     config = {

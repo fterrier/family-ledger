@@ -53,9 +53,8 @@ function submitEntity(entity, fieldValues) {
   const EntityClass = ENTITY_CLASS_REGISTRY[entity.classKey];
   const isEdit = Boolean(entity.name);
   const actionName = isEdit ? ('Edit ' + EntityClass.ENTITY_LABEL) : ('Add ' + EntityClass.ENTITY_LABEL);
-  const perf = createPerf_();
-  setActivePerf_(perf);
-  try {
+  return runWithPerf_(actionName, function(perf) {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = perf.wrap('sheet.get', function() {
       return getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
     });
@@ -73,25 +72,19 @@ function submitEntity(entity, fieldValues) {
     try {
       refreshDoctorIssueSheets_((entityObj._context || {}).accountResourceToDisplayName || {});
     } catch (e) {
-      SpreadsheetApp.getActiveSpreadsheet().toast(
-        EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (e.message || String(e)),
-        'Family Ledger', 5
-      );
+      ss.toast(EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (e.message || String(e)), 'Family Ledger', 5);
       return {};
     }
 
     if (isEdit) {
-      SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
+      ss.toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
       return {};
     }
-    SpreadsheetApp.getActiveSpreadsheet().setActiveSheet(sheet);
+    ss.setActiveSheet(sheet);
     EntityClass.activateAfterCreate_(sheet, finalSpan);
-    SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' added.', 'Family Ledger', 3);
+    ss.toast(EntityClass.ENTITY_LABEL + ' added.', 'Family Ledger', 3);
     return { entityName: entityObj.getName(), span: finalSpan };
-  } finally {
-    clearActivePerf_();
-    perf.log(actionName);
-  }
+  });
 }
 
 function deleteEntity(entity) {

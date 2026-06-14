@@ -139,6 +139,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
         transaction_date=transaction.transaction_date,
         payee=transaction.payee,
         narration=transaction.narration,
+        tags=transaction.tags,
         entity_metadata=transaction.entity_metadata,
         import_metadata=import_metadata,
         postings=postings,
@@ -208,6 +209,8 @@ def persist_transaction(
         transaction.source_native_id = (
             payload.import_metadata.source_native_id if payload.import_metadata else None
         )
+    if _masked("tags"):
+        transaction.tags = payload.tags
     if _masked("postings"):
         transaction.postings.clear()
         if transaction.id is not None:

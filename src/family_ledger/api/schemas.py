@@ -166,6 +166,7 @@ class TransactionData(BaseModel):
     transaction_date: date
     payee: str | None = None
     narration: str | None = None
+    tags: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
     import_metadata: ImportMetadata | None = None
     postings: list[PostingPayload]
@@ -192,6 +193,7 @@ class TransactionNormalizeData(BaseModel):
     transaction_date: date
     payee: str | None = None
     narration: str | None = None
+    tags: list[str] = Field(default_factory=list)
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
     import_metadata: ImportMetadata | None = None
     postings: list[PostingNormalizePayload]

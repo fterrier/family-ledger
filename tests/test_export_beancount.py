@@ -78,6 +78,7 @@ def _mk_tx(
     *,
     source_native_id: str | None = None,
     entity_metadata: dict | None = None,
+    tags: list[str] | None = None,
 ) -> Transaction:
     tx = Transaction(
         transaction_date=tx_date,
@@ -86,6 +87,7 @@ def _mk_tx(
         narration=narration,
         source_native_id=source_native_id,
         entity_metadata=entity_metadata or {},
+        tags=tags or [],
     )
     tx.postings = postings
     return tx
@@ -280,6 +282,25 @@ def test_format_transaction_no_posting_narration_no_comment() -> None:
     tx = _mk_tx(date(2026, 4, 1), None, "Test", postings)
     out = _format_transaction(tx)
     assert ";" not in out
+
+
+def test_format_transaction_tags_appended_to_header() -> None:
+    tx = _mk_tx(date(2026, 4, 1), "Migros", "Groceries", [], tags=["salary2023", "bonus"])
+    out = _format_transaction(tx)
+    first_line = out.splitlines()[0]
+    assert first_line == '2026-04-01 * "Migros" "Groceries" #bonus #salary2023'
+
+
+def test_format_transaction_tags_sorted() -> None:
+    tx = _mk_tx(date(2026, 4, 1), None, "Desc", [], tags=["zzz", "aaa"])
+    first_line = _format_transaction(tx).splitlines()[0]
+    assert first_line == '2026-04-01 * "Desc" #aaa #zzz'
+
+
+def test_format_transaction_no_tags_no_hash() -> None:
+    tx = _mk_tx(date(2026, 4, 1), None, "Desc", [], tags=[])
+    first_line = _format_transaction(tx).splitlines()[0]
+    assert "#" not in first_line
 
 
 # ---------------------------------------------------------------------------

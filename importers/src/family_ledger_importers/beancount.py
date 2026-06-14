@@ -492,6 +492,7 @@ class BeancountImporter(BaseImporter):
                     transaction_date=entry.date,
                     payee=entry.payee,
                     narration=entry.narration,
+                    tags=sorted(entry.tags),
                     postings=posting_payloads,
                     entity_metadata=entity_metadata,
                     import_metadata=ImportMetadata(source_native_id=source_native_id),

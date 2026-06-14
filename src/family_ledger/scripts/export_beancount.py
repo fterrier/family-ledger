@@ -100,6 +100,8 @@ def _format_transaction(tx: Transaction) -> str:
         header = f'{date_str} * "{tx.narration}"'
     else:
         header = f'{date_str} * ""'
+    if tx.tags:
+        header = header + " " + " ".join(f"#{t}" for t in sorted(tx.tags))
 
     # Collect metadata: top-level entity_metadata keys (e.g. generated_by for pad
     # transactions), then keys under entity_metadata["beancount"], with beancount

@@ -66,6 +66,7 @@ class Transaction(Base):
     narration: Mapped[str | None] = mapped_column(Text, nullable=True)
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
     source_native_id: Mapped[str | None] = mapped_column(Text, nullable=True, unique=True)
+    tags: Mapped[list[str]] = mapped_column(json_type, default=list)
 
     postings: Mapped[list[Posting]] = relationship(
         back_populates="transaction",

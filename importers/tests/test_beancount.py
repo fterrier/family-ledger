@@ -957,3 +957,26 @@ def test_beancount_importer_merges_commodity_metadata_on_reimport(session: Sessi
     assert nesn is not None
     assert nesn.ticker == "NESN.SW"
     assert nesn.entity_metadata.get("sector") == "Food"
+
+
+_TAGS_FIXTURE = """
+2020-01-01 open Assets:Bank:Checking:Family
+2020-01-01 open Expenses:Food
+2020-01-01 commodity CHF
+
+2026-06-01 * "Employer" "Salary" #salary2026 #bonus
+  Assets:Bank:Checking:Family   1000 CHF
+  Expenses:Food                -1000 CHF
+
+2026-06-02 * "Migros" "Groceries"
+  Assets:Bank:Checking:Family   -50 CHF
+  Expenses:Food                  50 CHF
+"""
+
+
+def test_beancount_importer_imports_tags(session: Session) -> None:
+    _run(session, _TAGS_FIXTURE)
+
+    transactions = session.scalars(select(Transaction).order_by(Transaction.transaction_date)).all()
+    assert transactions[0].tags == ["bonus", "salary2026"]
+    assert transactions[1].tags == []

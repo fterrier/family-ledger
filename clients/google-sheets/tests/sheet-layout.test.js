@@ -19,7 +19,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 12, values: [sheetConfig.headers] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 13, values: [sheetConfig.headers] },
   ]);
 });
 
@@ -106,8 +106,8 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
     {
       sheetName: 'Transactions',
       initialColumns: 8,
-      expectedInsert: { column: 8, howMany: 4 },
-      expectedHide: [2, 6],
+      expectedInsert: { column: 8, howMany: 5 },
+      expectedHide: [2, 6, 13],
     },
     {
       sheetName: 'Accounts',
@@ -176,7 +176,7 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   const { sandbox } = loadCode();
   const fakeSheet = {
     getName() { return 'Transactions'; },
-    getMaxColumns() { return 12; },
+    getMaxColumns() { return 13; },
     getLastRow() { return 5; },
     getMaxRows() { return 5; },
     showColumns(column, count) { operations.push({ type: 'show', column, count }); },
@@ -186,9 +186,10 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   sandbox.applySheetHiddenColumns_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'show', column: 1, count: 12 },
+    { type: 'show', column: 1, count: 13 },
     { type: 'hide', column: 2 },
     { type: 'hide', column: 6 },
+    { type: 'hide', column: 13 },
   ]);
 });
 

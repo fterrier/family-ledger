@@ -1785,7 +1785,7 @@ test("Transaction.applyEdit('destination_account_name') throws for cost/price tr
   const tx = makeTx(sandbox, costPriceApi());
   assert.throws(
     () => tx.applyEdit('destination_account_name', '[X] Food', '', 2),
-    /Use the sidebar to edit this transaction/
+    /please use the sidebar/
   );
 });
 
@@ -1794,7 +1794,7 @@ test("Transaction.applyEdit('amount') throws for cost/price transaction", () => 
   const tx = makeTx(sandbox, costPriceApi());
   assert.throws(
     () => tx.applyEdit('amount', '900', '1000', 2),
-    /Use the sidebar to edit this transaction/
+    /please use the sidebar/
   );
 });
 
@@ -1803,7 +1803,7 @@ test("Transaction.applyEdit('split_off_amount') throws for cost/price transactio
   const tx = makeTx(sandbox, costPriceApi());
   assert.throws(
     () => tx.applyEdit('split_off_amount', '500', '', 2),
-    /Use the sidebar to edit this transaction/
+    /please use the sidebar/
   );
 });
 
@@ -1819,6 +1819,125 @@ test("Transaction.applyEdit('narration') does not throw for cost/price transacti
   const tx = makeTx(sandbox, costPriceApi());
   assert.doesNotThrow(() => tx.applyEdit('narration', 'Updated', '', 2));
   assert.equal(tx._api.narration, 'Updated');
+});
+
+// _hasCostPrice — sheet-flagged complex transactions (postings carry no cost/price in sheet path)
+
+function complexSheetRow(overrides) {
+  return Object.assign({
+    resource_name: 'transactions/txn_buy',
+    transaction_date: '2026-03-01',
+    payee: 'IBKR',
+    narration: 'VTI purchase',
+    narration_source: 'txn',
+    source_account_name: '[A] Checking',
+    destination_account_name: '[X] Food',
+    amount: 1000,
+    symbol: 'CHF',
+    hasCostPrice: true,
+    __rowNumber: 2,
+  }, overrides);
+}
+
+test('Transaction.fromRows() sets _hasCostPrice true when hasCostPrice is true in rows', () => {
+  const { Transaction } = loadT_();
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.equal(tx._hasCostPrice, true);
+});
+
+test('Transaction.fromRows() sets _hasCostPrice false when hasCostPrice is false in rows', () => {
+  const { Transaction } = loadT_();
+  const row = complexSheetRow({ hasCostPrice: false });
+  const tx = Transaction.fromRows([row], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.equal(tx._hasCostPrice, false);
+});
+
+test("Transaction.applyEdit('payee') on sheet-flagged complex tx sets _narrowMask and does not throw", () => {
+  const { Transaction } = loadT_();
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.doesNotThrow(() => tx.applyEdit('payee', 'New Payee', '', 2));
+  assert.equal(tx._api.payee, 'New Payee');
+  assert.equal(tx._narrowMask, true);
+});
+
+test("Transaction.applyEdit('narration') single-row on sheet-flagged complex tx sets _narrowMask and does not throw", () => {
+  const { Transaction } = loadT_();
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.doesNotThrow(() => tx.applyEdit('narration', 'Updated narration', '', 2));
+  assert.equal(tx._api.narration, 'Updated narration');
+  assert.equal(tx._narrowMask, true);
+});
+
+test("Transaction.applyEdit('narration') multi-row on sheet-flagged complex tx throws", () => {
+  const { Transaction } = loadT_();
+  const rows = [
+    complexSheetRow({ __rowNumber: 2 }),
+    complexSheetRow({ destination_account_name: '[X] Household', amount: 200, __rowNumber: 3 }),
+  ];
+  const tx = Transaction.fromRows(rows, ACCOUNT_LOOKUP, { start: 2, count: 2 });
+  assert.throws(
+    () => tx.applyEdit('narration', 'Updated', 'VTI purchase', 2),
+    /please use the sidebar/
+  );
+});
+
+test("Transaction.applyEdit('destination_account_name') on sheet-flagged complex tx throws", () => {
+  const { Transaction } = loadT_();
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.throws(
+    () => tx.applyEdit('destination_account_name', '[X] Food', '', 2),
+    /please use the sidebar/
+  );
+});
+
+test("Transaction.applyEdit('amount') on sheet-flagged complex tx throws", () => {
+  const { Transaction } = loadT_();
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.throws(
+    () => tx.applyEdit('amount', '900', '1000', 2),
+    /please use the sidebar/
+  );
+});
+
+test('Transaction.save() uses narrow update_mask after payee edit on complex tx', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    const posted = payload.transaction;
+    return { name: 'transactions/txn_buy', transaction_date: posted.transaction_date, payee: posted.payee, narration: posted.narration, postings: [] };
+  };
+  const props = {};
+  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
+  const Transaction = getTransaction(sandbox);
+  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  tx.applyEdit('payee', 'New Payee', 'IBKR', 2);
+  tx._commitToSheet_ = function() { return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 1);
+  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration');
+});
+
+test('Transaction.save() uses full update_mask for destination_account edit on non-complex tx', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    const posted = payload.transaction;
+    return { name: 'transactions/txn_1', transaction_date: posted.transaction_date, payee: posted.payee, narration: posted.narration, postings: posted.postings || [] };
+  };
+  const props = {};
+  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('destination_account_name', '[X] Household', '[X] Food', 2);
+  tx._commitToSheet_ = function() { return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 1);
+  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration,postings');
 });
 
 // --- handleEntitySheetEdit_ ---

@@ -47,13 +47,18 @@ class Transaction extends Entity {
   applyEdit(header, value, oldValue, anchorRow) {
     if (header === 'payee') {
       this._api.payee = String(value || '').trim() || null;
+      this._narrowMask = true;
       return;
     }
 
     if (header === 'narration') {
       if (this._span === null || this._span.count <= 1) {
         this._api.narration = String(value || '').trim() || null;
+        this._narrowMask = true;
         return;
+      }
+      if (this._hasCostPrice || hasPostingCostOrPrice_(this._api.postings)) {
+        throw new Error('Transactions with complex postings (cost or price) cannot be edited here — please use the sidebar.');
       }
       const destOffset = anchorRow - this._span.start;
       const posting = this._api.postings[1 + destOffset];
@@ -75,8 +80,8 @@ class Transaction extends Entity {
       return;
     }
 
-    if (this._api.postings && this._api.postings.some(function(p) { return p.cost || p.price; })) {
-      throw new Error('Use the sidebar to edit this transaction.');
+    if (this._hasCostPrice || hasPostingCostOrPrice_(this._api.postings)) {
+      throw new Error('Transactions with complex postings (cost or price) cannot be edited here — please use the sidebar.');
     }
 
     if (header === 'destination_account_name') {
@@ -170,10 +175,15 @@ class Transaction extends Entity {
   static get RESET_ON_SAVE_FIELDS() { return ['split_off_amount']; }
   static get API_RESOURCE_KEY() { return 'transaction'; }
   static get UPDATE_MASK() { return 'transaction_date,payee,narration,postings'; }
+  static get NARROW_UPDATE_MASK() { return 'transaction_date,payee,narration'; }
   static get ENTITY_LABEL() { return 'transaction'; }
 
   static isEditableHeader(h) {
     return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
+  }
+
+  getUpdateMask_() {
+    return this._narrowMask ? Transaction.NARROW_UPDATE_MASK : undefined;
   }
 
   toApiPayload_() {
@@ -227,6 +237,7 @@ class Transaction extends Entity {
     const api = parseTransactionRowsToApi_(rows, (context || {}).accountDisplayNameToResource || {});
     const tx = new Transaction(api, context);
     tx._span = span || null;
+    tx._hasCostPrice = rows.length > 0 && !!rows[0].hasCostPrice;
     return tx;
   }
 
@@ -451,6 +462,10 @@ function postingWeight_(posting) {
   return posting.weight || posting.units;
 }
 
+function hasPostingCostOrPrice_(postings) {
+  return !!(postings && postings.some(function(p) { return p.cost || p.price; }));
+}
+
 // Classify a transaction into display groups, one per weight symbol.
 // Each group: { symbol, sourceIndex, destinationIndexes, hasCostPrice }
 // sourceIndex is a posting array index (or null when ambiguous).
@@ -462,7 +477,7 @@ function classifyTransactionGroups_(transaction, accountResourceToDisplayName) {
 
   const postings = transaction.postings;
   if (postings.length === 0) return [];
-  const hasCostPrice = postings.some(function(p) { return p.cost || p.price; });
+  const hasCostPrice = hasPostingCostOrPrice_(postings);
 
   // Drop zero-weight postings — they carry no economic content.
   const active = postings.map(function(p, i) {

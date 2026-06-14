@@ -194,7 +194,7 @@ class Entity {
     const saveGeneration = entityName ? beginSaveGeneration_(entityName) : null;
 
     const apiResult = existingSpan
-      ? this.constructor.updateViaApi_(entityName, this.toApiPayload_())
+      ? this.constructor.updateViaApi_(entityName, this.toApiPayload_(), this.getUpdateMask_())
       : this.constructor.createViaApi_(this.toApiPayload_());
 
     if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
@@ -225,10 +225,12 @@ class Entity {
     return '/' + this.API_COLLECTION_PATH + '/' + id;
   }
 
-  static updateViaApi_(entityName, payload) {
+  getUpdateMask_() { return undefined; }
+
+  static updateViaApi_(entityName, payload, mask) {
     return apiFetchJson_('patch', this.apiPath_(entityName), {
       [this.API_RESOURCE_KEY]: payload,
-      update_mask: this.UPDATE_MASK,
+      update_mask: mask ?? this.UPDATE_MASK,
     });
   }
 

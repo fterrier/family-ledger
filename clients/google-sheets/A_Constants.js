@@ -152,8 +152,13 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrapStrategy: 'OVERFLOW',
       formulaManaged: true,
     },
+    hasCostPrice: {
+      width: 60,
+      role: 'system',
+      note: 'True when any posting in this transaction group has a cost or price annotation. Used to guard inline edits.',
+    },
   }, {
-    hiddenHeaders: ['resource_name', 'narration_source'],
+    hiddenHeaders: ['resource_name', 'narration_source', 'hasCostPrice'],
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {

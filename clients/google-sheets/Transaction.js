@@ -31,8 +31,7 @@ class Transaction extends Entity {
     if ('payee' in fields) this._api.payee = fields.payee || null;
     if ('narration' in fields) this._api.narration = fields.narration || null;
     if ('tags' in fields) {
-      const raw = String(fields.tags || '').trim();
-      this._api.tags = raw ? raw.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+      this._api.tags = Transaction.parseTagsString_(fields.tags);
     }
     if ('postings' in fields) {
       this._api.postings = fields.postings;
@@ -51,14 +50,20 @@ class Transaction extends Entity {
   applyEdit(header, value, oldValue, anchorRow) {
     if (header === 'payee') {
       this._api.payee = String(value || '').trim() || null;
-      this._narrowMask = true;
+      this._updateMask = 'payee';
+      return;
+    }
+
+    if (header === 'tags') {
+      this._api.tags = Transaction.parseTagsString_(value);
+      this._updateMask = 'tags';
       return;
     }
 
     if (header === 'narration') {
       if (this._span === null || this._span.count <= 1) {
         this._api.narration = String(value || '').trim() || null;
-        this._narrowMask = true;
+        this._updateMask = 'narration';
         return;
       }
       if (this._hasCostPrice || hasPostingCostOrPrice_(this._api.postings)) {
@@ -81,12 +86,15 @@ class Transaction extends Entity {
         }
         posting.narration = normalizedValue;
       }
+      this._updateMask = 'narration,postings';
       return;
     }
 
     if (this._hasCostPrice || hasPostingCostOrPrice_(this._api.postings)) {
       throw new Error('Transactions with complex postings (cost or price) cannot be edited here — please use the sidebar.');
     }
+
+    this._updateMask = 'postings';
 
     if (header === 'destination_account_name') {
       const trimmedValue = normalizeOptionalSheetText_(value);
@@ -179,15 +187,19 @@ class Transaction extends Entity {
   static get RESET_ON_SAVE_FIELDS() { return ['split_off_amount']; }
   static get API_RESOURCE_KEY() { return 'transaction'; }
   static get UPDATE_MASK() { return 'transaction_date,payee,narration,postings,tags'; }
-  static get NARROW_UPDATE_MASK() { return 'transaction_date,payee,narration'; }
   static get ENTITY_LABEL() { return 'transaction'; }
 
+  static parseTagsString_(raw) {
+    const s = String(raw || '').trim();
+    return s ? s.split(',').map(function(t) { return t.trim(); }).filter(Boolean) : [];
+  }
+
   static isEditableHeader(h) {
-    return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'].indexOf(h) !== -1;
+    return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'tags', 'edit'].indexOf(h) !== -1;
   }
 
   getUpdateMask_() {
-    return this._narrowMask ? Transaction.NARROW_UPDATE_MASK : undefined;
+    return this._updateMask;
   }
 
   toApiPayload_() {
@@ -381,7 +393,8 @@ function buildTransactionContext_(accountOptions) {
 function parseTransactionRowsToApi_(rows, accountDisplayNameToResource) {
   const payload = buildTransactionPatchPayload_(rows, accountDisplayNameToResource);
   const name = rows.length > 0 ? String(rows[0].resource_name || '').trim() || null : null;
-  return Object.assign({ name: name }, payload);
+  const tags = Transaction.parseTagsString_(rows.length > 0 ? rows[0].tags : '');
+  return Object.assign({ name: name }, payload, { tags: tags });
 }
 
 // — Transaction-specific functions (moved from TransactionsSheet.js) —

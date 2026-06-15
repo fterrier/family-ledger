@@ -145,8 +145,8 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     },
     tags: {
       width: 90,
-      role: 'readonly',
-      note: 'Read-only comma-separated tags for this transaction.',
+      role: 'editable',
+      note: 'Editable comma-separated tags for this transaction.',
       alignment: 'left',
     },
     issues: {
@@ -165,7 +165,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     },
   }, {
     hiddenHeaders: ['resource_name', 'narration_source', 'hasCostPrice'],
-    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol', 'tags'],
+    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
     edit: {

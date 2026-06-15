@@ -1297,7 +1297,7 @@ test('Transaction.validate() passes when transaction_date is present', () => {
 
 test('Transaction.isEditableHeader() returns true for editable headers', () => {
   const { Transaction } = loadT_();
-  const editable = ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'edit'];
+  const editable = ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'tags', 'edit'];
   editable.forEach(function(h) {
     assert.equal(Transaction.isEditableHeader(h), true, h + ' should be editable');
   });
@@ -1759,6 +1759,42 @@ test("Transaction.applyEdit('split_off_amount') x keeps txn narration when survi
   assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration stays null');
 });
 
+// tags
+
+test("Transaction.applyEdit('tags') parses comma-separated tags", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('tags', 'salary2024, bonus', '', 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._api.tags)), ['salary2024', 'bonus']);
+});
+
+test("Transaction.applyEdit('tags') clears tags on empty string", () => {
+  const { sandbox } = loadCode();
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('tags', '', '', 2);
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._api.tags)), []);
+});
+
+test('Transaction.fromRows() reads tags from sheet rows so non-tags edits preserve them', () => {
+  const { Transaction } = loadT_();
+  const rows = [{
+    resource_name: 'transactions/txn_1',
+    transaction_date: '2026-04-19',
+    payee: 'Migros',
+    narration: 'Groceries',
+    narration_source: 'txn',
+    source_account_name: '[A] Checking',
+    destination_account_name: '[X] Food',
+    amount: 84.25,
+    symbol: 'CHF',
+    tags: 'salary2024, bonus',
+    __rowNumber: 2,
+  }];
+
+  const tx = Transaction.fromRows(rows, ACCOUNT_LOOKUP, { start: 2, count: 1 });
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._api.tags)), ['salary2024', 'bonus']);
+});
+
 // cost/price guard
 
 function costPriceApi() {
@@ -1852,20 +1888,20 @@ test('Transaction.fromRows() sets _hasCostPrice false when hasCostPrice is false
   assert.equal(tx._hasCostPrice, false);
 });
 
-test("Transaction.applyEdit('payee') on sheet-flagged complex tx sets _narrowMask and does not throw", () => {
+test("Transaction.applyEdit('payee') on sheet-flagged complex tx sets payee mask and does not throw", () => {
   const { Transaction } = loadT_();
   const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
   assert.doesNotThrow(() => tx.applyEdit('payee', 'New Payee', '', 2));
   assert.equal(tx._api.payee, 'New Payee');
-  assert.equal(tx._narrowMask, true);
+  assert.equal(tx._updateMask, 'payee');
 });
 
-test("Transaction.applyEdit('narration') single-row on sheet-flagged complex tx sets _narrowMask and does not throw", () => {
+test("Transaction.applyEdit('narration') single-row on sheet-flagged complex tx sets narration mask and does not throw", () => {
   const { Transaction } = loadT_();
   const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
   assert.doesNotThrow(() => tx.applyEdit('narration', 'Updated narration', '', 2));
   assert.equal(tx._api.narration, 'Updated narration');
-  assert.equal(tx._narrowMask, true);
+  assert.equal(tx._updateMask, 'narration');
 });
 
 test("Transaction.applyEdit('narration') multi-row on sheet-flagged complex tx throws", () => {
@@ -1899,7 +1935,7 @@ test("Transaction.applyEdit('amount') on sheet-flagged complex tx throws", () =>
   );
 });
 
-test('Transaction.save() uses narrow update_mask after payee edit on complex tx', () => {
+test('Transaction.save() uses payee-only update_mask after payee edit', () => {
   const { sandbox } = loadCode();
   const apiCalls = [];
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -1917,10 +1953,31 @@ test('Transaction.save() uses narrow update_mask after payee edit on complex tx'
   tx.save({});
 
   assert.equal(apiCalls.length, 1);
-  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration');
+  assert.equal(apiCalls[0].payload.update_mask, 'payee');
 });
 
-test('Transaction.save() uses full update_mask for destination_account edit on non-complex tx', () => {
+test('Transaction.save() uses full update_mask for tags inline edit', () => {
+  const { sandbox } = loadCode();
+  const apiCalls = [];
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    const posted = payload.transaction;
+    return { name: 'transactions/txn_1', transaction_date: posted.transaction_date, payee: posted.payee, narration: posted.narration, postings: posted.postings || [], tags: posted.tags || [] };
+  };
+  const props = {};
+  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('tags', 'salary2024', '', 2);
+  tx._commitToSheet_ = function() { return this._span; };
+
+  tx.save({});
+
+  assert.equal(apiCalls.length, 1);
+  assert.equal(apiCalls[0].payload.update_mask, 'tags');
+  assert.deepEqual(JSON.parse(JSON.stringify(apiCalls[0].payload.transaction.tags)), ['salary2024']);
+});
+
+test('Transaction.save() uses postings update_mask (no tags) for destination_account edit', () => {
   const { sandbox } = loadCode();
   const apiCalls = [];
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -1937,7 +1994,7 @@ test('Transaction.save() uses full update_mask for destination_account edit on n
   tx.save({});
 
   assert.equal(apiCalls.length, 1);
-  assert.equal(apiCalls[0].payload.update_mask, 'transaction_date,payee,narration,postings,tags');
+  assert.equal(apiCalls[0].payload.update_mask, 'postings');
 });
 
 // --- handleEntitySheetEdit_ ---

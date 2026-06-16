@@ -121,20 +121,23 @@ def compute_pad(session: Session, account_name: str, pad_date: date) -> PadRespo
         ).all()
     )
 
+    matching_ids = (
+        select(Transaction.id)
+        .join(Transaction.postings)
+        .join(Posting.account)
+        .where(
+            or_(
+                Account.account_name == account.account_name,
+                Account.account_name.like(account.account_name + ":%"),
+            )
+        )
+    )
     transactions = list(
         session.scalars(
             select(Transaction)
             .options(selectinload(Transaction.postings).selectinload(Posting.account))
+            .where(Transaction.id.in_(matching_ids))
             .order_by(Transaction.transaction_date, Transaction.name)
-            .join(Transaction.postings)
-            .join(Posting.account)
-            .where(
-                or_(
-                    Account.account_name == account.account_name,
-                    Account.account_name.like(account.account_name + ":%"),
-                )
-            )
-            .distinct()
         ).all()
     )
 

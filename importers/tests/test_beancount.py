@@ -381,7 +381,7 @@ def test_beancount_importer_basic_pad(session: Session) -> None:
     result = _run(session, PAD_BASIC_FIXTURE)
 
     assert result.entities["balance_assertion"].created == 1
-    assert result.entities["pad_transaction"].created == 1
+    assert result.entities["transaction"].created == 1
 
     transactions = session.scalars(select(Transaction)).all()
     assert len(transactions) == 1
@@ -402,7 +402,7 @@ def test_beancount_importer_pad_with_same_date_transaction(session: Session) -> 
     # Beancount test 2: real tx +500 on pad date → pad fills remaining 500
     result = _run(session, PAD_WITH_SAME_DATE_TX_FIXTURE)
 
-    assert result.entities["pad_transaction"].created == 1
+    assert result.entities["transaction"].created == 2  # 1 real + 1 pad
 
     pad_tx = session.scalar(select(Transaction).where(Transaction.narration == "Padding entry"))
     assert pad_tx is not None
@@ -417,7 +417,7 @@ def test_beancount_importer_pad_with_next_day_transaction(session: Session) -> N
     # Beancount test 5: real tx +500 on day after pad → pad still fills only 500
     result = _run(session, PAD_WITH_NEXT_DAY_TX_FIXTURE)
 
-    assert result.entities["pad_transaction"].created == 1
+    assert result.entities["transaction"].created == 2  # 1 real + 1 pad
 
     pad_tx = session.scalar(select(Transaction).where(Transaction.narration == "Padding entry"))
     assert pad_tx is not None
@@ -434,7 +434,7 @@ def test_beancount_importer_pad_is_idempotent(session: Session) -> None:
     _run(session, PAD_BASIC_FIXTURE)
     result2 = _run(session, PAD_BASIC_FIXTURE)
 
-    pad = result2.entities.get("pad_transaction")
+    pad = result2.entities.get("transaction")
     assert pad is None or pad.created == 0
     assert session.scalar(select(func.count()).select_from(Transaction)) == 1
 
@@ -463,7 +463,7 @@ PAD_MULTI_CURRENCY_FIXTURE = """
 def test_beancount_importer_pad_multi_currency(session: Session) -> None:
     result = _run(session, PAD_MULTI_CURRENCY_FIXTURE)
 
-    assert result.entities["pad_transaction"].created == 2
+    assert result.entities["transaction"].created == 4  # 2 real + 2 pad
 
     from sqlalchemy import func as sqlfunc
 
@@ -479,7 +479,7 @@ def test_beancount_importer_pad_multi_currency_is_idempotent(session: Session) -
     _run(session, PAD_MULTI_CURRENCY_FIXTURE)
     result2 = _run(session, PAD_MULTI_CURRENCY_FIXTURE)
 
-    pad = result2.entities.get("pad_transaction")
+    pad = result2.entities.get("transaction")
     assert pad is None or pad.created == 0
     from sqlalchemy import func as sqlfunc
 
@@ -521,7 +521,7 @@ PAD_OUT_OF_ORDER_FIXTURE = """
 def test_beancount_importer_pad_out_of_order_in_file(session: Session) -> None:
     result = _run(session, PAD_OUT_OF_ORDER_FIXTURE)
 
-    assert result.entities["pad_transaction"].created == 2
+    assert result.entities["transaction"].created == 3  # 1 real + 2 pad
 
     pad_txs = session.scalars(
         select(Transaction).where(Transaction.narration == "Padding entry")

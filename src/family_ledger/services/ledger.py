@@ -425,12 +425,13 @@ def list_transactions_page(
         query = query.where(Transaction.transaction_date <= to_date)
     if account is not None:
         account_name = resource_name("accounts", account)
-        query = (
-            query.join(Transaction.postings)
+        matching_ids = (
+            select(Transaction.id)
+            .join(Transaction.postings)
             .join(Posting.account)
             .where(Account.name == account_name)
-            .distinct()
         )
+        query = query.where(Transaction.id.in_(matching_ids))
     query = query.order_by(Transaction.transaction_date, Transaction.name)
     transactions = session.scalars(
         paginate_query(query, offset=offset, page_size=normalized_page_size)

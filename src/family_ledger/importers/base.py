@@ -91,17 +91,6 @@ class ImportContext:
             is not None
         )
 
-    def create_pad_transaction(self, payload: TransactionNormalizeData) -> bool:
-        """Create a PAD-derived transaction and additionally track it under 'pad_transaction'.
-        Returns True if created, False if duplicate.
-        """
-        created = self.create_transaction(payload)
-        if created:
-            self._record_created("pad_transaction")
-        else:
-            self._record_duplicate("pad_transaction")
-        return created
-
     def create_balance_assertion(self, payload: BalanceAssertionCreate) -> bool:
         """Returns True if created, False if duplicate."""
         return (

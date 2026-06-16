@@ -586,7 +586,7 @@ class BeancountImporter(BaseImporter):
                         ),
                     ],
                 )
-                ctx.create_pad_transaction(pad_payload)
+                ctx.create_transaction(pad_payload)
 
         _import_documents(ctx, entries, file_map)
 

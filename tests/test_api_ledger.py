@@ -1807,3 +1807,49 @@ def test_pad_cost_tracked_account_returns_400() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"]["code"] == "pad_cost_tracked_account"
+
+
+def test_list_transactions_account_filter_no_duplicates_when_multiple_postings() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    tx = _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "300", "symbol": "CHF"}},
+            {"account": checking["name"], "units": {"amount": "200", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-500", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get(f"/transactions?account={checking['name']}")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx["name"]]
+
+
+def test_pad_transaction_with_multiple_postings_to_same_account_not_double_counted() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    _create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "300", "symbol": "CHF"}},
+            {"account": checking["name"], "units": {"amount": "200", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-500", "symbol": "CHF"}},
+        ],
+    )
+    _create_balance_assertion(client, checking["name"], "2026-01-02", "500", "CHF")
+
+    response = client.get(f"/{checking['name']}:pad?date=2026-01-01")
+
+    assert response.status_code == 200
+    assert response.json()["entries"] == []

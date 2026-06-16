@@ -453,6 +453,35 @@ def test_compute_pad_cost_tracked_raises(session: Session) -> None:
     assert exc_info.value.code == "pad_cost_tracked_account"
 
 
+def test_compute_pad_transaction_with_multiple_postings_to_same_account_counted_once(
+    session: Session,
+) -> None:
+    checking, equity, usd = _seed_base(session)
+    # Two postings to the same account in one transaction — the join would produce
+    # duplicate rows; the transaction must appear exactly once in the balance calc.
+    _add_transaction(
+        session,
+        date(2026, 1, 1),
+        [
+            (checking, Decimal("300"), "USD"),
+            (checking, Decimal("200"), "USD"),
+            (equity, Decimal("-500"), "USD"),
+        ],
+    )
+    ledger.create_balance_assertion(
+        session,
+        BalanceAssertionCreate(
+            assertion_date=date(2026, 1, 2),
+            account=checking.name,
+            amount=MoneyValue(amount=Decimal("500"), symbol="USD"),
+        ),
+    )
+
+    result = account_balance.compute_pad(session, checking.name, date(2026, 1, 1))
+
+    assert result.entries == []
+
+
 def test_compute_pad_unknown_account_raises(session: Session) -> None:
     with pytest.raises(NotFoundError):
         account_balance.compute_pad(session, "accounts/acc_missing", date(2026, 1, 1))

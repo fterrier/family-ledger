@@ -44,14 +44,16 @@ POST /transactions
 The app builds two balanced postings: a credit on the From account (negative amount) and
 a debit on the To account (positive amount).
 
-### Journey 2: Import Statement (future)
+### Journey 2: Import Statement
 
 A family member shares a bank statement file (e.g. MT940 `.sta`) from their banking app
 directly to the family-ledger app via the OS share sheet (iOS) or share intent (Android).
+The import screen can also be opened via the upload icon in the AppBar, where a file picker
+allows choosing a file directly.
 
 The app shows the available importers (`GET /importers`), the user selects one, and the
-file is uploaded (`POST /importers/{name}:import`). The result shows counts of imported
-transactions.
+file is uploaded (`POST /importers/{name}:import`). The result shows entity counts (created,
+duplicate, errors with examples) and any warnings.
 
 ### Journey 3: Transaction List (future)
 
@@ -66,7 +68,7 @@ entries.
 | Settings | `/settings` | API URL + token configuration, connection test |
 | Home / Add Transaction | `/` | Main cash transaction form |
 | Account Picker | modal push | Full-screen searchable list of active accounts |
-| (future) Import Statement | `/import` | Importer selection + file upload |
+| Import Statement | `/import` | Importer selection + file upload + results |
 | (future) Transaction List | `/transactions` | Paginated recent transactions |
 
 ## API Surface
@@ -76,8 +78,8 @@ entries.
 | `GET /healthz` | Settings — connection test |
 | `GET /accounts?page_size=200` | Account picker — loads all pages, cached in-session |
 | `POST /transactions` | Add Transaction — creates a two-posting cash transaction |
-| `GET /importers` | (future) Import Statement |
-| `POST /importers/{name}:import` | (future) Import Statement |
+| `GET /importers` | Import Statement |
+| `POST /importers/{name}:import` | Import Statement |
 | `GET /transactions` | (future) Transaction List |
 
 ## Auth Model
@@ -95,7 +97,7 @@ Settings screen.
 |---|---|---|
 | Minimum version | iOS 12 | API 21 (Android 5.0) |
 | Secure storage | Keychain (requires `keychain-access-groups` entitlement) | Android Keystore |
-| Share target (future journey #2) | Share Extension, registered in `Info.plist` | `ACTION_SEND` intent filter in `AndroidManifest.xml` |
+| Share target | Share Extension + `CFBundleDocumentTypes` in `Info.plist` (requires Xcode App Group setup for `receive_sharing_intent`) | `ACTION_SEND` intent filter in `AndroidManifest.xml` |
 
 ## Account Picker Search
 

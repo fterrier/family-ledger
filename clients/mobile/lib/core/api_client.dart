@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'api_error.dart';
 import 'result.dart';
 import 'secure_settings.dart';
@@ -10,7 +12,6 @@ class ApiClient {
 
   ApiClient(this._settings);
 
-  // Health check — unauthenticated, just tests connectivity.
   Future<ApiError?> checkHealth() async {
     final baseUrl = await _settings.getBaseUrl();
     if (baseUrl == null || baseUrl.isEmpty) {
@@ -51,20 +52,55 @@ class ApiClient {
         .timeout(const Duration(seconds: 15)),
   );
 
+  Future<Result<Map<String, dynamic>>> postMultipart(
+    String path, {
+    required Map<String, (Uint8List bytes, String filename)> files,
+    String? mimeType,
+    String? configOverrideJson,
+  }) async {
+    final creds = await _resolveCredentials();
+    if (creds == null) return (data: null, error: const MissingSettingsError());
+    final (baseUrl, token) = creds;
+
+    final uri = Uri.parse('$baseUrl$path');
+    final request = http.MultipartRequest('POST', uri)
+      ..headers['Authorization'] = 'Bearer $token';
+
+    final contentType = mimeType != null ? MediaType.parse(mimeType) : null;
+    for (final entry in files.entries) {
+      request.files.add(
+        http.MultipartFile.fromBytes(
+          entry.key,
+          entry.value.$1,
+          filename: entry.value.$2,
+          contentType: contentType,
+        ),
+      );
+    }
+    if (configOverrideJson != null) {
+      request.fields['config_override'] = configOverrideJson;
+    }
+
+    try {
+      final streamed = await request.send().timeout(
+        const Duration(seconds: 60),
+      );
+      final response = await http.Response.fromStream(streamed);
+      return _parseResponse(response);
+    } catch (e) {
+      return (data: null, error: _mapException(e));
+    }
+  }
+
   Future<Result<Map<String, dynamic>>> _call(
     String path, {
     Map<String, String>? queryParams,
     required Future<http.Response> Function(Uri, Map<String, String>)
     makeRequest,
   }) async {
-    final (baseUrl, token) = await (
-      _settings.getBaseUrl(),
-      _settings.getToken(),
-    ).wait;
-
-    if (baseUrl == null || baseUrl.isEmpty || token == null || token.isEmpty) {
-      return (data: null, error: const MissingSettingsError());
-    }
+    final creds = await _resolveCredentials();
+    if (creds == null) return (data: null, error: const MissingSettingsError());
+    final (baseUrl, token) = creds;
 
     var uri = Uri.parse('$baseUrl$path');
     if (queryParams != null && queryParams.isNotEmpty) {
@@ -81,6 +117,17 @@ class ApiClient {
     } catch (e) {
       return (data: null, error: _mapException(e));
     }
+  }
+
+  Future<(String, String)?> _resolveCredentials() async {
+    final (baseUrl, token) = await (
+      _settings.getBaseUrl(),
+      _settings.getToken(),
+    ).wait;
+    if (baseUrl == null || baseUrl.isEmpty || token == null || token.isEmpty) {
+      return null;
+    }
+    return (baseUrl, token);
   }
 
   static Result<Map<String, dynamic>> _parseResponse(http.Response response) {

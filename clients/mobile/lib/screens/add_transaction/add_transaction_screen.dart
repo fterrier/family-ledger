@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/account_category.dart';
 import '../../core/api_error.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
@@ -432,8 +433,6 @@ class _FlowCard extends StatelessWidget {
           // From row
           _AccountRow(
             label: 'FROM',
-            icon: '💳',
-            iconBg: const Color(0xFFFFF3E0),
             account: fromAccount,
             loading: loading,
             onTap: onFromTap,
@@ -469,8 +468,6 @@ class _FlowCard extends StatelessWidget {
           // To row
           _AccountRow(
             label: 'TO',
-            icon: '🧾',
-            iconBg: const Color(0xFFE8F5E9),
             account: toAccount,
             loading: loading,
             onTap: onToTap,
@@ -514,16 +511,12 @@ class _FlowCard extends StatelessWidget {
 
 class _AccountRow extends StatelessWidget {
   final String label;
-  final String icon;
-  final Color iconBg;
   final AccountResource? account;
   final bool loading;
   final VoidCallback onTap;
 
   const _AccountRow({
     required this.label,
-    required this.icon,
-    required this.iconBg,
     required this.account,
     required this.loading,
     required this.onTap,
@@ -531,6 +524,9 @@ class _AccountRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = account != null
+        ? themeForAccount(account!.accountName)
+        : noAccountTheme;
     return InkWell(
       onTap: loading ? null : onTap,
       child: Padding(
@@ -541,12 +537,10 @@ class _AccountRow extends StatelessWidget {
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: iconBg,
+                color: theme.lightBg,
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: Center(
-                child: Text(icon, style: const TextStyle(fontSize: 16)),
-              ),
+              child: Icon(theme.icon, color: theme.color, size: 20),
             ),
             const SizedBox(width: 12),
             Expanded(

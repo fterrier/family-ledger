@@ -31,6 +31,7 @@ class NormalizePriceValue(BaseModel):
 
 class PostingPayload(BaseModel):
     account: str
+    account_name: str | None = None  # Beancount path in responses; ignored on input
     units: MoneyValue
     narration: str | None = None
     cost: MoneyValue | None = None

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/account_category.dart';
 import '../../core/account_search.dart';
 import '../../models/account.dart';
 
@@ -121,23 +122,6 @@ class _AccountItem extends StatelessWidget {
     required this.onTap,
   });
 
-  Color _dotColor(String accountName) {
-    if (accountName.startsWith('[A]') || accountName.startsWith('Assets')) {
-      return const Color(0xFF1A73E8);
-    }
-    if (accountName.startsWith('[L]') ||
-        accountName.startsWith('Liabilities')) {
-      return const Color(0xFFFF9500);
-    }
-    if (accountName.startsWith('[X]') || accountName.startsWith('Expenses')) {
-      return const Color(0xFF34C759);
-    }
-    if (accountName.startsWith('[I]') || accountName.startsWith('Income')) {
-      return const Color(0xFF5856D6);
-    }
-    return const Color(0xFF8E8E93);
-  }
-
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -155,7 +139,7 @@ class _AccountItem extends StatelessWidget {
               height: 10,
               margin: const EdgeInsets.only(right: 12),
               decoration: BoxDecoration(
-                color: _dotColor(account.accountName),
+                color: themeForAccount(account.accountName).color,
                 shape: BoxShape.circle,
               ),
             ),

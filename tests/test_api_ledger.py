@@ -298,6 +298,7 @@ def test_create_and_get_transaction() -> None:
 
     assert get_response.status_code == 200
     assert get_response.json()["postings"][0]["account"] == checking["name"]
+    assert get_response.json()["postings"][0]["account_name"] == "Assets:Bank:Checking:Family"
     assert get_response.json()["postings"][1]["narration"] == "Produce"
 
 

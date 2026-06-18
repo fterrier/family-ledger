@@ -116,6 +116,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
     postings = [
         PostingPayload(
             account=posting.account.name,
+            account_name=posting.account.account_name,
             units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
             narration=posting.narration,
             cost=None

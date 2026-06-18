@@ -2,14 +2,20 @@ import 'posting.dart';
 
 class PostingResource {
   final String account;
+  final String? accountName;
   final MoneyValue units;
 
-  const PostingResource({required this.account, required this.units});
+  const PostingResource({
+    required this.account,
+    this.accountName,
+    required this.units,
+  });
 
   factory PostingResource.fromJson(Map<String, dynamic> json) {
     final units = json['units'] as Map<String, dynamic>;
     return PostingResource(
       account: json['account'] as String,
+      accountName: json['account_name'] as String?,
       units: MoneyValue(
         amount: units['amount'] as String,
         symbol: units['symbol'] as String,

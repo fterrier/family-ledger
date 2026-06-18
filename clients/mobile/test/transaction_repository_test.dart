@@ -83,10 +83,12 @@ void main() {
       'postings': [
         {
           'account': 'accounts/acc_checking',
+          'account_name': 'Assets:Bank:Checking',
           'units': {'amount': '-42.50', 'symbol': 'CHF'},
         },
         {
           'account': 'accounts/acc_food',
+          'account_name': 'Expenses:Food',
           'units': {'amount': '42.50', 'symbol': 'CHF'},
         },
       ],

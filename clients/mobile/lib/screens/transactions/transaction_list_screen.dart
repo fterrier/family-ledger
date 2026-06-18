@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../core/account_category.dart';
 import '../../core/api_error.dart';
 import '../../models/transaction.dart';
 import '../../repositories/transaction_repository.dart';
@@ -255,6 +256,8 @@ class _TransactionRow extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  _PostingPills(postings: transaction.postings),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -322,6 +325,96 @@ class _TransactionRow extends StatelessWidget {
           color: Color(0xFFE5E5EA),
         ),
       ],
+    );
+  }
+}
+
+// Vertically overlapping pill column. Fixed width keeps text left-edge aligned.
+// Pills: 18 px circles, 7 px overlap → step of 11 px between tops.
+// Max 5 slots: 4 category pills + 1 "+N" overflow circle if needed.
+// 5-slot height = 18 + 4×11 = 62 px, within the 64 px content area.
+class _PostingPills extends StatelessWidget {
+  final List<PostingResource> postings;
+
+  static const _size = 18.0;
+  static const _step = 11.0; // size − 7 px overlap
+  static const _maxSlots = 5;
+
+  const _PostingPills({required this.postings});
+
+  @override
+  Widget build(BuildContext context) {
+    final cats = postings.map((p) => categoryOf(p.accountName)).toList();
+    final hasOverflow = cats.length > _maxSlots;
+    final pillCount = hasOverflow
+        ? _maxSlots - 1
+        : cats.length.clamp(0, _maxSlots);
+    final overflow = cats.length - pillCount;
+    final totalSlots = pillCount + (hasOverflow ? 1 : 0);
+    final containerHeight = _size + (totalSlots - 1) * _step;
+
+    return SizedBox(
+      width: _size,
+      height: containerHeight,
+      child: Stack(
+        children: [
+          for (var i = 0; i < pillCount; i++)
+            Positioned(
+              top: i * _step,
+              child: _PillCircle(category: cats[i]),
+            ),
+          if (hasOverflow)
+            Positioned(
+              top: pillCount * _step,
+              child: _OverflowPill(count: overflow),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PillCircle extends StatelessWidget {
+  final AccountCategory category;
+
+  const _PillCircle({required this.category});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = accountCategoryThemes[category]!;
+    return Container(
+      width: _PostingPills._size,
+      height: _PostingPills._size,
+      decoration: BoxDecoration(color: theme.color, shape: BoxShape.circle),
+      child: Icon(theme.icon, size: 10, color: Colors.white),
+    );
+  }
+}
+
+class _OverflowPill extends StatelessWidget {
+  final int count;
+
+  const _OverflowPill({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: _PostingPills._size,
+      height: _PostingPills._size,
+      decoration: const BoxDecoration(
+        color: Color(0xFFE5E5EA),
+        shape: BoxShape.circle,
+      ),
+      child: Center(
+        child: Text(
+          '+$count',
+          style: const TextStyle(
+            fontSize: 7,
+            fontWeight: FontWeight.w700,
+            color: Color(0xFF8E8E93),
+          ),
+        ),
+      ),
     );
   }
 }

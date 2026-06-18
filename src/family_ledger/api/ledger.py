@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -172,6 +172,7 @@ def list_transactions(
     from_date: date | None = None,
     to_date: date | None = None,
     account: str | None = None,
+    order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     return _call_service(
         ledger_service.list_transactions_page,
@@ -181,6 +182,7 @@ def list_transactions(
         from_date=from_date,
         to_date=to_date,
         account=account,
+        order=order,
     )
 
 

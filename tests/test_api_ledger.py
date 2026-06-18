@@ -1596,6 +1596,44 @@ def test_list_transactions_ordered_by_date_ascending() -> None:
     assert dates == ["2026-01-01", "2026-02-01", "2026-03-01"]
 
 
+def test_list_transactions_ordered_by_date_descending() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    def post_tx(tx_date: str, amount: str) -> None:
+        client.post(
+            "/transactions",
+            json={
+                "transaction": {
+                    "transaction_date": tx_date,
+                    "postings": [
+                        {
+                            "account": checking["name"],
+                            "units": {"amount": f"-{amount}", "symbol": "CHF"},
+                        },
+                        {
+                            "account": food["name"],
+                            "units": {"amount": amount, "symbol": "CHF"},
+                        },
+                    ],
+                }
+            },
+        )
+
+    post_tx("2026-03-01", "30.00")
+    post_tx("2026-01-01", "10.00")
+    post_tx("2026-02-01", "20.00")
+
+    response = client.get("/transactions?order=desc")
+
+    assert response.status_code == 200
+    dates = [tx["transaction_date"] for tx in response.json()["transactions"]]
+    assert dates == ["2026-03-01", "2026-02-01", "2026-01-01"]
+
+
 def test_create_price_rejects_unknown_symbol() -> None:
     client = make_client()
 

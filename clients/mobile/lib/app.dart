@@ -9,6 +9,7 @@ import 'repositories/transaction_repository.dart';
 import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/settings/settings_screen.dart';
+import 'screens/transactions/transaction_list_screen.dart';
 
 class FamilyLedgerApp extends StatefulWidget {
   const FamilyLedgerApp({super.key});
@@ -28,6 +29,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   late final ImporterRepository _importerRepo;
 
   bool? _configured;
+  final _listKey = GlobalKey<TransactionListScreenState>();
 
   @override
   void initState() {
@@ -106,6 +108,34 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     );
   }
 
+  Future<void> _openAddTransaction() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => Scaffold(
+          appBar: AppBar(
+            title: const Text('New Transaction'),
+            backgroundColor: Colors.white,
+            foregroundColor: const Color(0xFF1C1C1E),
+            elevation: 0,
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(1),
+              child: Container(height: 1, color: const Color(0xFFE5E5EA)),
+            ),
+          ),
+          backgroundColor: const Color(0xFFF2F2F7),
+          body: AddTransactionScreen(
+            accountRepository: _accountRepo,
+            commodityRepository: _commodityRepo,
+            transactionRepository: _transactionRepo,
+            onOpenSettings: _openSettings,
+          ),
+        ),
+      ),
+    );
+    _listKey.currentState?.refresh();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_configured == null) {
@@ -144,11 +174,15 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         ],
       ),
       backgroundColor: const Color(0xFFF2F2F7),
-      body: AddTransactionScreen(
-        accountRepository: _accountRepo,
-        commodityRepository: _commodityRepo,
+      body: TransactionListScreen(
+        key: _listKey,
         transactionRepository: _transactionRepo,
-        onOpenSettings: _openSettings,
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _openAddTransaction,
+        backgroundColor: const Color(0xFF1A73E8),
+        foregroundColor: Colors.white,
+        child: const Icon(Icons.add),
       ),
     );
   }

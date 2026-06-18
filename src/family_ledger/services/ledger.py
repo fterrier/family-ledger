@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from sqlalchemy import Select, select
 from sqlalchemy.exc import IntegrityError
@@ -413,6 +413,7 @@ def list_transactions_page(
     from_date: date | None,
     to_date: date | None,
     account: str | None,
+    order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     normalized_page_size = normalize_page_size(page_size)
     offset = decode_page_token(page_token)
@@ -432,7 +433,10 @@ def list_transactions_page(
             .where(Account.name == account_name)
         )
         query = query.where(Transaction.id.in_(matching_ids))
-    query = query.order_by(Transaction.transaction_date, Transaction.name)
+    if order == "desc":
+        query = query.order_by(Transaction.transaction_date.desc(), Transaction.name.desc())
+    else:
+        query = query.order_by(Transaction.transaction_date, Transaction.name)
     transactions = session.scalars(
         paginate_query(query, offset=offset, page_size=normalized_page_size)
     ).all()

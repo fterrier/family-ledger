@@ -437,14 +437,12 @@ class _FlowCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // From row
           _AccountRow(
             label: 'FROM',
             account: fromAccount,
             loading: loading,
             onTap: onFromTap,
           ),
-          // Arrow divider
           Padding(
             padding: const EdgeInsets.only(left: 30),
             child: Row(
@@ -472,7 +470,6 @@ class _FlowCard extends StatelessWidget {
               ],
             ),
           ),
-          // To row
           _AccountRow(
             label: 'TO',
             account: toAccount,
@@ -508,34 +505,39 @@ class _LabeledTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return DecoratedBox(
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: Color(0xFFF2F2F7))),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 80,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-            ),
-          ),
-          Expanded(
-            child: TextField(
-              controller: controller,
-              decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: hintText,
-                hintStyle: const TextStyle(color: Color(0xFFC7C7CC)),
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 80,
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              style: const TextStyle(fontSize: 15),
             ),
-          ),
-        ],
+            Expanded(
+              child: TextField(
+                controller: controller,
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  hintText: hintText,
+                  hintStyle: const TextStyle(color: Color(0xFFC7C7CC)),
+                  isDense: true,
+                  contentPadding: EdgeInsets.zero,
+                ),
+                style: const TextStyle(fontSize: 15),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

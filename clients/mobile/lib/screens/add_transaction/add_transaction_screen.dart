@@ -479,12 +479,12 @@ class _FlowCard extends StatelessWidget {
           _LabeledTextField(
             label: 'Payee',
             controller: payeeController,
-            hintText: 'e.g. Migros, Manor…',
+            hintText: 'Migros, Manor…',
           ),
           _LabeledTextField(
             label: 'Narration',
             controller: narrationController,
-            hintText: 'e.g. Weekly groceries',
+            hintText: 'Weekly groceries…',
           ),
         ],
       ),

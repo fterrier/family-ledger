@@ -35,7 +35,7 @@ To ensure smooth "vibe coding" and high-quality contributions, follow these rule
 1. **Read Before Writing**: Do not guess internal APIs or database schemas. Always use your tools to read `src/family_ledger/models/` or `src/family_ledger/api/schemas.py` before modifying logic.
 2. **Consult Core Docs First**: Before proposing architectural changes or large refactors, read the relevant files in `docs/` (especially `docs/specs/domain-model.md` and `docs/guides/contributing.md`).
 3. **Strict Typing**: This project enforces strict type checking (`basedpyright`). Use explicit type hints everywhere.
-4. **Test-Driven / Verified Changes**: Never assume your code works. After making changes, write tests and actively run `pytest` to verify them before telling the user the task is complete.
+4. **Test-Driven Development**: Follow strict TDD order — write the tests first, run them to confirm they fail, then write the implementation to make them pass. Never write implementation code before the failing tests exist. Run `pytest` (backend) or `flutter test` (mobile) to verify all tests pass before reporting the task complete.
 5. **Regression Tests for Bug Fixes**: Every bug fix must be accompanied by a regression test that reproduces the original failure. The test must fail before the fix and pass after. This prevents the same bug from silently reappearing.
 6. **Small, Focused Edits**: Make targeted changes. Do not rewrite entire files unnecessarily or remove unrelated comments.
 

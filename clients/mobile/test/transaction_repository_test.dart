@@ -169,4 +169,92 @@ void main() {
       expect(result.data, isNull);
     });
   });
+
+  group('TransactionRepository.runDoctor', () {
+    test(
+      'posts to /ledger:doctor and returns set of transaction names',
+      () async {
+        when(() => mockClient.post(any(), any())).thenAnswer(
+          (_) async => (
+            data: <String, dynamic>{
+              'issues': [
+                {
+                  'target': 'transactions/t1',
+                  'code': 'UNBALANCED',
+                  'severity': 'error',
+                  'message': 'msg',
+                },
+                {
+                  'target': 'transactions/t2',
+                  'code': 'UNKNOWN_COMMODITY',
+                  'severity': 'warning',
+                  'message': 'msg',
+                },
+              ],
+            },
+            error: null,
+          ),
+        );
+
+        final result = await repo.runDoctor();
+
+        expect(result.error, isNull);
+        expect(result.data, {'transactions/t1', 'transactions/t2'});
+
+        final call = verify(() => mockClient.post(captureAny(), captureAny()));
+        call.called(1);
+        expect(call.captured[0], '/ledger:doctor');
+      },
+    );
+
+    test('excludes issues with null target', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (
+          data: <String, dynamic>{
+            'issues': [
+              {
+                'target': 'transactions/t1',
+                'code': 'UNBALANCED',
+                'severity': 'error',
+                'message': 'msg',
+              },
+              {
+                'target': null,
+                'code': 'BALANCE_ASSERTION_FAILED',
+                'severity': 'error',
+                'message': 'msg',
+              },
+            ],
+          },
+          error: null,
+        ),
+      );
+
+      final result = await repo.runDoctor();
+
+      expect(result.data, {'transactions/t1'});
+    });
+
+    test('returns empty set when there are no issues', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async =>
+            (data: <String, dynamic>{'issues': <dynamic>[]}, error: null),
+      );
+
+      final result = await repo.runDoctor();
+
+      expect(result.data, isEmpty);
+    });
+
+    test('propagates error from client', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final result = await repo.runDoctor();
+
+      expect(result.error, isA<NetworkError>());
+      expect(result.data, isNull);
+    });
+  });
 }

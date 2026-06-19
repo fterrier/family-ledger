@@ -27,6 +27,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   // Incremented on each new fetch; _doFetch discards results from older generations.
   int _loadGeneration = 0;
 
+  Set<String> _transactionsWithIssues = {};
+  int _doctorGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +56,17 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     }
   }
 
+  void _refreshDoctorIssues() {
+    _doctorGeneration++;
+    final gen = _doctorGeneration;
+    widget.transactionRepository.runDoctor().then((result) {
+      if (!mounted || _doctorGeneration != gen) return;
+      if (result.data != null && result.data != _transactionsWithIssues) {
+        setState(() => _transactionsWithIssues = result.data!);
+      }
+    });
+  }
+
   Future<void> _load({String? pageToken}) async {
     if (_isLoading) return;
     _loadGeneration++;
@@ -72,6 +86,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       _nextPageToken = null;
       _error = null;
       _paginationError = false;
+      _transactionsWithIssues = {};
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     await _doFetch(generation: generation);
@@ -80,6 +95,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   // Shared fetch. Caller must have incremented _loadGeneration, set _isLoading = true,
   // and captured the generation value before any await.
   Future<void> _doFetch({required int generation, String? pageToken}) async {
+    if (pageToken == null) _refreshDoctorIssues();
     final result = await widget.transactionRepository.listTransactions(
       pageToken: pageToken,
     );
@@ -176,7 +192,12 @@ class TransactionListScreenState extends State<TransactionListScreen> {
                 ),
               );
             }
-            return _TransactionRow(transaction: _transactions[index]);
+            return _TransactionRow(
+              transaction: _transactions[index],
+              hasIssue: _transactionsWithIssues.contains(
+                _transactions[index].name,
+              ),
+            );
           },
         ),
       ),
@@ -212,8 +233,9 @@ class _NoOverscrollBehavior extends ScrollBehavior {
 
 class _TransactionRow extends StatelessWidget {
   final TransactionResource transaction;
+  final bool hasIssue;
 
-  const _TransactionRow({required this.transaction});
+  const _TransactionRow({required this.transaction, required this.hasIssue});
 
   static final _dateFormatCurrentYear = DateFormat('MMM d');
   static final _dateFormatOtherYear = DateFormat('MMM d, yyyy');
@@ -247,38 +269,69 @@ class _TransactionRow extends StatelessWidget {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        SizedBox(
-          height: 88,
-          child: ColoredBox(
-            color: Colors.white,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _PostingPills(postings: transaction.postings),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          primaryText,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF1C1C1E),
-                          ),
+        Stack(
+          children: [
+            ColoredBox(
+              color: Colors.white,
+              child: SizedBox(
+                height: 88,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _PostingPills(postings: transaction.postings),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              primaryText,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF1C1C1E),
+                              ),
+                            ),
+                            if (secondaryText != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                secondaryText,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                  color: Color(0xFF8E8E93),
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        if (secondaryText != null) ...[
+                      ),
+                      const SizedBox(width: 12),
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          Text(
+                            _formatAmount(),
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF1C1C1E),
+                            ),
+                          ),
                           const SizedBox(height: 2),
                           Text(
-                            secondaryText,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            _formatDate(transaction.transactionDate),
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w400,
@@ -286,37 +339,23 @@ class _TransactionRow extends StatelessWidget {
                             ),
                           ),
                         ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _formatAmount(),
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF1C1C1E),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _formatDate(transaction.transactionDate),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w400,
-                          color: Color(0xFF8E8E93),
-                        ),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
+            if (hasIssue)
+              const Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: SizedBox(
+                  width: 4,
+                  child: ColoredBox(color: Color(0xFFFF3B30)),
+                ),
+              ),
+          ],
         ),
         const Divider(
           height: 1,

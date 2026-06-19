@@ -9,6 +9,15 @@ import 'package:family_ledger_mobile/models/transaction.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_list_screen.dart';
 
+typedef _DoctorResult = ({Set<String>? data, ApiError? error});
+
+// Finds the red issue-indicator bar (a ColoredBox painted with the issue color).
+bool _hasRedLeftBorder(WidgetTester tester) {
+  return tester
+      .widgetList<ColoredBox>(find.byType(ColoredBox))
+      .any((w) => w.color == const Color(0xFFFF3B30));
+}
+
 class MockTransactionRepository extends Mock implements TransactionRepository {}
 
 typedef _ListResult = ({
@@ -41,6 +50,10 @@ void main() {
 
   setUp(() {
     mockRepo = MockTransactionRepository();
+    // Default: doctor returns no issues (keeps existing tests unaffected)
+    when(
+      () => mockRepo.runDoctor(),
+    ).thenAnswer((_) async => (data: <String>{}, error: null));
   });
 
   Widget buildScreen() => MaterialApp(
@@ -552,4 +565,195 @@ void main() {
       expect(find.text('Migros'), findsOneWidget);
     },
   );
+
+  testWidgets('transaction with issue shows red left border', (tester) async {
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+    when(
+      () => mockRepo.runDoctor(),
+    ).thenAnswer((_) async => (data: {'transactions/t1'}, error: null));
+
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    expect(_hasRedLeftBorder(tester), isTrue);
+  });
+
+  testWidgets('transaction without issue has no red border', (tester) async {
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+    // setUp already stubs runDoctor to return empty set
+
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    expect(_hasRedLeftBorder(tester), isFalse);
+  });
+
+  testWidgets('doctor is called on initial load without blocking render', (
+    tester,
+  ) async {
+    final doctorCompleter = Completer<_DoctorResult>();
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+    when(() => mockRepo.runDoctor()).thenAnswer((_) => doctorCompleter.future);
+
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    // List is rendered before doctor resolves — no red border yet
+    expect(find.text('Migros'), findsOneWidget);
+    expect(_hasRedLeftBorder(tester), isFalse);
+
+    // Doctor resolves — border appears
+    doctorCompleter.complete((data: {'transactions/t1'}, error: null));
+    await tester.pumpAndSettle();
+
+    expect(_hasRedLeftBorder(tester), isTrue);
+  });
+
+  testWidgets('doctor is called again on refresh', (tester) async {
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+
+    var doctorCallCount = 0;
+    when(() => mockRepo.runDoctor()).thenAnswer((_) async {
+      doctorCallCount++;
+      return (data: <String>{}, error: null);
+    });
+
+    final key = GlobalKey<TransactionListScreenState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TransactionListScreen(
+            key: key,
+            transactionRepository: mockRepo,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(doctorCallCount, 1);
+
+    key.currentState?.refresh();
+    await tester.pumpAndSettle();
+    expect(doctorCallCount, 2);
+  });
+
+  testWidgets('newly paged-in transactions with issues are marked', (
+    tester,
+  ) async {
+    // 3 items × ~89px each ≈ 267px < 600px viewport, so the fill-viewport
+    // post-frame callback auto-loads page 2 without a drag gesture.
+    final page1 = List.generate(
+      3,
+      (i) => _tx(
+        name: 'transactions/p1t$i',
+        date: '2026-06-01',
+        payee: 'Payee $i',
+        narration: null,
+      ),
+    );
+
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((inv) async {
+      final token = inv.namedArguments[#pageToken] as String?;
+      if (token == null) return (data: (page1, 'page2'), error: null);
+      return (
+        data: (
+          [
+            _tx(
+              name: 'transactions/p2t0',
+              date: '2026-05-01',
+              payee: 'Coop',
+              narration: null,
+            ),
+          ],
+          null,
+        ),
+        error: null,
+      );
+    });
+
+    // Doctor returns the page-2 transaction as having an issue
+    when(
+      () => mockRepo.runDoctor(),
+    ).thenAnswer((_) async => (data: {'transactions/p2t0'}, error: null));
+
+    await tester.pumpWidget(buildScreen());
+    await tester
+        .pumpAndSettle(); // page 2 auto-loads because viewport isn't full
+
+    expect(find.text('Coop'), findsOneWidget);
+    expect(_hasRedLeftBorder(tester), isTrue);
+  });
+
+  testWidgets('stale doctor result from before refresh is discarded', (
+    tester,
+  ) async {
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+
+    final doctor1Completer = Completer<_DoctorResult>();
+    final doctor2Completer = Completer<_DoctorResult>();
+    var doctorCallIndex = 0;
+
+    when(() => mockRepo.runDoctor()).thenAnswer((_) {
+      final i = doctorCallIndex++;
+      if (i == 0) return doctor1Completer.future;
+      return doctor2Completer.future;
+    });
+
+    final key = GlobalKey<TransactionListScreenState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TransactionListScreen(
+            key: key,
+            transactionRepository: mockRepo,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Trigger refresh — doctor2 starts
+    key.currentState?.refresh();
+    await tester.pump();
+
+    // Stale doctor1 resolves with an issue — must be discarded
+    doctor1Completer.complete((data: {'transactions/t1'}, error: null));
+    await tester.pump();
+    expect(_hasRedLeftBorder(tester), isFalse);
+
+    // doctor2 resolves with no issues
+    doctor2Completer.complete((data: <String>{}, error: null));
+    await tester.pumpAndSettle();
+    expect(_hasRedLeftBorder(tester), isFalse);
+  });
 }

@@ -11,6 +11,17 @@ class TransactionRepository {
     return _client.post('/transactions', tx.toJson());
   }
 
+  Future<Result<Set<String>>> runDoctor() async {
+    final result = await _client.post('/ledger:doctor', {});
+    if (result.error != null) return (data: null, error: result.error);
+    final issues = (result.data!['issues'] as List)
+        .cast<Map<String, dynamic>>()
+        .where((e) => e['target'] != null)
+        .map((e) => e['target'] as String)
+        .toSet();
+    return (data: issues, error: null);
+  }
+
   Future<Result<(List<TransactionResource>, String?)>> listTransactions({
     int pageSize = 100,
     String? pageToken,

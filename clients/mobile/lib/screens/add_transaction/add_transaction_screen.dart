@@ -212,7 +212,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
       appBar: AppBar(
-        automaticallyImplyLeading: false,
         title: const Text('New Transaction'),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1C1C1E),

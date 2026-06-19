@@ -112,24 +112,11 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => Scaffold(
-          appBar: AppBar(
-            title: const Text('New Transaction'),
-            backgroundColor: Colors.white,
-            foregroundColor: const Color(0xFF1C1C1E),
-            elevation: 0,
-            bottom: PreferredSize(
-              preferredSize: const Size.fromHeight(1),
-              child: Container(height: 1, color: const Color(0xFFE5E5EA)),
-            ),
-          ),
-          backgroundColor: const Color(0xFFF2F2F7),
-          body: AddTransactionScreen(
-            accountRepository: _accountRepo,
-            commodityRepository: _commodityRepo,
-            transactionRepository: _transactionRepo,
-            onOpenSettings: _openSettings,
-          ),
+        builder: (_) => AddTransactionScreen(
+          accountRepository: _accountRepo,
+          commodityRepository: _commodityRepo,
+          transactionRepository: _transactionRepo,
+          onOpenSettings: _openSettings,
         ),
       ),
     );

@@ -40,6 +40,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   final _amountController = TextEditingController();
   final _payeeController = TextEditingController();
+  final _narrationController = TextEditingController();
 
   DateTime _date = DateTime.now();
   String _currency = '';
@@ -150,9 +151,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     }
     final amountStr = amount.toStringAsFixed(2);
     final payeeText = _payeeController.text.trim();
+    final narrationText = _narrationController.text.trim();
     final tx = TransactionCreate(
       transactionDate: DateFormat('yyyy-MM-dd').format(_date),
       payee: payeeText.isEmpty ? null : payeeText,
+      narration: narrationText.isEmpty ? null : narrationText,
       postings: [
         PostingPayload(
           account: _fromAccount!.name,
@@ -186,6 +189,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       _saving = false;
       _amountController.clear();
       _payeeController.clear();
+      _narrationController.clear();
       _date = DateTime.now();
       _toAccount = null;
     });
@@ -204,6 +208,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   void dispose() {
     _amountController.dispose();
     _payeeController.dispose();
+    _narrationController.dispose();
     super.dispose();
   }
 
@@ -255,6 +260,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   onFromTap: () => _pickAccount(isFrom: true),
                   onToTap: () => _pickAccount(isFrom: false),
                   payeeController: _payeeController,
+                  narrationController: _narrationController,
                 ),
                 const SizedBox(height: 20),
                 Padding(
@@ -402,6 +408,7 @@ class _FlowCard extends StatelessWidget {
   final VoidCallback onFromTap;
   final VoidCallback onToTap;
   final TextEditingController payeeController;
+  final TextEditingController narrationController;
 
   const _FlowCard({
     required this.fromAccount,
@@ -410,6 +417,7 @@ class _FlowCard extends StatelessWidget {
     required this.onFromTap,
     required this.onToTap,
     required this.payeeController,
+    required this.narrationController,
   });
 
   @override
@@ -471,35 +479,60 @@ class _FlowCard extends StatelessWidget {
             loading: loading,
             onTap: onToTap,
           ),
-          // Payee row
-          Container(
-            decoration: const BoxDecoration(
-              border: Border(top: BorderSide(color: Color(0xFFF2F2F7))),
+          _LabeledTextField(
+            label: 'Payee',
+            controller: payeeController,
+            hintText: 'e.g. Migros, Manor…',
+          ),
+          _LabeledTextField(
+            label: 'Narration',
+            controller: narrationController,
+            hintText: 'e.g. Weekly groceries',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LabeledTextField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final String hintText;
+
+  const _LabeledTextField({
+    required this.label,
+    required this.controller,
+    required this.hintText,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: Color(0xFFF2F2F7))),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 80,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                const SizedBox(
-                  width: 56,
-                  child: Text(
-                    'Payee',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
-                  ),
-                ),
-                Expanded(
-                  child: TextField(
-                    controller: payeeController,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      hintText: 'optional…',
-                      hintStyle: TextStyle(color: Color(0xFFC7C7CC)),
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    style: const TextStyle(fontSize: 15),
-                  ),
-                ),
-              ],
+          ),
+          Expanded(
+            child: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                hintText: hintText,
+                hintStyle: const TextStyle(color: Color(0xFFC7C7CC)),
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+              style: const TextStyle(fontSize: 15),
             ),
           ),
         ],

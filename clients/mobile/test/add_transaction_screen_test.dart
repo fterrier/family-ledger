@@ -243,6 +243,100 @@ void main() {
     });
   });
 
+  group('AddTransactionScreen narration field', () {
+    testWidgets('narration field is shown in the form', (tester) async {
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Narration'), findsOneWidget);
+    });
+
+    testWidgets('submitting with narration includes it in the payload', (
+      tester,
+    ) async {
+      when(
+        () => mockTransactionRepo.createTransaction(any()),
+      ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '42.50');
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Assets · Cash · Wallet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expenses · Food'));
+      await tester.pumpAndSettle();
+      // Narration is the third TextField (after amount and payee)
+      await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
+      await tester.tap(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
+
+      final tx =
+          verify(
+                () => mockTransactionRepo.createTransaction(captureAny()),
+              ).captured.first
+              as TransactionCreate;
+      expect(tx.narration, 'Weekly groceries');
+    });
+
+    testWidgets('submitting without narration sets it to null', (tester) async {
+      when(
+        () => mockTransactionRepo.createTransaction(any()),
+      ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
+
+      await fillAndSubmit(tester);
+
+      final tx =
+          verify(
+                () => mockTransactionRepo.createTransaction(captureAny()),
+              ).captured.first
+              as TransactionCreate;
+      expect(tx.narration, isNull);
+    });
+
+    testWidgets('narration is cleared after successful submit', (tester) async {
+      when(
+        () => mockTransactionRepo.createTransaction(any()),
+      ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '42.50');
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Assets · Cash · Wallet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expenses · Food'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
+      await tester.tap(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
+
+      expect(
+        (tester.widget<TextField>(find.byType(TextField).at(2)).controller)!
+            .text,
+        isEmpty,
+      );
+    });
+  });
+
+  group('AddTransactionScreen payee placeholder', () {
+    testWidgets('payee field shows descriptive hint text', (tester) async {
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      // Find the payee TextField (second TextField after amount)
+      final payeeField = tester.widget<TextField>(find.byType(TextField).at(1));
+      expect(payeeField.decoration?.hintText, isNot('optional…'));
+      expect(payeeField.decoration?.hintText, isNotNull);
+    });
+  });
+
   group('AddTransactionScreen currency picker', () {
     testWidgets('currency picker bottom sheet shows commodities and updates', (
       tester,

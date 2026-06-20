@@ -11,6 +11,21 @@ class TransactionRepository {
     return _client.post('/transactions', tx.toJson());
   }
 
+  Future<Result<TransactionResource>> getTransaction(String name) async {
+    final result = await _client.get('/$name');
+    if (result.error != null) return (data: null, error: result.error);
+    return (data: TransactionResource.fromJson(result.data!), error: null);
+  }
+
+  Future<Result<TransactionResource>> updateTransaction(
+    String name,
+    TransactionUpdate tx,
+  ) async {
+    final result = await _client.patch('/$name', tx.toJson());
+    if (result.error != null) return (data: null, error: result.error);
+    return (data: TransactionResource.fromJson(result.data!), error: null);
+  }
+
   Future<Result<Set<String>>> runDoctor() async {
     final result = await _client.post('/ledger:doctor', {});
     if (result.error != null) return (data: null, error: result.error);

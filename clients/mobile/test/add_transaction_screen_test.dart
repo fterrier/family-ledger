@@ -81,6 +81,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Expenses · Food'));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Add Transaction'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Add Transaction'));
     await tester.pumpAndSettle();
   }
@@ -177,6 +179,8 @@ void main() {
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Add Transaction'));
       await tester.pumpAndSettle();
 
@@ -191,6 +195,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).first, '0');
+      await tester.ensureVisible(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Add Transaction'));
       await tester.pumpAndSettle();
 
@@ -271,6 +277,8 @@ void main() {
       await tester.pumpAndSettle();
       // Narration is the third TextField (after amount and payee)
       await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
+      await tester.ensureVisible(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Add Transaction'));
       await tester.pumpAndSettle();
 
@@ -314,6 +322,8 @@ void main() {
       await tester.tap(find.text('Expenses · Food'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
+      await tester.ensureVisible(find.text('Add Transaction'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Add Transaction'));
       await tester.pumpAndSettle();
 

@@ -164,6 +164,8 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       body: TransactionListScreen(
         key: _listKey,
         transactionRepository: _transactionRepo,
+        accountRepository: _accountRepo,
+        commodityRepository: _commodityRepo,
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openAddTransaction,

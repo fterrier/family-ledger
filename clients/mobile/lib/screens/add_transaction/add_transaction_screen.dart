@@ -14,6 +14,7 @@ import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/currency_picker_sheet.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/labeled_text_field.dart';
 import 'account_picker_screen.dart';
 
 class AddTransactionScreen extends StatefulWidget {
@@ -248,8 +249,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 _AmountHero(
                   controller: _amountController,
                   currency: _currency,
-                  date: _date,
-                  onDateTap: _pickDate,
                   onCurrencyTap: _pickCurrency,
                 ),
                 const SizedBox(height: 16),
@@ -259,6 +258,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   loading: _accounts == null && _error == null,
                   onFromTap: () => _pickAccount(isFrom: true),
                   onToTap: () => _pickAccount(isFrom: false),
+                  date: _date,
+                  onDateTap: _pickDate,
                   payeeController: _payeeController,
                   narrationController: _narrationController,
                 ),
@@ -313,15 +314,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 class _AmountHero extends StatelessWidget {
   final TextEditingController controller;
   final String currency;
-  final DateTime date;
-  final VoidCallback onDateTap;
   final VoidCallback onCurrencyTap;
 
   const _AmountHero({
     required this.controller,
     required this.currency,
-    required this.date,
-    required this.onDateTap,
     required this.onCurrencyTap,
   });
 
@@ -386,13 +383,6 @@ class _AmountHero extends StatelessWidget {
               ),
             ),
           ),
-          GestureDetector(
-            onTap: onDateTap,
-            child: Text(
-              DateFormat('EEEE, MMMM d').format(date),
-              style: const TextStyle(fontSize: 13, color: Color(0xFF8E8E93)),
-            ),
-          ),
         ],
       ),
     );
@@ -402,11 +392,15 @@ class _AmountHero extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _FlowCard extends StatelessWidget {
+  static final _dateFormat = DateFormat('EEEE, MMMM d');
+
   final AccountResource? fromAccount;
   final AccountResource? toAccount;
   final bool loading;
   final VoidCallback onFromTap;
   final VoidCallback onToTap;
+  final DateTime date;
+  final VoidCallback onDateTap;
   final TextEditingController payeeController;
   final TextEditingController narrationController;
 
@@ -416,6 +410,8 @@ class _FlowCard extends StatelessWidget {
     required this.loading,
     required this.onFromTap,
     required this.onToTap,
+    required this.date,
+    required this.onDateTap,
     required this.payeeController,
     required this.narrationController,
   });
@@ -476,68 +472,54 @@ class _FlowCard extends StatelessWidget {
             loading: loading,
             onTap: onToTap,
           ),
-          _LabeledTextField(
+          DecoratedBox(
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: Color(0xFFF2F2F7))),
+            ),
+            child: InkWell(
+              onTap: onDateTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 80,
+                      child: Text(
+                        'Date',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        _dateFormat.format(date),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Color(0xFF1A73E8),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          LabeledTextField(
             label: 'Payee',
             controller: payeeController,
             hintText: 'Migros, Manor…',
           ),
-          _LabeledTextField(
+          LabeledTextField(
             label: 'Narration',
             controller: narrationController,
             hintText: 'Weekly groceries…',
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LabeledTextField extends StatelessWidget {
-  final String label;
-  final TextEditingController controller;
-  final String hintText;
-
-  const _LabeledTextField({
-    required this.label,
-    required this.controller,
-    required this.hintText,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        border: Border(top: BorderSide(color: Color(0xFFF2F2F7))),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        child: Row(
-          children: [
-            SizedBox(
-              width: 80,
-              child: Text(
-                label,
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-            Expanded(
-              child: TextField(
-                controller: controller,
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: hintText,
-                  hintStyle: const TextStyle(color: Color(0xFFC7C7CC)),
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                style: const TextStyle(fontSize: 15),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

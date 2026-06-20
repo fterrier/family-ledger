@@ -4,8 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/models/account.dart';
+import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/models/posting.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
+import 'package:family_ledger_mobile/repositories/account_repository.dart';
+import 'package:family_ledger_mobile/repositories/commodity_repository.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_list_screen.dart';
 
@@ -19,6 +23,10 @@ bool _hasRedLeftBorder(WidgetTester tester) {
 }
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
+
+class MockAccountRepository extends Mock implements AccountRepository {}
+
+class MockCommodityRepository extends Mock implements CommodityRepository {}
 
 typedef _ListResult = ({
   (List<TransactionResource>, String?)? data,
@@ -47,18 +55,39 @@ TransactionResource _tx({
 
 void main() {
   late MockTransactionRepository mockRepo;
+  late MockAccountRepository mockAccountRepo;
+  late MockCommodityRepository mockCommodityRepo;
+
+  setUpAll(() {
+    registerFallbackValue(
+      const TransactionUpdate(transactionDate: '2026-01-01', postings: []),
+    );
+  });
 
   setUp(() {
     mockRepo = MockTransactionRepository();
+    mockAccountRepo = MockAccountRepository();
+    mockCommodityRepo = MockCommodityRepository();
     // Default: doctor returns no issues (keeps existing tests unaffected)
     when(
       () => mockRepo.runDoctor(),
     ).thenAnswer((_) async => (data: <String>{}, error: null));
+    // Default stubs for account/commodity repos (used when edit screen opens)
+    when(
+      () => mockAccountRepo.getAllAccounts(),
+    ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+    when(
+      () => mockCommodityRepo.getAllCommodities(),
+    ).thenAnswer((_) async => (data: <Commodity>[], error: null));
   });
 
   Widget buildScreen() => MaterialApp(
     home: Scaffold(
-      body: TransactionListScreen(transactionRepository: mockRepo),
+      body: TransactionListScreen(
+        transactionRepository: mockRepo,
+        accountRepository: mockAccountRepo,
+        commodityRepository: mockCommodityRepo,
+      ),
     ),
   );
 
@@ -226,6 +255,8 @@ void main() {
           body: TransactionListScreen(
             key: key,
             transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
           ),
         ),
       ),
@@ -281,6 +312,8 @@ void main() {
           body: TransactionListScreen(
             key: key,
             transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
           ),
         ),
       ),
@@ -362,6 +395,8 @@ void main() {
             body: TransactionListScreen(
               key: key,
               transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
             ),
           ),
         ),
@@ -447,6 +482,8 @@ void main() {
             body: TransactionListScreen(
               key: key,
               transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
             ),
           ),
         ),
@@ -508,7 +545,11 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: TransactionListScreen(transactionRepository: mockRepo),
+            body: TransactionListScreen(
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+            ),
           ),
         ),
       );
@@ -551,6 +592,8 @@ void main() {
             body: TransactionListScreen(
               key: key,
               transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
             ),
           ),
         ),
@@ -645,6 +688,8 @@ void main() {
           body: TransactionListScreen(
             key: key,
             transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
           ),
         ),
       ),
@@ -736,6 +781,8 @@ void main() {
           body: TransactionListScreen(
             key: key,
             transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
           ),
         ),
       ),
@@ -756,4 +803,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(_hasRedLeftBorder(tester), isFalse);
   });
+
+  testWidgets('tapping a transaction row opens edit screen', (tester) async {
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+      ),
+    ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Migros'));
+    await tester.pumpAndSettle();
+
+    // TransactionEditScreen AppBar title + Save action.
+    expect(find.text('Transaction'), findsWidgets);
+    expect(find.text('Save'), findsOneWidget);
+  });
+
+  testWidgets(
+    'returning from edit screen with updated transaction updates the row',
+    (tester) async {
+      final original = _tx();
+      const updated = TransactionResource(
+        name: 'transactions/t1',
+        transactionDate: '2026-06-18',
+        payee: 'Updated Migros',
+        narration: 'Groceries',
+        postings: [
+          PostingResource(
+            account: 'accounts/acc_checking',
+            accountName: 'Assets:Bank:Checking',
+            units: MoneyValue(amount: '-42.50', symbol: 'CHF'),
+          ),
+          PostingResource(
+            account: 'accounts/acc_food',
+            accountName: 'Expenses:Food',
+            units: MoneyValue(amount: '42.50', symbol: 'CHF'),
+          ),
+        ],
+      );
+
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+        ),
+      ).thenAnswer((_) async => (data: ([original], null), error: null));
+      when(
+        () => mockRepo.updateTransaction(any(), any()),
+      ).thenAnswer((_) async => (data: updated, error: null));
+      when(
+        () => mockRepo.getTransaction('transactions/t1'),
+      ).thenAnswer((_) async => (data: updated, error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      // Open edit screen.
+      await tester.tap(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      // Save (postings have accounts from original tx, so validation passes).
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      // List row should show the updated payee.
+      expect(find.text('Updated Migros'), findsOneWidget);
+      expect(find.text('Migros'), findsNothing);
+    },
+  );
 }

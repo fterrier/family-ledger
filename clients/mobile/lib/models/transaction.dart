@@ -4,24 +4,32 @@ class PostingResource {
   final String account;
   final String? accountName;
   final MoneyValue units;
+  final String? narration;
+  final MoneyValue? cost;
+  final MoneyValue? price;
 
   const PostingResource({
     required this.account,
     this.accountName,
     required this.units,
+    this.narration,
+    this.cost,
+    this.price,
   });
 
-  factory PostingResource.fromJson(Map<String, dynamic> json) {
-    final units = json['units'] as Map<String, dynamic>;
-    return PostingResource(
-      account: json['account'] as String,
-      accountName: json['account_name'] as String?,
-      units: MoneyValue(
-        amount: units['amount'] as String,
-        symbol: units['symbol'] as String,
-      ),
-    );
-  }
+  factory PostingResource.fromJson(Map<String, dynamic> json) =>
+      PostingResource(
+        account: json['account'] as String,
+        accountName: json['account_name'] as String?,
+        units: MoneyValue.fromJson(json['units'] as Map<String, dynamic>),
+        narration: json['narration'] as String?,
+        cost: json['cost'] == null
+            ? null
+            : MoneyValue.fromJson(json['cost'] as Map<String, dynamic>),
+        price: json['price'] == null
+            ? null
+            : MoneyValue.fromJson(json['price'] as Map<String, dynamic>),
+      );
 }
 
 class TransactionResource {
@@ -51,6 +59,18 @@ class TransactionResource {
       );
 }
 
+Map<String, dynamic> _transactionJson({
+  required String transactionDate,
+  required String? payee,
+  required String? narration,
+  required List<PostingPayload> postings,
+}) => {
+  'transaction_date': transactionDate,
+  if (payee != null && payee.isNotEmpty) 'payee': payee,
+  if (narration != null && narration.isNotEmpty) 'narration': narration,
+  'postings': postings.map((p) => p.toJson()).toList(),
+};
+
 class TransactionCreate {
   final String transactionDate;
   final String? payee;
@@ -65,11 +85,34 @@ class TransactionCreate {
   });
 
   Map<String, dynamic> toJson() => {
-    'transaction': {
-      'transaction_date': transactionDate,
-      if (payee != null && payee!.isNotEmpty) 'payee': payee,
-      if (narration != null && narration!.isNotEmpty) 'narration': narration,
-      'postings': postings.map((p) => p.toJson()).toList(),
-    },
+    'transaction': _transactionJson(
+      transactionDate: transactionDate,
+      payee: payee,
+      narration: narration,
+      postings: postings,
+    ),
+  };
+}
+
+class TransactionUpdate {
+  final String transactionDate;
+  final String? payee;
+  final String? narration;
+  final List<PostingPayload> postings;
+
+  const TransactionUpdate({
+    required this.transactionDate,
+    this.payee,
+    this.narration,
+    required this.postings,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'transaction': _transactionJson(
+      transactionDate: transactionDate,
+      payee: payee,
+      narration: narration,
+      postings: postings,
+    ),
   };
 }

@@ -52,6 +52,16 @@ class ApiClient {
         .timeout(const Duration(seconds: 15)),
   );
 
+  Future<Result<Map<String, dynamic>>> patch(
+    String path,
+    Map<String, dynamic> body,
+  ) => _call(
+    path,
+    makeRequest: (uri, headers) => http
+        .patch(uri, headers: headers, body: jsonEncode(body))
+        .timeout(const Duration(seconds: 15)),
+  );
+
   Future<Result<Map<String, dynamic>>> postMultipart(
     String path, {
     required Map<String, (Uint8List bytes, String filename)> files,

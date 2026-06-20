@@ -170,6 +170,125 @@ void main() {
     });
   });
 
+  group('TransactionRepository.getTransaction', () {
+    final txJson = <String, dynamic>{
+      'name': 'transactions/t1',
+      'transaction_date': '2026-06-01',
+      'payee': 'Migros',
+      'narration': null,
+      'postings': [
+        {
+          'account': 'accounts/acc_checking',
+          'account_name': 'Assets:Bank:Checking',
+          'units': {'amount': '-42.50', 'symbol': 'CHF'},
+        },
+      ],
+    };
+
+    test(
+      'fetches from /transactions/{name} and returns parsed resource',
+      () async {
+        when(
+          () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenAnswer((_) async => (data: txJson, error: null));
+
+        final result = await repo.getTransaction('transactions/t1');
+
+        expect(result.error, isNull);
+        expect(result.data?.name, 'transactions/t1');
+        expect(result.data?.payee, 'Migros');
+        expect(result.data?.postings.first.units.amount, '-42.50');
+
+        final call = verify(
+          () => mockClient.get(
+            captureAny(),
+            queryParams: captureAny(named: 'queryParams'),
+          ),
+        );
+        call.called(1);
+        expect(call.captured[0], '/transactions/t1');
+      },
+    );
+
+    test('propagates auth error from client', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => (data: null, error: const AuthError()));
+
+      final result = await repo.getTransaction('transactions/t1');
+
+      expect(result.error, isA<AuthError>());
+      expect(result.data, isNull);
+    });
+  });
+
+  group('TransactionRepository.updateTransaction', () {
+    final updatedJson = <String, dynamic>{
+      'name': 'transactions/t1',
+      'transaction_date': '2026-06-01',
+      'payee': 'Migros Updated',
+      'narration': null,
+      'postings': [
+        {
+          'account': 'accounts/acc_checking',
+          'account_name': 'Assets:Bank:Checking',
+          'units': {'amount': '-50.00', 'symbol': 'CHF'},
+        },
+      ],
+    };
+
+    const update = TransactionUpdate(
+      transactionDate: '2026-06-01',
+      payee: 'Migros Updated',
+      postings: [
+        PostingPayload(
+          account: 'accounts/acc_checking',
+          units: MoneyValue(amount: '-50.00', symbol: 'CHF'),
+        ),
+      ],
+    );
+
+    test('patches /transactions/{name} and returns updated resource', () async {
+      when(
+        () => mockClient.patch(any(), any()),
+      ).thenAnswer((_) async => (data: updatedJson, error: null));
+
+      final result = await repo.updateTransaction('transactions/t1', update);
+
+      expect(result.error, isNull);
+      expect(result.data?.name, 'transactions/t1');
+      expect(result.data?.payee, 'Migros Updated');
+
+      final call = verify(() => mockClient.patch(captureAny(), captureAny()));
+      call.called(1);
+      final args = call.captured;
+      expect(args[0], '/transactions/t1');
+      expect((args[1] as Map)['transaction'], isA<Map>());
+    });
+
+    test('propagates validation error from client', () async {
+      when(() => mockClient.patch(any(), any())).thenAnswer(
+        (_) async =>
+            (data: null, error: const ValidationError('invalid amount')),
+      );
+
+      final result = await repo.updateTransaction('transactions/t1', update);
+
+      expect(result.error, isA<ValidationError>());
+      expect(result.data, isNull);
+    });
+
+    test('propagates network error from client', () async {
+      when(() => mockClient.patch(any(), any())).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final result = await repo.updateTransaction('transactions/t1', update);
+
+      expect(result.error, isA<NetworkError>());
+    });
+  });
+
   group('TransactionRepository.runDoctor', () {
     test(
       'posts to /ledger:doctor and returns set of transaction names',

@@ -3,13 +3,23 @@ import 'package:intl/intl.dart';
 import '../../core/account_category.dart';
 import '../../core/api_error.dart';
 import '../../models/transaction.dart';
+import '../../repositories/account_repository.dart';
+import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/error_banner.dart';
+import '../transaction_edit/transaction_edit_screen.dart';
 
 class TransactionListScreen extends StatefulWidget {
   final TransactionRepository transactionRepository;
+  final AccountRepository accountRepository;
+  final CommodityRepository commodityRepository;
 
-  const TransactionListScreen({super.key, required this.transactionRepository});
+  const TransactionListScreen({
+    super.key,
+    required this.transactionRepository,
+    required this.accountRepository,
+    required this.commodityRepository,
+  });
 
   @override
   TransactionListScreenState createState() => TransactionListScreenState();
@@ -61,8 +71,12 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final gen = _doctorGeneration;
     widget.transactionRepository.runDoctor().then((result) {
       if (!mounted || _doctorGeneration != gen) return;
-      if (result.data != null && result.data != _transactionsWithIssues) {
-        setState(() => _transactionsWithIssues = result.data!);
+      if (result.data != null) {
+        final newIssues = result.data!;
+        if (newIssues.length != _transactionsWithIssues.length ||
+            !_transactionsWithIssues.containsAll(newIssues)) {
+          setState(() => _transactionsWithIssues = newIssues);
+        }
       }
     });
   }
@@ -73,6 +87,27 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final generation = _loadGeneration;
     setState(() => _isLoading = true);
     await _doFetch(generation: generation, pageToken: pageToken);
+  }
+
+  Future<void> _openTransaction(TransactionResource tx) async {
+    final updated = await Navigator.push<TransactionResource>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => TransactionEditScreen(
+          transaction: tx,
+          transactionRepository: widget.transactionRepository,
+          accountRepository: widget.accountRepository,
+          commodityRepository: widget.commodityRepository,
+        ),
+      ),
+    );
+    if (updated != null && mounted) {
+      setState(() {
+        final idx = _transactions.indexWhere((t) => t.name == updated.name);
+        if (idx >= 0) _transactions[idx] = updated;
+      });
+      _refreshDoctorIssues();
+    }
   }
 
   // User-initiated: always runs, even if pagination is in flight.
@@ -197,6 +232,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
               hasIssue: _transactionsWithIssues.contains(
                 _transactions[index].name,
               ),
+              onTap: () => _openTransaction(_transactions[index]),
             );
           },
         ),
@@ -234,8 +270,13 @@ class _NoOverscrollBehavior extends ScrollBehavior {
 class _TransactionRow extends StatelessWidget {
   final TransactionResource transaction;
   final bool hasIssue;
+  final VoidCallback onTap;
 
-  const _TransactionRow({required this.transaction, required this.hasIssue});
+  const _TransactionRow({
+    required this.transaction,
+    required this.hasIssue,
+    required this.onTap,
+  });
 
   static final _dateFormatCurrentYear = DateFormat('MMM d');
   static final _dateFormatOtherYear = DateFormat('MMM d, yyyy');
@@ -271,76 +312,79 @@ class _TransactionRow extends StatelessWidget {
       children: [
         Stack(
           children: [
-            ColoredBox(
-              color: Colors.white,
-              child: SizedBox(
-                height: 88,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 12,
-                  ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _PostingPills(postings: transaction.postings),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
+            InkWell(
+              onTap: onTap,
+              child: ColoredBox(
+                color: Colors.white,
+                child: SizedBox(
+                  height: 88,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _PostingPills(postings: transaction.postings),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                primaryText,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF1C1C1E),
+                                ),
+                              ),
+                              if (secondaryText != null) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  secondaryText,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w400,
+                                    color: Color(0xFF8E8E93),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
                           mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              primaryText,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
+                              _formatAmount(),
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
                                 color: Color(0xFF1C1C1E),
                               ),
                             ),
-                            if (secondaryText != null) ...[
-                              const SizedBox(height: 2),
-                              Text(
-                                secondaryText,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w400,
-                                  color: Color(0xFF8E8E93),
-                                ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatDate(transaction.transactionDate),
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w400,
+                                color: Color(0xFF8E8E93),
                               ),
-                            ],
+                            ),
                           ],
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          Text(
-                            _formatAmount(),
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF1C1C1E),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            _formatDate(transaction.transactionDate),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w400,
-                              color: Color(0xFF8E8E93),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),

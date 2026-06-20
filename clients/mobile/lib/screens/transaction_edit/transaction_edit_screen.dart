@@ -50,17 +50,13 @@ class _EditablePosting {
            : null,
        priceFocusNode = price != null ? FocusNode() : null,
        priceCurrency = price?.symbol {
-    _wire(amountFocusNode, amountController);
-    if (costFocusNode != null) _wire(costFocusNode!, costAmountController!);
-    if (priceFocusNode != null) _wire(priceFocusNode!, priceAmountController!);
-  }
-
-  static void _wire(FocusNode node, TextEditingController ctrl) {
-    node.addListener(() {
-      ctrl.text = node.hasFocus
-          ? rawEditAmount(ctrl.text)
-          : formatDisplayAmount(ctrl.text);
-    });
+    wireAmountFocus(amountFocusNode, amountController);
+    if (costFocusNode != null) {
+      wireAmountFocus(costFocusNode!, costAmountController!);
+    }
+    if (priceFocusNode != null) {
+      wireAmountFocus(priceFocusNode!, priceAmountController!);
+    }
   }
 
   void dispose() {
@@ -880,11 +876,13 @@ class _ImbalanceWarning extends StatelessWidget {
   final double amount;
   final String symbol;
 
+  static final _fmt = NumberFormat('#,##0.00', 'en_US');
+
   const _ImbalanceWarning({required this.amount, required this.symbol});
 
   @override
   Widget build(BuildContext context) {
-    final formatted = NumberFormat('#,##0.00').format(amount.abs());
+    final formatted = _fmt.format(amount.abs());
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(

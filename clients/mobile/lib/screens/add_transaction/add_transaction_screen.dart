@@ -59,11 +59,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   @override
   void initState() {
     super.initState();
-    _amountFocusNode.addListener(() {
-      _amountController.text = _amountFocusNode.hasFocus
-          ? rawEditAmount(_amountController.text)
-          : formatDisplayAmount(_amountController.text);
-    });
+    wireAmountFocus(_amountFocusNode, _amountController);
     _loadAccounts();
   }
 

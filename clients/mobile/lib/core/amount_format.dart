@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 
 /// Formats a raw amount string for display: comma thousands-separator,
@@ -15,5 +16,15 @@ String formatDisplayAmount(String rawValue) {
   return NumberFormat('#,##0.${'0' * displayDecimals}', 'en_US').format(v);
 }
 
-/// Strips commas so formatted display text can be parsed as a number.
 String rawEditAmount(String displayValue) => displayValue.replaceAll(',', '');
+
+/// Wires a focus listener that strips commas on focus-gain and reformats on
+/// focus-loss. Skips the assignment when the value would be unchanged.
+void wireAmountFocus(FocusNode node, TextEditingController ctrl) {
+  node.addListener(() {
+    final next = node.hasFocus
+        ? rawEditAmount(ctrl.text)
+        : formatDisplayAmount(ctrl.text);
+    if (next != ctrl.text) ctrl.text = next;
+  });
+}

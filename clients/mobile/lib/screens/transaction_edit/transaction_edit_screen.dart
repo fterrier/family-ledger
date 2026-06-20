@@ -876,13 +876,11 @@ class _ImbalanceWarning extends StatelessWidget {
   final double amount;
   final String symbol;
 
-  static final _fmt = NumberFormat('#,##0.00', 'en_US');
-
   const _ImbalanceWarning({required this.amount, required this.symbol});
 
   @override
   Widget build(BuildContext context) {
-    final formatted = _fmt.format(amount.abs());
+    final formatted = formatFixedAmount(amount.abs());
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(

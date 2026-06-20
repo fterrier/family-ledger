@@ -18,8 +18,13 @@ String formatDisplayAmount(String rawValue) {
 
 String rawEditAmount(String displayValue) => displayValue.replaceAll(',', '');
 
-/// Wires a focus listener that strips commas on focus-gain and reformats on
-/// focus-loss. Skips the assignment when the value would be unchanged.
+final _fixedFmt = NumberFormat('#,##0.00', 'en_US');
+
+/// Formats [v] with comma thousands-separator and exactly 2 decimal places.
+String formatFixedAmount(double v) => _fixedFmt.format(v);
+
+// Setting ctrl.text unconditionally would reset the cursor position and
+// trigger unnecessary rebuilds when focus changes but commas are absent.
 void wireAmountFocus(FocusNode node, TextEditingController ctrl) {
   node.addListener(() {
     final next = node.hasFocus

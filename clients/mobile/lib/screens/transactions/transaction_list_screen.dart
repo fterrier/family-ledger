@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/account_category.dart';
+import '../../core/amount_format.dart';
 import '../../core/api_error.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
@@ -263,7 +264,6 @@ class _TransactionRow extends StatelessWidget {
 
   static final _dateFormatCurrentYear = DateFormat('MMM d');
   static final _dateFormatOtherYear = DateFormat('MMM d, yyyy');
-  static final _amountFormat = NumberFormat('#,##0.00');
 
   String _formatDate(String isoDate) {
     final dt = DateTime.tryParse(isoDate);
@@ -279,7 +279,7 @@ class _TransactionRow extends StatelessWidget {
     final posting = transaction.postings.first;
     final raw = double.tryParse(posting.units.amount);
     if (raw == null) return '${posting.units.amount} ${posting.units.symbol}';
-    return '${_amountFormat.format(raw)} ${posting.units.symbol}';
+    return '${formatFixedAmount(raw)} ${posting.units.symbol}';
   }
 
   @override

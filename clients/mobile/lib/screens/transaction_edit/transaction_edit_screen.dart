@@ -10,6 +10,7 @@ import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
+import '../../core/amount_format.dart';
 import '../../widgets/currency_picker_sheet.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/labeled_text_field.dart';
@@ -19,11 +20,14 @@ import '../add_transaction/account_picker_screen.dart';
 class _EditablePosting {
   AccountResource? account;
   final TextEditingController amountController;
+  final FocusNode amountFocusNode;
   String currency;
   // Non-null only when the original posting had cost/price set.
   final TextEditingController? costAmountController;
+  final FocusNode? costFocusNode;
   String? costCurrency;
   final TextEditingController? priceAmountController;
+  final FocusNode? priceFocusNode;
   String? priceCurrency;
 
   _EditablePosting({
@@ -32,20 +36,40 @@ class _EditablePosting {
     required this.currency,
     MoneyValue? cost,
     MoneyValue? price,
-  }) : amountController = TextEditingController(text: initialAmount),
+  }) : amountController = TextEditingController(
+         text: formatDisplayAmount(initialAmount),
+       ),
+       amountFocusNode = FocusNode(),
        costAmountController = cost != null
-           ? TextEditingController(text: cost.amount)
+           ? TextEditingController(text: formatDisplayAmount(cost.amount))
            : null,
+       costFocusNode = cost != null ? FocusNode() : null,
        costCurrency = cost?.symbol,
        priceAmountController = price != null
-           ? TextEditingController(text: price.amount)
+           ? TextEditingController(text: formatDisplayAmount(price.amount))
            : null,
-       priceCurrency = price?.symbol;
+       priceFocusNode = price != null ? FocusNode() : null,
+       priceCurrency = price?.symbol {
+    _wire(amountFocusNode, amountController);
+    if (costFocusNode != null) _wire(costFocusNode!, costAmountController!);
+    if (priceFocusNode != null) _wire(priceFocusNode!, priceAmountController!);
+  }
+
+  static void _wire(FocusNode node, TextEditingController ctrl) {
+    node.addListener(() {
+      ctrl.text = node.hasFocus
+          ? rawEditAmount(ctrl.text)
+          : formatDisplayAmount(ctrl.text);
+    });
+  }
 
   void dispose() {
     amountController.dispose();
+    amountFocusNode.dispose();
     costAmountController?.dispose();
+    costFocusNode?.dispose();
     priceAmountController?.dispose();
+    priceFocusNode?.dispose();
   }
 }
 
@@ -133,7 +157,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   Map<String, double> _balancesBySymbol() {
     final result = <String, double>{};
     for (final p in _postings) {
-      final amount = double.tryParse(p.amountController.text.trim()) ?? 0;
+      final amount =
+          double.tryParse(rawEditAmount(p.amountController.text.trim())) ?? 0;
       result[p.currency] = (result[p.currency] ?? 0) + amount;
     }
     return result;
@@ -249,7 +274,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
         );
         return;
       }
-      if (double.tryParse(p.amountController.text.trim()) == null) {
+      if (double.tryParse(rawEditAmount(p.amountController.text.trim())) ==
+          null) {
         setState(
           () => _error = const ValidationError(
             'All postings need a valid amount.',
@@ -274,18 +300,18 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
         return PostingPayload(
           account: p.account!.name,
           units: MoneyValue(
-            amount: p.amountController.text.trim(),
+            amount: rawEditAmount(p.amountController.text.trim()),
             symbol: p.currency,
           ),
           cost: hasCost
               ? MoneyValue(
-                  amount: p.costAmountController!.text.trim(),
+                  amount: rawEditAmount(p.costAmountController!.text.trim()),
                   symbol: p.costCurrency!,
                 )
               : null,
           price: hasPrice
               ? MoneyValue(
-                  amount: p.priceAmountController!.text.trim(),
+                  amount: rawEditAmount(p.priceAmountController!.text.trim()),
                   symbol: p.priceCurrency!,
                 )
               : null,
@@ -615,13 +641,14 @@ class _PostingEditCard extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: posting.amountController,
+                    focusNode: posting.amountFocusNode,
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                       signed: true,
                     ),
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(
-                        RegExp(r'^-?\d*\.?\d{0,2}'),
+                        RegExp(r'^-?\d*\.?\d*'),
                       ),
                     ],
                     decoration: const InputDecoration(
@@ -653,16 +680,17 @@ class _PostingEditCard extends StatelessWidget {
             _AuxMoneyRow(
               label: 'Cost',
               controller: posting.costAmountController!,
+              focusNode: posting.costFocusNode,
               currency: posting.costCurrency ?? '…',
               onCurrencyTap: onCostCurrencyTap,
             ),
           ],
-          // Price row (only when the posting originally had a price).
           if (posting.priceAmountController != null) ...[
             const Divider(height: 1, thickness: 1, color: Color(0xFFF2F2F7)),
             _AuxMoneyRow(
               label: 'Price',
               controller: posting.priceAmountController!,
+              focusNode: posting.priceFocusNode,
               currency: posting.priceCurrency ?? '…',
               onCurrencyTap: onPriceCurrencyTap,
             ),
@@ -676,12 +704,14 @@ class _PostingEditCard extends StatelessWidget {
 class _AuxMoneyRow extends StatelessWidget {
   final String label;
   final TextEditingController controller;
+  final FocusNode? focusNode;
   final String currency;
   final VoidCallback onCurrencyTap;
 
   const _AuxMoneyRow({
     required this.label,
     required this.controller,
+    this.focusNode,
     required this.currency,
     required this.onCurrencyTap,
   });
@@ -707,6 +737,7 @@ class _AuxMoneyRow extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),

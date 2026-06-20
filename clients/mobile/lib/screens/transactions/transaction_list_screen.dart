@@ -188,54 +188,51 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // RefreshIndicator's own top indicator shows.
     final showBottomSpinner = _isLoading && _nextPageToken != null;
 
-    Widget listContent = ScrollConfiguration(
-      behavior: const _NoOverscrollBehavior(),
-      child: RefreshIndicator(
-        onRefresh: refresh,
-        displacement: 60.0,
-        child: ListView.builder(
-          controller: _scrollController,
-          physics: const AlwaysScrollableScrollPhysics(
-            parent: ClampingScrollPhysics(),
-          ),
-          itemCount:
-              _transactions.length +
-              (showBottomSpinner || _paginationError ? 1 : 0),
-          itemBuilder: (context, index) {
-            if (index == _transactions.length) {
-              if (showBottomSpinner) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
+    Widget listContent = RefreshIndicator(
+      onRefresh: refresh,
+      displacement: 60.0,
+      child: ListView.builder(
+        controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: ClampingScrollPhysics(),
+        ),
+        itemCount:
+            _transactions.length +
+            (showBottomSpinner || _paginationError ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index == _transactions.length) {
+            if (showBottomSpinner) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
-                );
-              }
-              return Center(
-                child: TextButton(
-                  onPressed: () {
-                    setState(() => _paginationError = false);
-                    _load(
-                      pageToken: _nextPageToken,
-                    ); // reuses preserved token — does not reset to page 1
-                  },
-                  child: const Text('Retry'),
                 ),
               );
             }
-            return _TransactionRow(
-              transaction: _transactions[index],
-              hasIssue: _transactionsWithIssues.contains(
-                _transactions[index].name,
+            return Center(
+              child: TextButton(
+                onPressed: () {
+                  setState(() => _paginationError = false);
+                  _load(
+                    pageToken: _nextPageToken,
+                  ); // reuses preserved token — does not reset to page 1
+                },
+                child: const Text('Retry'),
               ),
-              onTap: () => _openTransaction(_transactions[index]),
             );
-          },
-        ),
+          }
+          return _TransactionRow(
+            transaction: _transactions[index],
+            hasIssue: _transactionsWithIssues.contains(
+              _transactions[index].name,
+            ),
+            onTap: () => _openTransaction(_transactions[index]),
+          );
+        },
       ),
     );
 
@@ -251,20 +248,6 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     }
     return listContent;
   }
-}
-
-// Removes Material 3's StretchingOverscrollIndicator (Android) and
-// GlowingOverscrollIndicator (older Android) without affecting RefreshIndicator,
-// which operates at the gesture layer independently of these visual effects.
-class _NoOverscrollBehavior extends ScrollBehavior {
-  const _NoOverscrollBehavior();
-
-  @override
-  Widget buildOverscrollIndicator(
-    BuildContext context,
-    Widget child,
-    ScrollableDetails details,
-  ) => child;
 }
 
 class _TransactionRow extends StatelessWidget {

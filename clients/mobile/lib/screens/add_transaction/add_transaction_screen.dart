@@ -12,6 +12,7 @@ import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
+import '../../core/amount_format.dart';
 import '../../widgets/currency_picker_sheet.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/labeled_text_field.dart';
@@ -40,6 +41,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   static const _prefKeyDefaultCurrency = 'default_currency';
 
   final _amountController = TextEditingController();
+  final _amountFocusNode = FocusNode();
   final _payeeController = TextEditingController();
   final _narrationController = TextEditingController();
 
@@ -57,6 +59,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   @override
   void initState() {
     super.initState();
+    _amountFocusNode.addListener(() {
+      _amountController.text = _amountFocusNode.hasFocus
+          ? rawEditAmount(_amountController.text)
+          : formatDisplayAmount(_amountController.text);
+    });
     _loadAccounts();
   }
 
@@ -134,7 +141,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _submit() async {
-    final amountText = _amountController.text.trim();
+    final amountText = rawEditAmount(_amountController.text.trim());
     if (amountText.isEmpty || _fromAccount == null || _toAccount == null) {
       setState(
         () => _error = const ValidationError(
@@ -208,6 +215,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   @override
   void dispose() {
     _amountController.dispose();
+    _amountFocusNode.dispose();
     _payeeController.dispose();
     _narrationController.dispose();
     super.dispose();
@@ -248,6 +256,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
               children: [
                 _AmountHero(
                   controller: _amountController,
+                  focusNode: _amountFocusNode,
                   currency: _currency,
                   onCurrencyTap: _pickCurrency,
                 ),
@@ -313,11 +322,13 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
 class _AmountHero extends StatelessWidget {
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String currency;
   final VoidCallback onCurrencyTap;
 
   const _AmountHero({
     required this.controller,
+    required this.focusNode,
     required this.currency,
     required this.onCurrencyTap,
   });
@@ -361,9 +372,10 @@ class _AmountHero extends StatelessWidget {
           const SizedBox(height: 8),
           TextField(
             controller: controller,
+            focusNode: focusNode,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*')),
             ],
             textAlign: TextAlign.center,
             style: const TextStyle(

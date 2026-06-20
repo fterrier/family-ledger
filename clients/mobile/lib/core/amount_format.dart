@@ -20,7 +20,6 @@ String rawEditAmount(String displayValue) => displayValue.replaceAll(',', '');
 
 final _fixedFmt = NumberFormat('#,##0.00', 'en_US');
 
-/// Formats [v] with comma thousands-separator and exactly 2 decimal places.
 String formatFixedAmount(double v) => _fixedFmt.format(v);
 
 // Setting ctrl.text unconditionally would reset the cursor position and

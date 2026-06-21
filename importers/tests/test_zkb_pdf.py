@@ -408,20 +408,20 @@ def test_credit_creates_positive_posting(session: Session) -> None:
     assert txn.postings[0].units_amount == Decimal("12835.85")
 
 
-def test_source_native_id_uses_ref(session: Session) -> None:
+def test_source_native_ids_uses_ref(session: Session) -> None:
     entry = _make_entry(ref="Z260348427385")
     _run(session, [entry])
 
     txn = session.execute(select(Transaction)).scalar_one()
-    assert txn.source_native_id == "zkb:Z260348427385"
+    assert txn.source_native_ids == ["zkb:Z260348427385"]
 
 
-def test_source_native_id_fingerprint_when_no_ref(session: Session) -> None:
+def test_source_native_ids_fingerprint_when_no_ref(session: Session) -> None:
     entry = _make_entry(ref=None)
     _run(session, [entry])
 
     txn = session.execute(select(Transaction)).scalar_one()
-    assert txn.source_native_id is not None and txn.source_native_id.startswith("zkb:fp:")
+    assert txn.source_native_ids and txn.source_native_ids[0].startswith("zkb:fp:")
 
 
 def test_entity_metadata_structure(session: Session) -> None:

@@ -41,7 +41,7 @@ class PostingPayload(BaseModel):
 
 
 class ImportMetadata(BaseModel):
-    source_native_id: str | None = None
+    source_native_ids: list[str] = Field(default_factory=list)
 
 
 class AccountData(BaseModel):
@@ -330,3 +330,8 @@ class UpdateImporterRequest(BaseModel):
 
 class ImportResponse(BaseModel):
     result: ImportResult
+
+
+class MergeTransactionRequest(BaseModel):
+    primary_transaction: str
+    secondary_transaction: str

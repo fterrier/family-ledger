@@ -327,7 +327,7 @@ def _build_dividend_transaction(
         payee=None,
         narration=description or f"Dividends {symbol}",
         entity_metadata={"ibkr": meta},
-        import_metadata=ImportMetadata(source_native_id=source_native_id),
+        import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
         postings=postings,
     )
 
@@ -364,7 +364,7 @@ def _build_cash_transaction(
             payee=None,
             narration=description or "Transfer",
             entity_metadata={"ibkr": {"transfer": True, "transaction_id": tx.transactionID}},
-            import_metadata=ImportMetadata(source_native_id=f"ibkr:{tx.transactionID}"),
+            import_metadata=ImportMetadata(source_native_ids=[f"ibkr:{tx.transactionID}"]),
             postings=[
                 PostingNormalizePayload(
                     account=cash_account,
@@ -380,7 +380,7 @@ def _build_cash_transaction(
         payee=None,
         narration=narration,
         entity_metadata={"ibkr": {meta_key: True, "transaction_id": tx.transactionID}},
-        import_metadata=ImportMetadata(source_native_id=f"ibkr:{tx.transactionID}"),
+        import_metadata=ImportMetadata(source_native_ids=[f"ibkr:{tx.transactionID}"]),
         postings=[
             PostingNormalizePayload(
                 account=cash_account,
@@ -464,7 +464,7 @@ def _build_stock_buy_group(
                 "transaction_ids": [t.transactionID for t in trades],
             }
         },
-        import_metadata=ImportMetadata(source_native_id=source_native_id),
+        import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
         postings=postings,
     )
 
@@ -547,7 +547,7 @@ def _build_stock_sell_group(
                 "transaction_ids": [t.transactionID for t in trades],
             }
         },
-        import_metadata=ImportMetadata(source_native_id=source_native_id),
+        import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
         postings=postings,
     )
 
@@ -615,7 +615,7 @@ def _build_forex_transaction(
         payee=None,
         narration=narration,
         entity_metadata={"ibkr": {"transaction_id": trade.transactionID, "forex": symbol}},
-        import_metadata=ImportMetadata(source_native_id=f"ibkr:{trade.transactionID}"),
+        import_metadata=ImportMetadata(source_native_ids=[f"ibkr:{trade.transactionID}"]),
         postings=postings,
     )
 

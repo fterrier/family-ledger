@@ -314,7 +314,7 @@ def _build_transaction_payload(
         payee=_format_payee(entry.description),
         narration=None,
         entity_metadata={"zkb_pdf": metadata},
-        import_metadata=ImportMetadata(source_native_id=source_native_id),
+        import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
         postings=[
             PostingNormalizePayload(
                 account=account_resource_name,

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import date
 from typing import Any, Literal, cast
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -131,9 +132,11 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
         for posting in transaction.postings
     ]
 
-    import_metadata = None
-    if transaction.source_native_id is not None:
-        import_metadata = ImportMetadata(source_native_id=transaction.source_native_id)
+    import_metadata = (
+        ImportMetadata(source_native_ids=transaction.source_native_ids)
+        if transaction.source_native_ids
+        else None
+    )
 
     return TransactionResource(
         name=transaction.name,
@@ -178,6 +181,55 @@ def normalize_transaction(
     )
 
 
+def _reload_transaction_by_id(session: Session, transaction_id: int) -> Transaction:
+    persisted = session.scalar(
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .where(Transaction.id == transaction_id)
+    )
+    assert persisted is not None
+    return persisted
+
+
+def _check_source_ids_available(
+    session: Session, ids: list[str], exclude_name: str | None = None
+) -> None:
+    if not ids:
+        return
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        rows = session.execute(
+            text(
+                "SELECT t.name, c.v"
+                " FROM transactions t,"
+                " jsonb_array_elements_text(t.source_native_ids) AS tv,"
+                " jsonb_array_elements_text(CAST(:ids_json AS jsonb)) AS c(v)"
+                " WHERE tv = c.v"
+                " AND (:exclude IS NULL OR t.name != :exclude)"
+                " LIMIT 1"
+            ).bindparams(ids_json=json.dumps(ids), exclude=exclude_name)
+        ).all()
+    else:
+        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params: dict[str, Any] = {f"id{i}": sid for i, sid in enumerate(ids)}
+        params["exclude"] = exclude_name
+        rows = session.execute(
+            text(
+                "SELECT t.name, j.value"
+                f" FROM transactions t, json_each(t.source_native_ids) AS j"
+                f" WHERE j.value IN ({placeholders})"
+                " AND (:exclude IS NULL OR t.name != :exclude)"
+                " LIMIT 1"
+            ).bindparams(**params)
+        ).all()
+    if rows:
+        owner, sid = rows[0]
+        raise ConflictError(
+            code="integrity_error",
+            message=f"source_native_ids already contains: {sid!r} (on {owner})",
+        )
+
+
 def persist_transaction(
     session: Session,
     payload: TransactionData,
@@ -194,6 +246,11 @@ def persist_transaction(
     # partially-initialised transaction and trigger constraint violations.
     account_map = resolve_accounts(session, payload.postings) if _masked("postings") else {}
 
+    if _masked("import_metadata"):
+        new_ids = payload.import_metadata.source_native_ids if payload.import_metadata else []
+        exclude = None if is_create else transaction.name
+        _check_source_ids_available(session, new_ids, exclude_name=exclude)
+
     if is_create:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
         session.add(transaction)
@@ -207,9 +264,7 @@ def persist_transaction(
     if _masked("entity_metadata"):
         transaction.entity_metadata = payload.entity_metadata
     if _masked("import_metadata"):
-        transaction.source_native_id = (
-            payload.import_metadata.source_native_id if payload.import_metadata else None
-        )
+        transaction.source_native_ids = new_ids
     if _masked("tags"):
         transaction.tags = payload.tags
     if _masked("postings"):
@@ -377,14 +432,7 @@ def create_transaction(
     normalized = normalize_and_validate_transaction_payload(session, payload)
     transaction = persist_transaction(session, normalized)
     commit_or_raise(session)
-    session.refresh(transaction)
-    persisted = session.scalar(
-        select(Transaction)
-        .options(selectinload(Transaction.postings).selectinload(Posting.account))
-        .where(Transaction.id == transaction.id)
-    )
-    assert persisted is not None
-    return serialize_transaction(persisted)
+    return serialize_transaction(_reload_transaction_by_id(session, transaction.id))
 
 
 def update_transaction(
@@ -397,13 +445,7 @@ def update_transaction(
     normalized = normalize_and_validate_transaction_payload(session, payload)
     persist_transaction(session, normalized, transaction=transaction_row, update_mask=update_mask)
     commit_or_raise(session)
-    persisted = session.scalar(
-        select(Transaction)
-        .options(selectinload(Transaction.postings).selectinload(Posting.account))
-        .where(Transaction.id == transaction_row.id)
-    )
-    assert persisted is not None
-    return serialize_transaction(persisted)
+    return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 
 
 def list_transactions_page(
@@ -460,6 +502,77 @@ def delete_transaction(session: Session, transaction: str) -> None:
     transaction_row = get_transaction_row(session, transaction)
     session.delete(transaction_row)
     commit_or_raise(session)
+
+
+def _posting_key(p: Posting) -> tuple:
+    return (
+        p.account_id,
+        p.units_amount,
+        p.units_symbol,
+        p.cost_per_unit,
+        p.cost_symbol,
+        p.price_per_unit,
+        p.price_symbol,
+    )
+
+
+def merge_transactions(
+    session: Session, primary_name: str, secondary_name: str
+) -> TransactionResource:
+    primary = get_transaction_row(session, primary_name)
+    secondary = get_transaction_row(session, secondary_name)
+
+    merged_payee = primary.payee or secondary.payee
+    merged_narration = primary.narration or secondary.narration
+
+    # narration_overrides avoids mutating session-tracked Posting rows (SQLAlchemy persists them)
+    narration_overrides: dict[tuple, str] = {}
+    primary_key: dict[tuple, Posting] = {}
+    result_postings: list[Posting] = []
+    for pp in primary.postings:
+        primary_key[_posting_key(pp)] = pp
+        result_postings.append(pp)
+    for sp in secondary.postings:
+        key = _posting_key(sp)
+        if key in primary_key:
+            if not primary_key[key].narration and sp.narration:
+                narration_overrides[key] = sp.narration
+        else:
+            result_postings.append(sp)
+
+    merged_ids = list(dict.fromkeys(primary.source_native_ids + secondary.source_native_ids))
+
+    merged = Transaction(
+        name=generate_resource_name("transactions", "txn"),
+        transaction_date=primary.transaction_date,
+        payee=merged_payee,
+        narration=merged_narration,
+        tags=list(dict.fromkeys(primary.tags + secondary.tags)),
+        entity_metadata=primary.entity_metadata,
+        source_native_ids=merged_ids,
+    )
+    session.add(merged)
+    session.flush()
+
+    for idx, p in enumerate(result_postings, start=1):
+        session.add(
+            Posting(
+                transaction_id=merged.id,
+                account_id=p.account_id,
+                posting_order=idx,
+                units_amount=p.units_amount,
+                units_symbol=p.units_symbol,
+                narration=narration_overrides.get(_posting_key(p), p.narration),
+                cost_per_unit=p.cost_per_unit,
+                cost_symbol=p.cost_symbol,
+                price_per_unit=p.price_per_unit,
+                price_symbol=p.price_symbol,
+                entity_metadata=p.entity_metadata,
+            )
+        )
+
+    commit_or_raise(session)
+    return serialize_transaction(_reload_transaction_by_id(session, merged.id))
 
 
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:

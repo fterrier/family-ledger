@@ -261,7 +261,7 @@ def test_dividend_with_withholding(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.transaction_date == date(2024, 1, 20)
-    assert tx.source_native_id == "ibkr:DIV001"
+    assert tx.source_native_ids == ["ibkr:DIV001"]
 
     posting_accounts = [p.account.account_name for p in tx.postings]
     posting_amounts = {p.account.account_name: p.units_amount for p in tx.postings}
@@ -384,8 +384,7 @@ def test_multiple_withholding_corrections_same_date_symbol(session: Session) -> 
         p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
     )
     assert usd_posting.units_amount == Decimal("3.40")
-    # source_native_id uses first withholding transactionID
-    assert tx.source_native_id == "ibkr:WH101"
+    assert tx.source_native_ids == ["ibkr:WH101"]
 
 
 # ---------------------------------------------------------------------------
@@ -409,7 +408,7 @@ def test_interest_transaction(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "USD Credit Interest for Dec-2023"
-    assert tx.source_native_id == "ibkr:INT001"
+    assert tx.source_native_ids == ["ibkr:INT001"]
     postings = {p.account.account_name: p.units_amount for p in tx.postings}
     assert postings.get("Assets:Liquid:IBKR:Depot:USD") == Decimal("14.12")
     assert "Income:Interests:IBKR" in postings
@@ -509,7 +508,7 @@ def test_stock_buy(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Buying VTI"
-    assert tx.source_native_id == "ibkr:order:ORD001"
+    assert tx.source_native_ids == ["ibkr:order:ORD001"]
     assert tx.transaction_date == date(2024, 1, 15)
 
     posting_map = {p.account.account_name: p for p in tx.postings}
@@ -578,7 +577,7 @@ def test_stock_buy_multi_lot_merged(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Buying VSGX"
-    assert tx.source_native_id == "ibkr:order:ORD010"
+    assert tx.source_native_ids == ["ibkr:order:ORD010"]
 
     vsgx_postings = [p for p in tx.postings if p.units_symbol == "VSGX"]
     assert len(vsgx_postings) == 2
@@ -619,7 +618,7 @@ def test_stock_sell_single_lot(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Selling VTI"
-    assert tx.source_native_id == "ibkr:order:ORD002"
+    assert tx.source_native_ids == ["ibkr:order:ORD002"]
 
     posting_map = {p.account.account_name: p for p in tx.postings}
     vti_posting = posting_map["Assets:SemiLiquid:Shares:IBKR:VTI"]
@@ -663,7 +662,7 @@ def test_stock_sell_multi_lot_merged(session: Session) -> None:
     # Two trades with same orderID → one merged transaction
     assert len(txs) == 1
     tx = txs[0]
-    assert tx.source_native_id == "ibkr:order:ORD003"
+    assert tx.source_native_ids == ["ibkr:order:ORD003"]
 
     bnd_postings = [
         p for p in tx.postings if p.account.account_name == "Assets:SemiLiquid:Shares:IBKR:BND"
@@ -697,7 +696,7 @@ def test_forex_buy_usd_with_chf(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Bought some USD"
-    assert tx.source_native_id == "ibkr:FX001"
+    assert tx.source_native_ids == ["ibkr:FX001"]
 
     usd_posting = next(p for p in tx.postings if p.units_symbol == "USD")
     assert usd_posting.units_amount == Decimal("5000")

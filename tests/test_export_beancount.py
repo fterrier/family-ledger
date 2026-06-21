@@ -76,7 +76,7 @@ def _mk_tx(
     narration: str | None,
     postings: list[Posting],
     *,
-    source_native_id: str | None = None,
+    source_native_ids: list[str] | None = None,
     entity_metadata: dict | None = None,
     tags: list[str] | None = None,
 ) -> Transaction:
@@ -85,7 +85,7 @@ def _mk_tx(
         name="transactions/txn_test",
         payee=payee,
         narration=narration,
-        source_native_id=source_native_id,
+        source_native_ids=source_native_ids or [],
         entity_metadata=entity_metadata or {},
         tags=tags or [],
     )
@@ -98,35 +98,40 @@ def _mk_tx(
 # ---------------------------------------------------------------------------
 
 
-def test_meta_lines_source_native_id_only() -> None:
-    lines = _meta_lines("mt940:Z1234", {})
-    assert lines == ['  source_native_id: "mt940:Z1234"']
+def test_meta_lines_single_source_native_id() -> None:
+    lines = _meta_lines(["mt940:Z1234"], {})
+    assert lines == ['  source_native_ids: "mt940:Z1234"']
+
+
+def test_meta_lines_multiple_source_native_ids() -> None:
+    lines = _meta_lines(["ibkr:123", "zkb:456"], {})
+    assert lines == ['  source_native_ids: "ibkr:123,zkb:456"']
 
 
 def test_meta_lines_beancount_keys() -> None:
-    lines = _meta_lines(None, {"ref": "Z1234", "account": "CH99"})
+    lines = _meta_lines([], {"ref": "Z1234", "account": "CH99"})
     assert '  ref: "Z1234"' in lines
     assert '  account: "CH99"' in lines
 
 
-def test_meta_lines_skips_source_native_id_in_dict() -> None:
-    lines = _meta_lines("mt940:Z1234", {"source_native_id": "other", "ref": "A"})
-    assert lines[0] == '  source_native_id: "mt940:Z1234"'
+def test_meta_lines_skips_source_native_ids_in_dict() -> None:
+    lines = _meta_lines(["mt940:Z1234"], {"source_native_ids": "other", "ref": "A"})
+    assert lines[0] == '  source_native_ids: "mt940:Z1234"'
     assert not any("other" in ln for ln in lines)
 
 
 def test_meta_lines_skips_invalid_keys() -> None:
-    lines = _meta_lines(None, {"InvalidKey": "v", "123bad": "v", "good_key": "v"})
+    lines = _meta_lines([], {"InvalidKey": "v", "123bad": "v", "good_key": "v"})
     assert lines == ['  good_key: "v"']
 
 
 def test_meta_lines_escapes_quotes_in_value() -> None:
-    lines = _meta_lines(None, {"note": 'say "hello"'})
+    lines = _meta_lines([], {"note": 'say "hello"'})
     assert lines == ['  note: "say \\"hello\\""']
 
 
-def test_meta_lines_none_source_native_id_skipped() -> None:
-    lines = _meta_lines(None, {})
+def test_meta_lines_empty_source_native_ids_skipped() -> None:
+    lines = _meta_lines([], {})
     assert lines == []
 
 
@@ -167,10 +172,10 @@ def test_format_transaction_null_narration_with_payee() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_format_transaction_source_native_id_in_output() -> None:
-    tx = _mk_tx(date(2026, 4, 1), None, "Test", [], source_native_id="mt940:Z1234")
+def test_format_transaction_source_native_ids_in_output() -> None:
+    tx = _mk_tx(date(2026, 4, 1), None, "Test", [], source_native_ids=["mt940:Z1234"])
     out = _format_transaction(tx)
-    assert '  source_native_id: "mt940:Z1234"' in out
+    assert '  source_native_ids: "mt940:Z1234"' in out
 
 
 def test_format_transaction_beancount_meta_emitted() -> None:
@@ -514,7 +519,7 @@ def test_export_beancount_emits_transactions(export_session: Session) -> None:
         transaction_date=date(2026, 4, 1),
         payee="Migros",
         narration="Groceries",
-        source_native_id="ref-1",
+        source_native_ids=["ref-1"],
         entity_metadata={},
     )
     txn.postings = [p1, p2]
@@ -527,7 +532,7 @@ def test_export_beancount_emits_transactions(export_session: Session) -> None:
     assert "Assets:Bank:Checking" in output
     assert "Expenses:Food" in output
     assert "CHF" in output
-    assert 'source_native_id: "ref-1"' in output
+    assert 'source_native_ids: "ref-1"' in output
 
 
 def test_export_beancount_emits_balance_assertions(export_session: Session) -> None:

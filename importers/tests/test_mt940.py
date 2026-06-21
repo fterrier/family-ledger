@@ -248,7 +248,9 @@ def _normalized_transactions(session: Session) -> list[dict[str, object]]:
                 "transaction_date": transaction.transaction_date.isoformat(),
                 "payee": transaction.payee,
                 "narration": transaction.narration,
-                "source_native_id": transaction.source_native_id,
+                "source_native_id": transaction.source_native_ids[0]
+                if transaction.source_native_ids
+                else None,
                 "entity_metadata": transaction.entity_metadata,
                 "bank_posting": {
                     "account": bank_posting.account.name,
@@ -605,10 +607,10 @@ def test_mt940_importer_duplicate_entries_get_different_source_native_ids(
 
     transactions = session.scalars(select(Transaction).order_by(Transaction.id)).all()
     assert len(transactions) == 2
-    assert transactions[0].source_native_id != transactions[1].source_native_id
-    assert transactions[0].source_native_id is not None
-    assert str(transactions[0].source_native_id).startswith("mt940:fp:")
-    assert str(transactions[1].source_native_id).startswith("mt940:fp:")
+    assert transactions[0].source_native_ids != transactions[1].source_native_ids
+    assert transactions[0].source_native_ids
+    assert transactions[0].source_native_ids[0].startswith("mt940:fp:")
+    assert transactions[1].source_native_ids[0].startswith("mt940:fp:")
 
 
 def test_mt940_importer_fallback_source_native_id_is_deterministic(
@@ -619,9 +621,9 @@ def test_mt940_importer_fallback_source_native_id_is_deterministic(
 
     _run_fixture(session, DUPLICATE_ENTRIES_FIXTURE, config)
     first_ids = sorted(
-        t.source_native_id
+        t.source_native_ids[0]
         for t in session.scalars(select(Transaction)).all()
-        if t.source_native_id is not None
+        if t.source_native_ids
     )
 
     engine2 = create_engine("sqlite+pysqlite:///:memory:")
@@ -644,9 +646,9 @@ def test_mt940_importer_fallback_source_native_id_is_deterministic(
             {"account_mappings": {"CH5612300000000100111": account2.name}},
         )
         second_ids = sorted(
-            t.source_native_id
+            t.source_native_ids[0]
             for t in session2.scalars(select(Transaction)).all()
-            if t.source_native_id is not None
+            if t.source_native_ids
         )
 
     assert first_ids == second_ids
@@ -663,8 +665,7 @@ def test_mt940_importer_provider_prefix_overrides_default(session: Session) -> N
 
     transactions = session.scalars(select(Transaction).order_by(Transaction.id)).all()
     assert all(
-        t.source_native_id is not None and str(t.source_native_id).startswith("zkb:fp:")
-        for t in transactions
+        t.source_native_ids and t.source_native_ids[0].startswith("zkb:fp:") for t in transactions
     )
 
 

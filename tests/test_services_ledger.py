@@ -46,7 +46,7 @@ def make_transaction_payload() -> TransactionCreate:
         transaction_date=date(2026, 4, 19),
         payee="Migros",
         narration="Groceries",
-        import_metadata=ImportMetadata(source_native_id="source-1"),
+        import_metadata=ImportMetadata(source_native_ids=["source-1"]),
         postings=[
             PostingPayload(
                 account="accounts/checking-family",
@@ -106,7 +106,7 @@ def test_create_transaction_persists_explicit_unbalanced_payload_without_inline_
     assert not hasattr(created, "issues")
 
 
-def test_persist_transaction_sets_generated_name_source_native_id_and_posting_order(
+def test_persist_transaction_sets_generated_name_source_native_ids_and_posting_order(
     session: Session,
 ) -> None:
     session.add_all(
@@ -144,7 +144,7 @@ def test_persist_transaction_sets_generated_name_source_native_id_and_posting_or
     transaction = ledger_service.persist_transaction(session, payload)
 
     assert transaction.name.startswith("transactions/txn_")
-    assert transaction.source_native_id == "source-1"
+    assert transaction.source_native_ids == ["source-1"]
     assert [posting.posting_order for posting in transaction.postings] == [1, 2]
     assert transaction.postings[0].units_amount == Decimal("-100.00")
     assert transaction.postings[1].units_symbol == "CHF"
@@ -236,7 +236,7 @@ def test_update_transaction_with_mask_preserves_unlisted_metadata(
             transaction_date=date(2026, 4, 19),
             payee="Migros",
             narration="Groceries",
-            import_metadata=ImportMetadata(source_native_id="source-1"),
+            import_metadata=ImportMetadata(source_native_ids=["source-1"]),
             entity_metadata={"bank": "UBS", "raw_id": "tx-42"},
             postings=[
                 PostingPayload(
@@ -252,7 +252,7 @@ def test_update_transaction_with_mask_preserves_unlisted_metadata(
     )
 
     assert created.import_metadata is not None
-    assert created.import_metadata.source_native_id == "source-1"
+    assert created.import_metadata.source_native_ids == ["source-1"]
     assert created.entity_metadata == {"bank": "UBS", "raw_id": "tx-42"}
 
     updated = ledger_service.update_transaction(
@@ -277,7 +277,7 @@ def test_update_transaction_with_mask_preserves_unlisted_metadata(
     )
 
     assert updated.import_metadata is not None
-    assert updated.import_metadata.source_native_id == "source-1"
+    assert updated.import_metadata.source_native_ids == ["source-1"]
     assert updated.entity_metadata == {"bank": "UBS", "raw_id": "tx-42"}
     assert updated.narration == "Groceries updated"
 

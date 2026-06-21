@@ -80,43 +80,32 @@ def test_commodity_symbol_must_be_unique(session: Session) -> None:
         session.commit()
 
 
-def test_transaction_source_native_id_must_be_unique_when_set(session: Session) -> None:
-    session.add_all(
-        [
-            Transaction(
-                name="transactions/txn-1",
-                transaction_date=date(2026, 4, 19),
-                source_native_id="mt940:Z1234",
-            ),
-            Transaction(
-                name="transactions/txn-2",
-                transaction_date=date(2026, 4, 19),
-                source_native_id="mt940:Z1234",
-            ),
-        ]
+def test_transaction_source_native_ids_defaults_to_empty_list(session: Session) -> None:
+    session.add(
+        Transaction(
+            name="transactions/txn-1",
+            transaction_date=date(2026, 4, 19),
+        )
     )
-
-    with pytest.raises(IntegrityError):
-        session.commit()
-
-
-def test_transaction_source_native_id_null_may_repeat(session: Session) -> None:
-    session.add_all(
-        [
-            Transaction(
-                name="transactions/txn-1",
-                transaction_date=date(2026, 4, 19),
-                source_native_id=None,
-            ),
-            Transaction(
-                name="transactions/txn-2",
-                transaction_date=date(2026, 4, 19),
-                source_native_id=None,
-            ),
-        ]
-    )
-
     session.commit()
+    tx = session.get(Transaction, 1)
+    assert tx is not None
+    assert tx.source_native_ids == []
+
+
+def test_transaction_source_native_ids_stores_list(session: Session) -> None:
+    session.add(
+        Transaction(
+            name="transactions/txn-1",
+            transaction_date=date(2026, 4, 19),
+            source_native_ids=["ibkr:123", "zkb:456"],
+        )
+    )
+    session.commit()
+    session.expire_all()
+    tx = session.get(Transaction, 1)
+    assert tx is not None
+    assert tx.source_native_ids == ["ibkr:123", "zkb:456"]
 
 
 def test_postings_are_deleted_with_transaction(session: Session) -> None:

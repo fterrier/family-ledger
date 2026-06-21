@@ -42,12 +42,13 @@ def _meta_value(value: Any) -> str:
     return f'"{escaped}"'
 
 
-def _meta_lines(source_native_id: str | None, meta: dict[str, Any]) -> list[str]:
+def _meta_lines(source_native_ids: list[str], meta: dict[str, Any]) -> list[str]:
     lines = []
-    if source_native_id is not None:
-        lines.append(f'  source_native_id: "{source_native_id}"')
+    if source_native_ids:
+        ids_str = ",".join(source_native_ids)
+        lines.append(f'  source_native_ids: "{ids_str}"')
     for key, value in meta.items():
-        if key == "source_native_id":
+        if key == "source_native_ids":
             continue
         if not _META_KEY_RE.match(key):
             continue
@@ -87,7 +88,7 @@ def _format_document(attachment: Attachment, documents_dir: Path | None = None) 
     meta: list[str] = []
     if attachment.document_url is not None:
         meta.append(f'  document_url: "{attachment.document_url}"')
-    meta.extend(_meta_lines(None, merged))
+    meta.extend(_meta_lines([], merged))
 
     return "\n".join([header, *meta])
 
@@ -111,7 +112,7 @@ def _format_transaction(tx: Transaction) -> str:
     beancount = entity_meta.get("beancount", {})
     merged = {**top_level, **beancount}
 
-    meta = _meta_lines(tx.source_native_id, merged)
+    meta = _meta_lines(tx.source_native_ids, merged)
 
     postings = tx.postings
     account_col_width = max((len(p.account.account_name) for p in postings), default=0)

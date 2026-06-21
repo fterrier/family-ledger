@@ -100,7 +100,7 @@ def test_wipe_entities_multiple_in_order(engine, session: Session) -> None:
             transactions.insert().values(
                 name="transactions/1",
                 transaction_date=date(2024, 1, 1),
-                source_native_id="zkb_pdf:X1",
+                source_native_ids='["zkb_pdf:X1"]',
                 entity_metadata="{}",
             )
         )

@@ -244,7 +244,7 @@ def _build_transaction(entry: ParsedVisecaEntry, account_name: str) -> Transacti
         narration=None,
         payee=entry.details or None,
         entity_metadata={"viseca": {}},
-        import_metadata=ImportMetadata(source_native_id=f"viseca:{source_id_hash}"),
+        import_metadata=ImportMetadata(source_native_ids=[f"viseca:{source_id_hash}"]),
         postings=[
             PostingNormalizePayload(
                 account=account_name,

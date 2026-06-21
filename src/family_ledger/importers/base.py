@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
@@ -21,7 +21,6 @@ from family_ledger.importers.result import EntityCounts as EntityCounts  # noqa:
 from family_ledger.importers.result import EntityErrors as EntityErrors  # noqa: F401
 from family_ledger.importers.result import ImportResult as ImportResult  # noqa: F401
 from family_ledger.models import Account, Attachment, Commodity
-from family_ledger.models import Transaction as TransactionModel
 from family_ledger.services import account_balance as account_balance_service
 from family_ledger.services import attachments as attachments_service
 from family_ledger.services import ledger as ledger_service
@@ -216,16 +215,25 @@ class ImportContext:
         )
 
     def find_source_native_ids(self, pattern: str) -> set[str]:
-        """Return source_native_id values for transactions matching the given LIKE pattern."""
-        return {
-            sid
-            for sid in self._session.scalars(
-                select(TransactionModel.source_native_id).where(
-                    TransactionModel.source_native_id.like(pattern)
-                )
+        # LIKE on unnested array elements cannot use the GIN index (jsonb_path_ops only
+        # supports @> containment), so this is a full table scan + unnest.
+        dialect = self._session.get_bind().dialect.name
+        if dialect == "postgresql":
+            rows = self._session.scalars(
+                text(
+                    "SELECT DISTINCT value FROM transactions, "
+                    "jsonb_array_elements_text(source_native_ids) AS value "
+                    "WHERE value LIKE :pattern"
+                ).bindparams(pattern=pattern)
             ).all()
-            if sid is not None
-        }
+        else:
+            rows = self._session.scalars(
+                text(
+                    "SELECT DISTINCT j.value FROM transactions, "
+                    "json_each(source_native_ids) AS j WHERE j.value LIKE :pattern"
+                ).bindparams(pattern=pattern)
+            ).all()
+        return set(rows)
 
     def compute_pad(self, account_name: str, pad_date: date) -> PadResponse:
         """Compute PAD balancing transaction amounts for the given account and date."""

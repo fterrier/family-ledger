@@ -101,7 +101,7 @@ def test_find_source_native_ids_returns_matching(session: Session) -> None:
         Transaction(
             name="transactions/t1",
             transaction_date=date(2024, 1, 1),
-            source_native_id="beancount:pad:Assets:Checking:2024-01-01:CHF",
+            source_native_ids=["beancount:pad:Assets:Checking:2024-01-01:CHF"],
             entity_metadata={},
             postings=[],
         )
@@ -110,7 +110,7 @@ def test_find_source_native_ids_returns_matching(session: Session) -> None:
         Transaction(
             name="transactions/t2",
             transaction_date=date(2024, 2, 1),
-            source_native_id="beancount:tx:some-other",
+            source_native_ids=["beancount:tx:some-other"],
             entity_metadata={},
             postings=[],
         )
@@ -127,12 +127,12 @@ def test_find_source_native_ids_returns_empty_when_no_match(session: Session) ->
     assert ctx.find_source_native_ids("beancount:pad:%") == set()
 
 
-def test_find_source_native_ids_excludes_null_ids(session: Session) -> None:
+def test_find_source_native_ids_empty_array_excluded(session: Session) -> None:
     session.add(
         Transaction(
             name="transactions/t1",
             transaction_date=date(2024, 1, 1),
-            source_native_id=None,
+            source_native_ids=[],
             entity_metadata={},
             postings=[],
         )

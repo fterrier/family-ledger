@@ -468,12 +468,12 @@ class BeancountImporter(BaseImporter):
                 entity_metadata: dict[str, Any] = (
                     {"beancount": beancount_meta} if beancount_meta else {}
                 )
-                raw_native_id = beancount_meta.get("source_native_id")
+                raw_ids = beancount_meta.get("source_native_ids")
                 ref = beancount_meta.get("ref")
-                if raw_native_id is not None:
-                    source_native_id = str(raw_native_id)
+                if raw_ids is not None:
+                    source_native_ids = [s.strip() for s in str(raw_ids).split(",") if s.strip()]
                 elif ref is not None:
-                    source_native_id = f"beancount:{ref}"
+                    source_native_ids = [f"beancount:{ref}"]
                 else:
                     key: tuple[object, ...] = (entry.date, entry.payee, entry.narration)
                     occurrence = occurrence_counter[key]
@@ -486,7 +486,7 @@ class BeancountImporter(BaseImporter):
                     digest = hashlib.sha256(
                         json.dumps(fp_content, sort_keys=True, separators=(",", ":")).encode()
                     )
-                    source_native_id = f"beancount:fp:{digest.hexdigest()}"
+                    source_native_ids = [f"beancount:fp:{digest.hexdigest()}"]
                     occurrence_counter[key] += 1
                 payload = TransactionNormalizeData(
                     transaction_date=entry.date,
@@ -495,7 +495,7 @@ class BeancountImporter(BaseImporter):
                     tags=sorted(entry.tags),
                     postings=posting_payloads,
                     entity_metadata=entity_metadata,
-                    import_metadata=ImportMetadata(source_native_id=source_native_id),
+                    import_metadata=ImportMetadata(source_native_ids=source_native_ids),
                 )
             except ValueError:
                 continue
@@ -530,7 +530,8 @@ class BeancountImporter(BaseImporter):
 
         # Pad directives — phase 2: balance assertions must be in DB first.
         # One synthetic transaction is created per currency per pad directive.
-        # Pre-fetch all already-imported pad native_id prefixes in one query.
+        # Pre-fetch all already-imported pad source IDs in one query to avoid
+        # calling compute_pad (a balance aggregation) for already-imported entries.
         imported_pad_prefixes: set[str] = set()
         if any(isinstance(e, Pad) for e in entries):
             for sid in ctx.find_source_native_ids("beancount:pad:%"):
@@ -568,7 +569,7 @@ class BeancountImporter(BaseImporter):
                         "generated_by": "pad",
                         "source_account": entry.source_account,
                     },
-                    import_metadata=ImportMetadata(source_native_id=source_native_id),
+                    import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
                     postings=[
                         PostingNormalizePayload(
                             account=account_names[entry.account],

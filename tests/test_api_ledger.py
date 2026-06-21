@@ -1749,11 +1749,23 @@ def test_delete_balance_assertion_not_found() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _create_transaction(client: TestClient, tx_date: str, postings: list[dict]) -> dict:
-    response = client.post(
-        "/transactions",
-        json={"transaction": {"transaction_date": tx_date, "postings": postings}},
-    )
+def _create_transaction(
+    client: TestClient,
+    tx_date: str,
+    postings: list[dict],
+    *,
+    source_native_ids: list[str] | None = None,
+    payee: str | None = None,
+    narration: str | None = None,
+) -> dict:
+    body: dict = {"transaction_date": tx_date, "postings": postings}
+    if source_native_ids is not None:
+        body["import_metadata"] = {"source_native_ids": source_native_ids}
+    if payee is not None:
+        body["payee"] = payee
+    if narration is not None:
+        body["narration"] = narration
+    response = client.post("/transactions", json={"transaction": body})
     assert response.status_code == 201
     return response.json()
 
@@ -1892,3 +1904,376 @@ def test_pad_transaction_with_multiple_postings_to_same_account_not_double_count
 
     assert response.status_code == 200
     assert response.json()["entries"] == []
+
+
+# ---------------------------------------------------------------------------
+# merge transactions
+# ---------------------------------------------------------------------------
+
+
+def test_merge_combines_postings_and_source_ids() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    savings = create_account(client, "Assets:Savings")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "-50000.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "50000.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:transfer:123"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": savings["name"], "units": {"amount": "50000.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-50000.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:transfer:456"],
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    merged = response.json()
+    assert merged["name"] not in {primary["name"], secondary["name"]}
+    assert len(merged["postings"]) == 4
+    account_names = {p["account"] for p in merged["postings"]}
+    assert checking["name"] in account_names
+    assert savings["name"] in account_names
+    assert merged["import_metadata"]["source_native_ids"] == [
+        "ibkr:transfer:123",
+        "zkb:transfer:456",
+    ]
+
+    # Originals are NOT deleted
+    assert client.get(f"/{primary['name']}").status_code == 200
+    assert client.get(f"/{secondary['name']}").status_code == 200
+
+
+def test_merge_deduplicates_identical_postings() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:dup:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:dup:2"],
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    merged = response.json()
+    assert len(merged["postings"]) == 2
+
+
+def test_merge_narration_rules() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {
+                "account": checking["name"],
+                "units": {"amount": "100.00", "symbol": "CHF"},
+                "narration": None,
+            },
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:nar:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {
+                "account": checking["name"],
+                "units": {"amount": "100.00", "symbol": "CHF"},
+                "narration": "Transfer in",
+            },
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:nar:2"],
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    merged = response.json()
+    assert len(merged["postings"]) == 2
+    checking_posting = next(p for p in merged["postings"] if p["account"] == checking["name"])
+    assert checking_posting["narration"] == "Transfer in"
+
+
+def test_merge_primary_narration_wins_when_both_set() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {
+                "account": checking["name"],
+                "units": {"amount": "100.00", "symbol": "CHF"},
+                "narration": "IB label",
+            },
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:narwin:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {
+                "account": checking["name"],
+                "units": {"amount": "100.00", "symbol": "CHF"},
+                "narration": "ZKB label",
+            },
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:narwin:2"],
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    merged = response.json()
+    assert len(merged["postings"]) == 2
+    checking_posting = next(p for p in merged["postings"] if p["account"] == checking["name"])
+    assert checking_posting["narration"] == "IB label"
+
+
+def test_merge_payee_fills_from_secondary_when_primary_empty() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:payee1:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:payee1:2"],
+        payee="ZKB Bank",
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["payee"] == "ZKB Bank"
+
+
+def test_merge_payee_primary_wins_when_both_set() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:payee2:1"],
+        payee="IBKR",
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:payee2:2"],
+        payee="ZKB Bank",
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["payee"] == "IBKR"
+
+
+def test_merge_secondary_source_id_blocks_reimport() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:reimport:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:reimport:2"],
+    )
+
+    client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+
+    # Re-importing the secondary source ID conflicts (merged tx holds combined IDs)
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-06-15",
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+                    {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+                ],
+                "import_metadata": {"source_native_ids": ["zkb:reimport:2"]},
+            }
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_merge_originals_unchanged_after_merge() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:orig:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:orig:2"],
+    )
+
+    merged_resp = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+    assert merged_resp.status_code == 200
+    merged = merged_resp.json()
+
+    # Merged is a new transaction
+    assert merged["name"] not in {primary["name"], secondary["name"]}
+    # Originals are untouched
+    primary_after = client.get(f"/{primary['name']}").json()
+    secondary_after = client.get(f"/{secondary['name']}").json()
+    assert primary_after["import_metadata"]["source_native_ids"] == ["ibkr:orig:1"]
+    assert secondary_after["import_metadata"]["source_native_ids"] == ["zkb:orig:2"]
+
+
+def test_merge_originals_can_be_deleted_after_merge() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    primary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["ibkr:del:1"],
+    )
+    secondary = _create_transaction(
+        client,
+        "2026-06-15",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+        source_native_ids=["zkb:del:2"],
+    )
+
+    merged_resp = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+    merged_name = merged_resp.json()["name"]
+
+    assert client.delete(f"/{primary['name']}").status_code == 204
+    assert client.delete(f"/{secondary['name']}").status_code == 204
+    assert client.get(f"/{merged_name}").status_code == 200

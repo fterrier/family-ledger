@@ -354,7 +354,7 @@ def _build_transaction_payload(
         payee=payee,
         narration=None,
         entity_metadata={"mt940": metadata},
-        import_metadata=ImportMetadata(source_native_id=source_native_id),
+        import_metadata=ImportMetadata(source_native_ids=[source_native_id]),
         postings=[
             PostingNormalizePayload(
                 account=account_resource_name,

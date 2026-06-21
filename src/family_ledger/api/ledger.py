@@ -23,6 +23,7 @@ from family_ledger.api.schemas import (
     ListCommoditiesResponse,
     ListPricesResponse,
     ListTransactionsResponse,
+    MergeTransactionRequest,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
     PadResponse,
@@ -238,6 +239,16 @@ def get_transaction(transaction: str, session: DbSession) -> TransactionResource
 @router.delete("/transactions/{transaction:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(transaction: str, session: DbSession) -> None:
     _call_service(ledger_service.delete_transaction, session, transaction)
+
+
+@router.post("/transactions:merge", response_model=TransactionResource)
+def merge_transactions(body: MergeTransactionRequest, session: DbSession) -> TransactionResource:
+    return _call_service(
+        ledger_service.merge_transactions,
+        session,
+        body.primary_transaction,
+        body.secondary_transaction,
+    )
 
 
 @router.get("/prices", response_model=ListPricesResponse)

@@ -519,6 +519,28 @@ def get_transaction_by_name(session: Session, transaction: str) -> TransactionRe
     return serialize_transaction(transaction_row)
 
 
+def find_source_native_ids(session: Session, pattern: str) -> set[str]:
+    # LIKE on unnested array elements cannot use the GIN index (jsonb_path_ops only
+    # supports @> containment), so this is a full table scan + unnest.
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        rows = session.scalars(
+            text(
+                "SELECT DISTINCT value FROM transactions, "
+                "jsonb_array_elements_text(source_native_ids) AS value "
+                "WHERE value LIKE :pattern"
+            ).bindparams(pattern=pattern)
+        ).all()
+    else:
+        rows = session.scalars(
+            text(
+                "SELECT DISTINCT j.value FROM transactions, "
+                "json_each(source_native_ids) AS j WHERE j.value LIKE :pattern"
+            ).bindparams(pattern=pattern)
+        ).all()
+    return set(rows)
+
+
 def find_transaction_by_source_id(session: Session, source_id: str) -> TransactionResource | None:
     row = session.scalar(
         select(Transaction)

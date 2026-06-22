@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import date
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
@@ -216,25 +216,7 @@ class ImportContext:
         )
 
     def find_source_native_ids(self, pattern: str) -> set[str]:
-        # LIKE on unnested array elements cannot use the GIN index (jsonb_path_ops only
-        # supports @> containment), so this is a full table scan + unnest.
-        dialect = self._session.get_bind().dialect.name
-        if dialect == "postgresql":
-            rows = self._session.scalars(
-                text(
-                    "SELECT DISTINCT value FROM transactions, "
-                    "jsonb_array_elements_text(source_native_ids) AS value "
-                    "WHERE value LIKE :pattern"
-                ).bindparams(pattern=pattern)
-            ).all()
-        else:
-            rows = self._session.scalars(
-                text(
-                    "SELECT DISTINCT j.value FROM transactions, "
-                    "json_each(source_native_ids) AS j WHERE j.value LIKE :pattern"
-                ).bindparams(pattern=pattern)
-            ).all()
-        return set(rows)
+        return ledger_service.find_source_native_ids(self._session, pattern)
 
     def find_transaction_by_source_id(self, source_id: str) -> TransactionResource | None:
         """Find an existing transaction by exact source_native_id match."""

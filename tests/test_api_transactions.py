@@ -18,12 +18,6 @@ def make_client(api_token: str = "test-token") -> TestClient:
     )
 
 
-def make_unauthenticated_client() -> TestClient:
-    main_module = importlib.import_module("family_ledger.main")
-    main_module = importlib.reload(main_module)
-    return TestClient(main_module.create_app())
-
-
 @contextlib.contextmanager
 def count_sql_statements() -> Iterator[list[str]]:
     db_module = importlib.import_module("family_ledger.db")
@@ -64,200 +58,46 @@ def create_commodity(client: TestClient, symbol: str) -> dict:
     return response.json()
 
 
-def test_create_and_list_accounts() -> None:
-    client = make_client()
+def _create_transaction(
+    client: TestClient,
+    tx_date: str,
+    postings: list[dict],
+    *,
+    source_native_ids: list[str] | None = None,
+    payee: str | None = None,
+    narration: str | None = None,
+) -> dict:
+    body: dict = {"transaction_date": tx_date, "postings": postings}
+    if source_native_ids is not None:
+        body["import_metadata"] = {"source_native_ids": source_native_ids}
+    if payee is not None:
+        body["payee"] = payee
+    if narration is not None:
+        body["narration"] = narration
+    response = client.post("/transactions", json={"transaction": body})
+    assert response.status_code == 201
+    return response.json()
 
-    create_response = create_account(client, "Assets:Bank:Checking:Family")
 
-    assert create_response["name"].startswith("accounts/acc_")
-    assert create_response["account_name"] == "Assets:Bank:Checking:Family"
-
-    list_response = client.get("/accounts")
-
-    assert list_response.status_code == 200
-    assert list_response.json() == {
-        "accounts": [
-            {
-                "name": create_response["name"],
-                "account_name": "Assets:Bank:Checking:Family",
-                "effective_start_date": "2020-01-01",
-                "effective_end_date": None,
-                "entity_metadata": {},
+def _create_balance_assertion(
+    client: TestClient,
+    account_name: str,
+    assertion_date: str,
+    amount: str,
+    symbol: str,
+) -> dict:
+    response = client.post(
+        "/balance-assertions",
+        json={
+            "balance_assertion": {
+                "assertion_date": assertion_date,
+                "account": account_name,
+                "amount": {"amount": amount, "symbol": symbol},
             }
-        ],
-        "next_page_token": None,
-    }
-
-
-def test_ledger_routes_require_authentication() -> None:
-    client = make_unauthenticated_client()
-
-    response = client.get("/accounts")
-
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "unauthenticated"
-
-
-def test_ledger_routes_reject_invalid_token() -> None:
-    client = make_client(api_token="wrong-token")
-
-    response = client.get("/accounts")
-
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "unauthenticated"
-
-
-def test_ledger_routes_reject_partial_token() -> None:
-    client = make_client(api_token="test-toke")
-
-    response = client.get("/accounts")
-
-    assert response.status_code == 401
-    assert response.json()["detail"]["code"] == "unauthenticated"
-
-
-def test_list_accounts_supports_pagination() -> None:
-    client = make_client()
-
-    for account_name in [
-        "Assets:Bank:Checking:Family",
-        "Assets:Broker:Cash:USD",
-        "Expenses:Food",
-    ]:
-        create_account(client, account_name)
-
-    first_page = client.get("/accounts?page_size=2")
-
-    assert first_page.status_code == 200
-    body = first_page.json()
-    assert len(body["accounts"]) == 2
-    assert body["next_page_token"] is not None
-
-    second_page = client.get(f"/accounts?page_size=2&page_token={body['next_page_token']}")
-
-    assert second_page.status_code == 200
-    assert len(second_page.json()["accounts"]) == 1
-    assert second_page.json()["next_page_token"] is None
-
-
-def test_patch_account_updates_name_and_dates() -> None:
-    client = make_client()
-    created = create_account(client, "Assets:Bank:Checking:Family")
-    account_name = created["name"]
-
-    patch_resp = client.patch(
-        f"/{account_name}",
-        json={
-            "account": {
-                "account_name": "Assets:Bank:Checking:Family:Renamed",
-                "effective_start_date": "2020-01-01",
-                "effective_end_date": "2024-12-31",
-            },
-            "update_mask": "account_name,effective_start_date,effective_end_date",
         },
     )
-
-    assert patch_resp.status_code == 200
-    body = patch_resp.json()
-    assert body["name"] == account_name
-    assert body["account_name"] == "Assets:Bank:Checking:Family:Renamed"
-    assert body["effective_start_date"] == "2020-01-01"
-    assert body["effective_end_date"] == "2024-12-31"
-
-
-def test_patch_account_not_found_returns_404() -> None:
-    client = make_client()
-
-    resp = client.patch(
-        "/accounts/acc_nonexistent",
-        json={
-            "account": {
-                "account_name": "Assets:Bank:Checking",
-                "effective_start_date": "2020-01-01",
-            },
-            "update_mask": "account_name",
-        },
-    )
-
-    assert resp.status_code == 404
-    assert resp.json()["detail"]["code"] == "account_not_found"
-
-
-def test_patch_account_rejects_end_before_start() -> None:
-    client = make_client()
-    created = create_account(client, "Assets:Bank:Checking:Family")
-
-    resp = client.patch(
-        f"/{created['name']}",
-        json={
-            "account": {
-                "account_name": "Assets:Bank:Checking:Family",
-                "effective_start_date": "2020-06-01",
-                "effective_end_date": "2020-01-01",
-            },
-            "update_mask": "account_name,effective_start_date,effective_end_date",
-        },
-    )
-
-    assert resp.status_code == 400
-    assert resp.json()["detail"]["code"] == "invalid_effective_date_range"
-
-
-def test_create_and_get_commodity() -> None:
-    client = make_client()
-
-    create_response = create_commodity(client, "CHF")
-
-    assert create_response["name"].startswith("commodities/cmd_")
-
-    get_response = client.get(f"/{create_response['name']}")
-
-    assert get_response.status_code == 200
-    assert get_response.json() == {
-        "name": create_response["name"],
-        "symbol": "CHF",
-        "ticker": None,
-        "entity_metadata": {},
-    }
-
-
-def test_delete_commodity_removes_it_and_returns_204() -> None:
-    client = make_client()
-    data = create_commodity(client, "CHF")
-    name = data["name"]
-
-    delete_resp = client.delete(f"/{name}")
-    assert delete_resp.status_code == 204
-
-    get_resp = client.get(f"/{name}")
-    assert get_resp.status_code == 404
-
-
-def test_delete_missing_commodity_returns_404() -> None:
-    client = make_client()
-
-    response = client.delete("/commodities/cmd_nonexistent")
-    assert response.status_code == 404
-
-
-def test_list_commodities_supports_pagination() -> None:
-    client = make_client()
-
-    for symbol in ["CHF", "GOOG", "USD"]:
-        create_commodity(client, symbol)
-
-    first_page = client.get("/commodities?page_size=2")
-
-    assert first_page.status_code == 200
-    body = first_page.json()
-    assert len(body["commodities"]) == 2
-    assert body["next_page_token"] is not None
-
-    second_page = client.get(f"/commodities?page_size=2&page_token={body['next_page_token']}")
-
-    assert second_page.status_code == 200
-    assert len(second_page.json()["commodities"]) == 1
-    assert second_page.json()["next_page_token"] is None
+    assert response.status_code == 201
+    return response.json()
 
 
 def test_create_and_get_transaction() -> None:
@@ -1392,173 +1232,6 @@ def test_create_transaction_expands_multi_currency_missing_posting() -> None:
         assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
-def test_create_and_get_price() -> None:
-    client = make_client()
-
-    create_commodity(client, "CHF")
-    create_commodity(client, "USD")
-
-    create_response = client.post(
-        "/prices",
-        json={
-            "price": {
-                "price_date": "2026-04-19",
-                "base_symbol": "USD",
-                "quote": {"amount": "0.92", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert create_response.status_code == 201
-    body = create_response.json()
-    assert body["name"].startswith("prices/prc_")
-    assert body["quote"]["symbol"] == "CHF"
-
-    get_response = client.get(f"/prices/{body['name']}")
-
-    assert get_response.status_code == 200
-    assert get_response.json()["base_symbol"] == "USD"
-
-
-def test_update_price() -> None:
-    client = make_client()
-    create_commodity(client, "CHF")
-    create_commodity(client, "USD")
-
-    body = client.post(
-        "/prices",
-        json={
-            "price": {
-                "price_date": "2026-04-19",
-                "base_symbol": "USD",
-                "quote": {"amount": "0.92", "symbol": "CHF"},
-            }
-        },
-    ).json()
-    name = body["name"]
-
-    patch_response = client.patch(
-        f"/{name}",
-        json={
-            "price": {
-                "price_date": "2026-04-20",
-                "base_symbol": "USD",
-                "quote": {"amount": "0.95", "symbol": "CHF"},
-            },
-            "update_mask": "price_date,base_symbol,quote",
-        },
-    )
-    assert patch_response.status_code == 200
-    updated = patch_response.json()
-    assert updated["price_date"] == "2026-04-20"
-    assert Decimal(updated["quote"]["amount"]) == Decimal("0.95")
-    assert updated["name"] == name
-
-
-def test_update_price_rejects_unknown_symbol() -> None:
-    client = make_client()
-    create_commodity(client, "CHF")
-    create_commodity(client, "USD")
-
-    body = client.post(
-        "/prices",
-        json={
-            "price": {
-                "price_date": "2026-04-19",
-                "base_symbol": "USD",
-                "quote": {"amount": "0.92", "symbol": "CHF"},
-            }
-        },
-    ).json()
-
-    patch_response = client.patch(
-        f"/{body['name']}",
-        json={
-            "price": {
-                "price_date": "2026-04-19",
-                "base_symbol": "UNKNOWN",
-                "quote": {"amount": "0.92", "symbol": "CHF"},
-            },
-            "update_mask": "price_date,base_symbol,quote",
-        },
-    )
-    assert patch_response.status_code == 400
-
-
-def test_create_balance_assertion() -> None:
-    client = make_client()
-
-    checking = create_account(client, "Assets:Bank:Checking:Family")
-    create_commodity(client, "CHF")
-
-    create_response = client.post(
-        "/balance-assertions",
-        json={
-            "balance_assertion": {
-                "assertion_date": "2026-04-19",
-                "account": checking["name"],
-                "amount": {"amount": "1000.00", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert create_response.status_code == 201
-    body = create_response.json()
-    assert body["name"].startswith("balanceAssertions/bal_")
-    assert body["account"] == checking["name"]
-
-    get_response = client.get(f"/balance-assertions/{body['name']}")
-
-    assert get_response.status_code == 200
-    assert Decimal(get_response.json()["amount"]["amount"]) == Decimal("1000.00")
-
-
-def test_list_balance_assertions_returns_all_assertions() -> None:
-    client = make_client()
-
-    checking = create_account(client, "Assets:Bank:Checking:Family")
-    savings = create_account(client, "Assets:Bank:Savings:Family")
-    create_commodity(client, "CHF")
-
-    _create_balance_assertion(client, checking["name"], "2026-04-30", "1000.00", "CHF")
-    _create_balance_assertion(client, savings["name"], "2026-04-30", "2000.00", "CHF")
-
-    response = client.get("/balance-assertions")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body["balance_assertions"]) == 2
-    assert body["next_page_token"] is None
-    accounts = {ba["account"] for ba in body["balance_assertions"]}
-    assert accounts == {checking["name"], savings["name"]}
-
-
-def test_list_balance_assertions_empty() -> None:
-    client = make_client()
-
-    response = client.get("/balance-assertions")
-
-    assert response.status_code == 200
-    assert response.json() == {"balance_assertions": [], "next_page_token": None}
-
-
-def test_list_balance_assertions_ordered_by_date_ascending() -> None:
-    client = make_client()
-
-    checking = create_account(client, "Assets:Bank:Checking:Family")
-    create_commodity(client, "CHF")
-
-    _create_balance_assertion(client, checking["name"], "2026-03-31", "900.00", "CHF")
-    _create_balance_assertion(client, checking["name"], "2026-01-31", "800.00", "CHF")
-    _create_balance_assertion(client, checking["name"], "2026-02-28", "850.00", "CHF")
-
-    response = client.get("/balance-assertions")
-
-    assert response.status_code == 200
-    dates = [ba["assertion_date"] for ba in response.json()["balance_assertions"]]
-    assert dates == ["2026-01-31", "2026-02-28", "2026-03-31"]
-
-
 def test_list_transactions_ordered_by_date_ascending() -> None:
     client = make_client()
 
@@ -1635,231 +1308,6 @@ def test_list_transactions_ordered_by_date_descending() -> None:
     assert dates == ["2026-03-01", "2026-02-01", "2026-01-01"]
 
 
-def test_create_price_rejects_unknown_symbol() -> None:
-    client = make_client()
-
-    response = client.post(
-        "/prices",
-        json={
-            "price": {
-                "price_date": "2026-04-19",
-                "base_symbol": "USD",
-                "quote": {"amount": "0.92", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "commodity_not_found"
-
-
-def test_create_balance_assertion_rejects_unknown_account() -> None:
-    client = make_client()
-
-    create_commodity(client, "CHF")
-
-    response = client.post(
-        "/balance-assertions",
-        json={
-            "balance_assertion": {
-                "assertion_date": "2026-04-19",
-                "account": "accounts/acc_missing",
-                "amount": {"amount": "1000.00", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "account_not_found"
-
-
-def test_update_balance_assertion() -> None:
-    client = make_client()
-
-    checking = create_account(client, "Assets:Bank:Checking:Family")
-    savings = create_account(client, "Assets:Bank:Savings:Family")
-    create_commodity(client, "CHF")
-
-    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
-
-    response = client.patch(
-        f"/balance-assertions/{created['name']}",
-        json={
-            "balance_assertion": {
-                "assertion_date": "2026-04-20",
-                "account": savings["name"],
-                "amount": {"amount": "1500.00", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["name"] == created["name"]
-    assert body["assertion_date"] == "2026-04-20"
-    assert body["account"] == savings["name"]
-    assert Decimal(body["amount"]["amount"]) == Decimal("1500.00")
-
-
-def test_update_balance_assertion_not_found() -> None:
-    client = make_client()
-
-    response = client.patch(
-        "/balance-assertions/balanceAssertions/bal_missing",
-        json={
-            "balance_assertion": {
-                "assertion_date": "2026-04-19",
-                "account": "accounts/acc_missing",
-                "amount": {"amount": "100.00", "symbol": "CHF"},
-            }
-        },
-    )
-
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "balance_assertion_not_found"
-
-
-def test_delete_balance_assertion() -> None:
-    client = make_client()
-
-    checking = create_account(client, "Assets:Bank:Checking:Family")
-    create_commodity(client, "CHF")
-
-    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
-
-    delete_response = client.delete(f"/balance-assertions/{created['name']}")
-    assert delete_response.status_code == 204
-
-    get_response = client.get(f"/balance-assertions/{created['name']}")
-    assert get_response.status_code == 404
-
-
-def test_delete_balance_assertion_not_found() -> None:
-    client = make_client()
-
-    response = client.delete("/balance-assertions/balanceAssertions/bal_missing")
-
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "balance_assertion_not_found"
-
-
-# ---------------------------------------------------------------------------
-# Pad endpoint — HTTP-level tests only; computation logic is in
-# tests/test_services_account_balance.py
-# ---------------------------------------------------------------------------
-
-
-def _create_transaction(
-    client: TestClient,
-    tx_date: str,
-    postings: list[dict],
-    *,
-    source_native_ids: list[str] | None = None,
-    payee: str | None = None,
-    narration: str | None = None,
-) -> dict:
-    body: dict = {"transaction_date": tx_date, "postings": postings}
-    if source_native_ids is not None:
-        body["import_metadata"] = {"source_native_ids": source_native_ids}
-    if payee is not None:
-        body["payee"] = payee
-    if narration is not None:
-        body["narration"] = narration
-    response = client.post("/transactions", json={"transaction": body})
-    assert response.status_code == 201
-    return response.json()
-
-
-def _create_balance_assertion(
-    client: TestClient,
-    account_name: str,
-    assertion_date: str,
-    amount: str,
-    symbol: str,
-) -> dict:
-    response = client.post(
-        "/balance-assertions",
-        json={
-            "balance_assertion": {
-                "assertion_date": assertion_date,
-                "account": account_name,
-                "amount": {"amount": amount, "symbol": symbol},
-            }
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def _pad(client: TestClient, account_name: str, pad_date: str) -> dict:
-    response = client.get(f"/{account_name}:pad?date={pad_date}")
-    assert response.status_code == 200
-    return response.json()
-
-
-def test_pad_returns_correct_json_shape() -> None:
-    client = make_client()
-    checking = create_account(client, "Assets:Checking")
-    income = create_account(client, "Income:Salary")
-    create_commodity(client, "USD")
-    _create_transaction(
-        client,
-        "2026-01-01",
-        [
-            {"account": checking["name"], "units": {"amount": "500.00", "symbol": "USD"}},
-            {"account": income["name"], "units": {"amount": "-500.00", "symbol": "USD"}},
-        ],
-    )
-    assertion = _create_balance_assertion(client, checking["name"], "2026-01-02", "1000.00", "USD")
-
-    result = _pad(client, checking["name"], "2026-01-01")
-
-    assert result["account"] == checking["name"]
-    assert result["pad_date"] == "2026-01-01"
-    assert len(result["entries"]) == 1
-    entry = result["entries"][0]
-    assert entry["balance_assertion"] == assertion["name"]
-    assert entry["assertion_date"] == "2026-01-02"
-    assert Decimal(entry["units"]["amount"]) == Decimal("500.00")
-    assert entry["units"]["symbol"] == "USD"
-    assert "cost" not in entry
-
-
-def test_pad_rejects_unknown_account() -> None:
-    client = make_client()
-
-    response = client.get("/accounts/acc_missing:pad?date=2026-01-01")
-
-    assert response.status_code == 404
-    assert response.json()["detail"]["code"] == "account_not_found"
-
-
-def test_pad_cost_tracked_account_returns_400() -> None:
-    client = make_client()
-    portfolio = create_account(client, "Assets:Portfolio")
-    cash = create_account(client, "Assets:Cash")
-    create_commodity(client, "GOOG")
-    create_commodity(client, "USD")
-    _create_transaction(
-        client,
-        "2026-01-01",
-        [
-            {
-                "account": portfolio["name"],
-                "units": {"amount": "5", "symbol": "GOOG"},
-                "cost": {"amount": "100.00", "symbol": "USD"},
-            },
-            {"account": cash["name"], "units": {"amount": "-500.00", "symbol": "USD"}},
-        ],
-    )
-    _create_balance_assertion(client, portfolio["name"], "2026-01-02", "7", "GOOG")
-
-    response = client.get(f"/{portfolio['name']}:pad?date=2026-01-01")
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "pad_cost_tracked_account"
-
-
 def test_list_transactions_account_filter_no_duplicates_when_multiple_postings() -> None:
     client = make_client()
     checking = create_account(client, "Assets:Checking")
@@ -1881,29 +1329,6 @@ def test_list_transactions_account_filter_no_duplicates_when_multiple_postings()
     assert response.status_code == 200
     names = [t["name"] for t in response.json()["transactions"]]
     assert names == [tx["name"]]
-
-
-def test_pad_transaction_with_multiple_postings_to_same_account_not_double_counted() -> None:
-    client = make_client()
-    checking = create_account(client, "Assets:Checking")
-    equity = create_account(client, "Equity:Opening")
-    create_commodity(client, "CHF")
-
-    _create_transaction(
-        client,
-        "2026-01-01",
-        [
-            {"account": checking["name"], "units": {"amount": "300", "symbol": "CHF"}},
-            {"account": checking["name"], "units": {"amount": "200", "symbol": "CHF"}},
-            {"account": equity["name"], "units": {"amount": "-500", "symbol": "CHF"}},
-        ],
-    )
-    _create_balance_assertion(client, checking["name"], "2026-01-02", "500", "CHF")
-
-    response = client.get(f"/{checking['name']}:pad?date=2026-01-01")
-
-    assert response.status_code == 200
-    assert response.json()["entries"] == []
 
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,11 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.db import SessionLocal
 from family_ledger.models import Account, BalanceAssertion, Commodity, Price, Transaction
-from family_ledger.services import ledger as ledger_service
+from family_ledger.services import accounts as accounts_service
+from family_ledger.services import balance_assertions as balance_assertions_service
+from family_ledger.services import commodities as commodities_service
+from family_ledger.services import prices as prices_service
+from family_ledger.services import transactions as transactions_service
 
 
 def database_is_empty(session) -> bool:
@@ -52,7 +56,7 @@ def demo_accounts() -> dict[str, AccountCreate]:
 def create_accounts(session) -> dict[str, str]:
     created_accounts = {}
     for alias, account in demo_accounts().items():
-        created_accounts[alias] = ledger_service.create_account(session, account).name
+        created_accounts[alias] = accounts_service.create_account(session, account).name
     return created_accounts
 
 
@@ -67,7 +71,7 @@ def demo_commodities() -> list[CommodityCreate]:
 def create_commodities(session) -> None:
     commodities = demo_commodities()
     for commodity in commodities:
-        ledger_service.create_commodity(session, commodity)
+        commodities_service.create_commodity(session, commodity)
 
 
 def demo_transactions(accounts: dict[str, str]) -> list[TransactionCreate]:
@@ -139,7 +143,7 @@ def demo_transactions(accounts: dict[str, str]) -> list[TransactionCreate]:
 def create_transactions(session, accounts: dict[str, str]) -> None:
     transactions = demo_transactions(accounts)
     for transaction in transactions:
-        ledger_service.create_transaction(session, transaction)
+        transactions_service.create_transaction(session, transaction)
 
 
 def demo_prices() -> list[PriceCreate]:
@@ -155,7 +159,7 @@ def demo_prices() -> list[PriceCreate]:
 def create_prices(session) -> None:
     prices = demo_prices()
     for price in prices:
-        ledger_service.create_price(session, price)
+        prices_service.create_price(session, price)
 
 
 def demo_balance_assertions(accounts: dict[str, str]) -> list[BalanceAssertionCreate]:
@@ -171,7 +175,7 @@ def demo_balance_assertions(accounts: dict[str, str]) -> list[BalanceAssertionCr
 def create_balance_assertions(session, accounts: dict[str, str]) -> None:
     assertions = demo_balance_assertions(accounts)
     for assertion in assertions:
-        ledger_service.create_balance_assertion(session, assertion)
+        balance_assertions_service.create_balance_assertion(session, assertion)
 
 
 def bootstrap_demo(session) -> None:

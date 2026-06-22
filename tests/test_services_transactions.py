@@ -9,8 +9,6 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import (
-    AccountCreate,
-    CommodityCreate,
     DoctorIssue,
     DoctorLedgerRequest,
     ImportMetadata,
@@ -20,9 +18,8 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.models import Account, Base, Commodity
 from family_ledger.services import doctor as doctor_service
-from family_ledger.services import ledger as ledger_service
+from family_ledger.services import transactions as transactions_service
 from family_ledger.services.errors import NotFoundError
-from family_ledger.services.errors import ValidationError as LedgerValidationError
 
 
 @pytest.fixture
@@ -86,7 +83,7 @@ def test_create_transaction_persists_explicit_unbalanced_payload_without_inline_
 ) -> None:
     seed_basic_transaction_dependencies(session)
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 19),
@@ -141,7 +138,7 @@ def test_persist_transaction_sets_generated_name_source_native_ids_and_posting_o
             ]
         }
     )
-    transaction = ledger_service.persist_transaction(session, payload)
+    transaction = transactions_service.persist_transaction(session, payload)
 
     assert transaction.name.startswith("transactions/txn_")
     assert transaction.source_native_ids == ["source-1"]
@@ -174,7 +171,7 @@ def test_update_transaction_preserves_identity_and_rewrites_postings(session: Se
     )
     session.commit()
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         make_transaction_payload().model_copy(
             update={
@@ -192,7 +189,7 @@ def test_update_transaction_preserves_identity_and_rewrites_postings(session: Se
         ),
     )
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -230,7 +227,7 @@ def test_update_transaction_with_mask_preserves_unlisted_metadata(
 ) -> None:
     seed_basic_transaction_dependencies(session)
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 19),
@@ -255,7 +252,7 @@ def test_update_transaction_with_mask_preserves_unlisted_metadata(
     assert created.import_metadata.source_native_ids == ["source-1"]
     assert created.entity_metadata == {"bank": "UBS", "raw_id": "tx-42"}
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -287,7 +284,7 @@ def test_update_transaction_with_mask_clears_masked_field(
 ) -> None:
     seed_basic_transaction_dependencies(session)
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 19),
@@ -306,7 +303,7 @@ def test_update_transaction_with_mask_clears_masked_field(
         ),
     )
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -333,7 +330,7 @@ def test_update_transaction_with_mask_clears_masked_field(
 def test_update_transaction_round_trips_posting_narration(session: Session) -> None:
     seed_basic_transaction_dependencies(session)
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 19),
@@ -353,7 +350,7 @@ def test_update_transaction_round_trips_posting_narration(session: Session) -> N
         ),
     )
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -384,7 +381,7 @@ def test_update_transaction_round_trips_posting_narration(session: Session) -> N
 def test_update_transaction_clears_posting_narration(session: Session) -> None:
     seed_basic_transaction_dependencies(session)
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 19),
@@ -404,7 +401,7 @@ def test_update_transaction_clears_posting_narration(session: Session) -> None:
         ),
     )
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -445,7 +442,7 @@ def test_update_transaction_allows_total_change_without_lock(session: Session) -
     )
     session.commit()
 
-    created = ledger_service.create_transaction(
+    created = transactions_service.create_transaction(
         session,
         make_transaction_payload().model_copy(
             update={
@@ -463,7 +460,7 @@ def test_update_transaction_allows_total_change_without_lock(session: Session) -
         ),
     )
 
-    updated = ledger_service.update_transaction(
+    updated = transactions_service.update_transaction(
         session,
         created.name,
         TransactionCreate(
@@ -513,7 +510,7 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
     )
     session.commit()
 
-    unbalanced = ledger_service.create_transaction(
+    unbalanced = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -529,7 +526,7 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
             ],
         ),
     )
-    ledger_service.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 2),
@@ -546,7 +543,7 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
             ],
         ),
     )
-    ledger_service.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 3),
@@ -563,7 +560,7 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
             ],
         ),
     )
-    crossing = ledger_service.create_transaction(
+    crossing = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 4),
@@ -616,97 +613,10 @@ def test_doctor_ledger_reports_unbalanced_and_fifo_lot_match_missing_issues(
 
 def test_update_transaction_raises_for_missing_transaction(session: Session) -> None:
     with pytest.raises(NotFoundError) as exc_info:
-        ledger_service.update_transaction(
+        transactions_service.update_transaction(
             session,
             "transactions/txn_missing",
             make_transaction_payload(),
         )
 
     assert exc_info.value.code == "transaction_not_found"
-
-
-def test_update_account_modifies_fields_and_returns_updated(session: Session) -> None:
-    session.add(
-        Account(
-            name="accounts/acc_one",
-            account_name="Assets:Bank:Checking",
-            effective_start_date=date(2020, 1, 1),
-        )
-    )
-    session.commit()
-
-    updated = ledger_service.update_account(
-        session,
-        "acc_one",
-        AccountCreate(
-            account_name="Assets:Bank:Savings",
-            effective_start_date=date(2021, 1, 1),
-        ),
-    )
-
-    assert updated.account_name == "Assets:Bank:Savings"
-    assert updated.effective_start_date == date(2021, 1, 1)
-    assert updated.name == "accounts/acc_one"
-
-
-def test_update_account_raises_for_missing_account(session: Session) -> None:
-    with pytest.raises(NotFoundError) as exc_info:
-        ledger_service.update_account(
-            session,
-            "acc_missing",
-            AccountCreate(
-                account_name="Assets:Bank",
-                effective_start_date=date(2020, 1, 1),
-            ),
-        )
-
-    assert exc_info.value.code == "account_not_found"
-
-
-def test_update_commodity_modifies_symbol_and_returns_updated(session: Session) -> None:
-    session.add(Commodity(name="commodities/cmd_old", symbol="OLDCHF"))
-    session.commit()
-
-    updated = ledger_service.update_commodity(
-        session,
-        "cmd_old",
-        CommodityCreate(symbol="CHF"),
-    )
-
-    assert updated.symbol == "CHF"
-    assert updated.name == "commodities/cmd_old"
-
-
-def test_update_commodity_raises_for_missing_commodity(session: Session) -> None:
-    with pytest.raises(NotFoundError) as exc_info:
-        ledger_service.update_commodity(
-            session,
-            "cmd_missing",
-            CommodityCreate(symbol="CHF"),
-        )
-
-    assert exc_info.value.code == "commodity_not_found"
-
-
-def test_normalize_page_size_raises_for_non_positive() -> None:
-    with pytest.raises(LedgerValidationError) as exc_info:
-        ledger_service.normalize_page_size(0)
-
-    assert exc_info.value.code == "invalid_page_size"
-
-
-def test_decode_page_token_raises_for_garbage() -> None:
-    with pytest.raises(LedgerValidationError) as exc_info:
-        ledger_service.decode_page_token("!!!not-base64!!!")
-
-    assert exc_info.value.code == "invalid_page_token"
-
-
-def test_decode_page_token_raises_for_negative_offset() -> None:
-    from base64 import urlsafe_b64encode
-
-    token = urlsafe_b64encode(b"-5").decode()
-    with pytest.raises(LedgerValidationError) as exc_info:
-        ledger_service.decode_page_token(token)
-
-    assert exc_info.value.code == "invalid_page_token"

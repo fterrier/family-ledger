@@ -37,8 +37,12 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.db import get_db_session, read_only_transaction
 from family_ledger.services import account_balance as account_balance_service
+from family_ledger.services import accounts as accounts_service
+from family_ledger.services import balance_assertions as balance_assertions_service
+from family_ledger.services import commodities as commodities_service
 from family_ledger.services import doctor as doctor_service
-from family_ledger.services import ledger as ledger_service
+from family_ledger.services import prices as prices_service
+from family_ledger.services import transactions as transactions_service
 from family_ledger.services.errors import (
     ConflictError,
     NotFoundError,
@@ -84,7 +88,7 @@ def list_accounts(
     page_token: str | None = None,
 ) -> ListAccountsResponse:
     return _call_service(
-        ledger_service.list_accounts_page,
+        accounts_service.list_accounts_page,
         session,
         page_size=page_size,
         page_token=page_token,
@@ -97,7 +101,7 @@ def list_accounts(
     status_code=status.HTTP_201_CREATED,
 )
 def create_account(request: CreateAccountRequest, session: DbSession) -> AccountResource:
-    return _call_service(ledger_service.create_account, session, request.account)
+    return _call_service(accounts_service.create_account, session, request.account)
 
 
 @router.get("/accounts/{account:path}:pad", response_model=PadResponse)
@@ -108,7 +112,7 @@ def pad_account(account: str, date: date, session: DbSession) -> PadResponse:
 
 @router.get("/accounts/{account:path}", response_model=AccountResource)
 def get_account(account: str, session: DbSession) -> AccountResource:
-    return _call_service(ledger_service.get_account_by_name, session, account)
+    return _call_service(accounts_service.get_account_by_name, session, account)
 
 
 @router.patch("/accounts/{account:path}", response_model=AccountResource)
@@ -117,7 +121,7 @@ def update_account(
     request: UpdateAccountRequest,
     session: DbSession,
 ) -> AccountResource:
-    return _call_service(ledger_service.update_account, session, account, request.account)
+    return _call_service(accounts_service.update_account, session, account, request.account)
 
 
 @router.get("/commodities", response_model=ListCommoditiesResponse)
@@ -127,7 +131,7 @@ def list_commodities(
     page_token: str | None = None,
 ) -> ListCommoditiesResponse:
     return _call_service(
-        ledger_service.list_commodities_page,
+        commodities_service.list_commodities_page,
         session,
         page_size=page_size,
         page_token=page_token,
@@ -140,12 +144,12 @@ def list_commodities(
     status_code=status.HTTP_201_CREATED,
 )
 def create_commodity(request: CreateCommodityRequest, session: DbSession) -> CommodityResource:
-    return _call_service(ledger_service.create_commodity, session, request.commodity)
+    return _call_service(commodities_service.create_commodity, session, request.commodity)
 
 
 @router.get("/commodities/{commodity:path}", response_model=CommodityResource)
 def get_commodity(commodity: str, session: DbSession) -> CommodityResource:
-    return _call_service(ledger_service.get_commodity_by_name, session, commodity)
+    return _call_service(commodities_service.get_commodity_by_name, session, commodity)
 
 
 @router.patch("/commodities/{commodity:path}", response_model=CommodityResource)
@@ -154,12 +158,14 @@ def update_commodity(
     request: UpdateCommodityRequest,
     session: DbSession,
 ) -> CommodityResource:
-    return _call_service(ledger_service.update_commodity, session, commodity, request.commodity)
+    return _call_service(
+        commodities_service.update_commodity, session, commodity, request.commodity
+    )
 
 
 @router.delete("/commodities/{commodity:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_commodity(commodity: str, session: DbSession) -> None:
-    _call_service(ledger_service.delete_commodity, session, commodity)
+    _call_service(commodities_service.delete_commodity, session, commodity)
 
 
 @router.get("/transactions", response_model=ListTransactionsResponse)
@@ -176,7 +182,7 @@ def list_transactions(
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     return _call_service(
-        ledger_service.list_transactions_page,
+        transactions_service.list_transactions_page,
         session,
         page_size=page_size,
         page_token=page_token,
@@ -202,7 +208,7 @@ def normalize_transaction(
     request: NormalizeTransactionRequest,
     session: DbSession,
 ) -> NormalizeTransactionResponse:
-    return _call_service(ledger_service.normalize_transaction, session, request.transaction)
+    return _call_service(transactions_service.normalize_transaction, session, request.transaction)
 
 
 @router.post(
@@ -213,7 +219,7 @@ def normalize_transaction(
 def create_transaction(
     request: CreateTransactionRequest, session: DbSession
 ) -> TransactionResource:
-    return _call_service(ledger_service.create_transaction, session, request.transaction)
+    return _call_service(transactions_service.create_transaction, session, request.transaction)
 
 
 @router.patch("/transactions/{transaction:path}", response_model=TransactionResource)
@@ -223,7 +229,7 @@ def update_transaction(
     session: DbSession,
 ) -> TransactionResource:
     return _call_service(
-        ledger_service.update_transaction,
+        transactions_service.update_transaction,
         session,
         transaction,
         request.transaction,
@@ -233,18 +239,18 @@ def update_transaction(
 
 @router.get("/transactions/{transaction:path}", response_model=TransactionResource)
 def get_transaction(transaction: str, session: DbSession) -> TransactionResource:
-    return _call_service(ledger_service.get_transaction_by_name, session, transaction)
+    return _call_service(transactions_service.get_transaction_by_name, session, transaction)
 
 
 @router.delete("/transactions/{transaction:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(transaction: str, session: DbSession) -> None:
-    _call_service(ledger_service.delete_transaction, session, transaction)
+    _call_service(transactions_service.delete_transaction, session, transaction)
 
 
 @router.post("/transactions:merge", response_model=TransactionResource)
 def merge_transactions(body: MergeTransactionRequest, session: DbSession) -> TransactionResource:
     return _call_service(
-        ledger_service.merge_transactions,
+        transactions_service.merge_transactions,
         session,
         body.primary_transaction,
         body.secondary_transaction,
@@ -258,7 +264,7 @@ def list_prices(
     page_token: str | None = None,
 ) -> ListPricesResponse:
     return _call_service(
-        ledger_service.list_prices_page,
+        prices_service.list_prices_page,
         session,
         page_size=page_size,
         page_token=page_token,
@@ -271,12 +277,12 @@ def list_prices(
     status_code=status.HTTP_201_CREATED,
 )
 def create_price(request: CreatePriceRequest, session: DbSession) -> PriceResource:
-    return _call_service(ledger_service.create_price, session, request.price)
+    return _call_service(prices_service.create_price, session, request.price)
 
 
 @router.get("/prices/{price:path}", response_model=PriceResource)
 def get_price(price: str, session: DbSession) -> PriceResource:
-    return _call_service(ledger_service.get_price_by_name, session, price)
+    return _call_service(prices_service.get_price_by_name, session, price)
 
 
 @router.patch("/prices/{price:path}", response_model=PriceResource)
@@ -285,7 +291,7 @@ def update_price(
     request: UpdatePriceRequest,
     session: DbSession,
 ) -> PriceResource:
-    return _call_service(ledger_service.update_price, session, price, request.price)
+    return _call_service(prices_service.update_price, session, price, request.price)
 
 
 @router.get("/balance-assertions", response_model=ListBalanceAssertionsResponse)
@@ -295,7 +301,7 @@ def list_balance_assertions(
     page_token: str | None = None,
 ) -> ListBalanceAssertionsResponse:
     return _call_service(
-        ledger_service.list_balance_assertions_page,
+        balance_assertions_service.list_balance_assertions_page,
         session,
         page_size=page_size,
         page_token=page_token,
@@ -312,7 +318,7 @@ def create_balance_assertion(
     session: DbSession,
 ) -> BalanceAssertionResource:
     return _call_service(
-        ledger_service.create_balance_assertion,
+        balance_assertions_service.create_balance_assertion,
         session,
         request.balance_assertion,
     )
@@ -326,7 +332,9 @@ def get_balance_assertion(
     balance_assertion: str,
     session: DbSession,
 ) -> BalanceAssertionResource:
-    return _call_service(ledger_service.get_balance_assertion_by_name, session, balance_assertion)
+    return _call_service(
+        balance_assertions_service.get_balance_assertion_by_name, session, balance_assertion
+    )
 
 
 @router.patch(
@@ -339,7 +347,7 @@ def update_balance_assertion(
     session: DbSession,
 ) -> BalanceAssertionResource:
     return _call_service(
-        ledger_service.update_balance_assertion,
+        balance_assertions_service.update_balance_assertion,
         session,
         balance_assertion,
         request.balance_assertion,
@@ -351,4 +359,4 @@ def update_balance_assertion(
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_balance_assertion(balance_assertion: str, session: DbSession) -> None:
-    _call_service(ledger_service.delete_balance_assertion, session, balance_assertion)
+    _call_service(balance_assertions_service.delete_balance_assertion, session, balance_assertion)

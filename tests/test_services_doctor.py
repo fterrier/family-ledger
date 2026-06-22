@@ -15,7 +15,10 @@ from family_ledger.api.schemas import (
     TransactionCreate,
 )
 from family_ledger.models import Account, Attachment, Base, Commodity
-from family_ledger.services import doctor, ledger
+from family_ledger.services import balance_assertions as balance_assertions_service
+from family_ledger.services import commodities as commodities_service
+from family_ledger.services import doctor
+from family_ledger.services import transactions as transactions_service
 
 
 @pytest.fixture
@@ -64,7 +67,7 @@ def test_doctor_ledger_reports_issues_for_multiple_unbalanced_transactions(
     session: Session,
 ) -> None:
     seed_doctor_dependencies(session)
-    tx_a = ledger.create_transaction(
+    tx_a = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -80,7 +83,7 @@ def test_doctor_ledger_reports_issues_for_multiple_unbalanced_transactions(
             ],
         ),
     )
-    tx_b = ledger.create_transaction(
+    tx_b = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 2),
@@ -106,7 +109,7 @@ def test_doctor_ledger_reports_issues_for_multiple_unbalanced_transactions(
 
 def test_doctor_reports_balance_assertion_failure(session: Session) -> None:
     seed_doctor_dependencies(session)
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -124,7 +127,7 @@ def test_doctor_reports_balance_assertion_failure(session: Session) -> None:
     )
     from family_ledger.api.schemas import BalanceAssertionCreate
 
-    ba = ledger.create_balance_assertion(
+    ba = balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 4, 2),
@@ -142,7 +145,7 @@ def test_doctor_reports_balance_assertion_failure(session: Session) -> None:
 
 def test_doctor_preserves_balance_assertion_date_order(session: Session) -> None:
     seed_doctor_dependencies(session)
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -160,7 +163,7 @@ def test_doctor_preserves_balance_assertion_date_order(session: Session) -> None
     )
     from family_ledger.api.schemas import BalanceAssertionCreate
 
-    first = ledger.create_balance_assertion(
+    first = balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 4, 2),
@@ -168,7 +171,7 @@ def test_doctor_preserves_balance_assertion_date_order(session: Session) -> None
             amount=MoneyValue(amount=Decimal("1000.00"), symbol="CHF"),
         ),
     )
-    second = ledger.create_balance_assertion(
+    second = balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 4, 3),
@@ -185,7 +188,7 @@ def test_doctor_preserves_balance_assertion_date_order(session: Session) -> None
 
 def test_doctor_no_issue_when_balance_assertion_satisfied(session: Session) -> None:
     seed_doctor_dependencies(session)
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -203,7 +206,7 @@ def test_doctor_no_issue_when_balance_assertion_satisfied(session: Session) -> N
     )
     from family_ledger.api.schemas import BalanceAssertionCreate
 
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 4, 2),
@@ -236,7 +239,7 @@ def test_doctor_reports_account_not_effective_when_transaction_predates_account_
         ]
     )
     session.commit()
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2025, 12, 31),
@@ -281,7 +284,7 @@ def test_doctor_reports_account_not_effective_when_transaction_postdates_account
         ]
     )
     session.commit()
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -324,7 +327,7 @@ def test_doctor_no_account_not_effective_issue_when_within_range(session: Sessio
         ]
     )
     session.commit()
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -363,7 +366,7 @@ def test_doctor_reports_unknown_commodity(session: Session) -> None:
         ]
     )
     session.commit()
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -380,7 +383,7 @@ def test_doctor_reports_unknown_commodity(session: Session) -> None:
         ),
     )
     # Delete the commodity after the transaction is recorded to simulate a missing commodity.
-    ledger.delete_commodity(session, "commodities/cmd_xyz")
+    commodities_service.delete_commodity(session, "commodities/cmd_xyz")
 
     diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
 
@@ -407,7 +410,7 @@ def test_doctor_no_unknown_commodity_issue_when_commodity_exists(session: Sessio
         ]
     )
     session.commit()
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -470,7 +473,7 @@ def test_doctor_transaction_unbalanced_target_summary_includes_payee_and_narrati
     session: Session,
 ) -> None:
     seed_doctor_dependencies(session)
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -505,7 +508,7 @@ def test_doctor_transaction_unbalanced_target_summary_date_only_when_no_payee_na
     session: Session,
 ) -> None:
     seed_doctor_dependencies(session)
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 5),
@@ -547,7 +550,7 @@ def test_doctor_account_not_effective_target_summary(session: Session) -> None:
         ]
     )
     session.commit()
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2025, 12, 31),
@@ -590,7 +593,7 @@ def test_doctor_unknown_commodity_target_summary(session: Session) -> None:
         ]
     )
     session.commit()
-    tx = ledger.create_transaction(
+    tx = transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -607,7 +610,7 @@ def test_doctor_unknown_commodity_target_summary(session: Session) -> None:
             ],
         ),
     )
-    ledger.delete_commodity(session, "commodities/cmd_xyz")
+    commodities_service.delete_commodity(session, "commodities/cmd_xyz")
 
     diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
 
@@ -621,7 +624,7 @@ def test_doctor_balance_assertion_failed_target_summary(session: Session) -> Non
     from family_ledger.api.schemas import BalanceAssertionCreate
 
     seed_doctor_dependencies(session)
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 4, 1),
@@ -637,7 +640,7 @@ def test_doctor_balance_assertion_failed_target_summary(session: Session) -> Non
             ],
         ),
     )
-    ba = ledger.create_balance_assertion(
+    ba = balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 4, 2),

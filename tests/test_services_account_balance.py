@@ -15,7 +15,9 @@ from family_ledger.api.schemas import (
     TransactionCreate,
 )
 from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Posting, Transaction
-from family_ledger.services import account_balance, ledger
+from family_ledger.services import account_balance
+from family_ledger.services import balance_assertions as balance_assertions_service
+from family_ledger.services import transactions as transactions_service
 from family_ledger.services.errors import NotFoundError, ValidationError
 
 # ---------------------------------------------------------------------------
@@ -106,7 +108,7 @@ def _add_transaction(
     tx_date: date,
     postings: list[tuple[Account, Decimal, str]],
 ) -> None:
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=tx_date,
@@ -221,7 +223,7 @@ def test_results_ordered_by_assertion_input_order() -> None:
 
 def test_compute_pad_basic(session: Session) -> None:
     checking, equity, _ = _seed_base(session)
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -244,7 +246,7 @@ def test_compute_pad_same_date_transaction(session: Session) -> None:
         date(2026, 1, 1),
         [(checking, Decimal("500"), "USD"), (equity, Decimal("-500"), "USD")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -264,7 +266,7 @@ def test_compute_pad_next_day_transaction(session: Session) -> None:
         date(2026, 1, 2),
         [(checking, Decimal("500"), "USD"), (equity, Decimal("-500"), "USD")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 3),
@@ -287,7 +289,7 @@ def test_compute_pad_descendant_balances(session: Session) -> None:
         date(2026, 1, 1),
         [(savings, Decimal("200"), "USD"), (equity, Decimal("-200"), "USD")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -310,7 +312,7 @@ def test_compute_pad_non_leaf_account(session: Session) -> None:
         date(2026, 1, 1),
         [(child, Decimal("300"), "USD"), (equity, Decimal("-300"), "USD")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -325,7 +327,7 @@ def test_compute_pad_non_leaf_account(session: Session) -> None:
 
 def test_compute_pad_no_assertion_after_date(session: Session) -> None:
     checking, equity, _ = _seed_base(session)
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2025, 12, 31),
@@ -346,7 +348,7 @@ def test_compute_pad_within_tolerance_omitted(session: Session) -> None:
         date(2026, 1, 1),
         [(checking, Decimal("999.999"), "CHF"), (equity, Decimal("-999.999"), "CHF")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -361,7 +363,7 @@ def test_compute_pad_within_tolerance_omitted(session: Session) -> None:
 
 def test_compute_pad_only_first_assertion_per_currency(session: Session) -> None:
     checking, equity, _ = _seed_base(session)
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -374,7 +376,7 @@ def test_compute_pad_only_first_assertion_per_currency(session: Session) -> None
         date(2026, 1, 3),
         [(checking, Decimal("300"), "USD"), (equity, Decimal("-300"), "USD")],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 4),
@@ -393,7 +395,7 @@ def test_compute_pad_only_first_assertion_per_currency(session: Session) -> None
 def test_compute_pad_multiple_currencies(session: Session) -> None:
     checking, equity, _ = _seed_base(session)
     _make_commodity(session, "commodities/cmd_chf", "CHF")
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -401,7 +403,7 @@ def test_compute_pad_multiple_currencies(session: Session) -> None:
             amount=MoneyValue(amount=Decimal("500"), symbol="USD"),
         ),
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -422,7 +424,7 @@ def test_compute_pad_cost_tracked_raises(session: Session) -> None:
     cash = _make_account(session, "accounts/acc_cash", "Assets:Cash")
     _make_commodity(session, "commodities/cmd_goog", "GOOG")
     _make_commodity(session, "commodities/cmd_usd", "USD")
-    ledger.create_transaction(
+    transactions_service.create_transaction(
         session,
         TransactionCreate(
             transaction_date=date(2026, 1, 1),
@@ -439,7 +441,7 @@ def test_compute_pad_cost_tracked_raises(session: Session) -> None:
             ],
         ),
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),
@@ -468,7 +470,7 @@ def test_compute_pad_transaction_with_multiple_postings_to_same_account_counted_
             (equity, Decimal("-500"), "USD"),
         ],
     )
-    ledger.create_balance_assertion(
+    balance_assertions_service.create_balance_assertion(
         session,
         BalanceAssertionCreate(
             assertion_date=date(2026, 1, 2),

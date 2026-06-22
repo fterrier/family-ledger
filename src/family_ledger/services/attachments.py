@@ -10,10 +10,9 @@ from family_ledger.api.schemas import AttachmentResource, ListAttachmentsRespons
 from family_ledger.config import Settings
 from family_ledger.models import Attachment
 from family_ledger.services import paperless
-from family_ledger.services.errors import NotFoundError
+from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.ledger import (
-    commit_or_raise,
+from family_ledger.services.pagination import (
     decode_page_token,
     encode_page_token,
     normalize_page_size,

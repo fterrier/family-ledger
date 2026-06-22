@@ -23,8 +23,12 @@ from family_ledger.importers.result import EntityErrors as EntityErrors  # noqa:
 from family_ledger.importers.result import ImportResult as ImportResult  # noqa: F401
 from family_ledger.models import Account, Attachment, Commodity
 from family_ledger.services import account_balance as account_balance_service
+from family_ledger.services import accounts as accounts_service
 from family_ledger.services import attachments as attachments_service
-from family_ledger.services import ledger as ledger_service
+from family_ledger.services import balance_assertions as balance_assertions_service
+from family_ledger.services import commodities as commodities_service
+from family_ledger.services import prices as prices_service
+from family_ledger.services import transactions as transactions_service
 from family_ledger.services.errors import ConflictError
 
 _MAX_ERROR_EXAMPLES = 10
@@ -86,7 +90,7 @@ class ImportContext:
             self._track(
                 "transaction",
                 "transactions",
-                lambda: ledger_service.create_transaction(self._session, payload),
+                lambda: transactions_service.create_transaction(self._session, payload),
             )
             is not None
         )
@@ -97,7 +101,7 @@ class ImportContext:
             self._track(
                 "balance_assertion",
                 "balance_assertions",
-                lambda: ledger_service.create_balance_assertion(self._session, payload),
+                lambda: balance_assertions_service.create_balance_assertion(self._session, payload),
             )
             is not None
         )
@@ -107,7 +111,7 @@ class ImportContext:
         return self._track(
             "account",
             "accounts",
-            lambda: ledger_service.create_account(self._session, payload),
+            lambda: accounts_service.create_account(self._session, payload),
         )
 
     def create_price(self, payload: PriceCreate) -> bool:
@@ -116,7 +120,7 @@ class ImportContext:
             self._track(
                 "price",
                 "prices",
-                lambda: ledger_service.create_price(self._session, payload),
+                lambda: prices_service.create_price(self._session, payload),
             )
             is not None
         )
@@ -222,7 +226,7 @@ class ImportContext:
         to_date: date | None = None,
     ) -> list[TransactionResource]:
         """Find transactions whose source_native_ids contain an ID matching the LIKE pattern."""
-        return ledger_service.find_transactions_by_source_id_pattern(
+        return transactions_service.find_transactions_by_source_id_pattern(
             self._session, pattern, from_date, to_date
         )
 
@@ -240,7 +244,7 @@ class ImportContext:
         if existing is not None:
             self._result.entities.setdefault("commodity", EntityCounts()).duplicate += 1
             return False
-        commodity = ledger_service.create_commodity(
+        commodity = commodities_service.create_commodity(
             self._session, payload=CommodityCreate(symbol=symbol)
         )
         self._result.entities.setdefault("commodity", EntityCounts()).created += 1

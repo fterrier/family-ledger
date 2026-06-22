@@ -15,6 +15,7 @@ from family_ledger.api.schemas import (
     PadResponse,
     PriceCreate,
     TransactionNormalizeData,
+    TransactionResource,
 )
 from family_ledger.config import Settings
 from family_ledger.importers.result import EntityCounts as EntityCounts  # noqa: F401
@@ -234,6 +235,21 @@ class ImportContext:
                 ).bindparams(pattern=pattern)
             ).all()
         return set(rows)
+
+    def find_transaction_by_source_id(self, source_id: str) -> TransactionResource | None:
+        """Find an existing transaction by exact source_native_id match."""
+        return ledger_service.find_transaction_by_source_id(self._session, source_id)
+
+    def find_transactions_by_source_id_pattern(
+        self,
+        pattern: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+    ) -> list[TransactionResource]:
+        """Find transactions whose source_native_ids contain an ID matching the LIKE pattern."""
+        return ledger_service.find_transactions_by_source_id_pattern(
+            self._session, pattern, from_date, to_date
+        )
 
     def compute_pad(self, account_name: str, pad_date: date) -> PadResponse:
         """Compute PAD balancing transaction amounts for the given account and date."""

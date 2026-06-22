@@ -191,6 +191,27 @@ def _reload_transaction_by_id(session: Session, transaction_id: int) -> Transact
     return persisted
 
 
+def _source_id_eq_clause(session: Session, source_id: str):
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        return text("source_native_ids @> jsonb_build_array(:id::text)").bindparams(id=source_id)
+    return text("EXISTS (SELECT 1 FROM json_each(source_native_ids) WHERE value = :id)").bindparams(
+        id=source_id
+    )
+
+
+def _source_id_like_clause(session: Session, pattern: str):
+    dialect = session.get_bind().dialect.name
+    if dialect == "postgresql":
+        return text(
+            "EXISTS (SELECT 1 FROM jsonb_array_elements_text(source_native_ids) AS v"
+            " WHERE v LIKE :pat)"
+        ).bindparams(pat=pattern)
+    return text(
+        "EXISTS (SELECT 1 FROM json_each(source_native_ids) WHERE value LIKE :pat)"
+    ).bindparams(pat=pattern)
+
+
 def _check_source_ids_available(
     session: Session, ids: list[str], exclude_name: str | None = None
 ) -> None:
@@ -496,6 +517,33 @@ def list_transactions_page(
 def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
     return serialize_transaction(transaction_row)
+
+
+def find_transaction_by_source_id(session: Session, source_id: str) -> TransactionResource | None:
+    row = session.scalar(
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .where(_source_id_eq_clause(session, source_id))
+    )
+    return serialize_transaction(row) if row else None
+
+
+def find_transactions_by_source_id_pattern(
+    session: Session,
+    pattern: str,
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> list[TransactionResource]:
+    q = (
+        select(Transaction)
+        .options(selectinload(Transaction.postings).selectinload(Posting.account))
+        .where(_source_id_like_clause(session, pattern))
+    )
+    if from_date is not None:
+        q = q.where(Transaction.transaction_date >= from_date)
+    if to_date is not None:
+        q = q.where(Transaction.transaction_date <= to_date)
+    return [serialize_transaction(row) for row in session.scalars(q).all()]
 
 
 def delete_transaction(session: Session, transaction: str) -> None:

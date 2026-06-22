@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from family_ledger.api.schemas import MoneyValue, PadEntry, PadResponse
 from family_ledger.config import Settings
 from family_ledger.importers.base import ImportContext
-from family_ledger.models import Account, Attachment, Base, Commodity, Transaction
+from family_ledger.models import Account, Attachment, Base, Commodity
 
 
 @pytest.fixture
@@ -89,57 +89,6 @@ def test_get_account_by_name_returns_resource_name(session: Session) -> None:
 def test_get_account_by_name_returns_none_for_unknown(session: Session) -> None:
     ctx = ImportContext(session)
     assert ctx.get_account_by_name("Assets:Unknown") is None
-
-
-# ---------------------------------------------------------------------------
-# find_source_native_ids
-# ---------------------------------------------------------------------------
-
-
-def test_find_source_native_ids_returns_matching(session: Session) -> None:
-    session.add(
-        Transaction(
-            name="transactions/t1",
-            transaction_date=date(2024, 1, 1),
-            source_native_ids=["beancount:pad:Assets:Checking:2024-01-01:CHF"],
-            entity_metadata={},
-            postings=[],
-        )
-    )
-    session.add(
-        Transaction(
-            name="transactions/t2",
-            transaction_date=date(2024, 2, 1),
-            source_native_ids=["beancount:tx:some-other"],
-            entity_metadata={},
-            postings=[],
-        )
-    )
-    session.commit()
-
-    ctx = ImportContext(session)
-    ids = ctx.find_source_native_ids("beancount:pad:%")
-    assert ids == {"beancount:pad:Assets:Checking:2024-01-01:CHF"}
-
-
-def test_find_source_native_ids_returns_empty_when_no_match(session: Session) -> None:
-    ctx = ImportContext(session)
-    assert ctx.find_source_native_ids("beancount:pad:%") == set()
-
-
-def test_find_source_native_ids_empty_array_excluded(session: Session) -> None:
-    session.add(
-        Transaction(
-            name="transactions/t1",
-            transaction_date=date(2024, 1, 1),
-            source_native_ids=[],
-            entity_metadata={},
-            postings=[],
-        )
-    )
-    session.commit()
-    ctx = ImportContext(session)
-    assert ctx.find_source_native_ids("%") == set()
 
 
 # ---------------------------------------------------------------------------

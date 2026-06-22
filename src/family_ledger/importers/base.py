@@ -215,9 +215,6 @@ class ImportContext:
             select(Account.name).where(Account.account_name == account_name)
         )
 
-    def find_source_native_ids(self, pattern: str) -> set[str]:
-        return ledger_service.find_source_native_ids(self._session, pattern)
-
     def find_transaction_by_source_id(self, source_id: str) -> TransactionResource | None:
         """Find an existing transaction by exact source_native_id match."""
         return ledger_service.find_transaction_by_source_id(self._session, source_id)

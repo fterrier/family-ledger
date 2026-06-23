@@ -337,6 +337,21 @@ class Transaction extends Entity {
       allRaw.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
       const groups = classifyTransactionGroups_({ postings: postings }, accountResourceToDisplayName);
 
+      // toApiPayload_ strips null-account postings before saving; supplement them here so
+      // partially-categorized split transactions open in advanced mode.
+      if (!currentPostings && entityName && groups) {
+        let hasRemainder = false;
+        groups.forEach(function(group) {
+          if (group.destinationIndexes.length === 0) return; // source-only: no supplement
+          const rem = groupRemainder_(group, postings);
+          if (rem) {
+            hasRemainder = true;
+            postings = postings.concat([{ account: null, units: { amount: String(rem.amount), symbol: rem.symbol } }]);
+          }
+        });
+        if (hasRemainder) return advancedReturn(postings);
+      }
+
       if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].sourceIndex === null || groups[0].destinationIndexes.length > 1) {
         return advancedReturn(postings);
       }
@@ -374,6 +389,11 @@ class Transaction extends Entity {
     const amount = row.amount != null ? formatDisplayAmount_(row.amount) : '';
     const symbol = String(row.symbol || '');
     return [payee || '(no payee)', date, amount + ' ' + symbol].filter(Boolean).join(' | ');
+  }
+
+  static buildBulkActions_(count) {
+    if (count !== 2) return [];
+    return [{ label: 'Merge', serverFn: 'mergeTransactions', confirm: 'Merge these ' + count + ' transactions? This cannot be undone.' }];
   }
 
   static activateAfterCreate_(sheet, span) {
@@ -481,8 +501,8 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
       });
     });
 
-    const remainder = -(sourceAmount + destSum);
-    if (Math.abs(remainder) > 1e-9) {
+    const rem = groupRemainder_(group, transaction.postings);
+    if (rem) {
       rows.push({
         resource_name: transaction.name,
         narration_source: 'txn',
@@ -491,9 +511,9 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         narration: transactionNarration,
         source_account_name: sourceAccountName,
         destination_account_name: '',
-        amount: remainder,
+        amount: rem.amount,
         split_off_amount: '',
-        symbol: sourceWeight.symbol,
+        symbol: rem.symbol,
         tags: tagsText,
         hasCostPrice: group.hasCostPrice,
       });
@@ -511,6 +531,20 @@ function postingWeight_(posting) {
 
 function hasPostingCostOrPrice_(postings) {
   return !!(postings && postings.some(function(p) { return p.cost || p.price; }));
+}
+
+// Returns { amount, symbol } when a group's destinations don't absorb the full source
+// weight (i.e. the transaction is unbalanced), null otherwise.
+function groupRemainder_(group, postings) {
+  if (group.sourceIndex === null) return null;
+  const sourceWeight = postingWeight_(postings[group.sourceIndex]);
+  const sourceAmount = parseFloat(sourceWeight.amount);
+  let destSum = 0;
+  group.destinationIndexes.forEach(function(i) {
+    destSum += parseFloat(postingWeight_(postings[i]).amount);
+  });
+  const amount = -(sourceAmount + destSum);
+  return Math.abs(amount) > 1e-9 ? { amount: amount, symbol: sourceWeight.symbol } : null;
 }
 
 // Classify a transaction into display groups, one per weight symbol.

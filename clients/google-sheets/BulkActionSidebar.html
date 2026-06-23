@@ -94,7 +94,7 @@
 
 <div class="entity-list" id="entityList"></div>
 
-<div class="actions">
+<div class="actions" id="actionsDiv">
   <button class="btn-danger" id="deleteBtn" onclick="onDeleteAll()">Delete</button>
   <button class="btn-secondary" onclick="onCancel()">Cancel</button>
 </div>
@@ -105,11 +105,13 @@
   var selectedEntities = DATA.selectedEntities;
   var count = selectedEntities.length;
 
+  var entityLabel = DATA.entityLabel + (count === 1 ? '' : 's');
+
   var deleteBtn = document.getElementById('deleteBtn');
   deleteBtn.textContent = 'Delete ' + count;
 
   var headerText = document.getElementById('headerText');
-  headerText.textContent = count + ' ' + classKey.replace(/s$/, '') + (count === 1 ? '' : 's') + ' selected';
+  headerText.textContent = count + ' ' + entityLabel + ' selected';
 
   var entityList = document.getElementById('entityList');
   selectedEntities.forEach(function(entity) {
@@ -131,43 +133,64 @@
     entityList.appendChild(item);
   });
 
+  var errorBox = document.getElementById('errorBox');
+  var extraActions = DATA.extraActions || [];
+  var actionsDiv = document.getElementById('actionsDiv');
+  extraActions.forEach(function(action) {
+    var btn = document.createElement('button');
+    btn.className = action.className || 'btn-secondary';
+    btn.textContent = action.label;
+    btn.onclick = (function(a) { return function() { onExtraAction(a); }; })(action);
+    actionsDiv.insertBefore(btn, deleteBtn);
+  });
+
   function setFormBusy_(busy) {
     var buttons = document.querySelectorAll('button');
     for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = busy; }
   }
 
-  function onRemove(entityName) {
+  function beginCall_() {
+    errorBox.style.display = 'none';
     setFormBusy_(true);
-    document.getElementById('errorBox').style.display = 'none';
+  }
+
+  function onCallError_(err) {
+    errorBox.textContent = err.message || String(err);
+    errorBox.style.display = 'block';
+    setFormBusy_(false);
+  }
+
+  function onExtraAction(action) {
+    if (action.confirm && !confirm(action.confirm)) return;
+    beginCall_();
     google.script.run
-      .withSuccessHandler(function() {
-        // Server replaced the sidebar (back to edit or updated multi-select); nothing to do.
-      })
-      .withFailureHandler(function(err) {
-        document.getElementById('errorBox').textContent = err.message || String(err);
-        document.getElementById('errorBox').style.display = 'block';
-        setFormBusy_(false);
-      })
+      .withSuccessHandler(function() {})
+      .withFailureHandler(onCallError_)
+      [action.serverFn](classKey, selectedEntities);
+  }
+
+  function onRemove(entityName) {
+    beginCall_();
+    google.script.run
+      .withSuccessHandler(function() {})
+      .withFailureHandler(onCallError_)
       .removeFromMultiSelect(entityName);
   }
 
   function onDeleteAll() {
-    if (!confirm('Delete ' + count + ' ' + classKey.replace(/s$/, '') + (count === 1 ? '' : 's') + '? This cannot be undone.')) {
+    if (!confirm('Delete ' + count + ' ' + entityLabel + '? This cannot be undone.')) {
       return;
     }
-    document.getElementById('errorBox').style.display = 'none';
     deleteBtn.dataset.originalLabel = deleteBtn.textContent;
     deleteBtn.textContent = 'Deleting…';
-    setFormBusy_(true);
+    beginCall_();
     google.script.run
       .withSuccessHandler(function() {
         google.script.host.close();
       })
       .withFailureHandler(function(err) {
-        document.getElementById('errorBox').textContent = err.message || String(err);
-        document.getElementById('errorBox').style.display = 'block';
         deleteBtn.textContent = deleteBtn.dataset.originalLabel;
-        setFormBusy_(false);
+        onCallError_(err);
       })
       .deleteMultipleEntities(classKey, selectedEntities);
   }

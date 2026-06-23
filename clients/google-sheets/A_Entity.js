@@ -278,6 +278,13 @@ class Entity {
     return String((rawRows[0] || {}).resource_name || '');
   }
 
+  static buildBulkActions_(_count) { return []; }
+
+  static insertFromApiIntoSheet_(apiEntity, context, sheet) {
+    const entity = this.fromApi_(apiEntity, context);
+    return entity._commitToSheet_(sheet);
+  }
+
   // Default: 'edit' checkbox opens the generic edit sidebar.
   // Subclasses may override for custom action headers.
   static isActionHeader(h) { return h === 'edit'; }
@@ -304,7 +311,11 @@ class Entity {
       const session = readSidebarSession_();
       if (session && session.classKey === this.SHEET_KEY) {
         const updatedSession = addToSidebarSession_(session, entityEntry);
-        showMultiSelectSidebar_(updatedSession.classKey, updatedSession.selectedEntities);
+        if (updatedSession.selectedEntities.length === 1) {
+          showEditSidebar_(this.SHEET_KEY, entity.getName(), entity._span, entity._context);
+        } else {
+          showMultiSelectSidebar_(updatedSession.classKey, updatedSession.selectedEntities);
+        }
       } else {
         createSidebarSession_(this.SHEET_KEY, entityEntry);
         showEditSidebar_(this.SHEET_KEY, entity.getName(), entity._span, entity._context);

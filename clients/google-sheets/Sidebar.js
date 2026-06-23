@@ -118,13 +118,17 @@ function readSidebarSession_() {
   return session;
 }
 
+function saveSidebarSession_(session) {
+  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(session));
+}
+
 function createSidebarSession_(classKey, entity) {
   var session = {
     classKey: classKey,
     selectedEntities: [entity],
     sessionTimestamp: Date.now(),
   };
-  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(session));
+  saveSidebarSession_(session);
   return session;
 }
 
@@ -134,7 +138,7 @@ function addToSidebarSession_(session, entity) {
     session.selectedEntities.push(entity);
   }
   session.sessionTimestamp = Date.now();
-  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(session));
+  saveSidebarSession_(session);
   return session;
 }
 
@@ -143,9 +147,11 @@ function clearSidebarSession_() {
 }
 
 function removeFromSidebarSession_(session, entityName) {
-  session.selectedEntities = session.selectedEntities.filter(function(e) { return e.name !== entityName; });
-  session.sessionTimestamp = Date.now();
-  return session;
+  return {
+    classKey: session.classKey,
+    selectedEntities: session.selectedEntities.filter(function(e) { return e.name !== entityName; }),
+    sessionTimestamp: Date.now(),
+  };
 }
 
 function removeFromMultiSelect(entityName) {
@@ -156,13 +162,12 @@ function removeFromMultiSelect(entityName) {
     clearSidebarSession_();
     return;
   }
+  saveSidebarSession_(updated);
   if (updated.selectedEntities.length === 1) {
     var remaining = updated.selectedEntities[0];
-    clearSidebarSession_();
     showEditSidebar_(updated.classKey, remaining.name, remaining.span, null);
     return;
   }
-  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(updated));
   showMultiSelectSidebar_(updated.classKey, updated.selectedEntities);
 }
 
@@ -185,10 +190,43 @@ function showMultiSelectSidebar_(classKey, selectedEntities) {
   var template = HtmlService.createTemplateFromFile('BulkActionSidebar');
   template.bulkActionJson = JSON.stringify({
     classKey: classKey,
+    entityLabel: EntityClass.ENTITY_LABEL,
     selectedEntities: selectedEntities,
+    extraActions: EntityClass.buildBulkActions_(selectedEntities.length),
   });
   var title = pluralLabel_(EntityClass.ENTITY_LABEL, selectedEntities.length) + ' selected';
   SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle(title));
+}
+
+// Removes entity rows from the sheet in descending span order (bottom-up) to keep
+// earlier row indices stable while rows are deleted.
+function deleteEntitySpansFromSheet_(sheet, sheetConfig, entities) {
+  entities.slice().sort(function(a, b) { return b.span.start - a.span.start; })
+    .forEach(function(entity) {
+      applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
+    });
+}
+
+function mergeTransactions(classKey, entities) {
+  var EntityClass = ENTITY_CLASS_REGISTRY[classKey];
+  var context = EntityClass.loadContext_();
+  var sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
+  var sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
+
+  var merged = apiFetchJson_('post', '/' + EntityClass.API_COLLECTION_PATH + ':merge', {
+    primary_transaction: entities[0].name,
+    secondary_transaction: entities[1].name,
+  });
+
+  entities.forEach(function(entity) {
+    apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
+  });
+  deleteEntitySpansFromSheet_(sheet, sheetConfig, entities);
+  var mergedSpan = EntityClass.insertFromApiIntoSheet_(merged, context, sheet);
+
+  refreshDoctorIssueSheets_((context && context.accountResourceToDisplayName) || {});
+  clearSidebarSession_();
+  showEditSidebar_(EntityClass.SHEET_KEY, merged.name, mergedSpan, context);
 }
 
 function deleteMultipleEntities(classKey, entities) {
@@ -196,13 +234,10 @@ function deleteMultipleEntities(classKey, entities) {
   var sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
   var sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
 
-  // Sort descending by span start so we delete bottom-up, keeping earlier spans valid.
-  var sorted = entities.slice().sort(function(a, b) { return b.span.start - a.span.start; });
-
-  sorted.forEach(function(entity) {
+  entities.forEach(function(entity) {
     apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
-    applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
   });
+  deleteEntitySpansFromSheet_(sheet, sheetConfig, entities);
 
   EntityClass.afterSheetWrite_();
   var context = EntityClass.loadContext_();

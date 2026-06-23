@@ -252,6 +252,68 @@ test('getSidebarData (edit, advanced mode) uses currentPostings when provided in
   assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), clientPostings);
 });
 
+// --- getSidebarData: unbalanced postings (split with uncategorized row) ---
+
+function makeUnbalancedTxSandbox() {
+  const { sandbox } = loadCode();
+  sandbox.apiFetchJson_ = function() {
+    return {
+      name: 'transactions/txn_1', transaction_date: '2026-01-01', payee: 'Shop', narration: '', tags: [],
+      postings: [
+        { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' }, weight: { amount: '-84.25', symbol: 'CHF' } },
+        { account: 'accounts/food', units: { amount: '50',     symbol: 'CHF' }, weight: { amount: '50',     symbol: 'CHF' } },
+      ],
+    };
+  };
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: 'Cash' }, { resource_name: 'accounts/food', display_name: 'Food' }];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+  return sandbox;
+}
+
+test('getSidebarData (edit, unbalanced postings from partial split) returns advanced mode', () => {
+  const sandbox = makeUnbalancedTxSandbox();
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, null, null);
+  assert.equal(data.mode, 'advanced');
+});
+
+test('getSidebarData (edit, unbalanced postings) postings field includes null-account remainder', () => {
+  const sandbox = makeUnbalancedTxSandbox();
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, null, null);
+  const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
+  assert.ok(postingsField, 'postings field present');
+  assert.equal(postingsField.default.length, 3);
+  assert.equal(postingsField.default[2].account, null);
+  assert.equal(postingsField.default[2].units.amount, '34.25');
+  assert.equal(postingsField.default[2].units.symbol, 'CHF');
+});
+
+test('getSidebarData (edit, balanced 2-posting) still returns simple mode', () => {
+  const { sandbox } = loadCode();
+  sandbox.apiFetchJson_ = function() { return makeTwoPostingTransaction(); };
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: 'Cash' }, { resource_name: 'accounts/food', display_name: 'Food' }];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, null, null);
+  assert.equal(data.mode, 'simple');
+});
+
+test('getSidebarData (mode-switch, unbalanced currentPostings) does not supplement', () => {
+  // When the user is mid-edit and provides currentPostings explicitly (e.g. mode switch),
+  // the supplement must not fire — we trust the sidebar form state, not the API.
+  const sandbox = makeUnbalancedTxSandbox();
+  const unbalancedPostings = [
+    { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50',     symbol: 'CHF' } },
+  ];
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'simple', unbalancedPostings);
+  // Classification on 2 postings (1 source, 1 dest) → simple, no extra posting injected.
+  assert.equal(data.mode, 'simple');
+  assert.ok(!data.fields.find(function(f) { return f.type === 'postings'; }), 'no postings field in simple mode');
+});
+
 // --- submitEntity ---
 
 test('submitEntity (add) inserts new row before a later transaction', () => {

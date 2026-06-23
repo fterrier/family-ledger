@@ -171,7 +171,7 @@ test('removeFromMultiSelect with 3→2 entities keeps session and re-shows multi
   assert.equal(multiSelectCalls.length, 1, 'multi-select sidebar refreshed');
 });
 
-test('removeFromMultiSelect with 2→1 entities clears session and opens edit sidebar', () => {
+test('removeFromMultiSelect with 2→1 keeps session with remaining entity and opens edit sidebar', () => {
   const editSidebarCalls = [];
   const { sandbox, documentProperties } = loadCode({
     SpreadsheetApp: {
@@ -192,7 +192,11 @@ test('removeFromMultiSelect with 2→1 entities clears session and opens edit si
   };
   documentProperties.set('family_ledger_sidebar_session', JSON.stringify(session));
   sandbox.removeFromMultiSelect('transactions/txn_1');
-  assert.ok(!documentProperties.has('family_ledger_sidebar_session'), 'session cleared');
+  // Session must survive with the remaining entity so a subsequent click can open multi-select.
+  assert.ok(documentProperties.has('family_ledger_sidebar_session'), 'session kept alive');
+  const stored = JSON.parse(documentProperties.get('family_ledger_sidebar_session'));
+  assert.equal(stored.selectedEntities.length, 1);
+  assert.equal(stored.selectedEntities[0].name, 'transactions/txn_2');
   assert.equal(editSidebarCalls.length, 1, 'edit sidebar opened');
   assert.equal(editSidebarCalls[0].name, 'transactions/txn_2', 'opens remaining entity');
 });
@@ -213,6 +217,88 @@ test('removeFromMultiSelect with no active session is a no-op', () => {
   const { sandbox, documentProperties } = loadCode();
   sandbox.removeFromMultiSelect('transactions/txn_1');
   assert.ok(!documentProperties.has('family_ledger_sidebar_session'));
+});
+
+test('handleEditAction_ with same entity already sole in session opens single-edit (X-close repro)', () => {
+  // Repro: select A → single edit → close with X (session NOT cleared) → select A again
+  // → must open single-edit for A, NOT multi-select with 1 entity.
+  const multiSelectCalls = [];
+  const editSidebarCalls = [];
+  const { sandbox, documentProperties } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
+      getUi() { return { showSidebar() {} }; },
+    },
+  });
+  sandbox.showMultiSelectSidebar_ = function(classKey, entities) { multiSelectCalls.push({ classKey, entities }); };
+  sandbox.showEditSidebar_ = function(classKey, name, span) { editSidebarCalls.push({ classKey, name, span }); };
+
+  // Simulate orphaned session left behind by X-close.
+  const orphanedSession = {
+    classKey: 'transactions',
+    selectedEntities: [{ name: 'transactions/txn_A', span: { start: 2, count: 1 }, summary: 'A' }],
+    sessionTimestamp: Date.now(),
+  };
+  documentProperties.set('family_ledger_sidebar_session', JSON.stringify(orphanedSession));
+
+  // User re-clicks A's edit checkbox.
+  const fakeSheet = { getName() { return 'Transactions'; }, getRange() { return { setValue() {}, setValues() {} }; } };
+  sandbox.findEntityRowsFromAnchor_ = function() {
+    return {
+      getName() { return 'transactions/txn_A'; },
+      _span: { start: 2, count: 1 },
+      _rawRows: [{ resource_name: 'transactions/txn_A' }],
+      _context: {},
+    };
+  };
+  sandbox.buildMultiSelectSummary_ = function() { return 'A'; };
+  sandbox.ENTITY_CLASS_REGISTRY['transactions'].handleEditAction_(fakeSheet, 2, 'edit', true);
+
+  assert.equal(multiSelectCalls.length, 0, 'multi-select must NOT open');
+  assert.equal(editSidebarCalls.length, 1, 'single-edit must open');
+  assert.equal(editSidebarCalls[0].name, 'transactions/txn_A', 'opens entity A');
+});
+
+test('removeFromMultiSelect 2→1 then adding a new entity opens multi-select (bug repro)', () => {
+  // Repro: select A (single edit) → select B (multi-select) → remove B (single edit for A)
+  // → select C — must open multi-select with {A, C}, not single edit for C.
+  const multiSelectCalls = [];
+  const editSidebarCalls = [];
+  const { sandbox, documentProperties } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
+      getUi() { return { showSidebar() {} }; },
+    },
+  });
+  sandbox.showMultiSelectSidebar_ = function(classKey, entities) { multiSelectCalls.push({ classKey, entities }); };
+  sandbox.showEditSidebar_ = function(classKey, name, span) { editSidebarCalls.push({ classKey, name, span }); };
+
+  // Simulate the state after removing B: session has {A}, single-edit sidebar for A is showing.
+  const sessionAfterRemove = {
+    classKey: 'transactions',
+    selectedEntities: [{ name: 'transactions/txn_A', span: { start: 2, count: 1 }, summary: 'A' }],
+    sessionTimestamp: Date.now(),
+  };
+  documentProperties.set('family_ledger_sidebar_session', JSON.stringify(sessionAfterRemove));
+
+  // User clicks C's edit checkbox.
+  const fakeSheet = { getName() { return 'Transactions'; }, getRange() { return { setValue() {}, setValues() {} }; } };
+  sandbox.findEntityRowsFromAnchor_ = function() {
+    return {
+      getName() { return 'transactions/txn_C'; },
+      _span: { start: 5, count: 1 },
+      _rawRows: [{ resource_name: 'transactions/txn_C' }],
+      _context: {},
+    };
+  };
+  sandbox.buildMultiSelectSummary_ = function() { return 'C'; };
+  sandbox.ENTITY_CLASS_REGISTRY['transactions'].handleEditAction_(fakeSheet, 5, 'edit', true);
+
+  assert.equal(multiSelectCalls.length, 1, 'multi-select opens');
+  assert.equal(multiSelectCalls[0].entities.length, 2);
+  assert.ok(multiSelectCalls[0].entities.some(e => e.name === 'transactions/txn_A'), 'A in selection');
+  assert.ok(multiSelectCalls[0].entities.some(e => e.name === 'transactions/txn_C'), 'C in selection');
+  assert.equal(editSidebarCalls.length, 0, 'single edit does not open');
 });
 
 // --- cancelMultiSelect / cancelSidebar ---
@@ -403,6 +489,132 @@ test('Attachment.buildMultiSelectSummary_ returns date and filename', () => {
   const summary = sandbox.ENTITY_CLASS_REGISTRY['attachments'].buildMultiSelectSummary_(rows);
   assert.ok(summary.includes('Jan 1, 2026'));
   assert.ok(summary.includes('receipt.pdf'));
+});
+
+// --- buildBulkActions_ ---
+
+test('Transaction.buildBulkActions_(2) returns a merge action', () => {
+  const { sandbox } = loadCode();
+  const actions = sandbox.ENTITY_CLASS_REGISTRY['transactions'].buildBulkActions_(2);
+  assert.equal(actions.length, 1);
+  assert.equal(actions[0].serverFn, 'mergeTransactions');
+  assert.equal(actions[0].label, 'Merge');
+});
+
+test('Transaction.buildBulkActions_(1) returns empty array', () => {
+  const { sandbox } = loadCode();
+  assert.equal(sandbox.ENTITY_CLASS_REGISTRY['transactions'].buildBulkActions_(1).length, 0);
+});
+
+test('Transaction.buildBulkActions_(3) returns empty array', () => {
+  const { sandbox } = loadCode();
+  assert.equal(sandbox.ENTITY_CLASS_REGISTRY['transactions'].buildBulkActions_(3).length, 0);
+});
+
+test('Entity base buildBulkActions_ always returns empty array', () => {
+  const { sandbox } = loadCode();
+  assert.equal(sandbox.ENTITY_CLASS_REGISTRY['accounts'].buildBulkActions_(2).length, 0);
+  assert.equal(sandbox.ENTITY_CLASS_REGISTRY['balances'].buildBulkActions_(2).length, 0);
+});
+
+// --- mergeTransactions ---
+
+const mergedTxApi = {
+  name: 'transactions/txn_merged',
+  transaction_date: '2026-01-01',
+  payee: 'Merged',
+  narration: '',
+  tags: [],
+  postings: [
+    { account: 'accounts/source', units: { amount: '-30.00', symbol: 'CHF' }, weight: { amount: '-30.00', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '30.00', symbol: 'CHF' }, weight: { amount: '30.00', symbol: 'CHF' } },
+  ],
+};
+
+function makeMergeTestEnv() {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-01-01', payee: 'A', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-01-01', payee: 'B', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 20, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+  ]);
+
+  const apiCalls = [];
+  const editSidebarCalls = [];
+  const { sandbox, documentProperties } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
+    },
+  });
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    apiCalls.push({ method, path, payload });
+    if (path.includes(':merge')) return mergedTxApi;
+    return {};
+  };
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() { return []; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.showEditSidebar_ = function(classKey, name, span) {
+    editSidebarCalls.push({ classKey, name, span });
+  };
+
+  return { sandbox, rowStore, apiCalls, editSidebarCalls, documentProperties };
+}
+
+test('mergeTransactions calls POST :merge with primary and secondary names', () => {
+  const { sandbox, apiCalls } = makeMergeTestEnv();
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+  const mergeCall = apiCalls.find(c => c.path.includes(':merge'));
+  assert.ok(mergeCall, 'merge API called');
+  assert.equal(mergeCall.method, 'post');
+  assert.equal(mergeCall.payload.primary_transaction, 'transactions/txn_1');
+  assert.equal(mergeCall.payload.secondary_transaction, 'transactions/txn_2');
+});
+
+test('mergeTransactions removes both source rows and inserts merged transaction', () => {
+  const { sandbox, rowStore } = makeMergeTestEnv();
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+  const rows = Array.from(rowStore.values());
+  assert.ok(!rows.some(r => r.resource_name === 'transactions/txn_1'), 'txn_1 removed');
+  assert.ok(!rows.some(r => r.resource_name === 'transactions/txn_2'), 'txn_2 removed');
+  assert.ok(rows.some(r => r.resource_name === 'transactions/txn_merged'), 'merged tx inserted');
+});
+
+test('mergeTransactions clears the sidebar session', () => {
+  const { sandbox, documentProperties } = makeMergeTestEnv();
+  documentProperties.set('family_ledger_sidebar_session', JSON.stringify({ classKey: 'transactions', selectedEntities: [] }));
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+  assert.ok(!documentProperties.has('family_ledger_sidebar_session'), 'session cleared');
+});
+
+test('mergeTransactions opens edit sidebar for merged transaction', () => {
+  const { sandbox, editSidebarCalls, rowStore } = makeMergeTestEnv();
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+  assert.equal(editSidebarCalls.length, 1, 'edit sidebar opened once');
+  assert.equal(editSidebarCalls[0].classKey, 'transactions');
+  assert.equal(editSidebarCalls[0].name, 'transactions/txn_merged');
+  assert.ok(editSidebarCalls[0].span && editSidebarCalls[0].span.start > 0, 'span is set');
+});
+
+test('mergeTransactions DELETEs both source transactions via API', () => {
+  const { sandbox, apiCalls } = makeMergeTestEnv();
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+  assert.ok(apiCalls.some(c => c.method === 'delete' && c.path === '/transactions/txn_1'), 'DELETE txn_1');
+  assert.ok(apiCalls.some(c => c.method === 'delete' && c.path === '/transactions/txn_2'), 'DELETE txn_2');
 });
 
 // --- formatDisplayAmount_ ---

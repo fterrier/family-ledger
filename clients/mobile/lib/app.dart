@@ -10,6 +10,7 @@ import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/settings/settings_screen.dart';
 import 'screens/transactions/transaction_list_screen.dart';
+import 'widgets/app_logo.dart';
 
 class FamilyLedgerApp extends StatefulWidget {
   const FamilyLedgerApp({super.key});
@@ -139,7 +140,10 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     }
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Family Ledger'),
+        title: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [AppLogo(), SizedBox(width: 10), Text('Family Ledger')],
+        ),
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1C1C1E),
         elevation: 0,

@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose *)",
+      "Bash(FAMILY_LEDGER_API_TOKEN=test FAMILY_LEDGER_DB_HOST=localhost uv run *)",
+      "Bash(docker run *)",
+      "Bash(docker exec *)",
+      "Bash(FAMILY_LEDGER_API_TOKEN=test FAMILY_LEDGER_DB_HOST=localhost uv run uvicorn family_ledger.main:app --port 8000)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/healthz)",
+      "Bash(curl -s -H \"Authorization: Bearer test\" http://localhost:8000/importers)",
+      "Bash(python3 -m json.tool)",
+      "Bash(uv run *)",
+      "Bash(docker build *)",
+      "Bash(FAMILY_LEDGER_IMAGE=family-ledger-local FAMILY_LEDGER_API_TOKEN=test docker compose *)",
+      "Bash(curl -s -X PATCH -H 'Authorization: Bearer test' -H 'Content-Type: application/json' -d '{\"importer\": {\"config\": {\"import_posting_comments_as_narration\": true}}}' http://localhost:8000/importers/beancount)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
+    ]
+  }
+}

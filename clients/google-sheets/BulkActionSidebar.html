@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+    color: #202124;
+    background: #fff;
+    padding: 16px;
+  }
+  .header {
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 12px;
+    color: #202124;
+  }
+  .entity-list {
+    margin-bottom: 16px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .entity-item {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: #3c4043;
+    border-bottom: 1px solid #e8eaed;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .entity-item:last-child { border-bottom: none; }
+  .entity-item-label {
+    flex: 1;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .remove-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: #80868b;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 0 2px;
+  }
+  .remove-btn:hover { color: #d93025; }
+  .actions { margin-top: 4px; display: flex; gap: 8px; align-items: center; }
+  .btn-danger {
+    padding: 8px 16px;
+    background: #d93025;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-danger:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<div id="errorBox"></div>
+
+<div class="header" id="headerText"></div>
+
+<div class="entity-list" id="entityList"></div>
+
+<div class="actions">
+  <button class="btn-danger" id="deleteBtn" onclick="onDeleteAll()">Delete</button>
+  <button class="btn-secondary" onclick="onCancel()">Cancel</button>
+</div>
+
+<script>
+  var DATA = <?!= bulkActionJson ?>;
+  var classKey = DATA.classKey;
+  var selectedEntities = DATA.selectedEntities;
+  var count = selectedEntities.length;
+
+  var deleteBtn = document.getElementById('deleteBtn');
+  deleteBtn.textContent = 'Delete ' + count;
+
+  var headerText = document.getElementById('headerText');
+  headerText.textContent = count + ' ' + classKey.replace(/s$/, '') + (count === 1 ? '' : 's') + ' selected';
+
+  var entityList = document.getElementById('entityList');
+  selectedEntities.forEach(function(entity) {
+    var item = document.createElement('div');
+    item.className = 'entity-item';
+
+    var label = document.createElement('span');
+    label.className = 'entity-item-label';
+    label.textContent = entity.summary || entity.name;
+
+    var removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.textContent = '×';
+    removeBtn.title = 'Remove from selection';
+    removeBtn.onclick = (function(name) { return function() { onRemove(name); }; })(entity.name);
+
+    item.appendChild(label);
+    item.appendChild(removeBtn);
+    entityList.appendChild(item);
+  });
+
+  function setFormBusy_(busy) {
+    var buttons = document.querySelectorAll('button');
+    for (var i = 0; i < buttons.length; i++) { buttons[i].disabled = busy; }
+  }
+
+  function onRemove(entityName) {
+    setFormBusy_(true);
+    document.getElementById('errorBox').style.display = 'none';
+    google.script.run
+      .withSuccessHandler(function() {
+        // Server replaced the sidebar (back to edit or updated multi-select); nothing to do.
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('errorBox').textContent = err.message || String(err);
+        document.getElementById('errorBox').style.display = 'block';
+        setFormBusy_(false);
+      })
+      .removeFromMultiSelect(entityName);
+  }
+
+  function onDeleteAll() {
+    if (!confirm('Delete ' + count + ' ' + classKey.replace(/s$/, '') + (count === 1 ? '' : 's') + '? This cannot be undone.')) {
+      return;
+    }
+    document.getElementById('errorBox').style.display = 'none';
+    deleteBtn.dataset.originalLabel = deleteBtn.textContent;
+    deleteBtn.textContent = 'Deleting…';
+    setFormBusy_(true);
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('errorBox').textContent = err.message || String(err);
+        document.getElementById('errorBox').style.display = 'block';
+        deleteBtn.textContent = deleteBtn.dataset.originalLabel;
+        setFormBusy_(false);
+      })
+      .deleteMultipleEntities(classKey, selectedEntities);
+  }
+
+  function onCancel() {
+    google.script.run
+      .withSuccessHandler(function() {
+        google.script.host.close();
+      })
+      .withFailureHandler(function() {
+        google.script.host.close();
+      })
+      .cancelMultiSelect();
+  }
+</script>
+
+</body>
+</html>

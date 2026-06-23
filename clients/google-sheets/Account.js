@@ -75,6 +75,10 @@ class Account extends Entity {
     return instance;
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    return String((rawRows[0] || {}).account_name || '');
+  }
+
   static buildSidebarFields_(entityName, _mode) {
     let defaults = {};
     if (entityName) {

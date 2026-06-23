@@ -167,7 +167,7 @@
 <div class="actions" id="editActions" style="display:none">
   <button class="btn-primary" id="saveBtn" onclick="onSubmit()">Save</button>
   <button class="btn-danger" id="deleteBtn" onclick="onDelete()">Delete</button>
-  <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
+  <button class="btn-secondary" onclick="google.script.run.withSuccessHandler(function(){google.script.host.close();}).cancelSidebar()">Cancel</button>
 </div>
 
 <script>

@@ -94,6 +94,13 @@ class Attachment extends Entity {
     return instance;
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    const row = rawRows[0] || {};
+    const date = formatDisplayDate_(row.attachment_date);
+    const filename = String(row.original_filename || '');
+    return [date, filename].filter(Boolean).join(' | ');
+  }
+
   static buildSidebarFields_(entityName, _mode) {
     const allAccountOpts = loadAccountOptions_().map(function(o) {
       return { value: o.resource_name, label: o.display_name };

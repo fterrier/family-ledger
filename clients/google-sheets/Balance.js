@@ -99,6 +99,15 @@ class Balance extends Entity {
     return instance;
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    const row = rawRows[0] || {};
+    const date = formatDisplayDate_(row.assertion_date);
+    const account = String(row.account || '');
+    const amount = row.amount != null ? formatDisplayAmount_(row.amount) : '';
+    const symbol = String(row.symbol || '');
+    return [date, account, amount + ' ' + symbol].filter(Boolean).join(' | ');
+  }
+
   // Always returns mode:'advanced'. entityName triggers an API GET for defaults.
   static buildSidebarFields_(entityName, _mode) {
     const allAccountOpts = loadAccountOptions_().map(function(o) {

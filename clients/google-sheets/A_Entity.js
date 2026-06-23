@@ -13,6 +13,23 @@ function normalizeEntityDate_(value) {
   return String(value || '').trim();
 }
 
+// Converts Date objects and 'yyyy-MM-dd' strings to 'Mmm D, YYYY' (e.g. Apr 19, 2026).
+function formatDisplayDate_(value) {
+  const s = normalizeEntityDate_(value); // normalises Date → 'yyyy-MM-dd' and trims strings
+  const match = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (match) {
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    return months[parseInt(match[2], 10) - 1] + ' ' + parseInt(match[3], 10) + ', ' + match[1];
+  }
+  return s;
+}
+
+function formatDisplayAmount_(value) {
+  const n = parseFloat(value);
+  if (isNaN(n)) return String(value || '');
+  return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
 function getDateHeader_(sheetConfig) {
   return sheetConfig.headers.find(function(h) {
     return (sheetConfig.columnLayout[h] || {}).insertionOrder === true;
@@ -255,6 +272,12 @@ class Entity {
   // Called after any sheet write (save or delete). No-op by default; subclasses override.
   static afterSheetWrite_() {}
 
+  // Returns a one-line summary string for the multi-select sidebar list.
+  // Subclasses override to show entity-specific fields; base falls back to resource_name.
+  static buildMultiSelectSummary_(rawRows) {
+    return String((rawRows[0] || {}).resource_name || '');
+  }
+
   // Default: 'edit' checkbox opens the generic edit sidebar.
   // Subclasses may override for custom action headers.
   static isActionHeader(h) { return h === 'edit'; }
@@ -273,7 +296,19 @@ class Entity {
       managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[this.SHEET_KEY])
         .setFields({ start: anchorRow, count: 1 }, { edit: false });
       const entity = findEntityRowsFromAnchor_(this, sheet, anchorRow);
-      showEditSidebar_(this.SHEET_KEY, entity.getName(), entity._span, entity._context);
+      const entityEntry = {
+        name: entity.getName(),
+        span: entity._span,
+        summary: this.buildMultiSelectSummary_(entity._rawRows || []),
+      };
+      const session = readSidebarSession_();
+      if (session && session.classKey === this.SHEET_KEY) {
+        const updatedSession = addToSidebarSession_(session, entityEntry);
+        showMultiSelectSidebar_(updatedSession.classKey, updatedSession.selectedEntities);
+      } else {
+        createSidebarSession_(this.SHEET_KEY, entityEntry);
+        showEditSidebar_(this.SHEET_KEY, entity.getName(), entity._span, entity._context);
+      }
     }
   }
 
@@ -396,12 +431,14 @@ function scanEntityRows_(EntityClass, sheet, anchorRow, anchorRowOverrides) {
   return { span: span, entityName: entityName, rows: rows };
 }
 
-// Returns a fully constructed Entity with _span set and context loaded via EntityClass.loadContext_().
+// Returns a fully constructed Entity with _span and _rawRows set, context loaded via EntityClass.loadContext_().
 // anchorRowOverrides: optional { field: value } map passed through to scanEntityRows_ (see above).
 function findEntityRowsFromAnchor_(EntityClass, sheet, anchorRow, anchorRowOverrides) {
   const { span, rows } = scanEntityRows_(EntityClass, sheet, anchorRow, anchorRowOverrides);
   const context = EntityClass.loadContext_();
-  return EntityClass.fromRows(rows, context, span);
+  const entity = EntityClass.fromRows(rows, context, span);
+  entity._rawRows = rows;
+  return entity;
 }
 
 function beginSaveGeneration_(entityName) {

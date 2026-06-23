@@ -66,6 +66,13 @@ class Commodity extends Entity {
     return instance;
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    const row = rawRows[0] || {};
+    const symbol = String(row.symbol || '');
+    const ticker = String(row.ticker || '');
+    return ticker ? symbol + ' (' + ticker + ')' : symbol;
+  }
+
   static buildSidebarFields_(entityName, _mode) {
     let defaults = { symbol: null, ticker: null };
     if (entityName) {

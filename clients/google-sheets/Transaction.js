@@ -367,6 +367,15 @@ class Transaction extends Entity {
     ]);
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    const row = rawRows[0] || {};
+    const payee = String(row.payee || '');
+    const date = formatDisplayDate_(row.transaction_date);
+    const amount = row.amount != null ? formatDisplayAmount_(row.amount) : '';
+    const symbol = String(row.symbol || '');
+    return [payee || '(no payee)', date, amount + ' ' + symbol].filter(Boolean).join(' | ');
+  }
+
   static activateAfterCreate_(sheet, span) {
     managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).activateCell(span.start, 'payee');
   }

@@ -77,6 +77,7 @@ function submitEntity(entity, fieldValues) {
     }
 
     if (isEdit) {
+      clearSidebarSession_();
       ss.toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
       return {};
     }
@@ -96,5 +97,120 @@ function deleteEntity(entity) {
   EntityClass.afterSheetWrite_();
   const context = entity.context || EntityClass.loadContext_();
   refreshDoctorIssueSheets_(context.accountResourceToDisplayName || {});
+  clearSidebarSession_();
   SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' deleted.', 'Family Ledger', 5);
+}
+
+// --- Sidebar session management (multi-select state) ---
+
+var SIDEBAR_SESSION_KEY = 'family_ledger_sidebar_session';
+var SIDEBAR_SESSION_TTL_MS = 15 * 60 * 1000;
+
+function readSidebarSession_() {
+  var props = PropertiesService.getDocumentProperties();
+  var raw = props.getProperty(SIDEBAR_SESSION_KEY);
+  if (!raw) return null;
+  var session = JSON.parse(raw);
+  if (Date.now() - session.sessionTimestamp > SIDEBAR_SESSION_TTL_MS) {
+    props.deleteProperty(SIDEBAR_SESSION_KEY);
+    return null;
+  }
+  return session;
+}
+
+function createSidebarSession_(classKey, entity) {
+  var session = {
+    classKey: classKey,
+    selectedEntities: [entity],
+    sessionTimestamp: Date.now(),
+  };
+  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
+
+function addToSidebarSession_(session, entity) {
+  var alreadyPresent = session.selectedEntities.some(function(e) { return e.name === entity.name; });
+  if (!alreadyPresent) {
+    session.selectedEntities.push(entity);
+  }
+  session.sessionTimestamp = Date.now();
+  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(session));
+  return session;
+}
+
+function clearSidebarSession_() {
+  PropertiesService.getDocumentProperties().deleteProperty(SIDEBAR_SESSION_KEY);
+}
+
+function removeFromSidebarSession_(session, entityName) {
+  session.selectedEntities = session.selectedEntities.filter(function(e) { return e.name !== entityName; });
+  session.sessionTimestamp = Date.now();
+  return session;
+}
+
+function removeFromMultiSelect(entityName) {
+  var session = readSidebarSession_();
+  if (!session) return;
+  var updated = removeFromSidebarSession_(session, entityName);
+  if (updated.selectedEntities.length === 0) {
+    clearSidebarSession_();
+    return;
+  }
+  if (updated.selectedEntities.length === 1) {
+    var remaining = updated.selectedEntities[0];
+    clearSidebarSession_();
+    showEditSidebar_(updated.classKey, remaining.name, remaining.span, null);
+    return;
+  }
+  PropertiesService.getDocumentProperties().setProperty(SIDEBAR_SESSION_KEY, JSON.stringify(updated));
+  showMultiSelectSidebar_(updated.classKey, updated.selectedEntities);
+}
+
+function cancelMultiSelect() {
+  clearSidebarSession_();
+}
+
+function cancelSidebar() {
+  clearSidebarSession_();
+}
+
+// --- Multi-select sidebar ---
+
+function pluralLabel_(label, count) {
+  return count + ' ' + label + (count === 1 ? '' : 's');
+}
+
+function showMultiSelectSidebar_(classKey, selectedEntities) {
+  var EntityClass = ENTITY_CLASS_REGISTRY[classKey];
+  var template = HtmlService.createTemplateFromFile('BulkActionSidebar');
+  template.bulkActionJson = JSON.stringify({
+    classKey: classKey,
+    selectedEntities: selectedEntities,
+  });
+  var title = pluralLabel_(EntityClass.ENTITY_LABEL, selectedEntities.length) + ' selected';
+  SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle(title));
+}
+
+function deleteMultipleEntities(classKey, entities) {
+  var EntityClass = ENTITY_CLASS_REGISTRY[classKey];
+  var sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
+  var sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
+
+  // Sort descending by span start so we delete bottom-up, keeping earlier spans valid.
+  var sorted = entities.slice().sort(function(a, b) { return b.span.start - a.span.start; });
+
+  sorted.forEach(function(entity) {
+    apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
+    applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
+  });
+
+  EntityClass.afterSheetWrite_();
+  var context = EntityClass.loadContext_();
+  refreshDoctorIssueSheets_((context && context.accountResourceToDisplayName) || {});
+  clearSidebarSession_();
+  SpreadsheetApp.getActiveSpreadsheet().toast(
+    pluralLabel_(EntityClass.ENTITY_LABEL, entities.length) + ' deleted.',
+    'Family Ledger',
+    5
+  );
 }

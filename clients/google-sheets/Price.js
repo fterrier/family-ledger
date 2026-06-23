@@ -81,6 +81,15 @@ class Price extends Entity {
     return instance;
   }
 
+  static buildMultiSelectSummary_(rawRows) {
+    const row = rawRows[0] || {};
+    const date = formatDisplayDate_(row.price_date);
+    const base = String(row.base_symbol || '');
+    const quoteSymbol = String(row.quote_symbol || '');
+    const quoteAmount = row.quote_amount != null ? formatDisplayAmount_(row.quote_amount) : '';
+    return [date, base + '/' + quoteSymbol, quoteAmount].filter(Boolean).join(' | ');
+  }
+
   static buildSidebarFields_(entityName, _mode) {
     const allSymbolOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
 

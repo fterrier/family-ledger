@@ -7,7 +7,7 @@ from family_ledger.api.schemas import AccountCreate, AccountResource, ListAccoun
 from family_ledger.models import Account
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.pagination import _run_list_page
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.validation import resource_name, validate_account_effective_dates
 
 
@@ -18,7 +18,7 @@ def serialize_account(account: Account) -> AccountResource:
 def list_accounts_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListAccountsResponse:
-    accounts, next_page_token = _run_list_page(
+    accounts, next_page_token = run_list_page(
         session,
         select(Account).order_by(Account.account_name),
         page_size=page_size,

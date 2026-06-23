@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from typing import Any
 
 from sqlalchemy import Select
@@ -20,8 +21,6 @@ def normalize_page_size(page_size: int | None) -> int:
 
 
 def decode_page_token(page_token: str | None) -> int:
-    from base64 import urlsafe_b64decode
-
     if not page_token:
         return 0
     try:
@@ -35,8 +34,6 @@ def decode_page_token(page_token: str | None) -> int:
 
 
 def encode_page_token(offset: int) -> str:
-    from base64 import urlsafe_b64encode
-
     return urlsafe_b64encode(str(offset).encode()).decode()
 
 
@@ -44,7 +41,7 @@ def paginate_query(query: Select, *, offset: int, page_size: int):
     return query.offset(offset).limit(page_size + 1)
 
 
-def _run_list_page(
+def run_list_page(
     session: Session, query: Select, *, page_size: int | None, page_token: str | None
 ) -> tuple[list[Any], str | None]:
     normalized = normalize_page_size(page_size)

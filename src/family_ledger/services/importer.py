@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import jsonschema
@@ -78,6 +79,24 @@ def _load_stored_config(session: Session, plugin_name: str) -> dict[str, Any]:
     return row.config if row is not None else {}
 
 
+def _parse_config_override(raw: str | None) -> dict | None:
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValidationError(
+            code="invalid_config_override",
+            message="config_override is not valid JSON",
+        ) from exc
+    if not isinstance(parsed, dict):
+        raise ValidationError(
+            code="invalid_config_override",
+            message="config_override must be a JSON object",
+        )
+    return parsed
+
+
 def list_importers(session: Session) -> ListImportersResponse:
     rows = {row.plugin_name: row.config for row in session.scalars(select(Importer)).all()}
     importers = [
@@ -111,7 +130,7 @@ def execute_import(
     session: Session,
     plugin_name: str,
     files: dict[str, bytes],
-    config_override: dict[str, Any] | None,
+    config_override_raw: str | None,
     settings: Settings | None = None,
 ) -> ImportResult:
     importer_cls = get_importer(plugin_name)
@@ -122,6 +141,7 @@ def execute_import(
         )
     importer = importer_cls()
     stored_config = _load_stored_config(session, plugin_name)
+    config_override = _parse_config_override(config_override_raw)
     merged = _resolve_importer_config(stored_config, config_override, importer.get_schema())
     ctx = ImportContext(session, settings)
     return importer.execute(ctx, files, merged, settings)

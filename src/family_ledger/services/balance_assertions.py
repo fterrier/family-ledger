@@ -12,7 +12,7 @@ from family_ledger.api.schemas import (
 from family_ledger.models import BalanceAssertion
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.pagination import _run_list_page
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.validation import resolve_account, resource_name, validate_symbols_exist
 
 
@@ -29,7 +29,7 @@ def serialize_balance_assertion(assertion: BalanceAssertion) -> BalanceAssertion
 def list_balance_assertions_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListBalanceAssertionsResponse:
-    assertions, next_page_token = _run_list_page(
+    assertions, next_page_token = run_list_page(
         session,
         select(BalanceAssertion)
         .options(selectinload(BalanceAssertion.account))
@@ -58,7 +58,6 @@ def create_balance_assertion(
     )
     session.add(assertion)
     commit_or_raise(session)
-    session.refresh(assertion)
     persisted = session.scalar(
         select(BalanceAssertion)
         .options(selectinload(BalanceAssertion.account))
@@ -89,8 +88,13 @@ def update_balance_assertion(
     assertion.symbol = payload.amount.symbol
     assertion.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
-    session.refresh(assertion)
-    return serialize_balance_assertion(assertion)
+    persisted = session.scalar(
+        select(BalanceAssertion)
+        .options(selectinload(BalanceAssertion.account))
+        .where(BalanceAssertion.id == assertion.id)
+    )
+    assert persisted is not None
+    return serialize_balance_assertion(persisted)
 
 
 def delete_balance_assertion(session: Session, balance_assertion: str) -> None:

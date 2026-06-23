@@ -1,26 +1,6 @@
 from __future__ import annotations
 
-import importlib
-
-from fastapi.testclient import TestClient
-
-
-def make_client(api_token: str = "test-token") -> TestClient:
-    main_module = importlib.import_module("family_ledger.main")
-    main_module = importlib.reload(main_module)
-    return TestClient(
-        main_module.create_app(),
-        headers={"Authorization": f"Bearer {api_token}"},
-    )
-
-
-def create_commodity(client: TestClient, symbol: str) -> dict:
-    response = client.post(
-        "/commodities",
-        json={"commodity": {"symbol": symbol}},
-    )
-    assert response.status_code == 201
-    return response.json()
+from api_helpers import create_commodity, make_client
 
 
 def test_create_and_get_commodity() -> None:

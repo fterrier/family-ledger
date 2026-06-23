@@ -7,7 +7,7 @@ from family_ledger.api.schemas import ListPricesResponse, MoneyValue, PriceCreat
 from family_ledger.models import Price
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.pagination import _run_list_page
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.validation import resource_name, validate_symbols_exist
 
 
@@ -24,7 +24,7 @@ def serialize_price(price: Price) -> PriceResource:
 def list_prices_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListPricesResponse:
-    prices, next_page_token = _run_list_page(
+    prices, next_page_token = run_list_page(
         session,
         select(Price).order_by(Price.price_date, Price.name),
         page_size=page_size,

@@ -22,12 +22,7 @@ from family_ledger.models import Account, Posting, Transaction
 from family_ledger.services.errors import ConflictError, NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import normalize_and_validate_transaction_payload
-from family_ledger.services.pagination import (
-    decode_page_token,
-    encode_page_token,
-    normalize_page_size,
-    paginate_query,
-)
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.transaction_balancing import (
     derive_normalize_issues,
     persisted_posting_weight,
@@ -252,8 +247,6 @@ def list_transactions_page(
     account: str | None,
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
     query = select(Transaction).options(
         selectinload(Transaction.postings).selectinload(Posting.account)
     )
@@ -274,15 +267,11 @@ def list_transactions_page(
         query = query.order_by(Transaction.transaction_date.desc(), Transaction.name.desc())
     else:
         query = query.order_by(Transaction.transaction_date, Transaction.name)
-    transactions = session.scalars(
-        paginate_query(query, offset=offset, page_size=normalized_page_size)
-    ).all()
-    next_page_token = None
-    if len(transactions) > normalized_page_size:
-        transactions = transactions[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    transactions, next_page_token = run_list_page(
+        session, query, page_size=page_size, page_token=page_token
+    )
     return ListTransactionsResponse(
-        transactions=[serialize_transaction(transaction) for transaction in transactions],
+        transactions=[serialize_transaction(t) for t in transactions],
         next_page_token=next_page_token,
     )
 

@@ -1,62 +1,8 @@
 from __future__ import annotations
 
-import importlib
 from decimal import Decimal
 
-from fastapi.testclient import TestClient
-
-
-def make_client(api_token: str = "test-token") -> TestClient:
-    main_module = importlib.import_module("family_ledger.main")
-    main_module = importlib.reload(main_module)
-    return TestClient(
-        main_module.create_app(),
-        headers={"Authorization": f"Bearer {api_token}"},
-    )
-
-
-def create_account(client: TestClient, account_name: str) -> dict:
-    response = client.post(
-        "/accounts",
-        json={
-            "account": {
-                "account_name": account_name,
-                "effective_start_date": "2020-01-01",
-            }
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def create_commodity(client: TestClient, symbol: str) -> dict:
-    response = client.post(
-        "/commodities",
-        json={"commodity": {"symbol": symbol}},
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def _create_balance_assertion(
-    client: TestClient,
-    account_name: str,
-    assertion_date: str,
-    amount: str,
-    symbol: str,
-) -> dict:
-    response = client.post(
-        "/balance-assertions",
-        json={
-            "balance_assertion": {
-                "assertion_date": assertion_date,
-                "account": account_name,
-                "amount": {"amount": amount, "symbol": symbol},
-            }
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
+from api_helpers import create_account, create_balance_assertion, create_commodity, make_client
 
 
 def test_create_balance_assertion() -> None:
@@ -94,8 +40,8 @@ def test_list_balance_assertions_returns_all_assertions() -> None:
     savings = create_account(client, "Assets:Bank:Savings:Family")
     create_commodity(client, "CHF")
 
-    _create_balance_assertion(client, checking["name"], "2026-04-30", "1000.00", "CHF")
-    _create_balance_assertion(client, savings["name"], "2026-04-30", "2000.00", "CHF")
+    create_balance_assertion(client, checking["name"], "2026-04-30", "1000.00", "CHF")
+    create_balance_assertion(client, savings["name"], "2026-04-30", "2000.00", "CHF")
 
     response = client.get("/balance-assertions")
 
@@ -122,9 +68,9 @@ def test_list_balance_assertions_ordered_by_date_ascending() -> None:
     checking = create_account(client, "Assets:Bank:Checking:Family")
     create_commodity(client, "CHF")
 
-    _create_balance_assertion(client, checking["name"], "2026-03-31", "900.00", "CHF")
-    _create_balance_assertion(client, checking["name"], "2026-01-31", "800.00", "CHF")
-    _create_balance_assertion(client, checking["name"], "2026-02-28", "850.00", "CHF")
+    create_balance_assertion(client, checking["name"], "2026-03-31", "900.00", "CHF")
+    create_balance_assertion(client, checking["name"], "2026-01-31", "800.00", "CHF")
+    create_balance_assertion(client, checking["name"], "2026-02-28", "850.00", "CHF")
 
     response = client.get("/balance-assertions")
 
@@ -160,7 +106,7 @@ def test_update_balance_assertion() -> None:
     savings = create_account(client, "Assets:Bank:Savings:Family")
     create_commodity(client, "CHF")
 
-    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
+    created = create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
 
     response = client.patch(
         f"/balance-assertions/{created['name']}",
@@ -205,7 +151,7 @@ def test_delete_balance_assertion() -> None:
     checking = create_account(client, "Assets:Bank:Checking:Family")
     create_commodity(client, "CHF")
 
-    created = _create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
+    created = create_balance_assertion(client, checking["name"], "2026-04-19", "1000.00", "CHF")
 
     delete_response = client.delete(f"/balance-assertions/{created['name']}")
     assert delete_response.status_code == 204

@@ -7,7 +7,7 @@ from family_ledger.api.schemas import CommodityCreate, CommodityResource, ListCo
 from family_ledger.models import Commodity
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.pagination import _run_list_page
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.validation import resource_name
 
 
@@ -18,7 +18,7 @@ def serialize_commodity(commodity: Commodity) -> CommodityResource:
 def list_commodities_page(
     session: Session, *, page_size: int | None, page_token: str | None
 ) -> ListCommoditiesResponse:
-    commodities, next_page_token = _run_list_page(
+    commodities, next_page_token = run_list_page(
         session,
         select(Commodity).order_by(Commodity.symbol),
         page_size=page_size,

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import Annotated
+from fastapi import APIRouter, Depends, status
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
+from family_ledger.api._helpers import DbSession, _call_service
 from family_ledger.api.auth import require_api_token
 from family_ledger.api.schemas import (
     BalanceAssertionResource,
@@ -12,44 +10,9 @@ from family_ledger.api.schemas import (
     ListBalanceAssertionsResponse,
     UpdateBalanceAssertionRequest,
 )
-from family_ledger.db import get_db_session
 from family_ledger.services import balance_assertions as balance_assertions_service
-from family_ledger.services.errors import (
-    ConflictError,
-    NotFoundError,
-    ServiceError,
-    ValidationError,
-)
 
 router = APIRouter(dependencies=[Depends(require_api_token)])
-
-DbSession = Annotated[Session, Depends(get_db_session)]
-
-
-def _translate_service_error(error: ServiceError) -> HTTPException:
-    if isinstance(error, ValidationError):
-        status_code = status.HTTP_400_BAD_REQUEST
-    elif isinstance(error, NotFoundError):
-        status_code = status.HTTP_404_NOT_FOUND
-    elif isinstance(error, ConflictError):
-        status_code = status.HTTP_409_CONFLICT
-    else:
-        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-
-    return HTTPException(
-        status_code=status_code,
-        detail={
-            "code": error.code,
-            "message": error.message,
-        },
-    )
-
-
-def _call_service(fn, *args, **kwargs):
-    try:
-        return fn(*args, **kwargs)
-    except ServiceError as error:
-        raise _translate_service_error(error) from error
 
 
 @router.get("/balance-assertions", response_model=ListBalanceAssertionsResponse)

@@ -12,12 +12,7 @@ from family_ledger.models import Attachment
 from family_ledger.services import paperless
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
-from family_ledger.services.pagination import (
-    decode_page_token,
-    encode_page_token,
-    normalize_page_size,
-    paginate_query,
-)
+from family_ledger.services.pagination import run_list_page
 from family_ledger.services.validation import resolve_account, resource_name
 
 
@@ -130,23 +125,16 @@ def list_attachments_page(
     page_size: int | None,
     page_token: str | None,
 ) -> ListAttachmentsResponse:
-    normalized_page_size = normalize_page_size(page_size)
-    offset = decode_page_token(page_token)
-    attachments = session.scalars(
-        paginate_query(
-            select(Attachment)
-            .options(selectinload(Attachment.account))
-            .order_by(Attachment.attachment_date, Attachment.name),
-            offset=offset,
-            page_size=normalized_page_size,
-        )
-    ).all()
-    next_page_token = None
-    if len(attachments) > normalized_page_size:
-        attachments = attachments[:normalized_page_size]
-        next_page_token = encode_page_token(offset + normalized_page_size)
+    attachments, next_page_token = run_list_page(
+        session,
+        select(Attachment)
+        .options(selectinload(Attachment.account))
+        .order_by(Attachment.attachment_date, Attachment.name),
+        page_size=page_size,
+        page_token=page_token,
+    )
     return ListAttachmentsResponse(
-        attachments=[serialize_attachment(attachment) for attachment in attachments],
+        attachments=[serialize_attachment(a) for a in attachments],
         next_page_token=next_page_token,
     )
 

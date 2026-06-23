@@ -1,103 +1,15 @@
 from __future__ import annotations
 
-import contextlib
-import importlib
-from collections.abc import Iterator
 from decimal import Decimal
 
-from fastapi.testclient import TestClient
-from sqlalchemy import event
-
-
-def make_client(api_token: str = "test-token") -> TestClient:
-    main_module = importlib.import_module("family_ledger.main")
-    main_module = importlib.reload(main_module)
-    return TestClient(
-        main_module.create_app(),
-        headers={"Authorization": f"Bearer {api_token}"},
-    )
-
-
-@contextlib.contextmanager
-def count_sql_statements() -> Iterator[list[str]]:
-    db_module = importlib.import_module("family_ledger.db")
-    statements: list[str] = []
-
-    def before_cursor_execute(
-        _conn, _cursor, statement, _parameters, _context, _executemany
-    ) -> None:
-        statements.append(statement)
-
-    event.listen(db_module.engine, "before_cursor_execute", before_cursor_execute)
-    try:
-        yield statements
-    finally:
-        event.remove(db_module.engine, "before_cursor_execute", before_cursor_execute)
-
-
-def create_account(client: TestClient, account_name: str) -> dict:
-    response = client.post(
-        "/accounts",
-        json={
-            "account": {
-                "account_name": account_name,
-                "effective_start_date": "2020-01-01",
-            }
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def create_commodity(client: TestClient, symbol: str) -> dict:
-    response = client.post(
-        "/commodities",
-        json={"commodity": {"symbol": symbol}},
-    )
-    assert response.status_code == 201
-    return response.json()
-
-
-def _create_transaction(
-    client: TestClient,
-    tx_date: str,
-    postings: list[dict],
-    *,
-    source_native_ids: list[str] | None = None,
-    payee: str | None = None,
-    narration: str | None = None,
-) -> dict:
-    body: dict = {"transaction_date": tx_date, "postings": postings}
-    if source_native_ids is not None:
-        body["import_metadata"] = {"source_native_ids": source_native_ids}
-    if payee is not None:
-        body["payee"] = payee
-    if narration is not None:
-        body["narration"] = narration
-    response = client.post("/transactions", json={"transaction": body})
-    assert response.status_code == 201
-    return response.json()
-
-
-def _create_balance_assertion(
-    client: TestClient,
-    account_name: str,
-    assertion_date: str,
-    amount: str,
-    symbol: str,
-) -> dict:
-    response = client.post(
-        "/balance-assertions",
-        json={
-            "balance_assertion": {
-                "assertion_date": assertion_date,
-                "account": account_name,
-                "amount": {"amount": amount, "symbol": symbol},
-            }
-        },
-    )
-    assert response.status_code == 201
-    return response.json()
+from api_helpers import (
+    count_sql_statements,
+    create_account,
+    create_balance_assertion,
+    create_commodity,
+    create_transaction,
+    make_client,
+)
 
 
 def test_create_and_get_transaction() -> None:
@@ -1009,7 +921,7 @@ def test_ledger_doctor_reports_balance_assertion_failure() -> None:
     checking = create_account(client, "Assets:Checking")
     income = create_account(client, "Income:Salary")
     create_commodity(client, "CHF")
-    _create_transaction(
+    create_transaction(
         client,
         "2026-01-01",
         [
@@ -1017,7 +929,7 @@ def test_ledger_doctor_reports_balance_assertion_failure() -> None:
             {"account": income["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
         ],
     )
-    assertion = _create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
+    assertion = create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
 
     response = client.post("/ledger:doctor", json={})
 
@@ -1034,7 +946,7 @@ def test_ledger_doctor_no_balance_assertion_issue_when_satisfied() -> None:
     checking = create_account(client, "Assets:Checking")
     income = create_account(client, "Income:Salary")
     create_commodity(client, "CHF")
-    _create_transaction(
+    create_transaction(
         client,
         "2026-01-01",
         [
@@ -1042,7 +954,7 @@ def test_ledger_doctor_no_balance_assertion_issue_when_satisfied() -> None:
             {"account": income["name"], "units": {"amount": "-500.00", "symbol": "CHF"}},
         ],
     )
-    _create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
+    create_balance_assertion(client, checking["name"], "2026-01-02", "500.00", "CHF")
 
     response = client.post("/ledger:doctor", json={})
 
@@ -1314,7 +1226,7 @@ def test_list_transactions_account_filter_no_duplicates_when_multiple_postings()
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    tx = _create_transaction(
+    tx = create_transaction(
         client,
         "2026-01-01",
         [
@@ -1343,7 +1255,7 @@ def test_merge_combines_postings_and_source_ids() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1352,7 +1264,7 @@ def test_merge_combines_postings_and_source_ids() -> None:
         ],
         source_native_ids=["ibkr:transfer:123"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1390,7 +1302,7 @@ def test_merge_deduplicates_identical_postings() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1399,7 +1311,7 @@ def test_merge_deduplicates_identical_postings() -> None:
         ],
         source_native_ids=["ibkr:dup:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1425,7 +1337,7 @@ def test_merge_narration_rules() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1438,7 +1350,7 @@ def test_merge_narration_rules() -> None:
         ],
         source_native_ids=["ibkr:nar:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1470,7 +1382,7 @@ def test_merge_primary_narration_wins_when_both_set() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1483,7 +1395,7 @@ def test_merge_primary_narration_wins_when_both_set() -> None:
         ],
         source_native_ids=["ibkr:narwin:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1515,7 +1427,7 @@ def test_merge_payee_fills_from_secondary_when_primary_empty() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1524,7 +1436,7 @@ def test_merge_payee_fills_from_secondary_when_primary_empty() -> None:
         ],
         source_native_ids=["ibkr:payee1:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1550,7 +1462,7 @@ def test_merge_payee_primary_wins_when_both_set() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1560,7 +1472,7 @@ def test_merge_payee_primary_wins_when_both_set() -> None:
         source_native_ids=["ibkr:payee2:1"],
         payee="IBKR",
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1586,7 +1498,7 @@ def test_merge_secondary_source_id_blocks_reimport() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1595,7 +1507,7 @@ def test_merge_secondary_source_id_blocks_reimport() -> None:
         ],
         source_native_ids=["ibkr:reimport:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1633,7 +1545,7 @@ def test_merge_originals_unchanged_after_merge() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1642,7 +1554,7 @@ def test_merge_originals_unchanged_after_merge() -> None:
         ],
         source_native_ids=["ibkr:orig:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1674,7 +1586,7 @@ def test_merge_originals_can_be_deleted_after_merge() -> None:
     equity = create_account(client, "Equity:Opening")
     create_commodity(client, "CHF")
 
-    primary = _create_transaction(
+    primary = create_transaction(
         client,
         "2026-06-15",
         [
@@ -1683,7 +1595,7 @@ def test_merge_originals_can_be_deleted_after_merge() -> None:
         ],
         source_native_ids=["ibkr:del:1"],
     )
-    secondary = _create_transaction(
+    secondary = create_transaction(
         client,
         "2026-06-15",
         [

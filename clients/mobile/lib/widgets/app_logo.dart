@@ -11,7 +11,7 @@ class AppLogo extends StatelessWidget {
 }
 
 class _LogoPainter extends CustomPainter {
-  static const _blue = Color(0xFF1A73E8);
+  static const _blue = Color(0xFF64B5F6);
   static const _white = Colors.white;
 
   @override

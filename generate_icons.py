@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 BASE = Path(__file__).parent / "clients/mobile"
-BLUE = (26, 115, 232)  # #1A73E8
+BLUE = (100, 181, 246)  # #64B5F6 — asset category color
 WHITE = (255, 255, 255)
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Generator
 from datetime import date
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from sqlalchemy import create_engine, event
@@ -618,5 +620,55 @@ def test_update_transaction_raises_for_missing_transaction(session: Session) -> 
             "transactions/txn_missing",
             make_transaction_payload(),
         )
-
     assert exc_info.value.code == "transaction_not_found"
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL-specific SQL generation for _check_source_ids_available
+# ---------------------------------------------------------------------------
+
+
+class _CapturingFakeSession:
+    """Session stub that reports a given dialect and captures executed SQL strings."""
+
+    def __init__(self, dialect_name: str) -> None:
+        self._dialect_name = dialect_name
+        self.captured_sql: list[str] = []
+
+    def get_bind(self):
+        return SimpleNamespace(dialect=SimpleNamespace(name=self._dialect_name))
+
+    def execute(self, statement):
+        self.captured_sql.append(str(statement))
+        return SimpleNamespace(all=lambda: [])
+
+
+def test_check_source_ids_available_postgresql_omits_is_null_when_exclude_none() -> None:
+    # psycopg3 raises AmbiguousParameter when a NULL value is bound to a parameter
+    # that only appears in IS NULL — it cannot infer the PostgreSQL type.
+    # The PostgreSQL SQL must not include "IS NULL" when exclude_name is None;
+    # instead the exclude clause should be omitted entirely.
+    fake = _CapturingFakeSession("postgresql")
+    transactions_service._check_source_ids_available(
+        cast(Session, fake), ["ibkr:12345678"], exclude_name=None
+    )
+    assert fake.captured_sql, "expected SQL to be executed"
+    assert "IS NULL" not in fake.captured_sql[0], (
+        "PostgreSQL SQL must not use 'IS NULL' for the exclude parameter when "
+        "exclude_name is None; psycopg3 cannot infer the type and raises "
+        "AmbiguousParameter (see: sqlalche.me/e/20/f405)"
+    )
+
+
+def test_check_source_ids_available_postgresql_omits_is_null_when_exclude_given() -> None:
+    # When exclude_name is provided the clause must be "t.name != :exclude"
+    # (no IS NULL), so psycopg3 can infer the type from the VARCHAR column comparison.
+    fake = _CapturingFakeSession("postgresql")
+    transactions_service._check_source_ids_available(
+        cast(Session, fake), ["ibkr:12345678"], exclude_name="transactions/txn_abc"
+    )
+    assert fake.captured_sql, "expected SQL to be executed"
+    assert "IS NULL" not in fake.captured_sql[0], (
+        "PostgreSQL SQL must not use 'IS NULL' for the exclude parameter even "
+        "when exclude_name is provided"
+    )

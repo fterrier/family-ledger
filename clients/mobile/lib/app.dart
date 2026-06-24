@@ -31,6 +31,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
 
   bool? _configured;
   final _listKey = GlobalKey<TransactionListScreenState>();
+  final _filterActive = ValueNotifier<bool>(false);
 
   @override
   void initState() {
@@ -72,6 +73,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   @override
   void dispose() {
     _shareChannel.setMethodCallHandler(null);
+    _filterActive.dispose();
     super.dispose();
   }
 
@@ -152,6 +154,31 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           child: Container(height: 1, color: const Color(0xFFE5E5EA)),
         ),
         actions: [
+          ValueListenableBuilder<bool>(
+            valueListenable: _filterActive,
+            builder: (context, active, child) => Stack(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.filter_list_outlined),
+                  onPressed: () => _listKey.currentState?.openFilter(),
+                  tooltip: 'Filter',
+                ),
+                if (active)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF1A73E8),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.upload_file_outlined),
             onPressed: () => _openImport(),
@@ -170,6 +197,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         transactionRepository: _transactionRepo,
         accountRepository: _accountRepo,
         commodityRepository: _commodityRepo,
+        filterActiveNotifier: _filterActive,
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _openAddTransaction,

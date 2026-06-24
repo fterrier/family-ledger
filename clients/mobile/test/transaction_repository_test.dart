@@ -2,9 +2,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_client.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/posting.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
+import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
 
 class MockApiClient extends Mock implements ApiClient {}
 
@@ -371,6 +373,165 @@ void main() {
       );
 
       final result = await repo.runDoctor();
+
+      expect(result.error, isA<NetworkError>());
+      expect(result.data, isNull);
+    });
+  });
+
+  group('TransactionRepository.listTransactions with filter', () {
+    final emptyResponse = <String, dynamic>{
+      'transactions': <dynamic>[],
+      'next_page_token': null,
+    };
+
+    const account = AccountResource(
+      name: 'accounts/acc_checking',
+      accountName: 'Assets:Bank:Checking',
+      effectiveStartDate: '2020-01-01',
+    );
+
+    test('passes account param when filter has account', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => (data: emptyResponse, error: null));
+
+      await repo.listTransactions(
+        filter: const TransactionFilter(account: account),
+      );
+
+      final call = verify(
+        () => mockClient.get(
+          captureAny(),
+          queryParams: captureAny(named: 'queryParams'),
+        ),
+      );
+      call.called(1);
+      final params = call.captured[1] as Map<String, String>;
+      expect(params['account_name'], 'Assets:Bank:Checking');
+    });
+
+    test('passes from_date and to_date for date range', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => (data: emptyResponse, error: null));
+
+      await repo.listTransactions(
+        filter: TransactionFilter(
+          fromDate: DateTime(2025),
+          toDate: DateTime(2025, 12, 31),
+        ),
+      );
+
+      final call = verify(
+        () => mockClient.get(
+          captureAny(),
+          queryParams: captureAny(named: 'queryParams'),
+        ),
+      );
+      call.called(1);
+      final params = call.captured[1] as Map<String, String>;
+      expect(params['from_date'], '2025-01-01');
+      expect(params['to_date'], '2025-12-31');
+    });
+
+    test('does not add filter params when filter is inactive', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => (data: emptyResponse, error: null));
+
+      await repo.listTransactions(filter: const TransactionFilter());
+
+      final call = verify(
+        () => mockClient.get(
+          captureAny(),
+          queryParams: captureAny(named: 'queryParams'),
+        ),
+      );
+      call.called(1);
+      final params = call.captured[1] as Map<String, String>;
+      expect(params.containsKey('account'), isFalse);
+      expect(params.containsKey('from_date'), isFalse);
+      expect(params.containsKey('to_date'), isFalse);
+    });
+  });
+
+  group('TransactionRepository.getYearRange', () {
+    final txJson2020 = <String, dynamic>{
+      'name': 'transactions/t_old',
+      'transaction_date': '2020-03-15',
+      'postings': <dynamic>[],
+    };
+    final txJson2025 = <String, dynamic>{
+      'name': 'transactions/t_new',
+      'transaction_date': '2025-11-20',
+      'postings': <dynamic>[],
+    };
+
+    test(
+      'returns (oldestYear, newestYear) from two parallel requests',
+      () async {
+        var callCount = 0;
+        when(
+          () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenAnswer((inv) async {
+          final params =
+              inv.namedArguments[#queryParams] as Map<String, String>;
+          callCount++;
+          if (params['order'] == 'asc') {
+            return (
+              data: <String, dynamic>{
+                'transactions': [txJson2020],
+                'next_page_token': null,
+              },
+              error: null,
+            );
+          }
+          return (
+            data: <String, dynamic>{
+              'transactions': [txJson2025],
+              'next_page_token': null,
+            },
+            error: null,
+          );
+        });
+
+        final result = await repo.getYearRange();
+
+        expect(callCount, 2);
+        expect(result.error, isNull);
+        expect(result.data, (2020, 2025));
+      },
+    );
+
+    test('returns (currentYear, currentYear) when no transactions', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer(
+        (_) async => (
+          data: <String, dynamic>{
+            'transactions': <dynamic>[],
+            'next_page_token': null,
+          },
+          error: null,
+        ),
+      );
+
+      final result = await repo.getYearRange();
+
+      expect(result.error, isNull);
+      expect(result.data!.$1, DateTime.now().year);
+      expect(result.data!.$2, DateTime.now().year);
+    });
+
+    test('propagates error from client', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final result = await repo.getYearRange();
 
       expect(result.error, isA<NetworkError>());
       expect(result.data, isNull);

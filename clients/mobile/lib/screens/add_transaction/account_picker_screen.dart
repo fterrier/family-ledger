@@ -144,7 +144,11 @@ class _AccountItem extends StatelessWidget {
               ),
             ),
             Expanded(
-              child: _HighlightedText(text: account.displayName, query: query),
+              child: _HighlightedText(
+                text: account.displayName,
+                query: query,
+                dimmed: account.isPrefix,
+              ),
             ),
             if (isSelected)
               const Icon(Icons.check, color: Color(0xFF1A73E8), size: 18),
@@ -158,16 +162,21 @@ class _AccountItem extends StatelessWidget {
 class _HighlightedText extends StatelessWidget {
   final String text;
   final String query;
+  final bool dimmed;
 
-  const _HighlightedText({required this.text, required this.query});
+  const _HighlightedText({
+    required this.text,
+    required this.query,
+    this.dimmed = false,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final baseColor = dimmed
+        ? const Color(0xFF8E8E93)
+        : const Color(0xFF1C1C1E);
     if (query.isEmpty) {
-      return Text(
-        text,
-        style: const TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-      );
+      return Text(text, style: TextStyle(fontSize: 15, color: baseColor));
     }
     // Build spans: highlight matched characters in order.
     final spans = <TextSpan>[];
@@ -198,7 +207,7 @@ class _HighlightedText extends StatelessWidget {
     }
     return RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
+        style: TextStyle(fontSize: 15, color: baseColor),
         children: spans,
       ),
     );

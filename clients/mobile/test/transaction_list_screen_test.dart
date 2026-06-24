@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
@@ -64,7 +65,8 @@ void main() {
     );
   });
 
-  setUp(() {
+  setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     mockRepo = MockTransactionRepository();
     mockAccountRepo = MockAccountRepository();
     mockCommodityRepo = MockCommodityRepository();
@@ -72,6 +74,9 @@ void main() {
     when(
       () => mockRepo.runDoctor(),
     ).thenAnswer((_) async => (data: <String>{}, error: null));
+    when(
+      () => mockRepo.getYearRange(),
+    ).thenAnswer((_) async => (data: (2024, 2026), error: null));
     // Default stubs for account/commodity repos (used when edit screen opens)
     when(
       () => mockAccountRepo.getAllAccounts(),
@@ -97,6 +102,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) => completer.future);
 
@@ -114,6 +120,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
 
@@ -131,6 +138,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer(
       (_) async => (data: (<TransactionResource>[], null), error: null),
@@ -147,6 +155,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer(
       (_) async => (data: null, error: const NetworkError('timeout')),
@@ -165,6 +174,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer(
       (_) async => (
@@ -200,6 +210,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((invocation) async {
       final token = invocation.namedArguments[#pageToken] as String?;
@@ -242,6 +253,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async {
       callCount++;
@@ -295,6 +307,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((inv) {
       final token = inv.namedArguments[#pageToken] as String?;
@@ -378,6 +391,7 @@ void main() {
         () => mockRepo.listTransactions(
           pageSize: any(named: 'pageSize'),
           pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
         ),
       ).thenAnswer((inv) {
         final token = inv.namedArguments[#pageToken] as String?;
@@ -454,6 +468,7 @@ void main() {
         () => mockRepo.listTransactions(
           pageSize: any(named: 'pageSize'),
           pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
         ),
       ).thenAnswer((inv) async {
         final token = inv.namedArguments[#pageToken] as String?;
@@ -519,6 +534,7 @@ void main() {
         () => mockRepo.listTransactions(
           pageSize: any(named: 'pageSize'),
           pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
         ),
       ).thenAnswer((inv) async {
         final token = inv.namedArguments[#pageToken] as String?;
@@ -578,6 +594,7 @@ void main() {
         () => mockRepo.listTransactions(
           pageSize: any(named: 'pageSize'),
           pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
         ),
       ).thenAnswer((_) async {
         final i = callIndex++;
@@ -614,6 +631,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
     when(
@@ -631,6 +649,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
     // setUp already stubs runDoctor to return empty set
@@ -649,6 +668,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
     when(() => mockRepo.runDoctor()).thenAnswer((_) => doctorCompleter.future);
@@ -672,6 +692,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
 
@@ -721,6 +742,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((inv) async {
       final token = inv.namedArguments[#pageToken] as String?;
@@ -761,6 +783,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
 
@@ -809,6 +832,7 @@ void main() {
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
         pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
 
@@ -850,6 +874,7 @@ void main() {
         () => mockRepo.listTransactions(
           pageSize: any(named: 'pageSize'),
           pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
         ),
       ).thenAnswer((_) async => (data: ([original], null), error: null));
       when(

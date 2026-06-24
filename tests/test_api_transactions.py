@@ -1243,6 +1243,100 @@ def test_list_transactions_account_filter_no_duplicates_when_multiple_postings()
     assert names == [tx["name"]]
 
 
+def test_list_transactions_account_name_exact_match() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    savings = create_account(client, "Assets:Bank:Savings")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    tx_checking = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "100", "symbol": "CHF"}},
+        ],
+    )
+    create_transaction(
+        client,
+        "2026-01-02",
+        [
+            {"account": savings["name"], "units": {"amount": "-200", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "200", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get("/transactions?account_name=Assets:Bank:Checking")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx_checking["name"]]
+
+
+def test_list_transactions_account_name_prefix_match() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    savings = create_account(client, "Assets:Bank:Savings")
+    expenses = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    tx1 = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": expenses["name"], "units": {"amount": "100", "symbol": "CHF"}},
+        ],
+    )
+    tx2 = create_transaction(
+        client,
+        "2026-01-02",
+        [
+            {"account": savings["name"], "units": {"amount": "-200", "symbol": "CHF"}},
+            {"account": expenses["name"], "units": {"amount": "200", "symbol": "CHF"}},
+        ],
+    )
+    create_transaction(
+        client,
+        "2026-01-03",
+        [
+            {"account": expenses["name"], "units": {"amount": "50", "symbol": "CHF"}},
+            {"account": expenses["name"], "units": {"amount": "50", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get("/transactions?account_name=Assets:Bank&order=asc")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx1["name"], tx2["name"]]
+
+
+def test_list_transactions_account_name_no_duplicates() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    savings = create_account(client, "Assets:Bank:Savings")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    tx = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "300", "symbol": "CHF"}},
+            {"account": savings["name"], "units": {"amount": "200", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-500", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get("/transactions?account_name=Assets:Bank")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx["name"]]
+
+
 # ---------------------------------------------------------------------------
 # merge transactions
 # ---------------------------------------------------------------------------

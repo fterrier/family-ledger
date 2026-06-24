@@ -4,7 +4,7 @@ import json
 from datetime import date
 from typing import Any, Literal, cast
 
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
@@ -107,17 +107,20 @@ def _check_source_ids_available(
         return
     dialect = session.get_bind().dialect.name
     if dialect == "postgresql":
-        rows = session.execute(
-            text(
-                "SELECT t.name, c.v"
-                " FROM transactions t,"
-                " jsonb_array_elements_text(t.source_native_ids) AS tv,"
-                " jsonb_array_elements_text(CAST(:ids_json AS jsonb)) AS c(v)"
-                " WHERE tv = c.v"
-                " AND (:exclude IS NULL OR t.name != :exclude)"
-                " LIMIT 1"
-            ).bindparams(ids_json=json.dumps(ids), exclude=exclude_name)
-        ).all()
+        pg_sql = (
+            "SELECT t.name, c.v"
+            " FROM transactions t,"
+            " jsonb_array_elements_text(t.source_native_ids) AS tv,"
+            " jsonb_array_elements_text(CAST(:ids_json AS jsonb)) AS c(v)"
+            " WHERE tv = c.v"
+        )
+        if exclude_name is not None:
+            pg_sql += " AND t.name != :exclude"
+        pg_sql += " LIMIT 1"
+        stmt = text(pg_sql).bindparams(ids_json=json.dumps(ids))
+        if exclude_name is not None:
+            stmt = stmt.bindparams(exclude=exclude_name)
+        rows = session.execute(stmt).all()
     else:
         placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
         params: dict[str, Any] = {f"id{i}": sid for i, sid in enumerate(ids)}
@@ -245,6 +248,7 @@ def list_transactions_page(
     from_date: date | None,
     to_date: date | None,
     account: str | None,
+    account_name: str | None,
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     query = select(Transaction).options(
@@ -255,12 +259,25 @@ def list_transactions_page(
     if to_date is not None:
         query = query.where(Transaction.transaction_date <= to_date)
     if account is not None:
-        account_name = resource_name("accounts", account)
+        resolved = resource_name("accounts", account)
         matching_ids = (
             select(Transaction.id)
             .join(Transaction.postings)
             .join(Posting.account)
-            .where(Account.name == account_name)
+            .where(Account.name == resolved)
+        )
+        query = query.where(Transaction.id.in_(matching_ids))
+    if account_name is not None:
+        matching_ids = (
+            select(Transaction.id)
+            .join(Transaction.postings)
+            .join(Posting.account)
+            .where(
+                or_(
+                    Account.account_name == account_name,
+                    Account.account_name.like(account_name + ":%"),
+                )
+            )
         )
         query = query.where(Transaction.id.in_(matching_ids))
     if order == "desc":

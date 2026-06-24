@@ -3,13 +3,22 @@ class AccountResource {
   final String accountName;
   final String effectiveStartDate;
   final String? effectiveEndDate;
+  final bool isPrefix;
 
   const AccountResource({
     required this.name,
     required this.accountName,
     required this.effectiveStartDate,
     this.effectiveEndDate,
+    this.isPrefix = false,
   });
+
+  factory AccountResource.prefix(String accountNamePath) => AccountResource(
+    name: accountNamePath,
+    accountName: accountNamePath,
+    effectiveStartDate: '',
+    isPrefix: true,
+  );
 
   bool get isActive => effectiveEndDate == null;
 

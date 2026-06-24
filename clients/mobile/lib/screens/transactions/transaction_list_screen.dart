@@ -1,25 +1,33 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/account_category.dart';
 import '../../core/amount_format.dart';
+import '../../models/account.dart';
 import '../../core/api_error.dart';
+import '../../core/filter_persistence.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/error_banner.dart';
 import '../transaction_edit/transaction_edit_screen.dart';
+import 'transaction_filter.dart';
+import 'transaction_filter_sheet.dart';
 
 class TransactionListScreen extends StatefulWidget {
   final TransactionRepository transactionRepository;
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
+  final ValueNotifier<bool>? filterActiveNotifier;
 
   const TransactionListScreen({
     super.key,
     required this.transactionRepository,
     required this.accountRepository,
     required this.commodityRepository,
+    this.filterActiveNotifier,
   });
 
   @override
@@ -41,11 +49,30 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   Set<String> _transactionsWithIssues = {};
   int _doctorGeneration = 0;
 
+  TransactionFilter _filter = const TransactionFilter();
+  List<AccountResource> _accounts = const [];
+  bool _filterOpen = false;
+
   @override
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _restoreFilter();
+    _prefetchAccounts();
+  }
+
+  Future<void> _restoreFilter() async {
+    final saved = await FilterPersistence.load();
+    if (!mounted) return;
+    _filter = saved;
+    widget.filterActiveNotifier?.value = _filter.isActive;
     _load();
+  }
+
+  Future<void> _prefetchAccounts() async {
+    final result = await widget.accountRepository.getAllAccounts();
+    if (!mounted) return;
+    _accounts = result.data ?? [];
   }
 
   @override
@@ -128,12 +155,31 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     await _doFetch(generation: generation);
   }
 
+  Future<void> openFilter() async {
+    if (_filterOpen) return;
+    _filterOpen = true;
+    final result = await showTransactionFilterSheet(
+      context,
+      accounts: _accounts,
+      current: _filter,
+      transactionRepository: widget.transactionRepository,
+    );
+    _filterOpen = false;
+    if (result != null && mounted) {
+      _filter = result;
+      unawaited(FilterPersistence.save(_filter));
+      widget.filterActiveNotifier?.value = _filter.isActive;
+      refresh();
+    }
+  }
+
   // Shared fetch. Caller must have incremented _loadGeneration, set _isLoading = true,
   // and captured the generation value before any await.
   Future<void> _doFetch({required int generation, String? pageToken}) async {
     if (pageToken == null) _refreshDoctorIssues();
     final result = await widget.transactionRepository.listTransactions(
       pageToken: pageToken,
+      filter: _filter,
     );
     if (!mounted) return;
     if (_loadGeneration != generation) return; // superseded by a newer refresh
@@ -168,20 +214,19 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   @override
   Widget build(BuildContext context) {
     if (_error != null && _transactions.isEmpty) {
-      return Column(
-        children: [ErrorBanner(error: _error!, onRetry: refresh)],
-      );
+      return ErrorBanner(error: _error!, onRetry: refresh);
     }
 
     if (_transactions.isEmpty) {
-      return _isLoading
-          ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-          : const Center(
-              child: Text(
-                'No transactions yet',
-                style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
-              ),
-            );
+      if (_isLoading) {
+        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+      }
+      return const Center(
+        child: Text(
+          'No transactions yet',
+          style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
+        ),
+      );
     }
 
     // Bottom spinner only during pagination. During refresh, _nextPageToken is reset
@@ -239,15 +284,12 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
     // Refresh failure with existing data: ErrorBanner at top (always visible after
     // jumpTo(0)), list below. Footer would be off-screen, so banner is required.
-    if (_error != null) {
-      return Column(
-        children: [
-          ErrorBanner(error: _error!, onRetry: refresh),
-          Expanded(child: listContent),
-        ],
-      );
-    }
-    return listContent;
+    return Column(
+      children: [
+        if (_error != null) ErrorBanner(error: _error!, onRetry: refresh),
+        Expanded(child: listContent),
+      ],
+    );
   }
 }
 

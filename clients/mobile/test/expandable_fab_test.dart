@@ -35,7 +35,8 @@ void main() {
 
   group('ExpandableFab tap (no drag)', () {
     testWidgets('tap on primary triggers onAddTransaction', (tester) async {
-      var addCalled = 0, importCalled = 0;
+      var addCalled = 0;
+      var importCalled = 0;
       await tester.pumpWidget(
         _wrap(
           onAddTransaction: () => addCalled++,
@@ -71,7 +72,8 @@ void main() {
 
   group('ExpandableFab drag to import', () {
     testWidgets('dragging to import button triggers onImport', (tester) async {
-      var addCalled = 0, importCalled = 0;
+      var addCalled = 0;
+      var importCalled = 0;
       await tester.pumpWidget(
         _wrap(
           onAddTransaction: () => addCalled++,
@@ -121,12 +123,11 @@ void main() {
       final center = tester.getCenter(_primaryFab());
       final gesture = await tester.startGesture(center);
       await tester.pump(const Duration(milliseconds: 250));
-      // Move sideways (not toward the import button which is above)
       await gesture.moveBy(const Offset(-40, 0));
       await tester.pump();
 
       final importButton = tester.widget<FloatingActionButton>(_importFab());
-      expect(importButton.backgroundColor, Colors.white); // not highlighted
+      expect(importButton.backgroundColor, Colors.white);
 
       await gesture.cancel();
       await tester.pumpAndSettle();
@@ -137,7 +138,8 @@ void main() {
     testWidgets('pointer cancel fires no callback and collapses', (
       tester,
     ) async {
-      var addCalled = 0, importCalled = 0;
+      var addCalled = 0;
+      var importCalled = 0;
       await tester.pumpWidget(
         _wrap(
           onAddTransaction: () => addCalled++,

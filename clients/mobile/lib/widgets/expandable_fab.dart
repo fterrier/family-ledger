@@ -31,7 +31,7 @@ class _ExpandableFabState extends State<ExpandableFab>
   // Import button center is this many pixels above the primary FAB center:
   // half-primary (28) + gap (8) + half-import (20) = 56px.
   static const double _kImportOffsetY = 56.0;
-  static const double _kImportHitRadius = 24.0; // slightly generous
+  static const double _kImportHitRadius = 24.0;
   static const double _kImportHitRadiusSq =
       _kImportHitRadius * _kImportHitRadius;
 
@@ -64,6 +64,7 @@ class _ExpandableFabState extends State<ExpandableFab>
   }
 
   void _onPointerMove(PointerMoveEvent event) {
+    if (_pointerDownPosition == null) return;
     if (!_farFromOrigin) {
       final distSq = (event.position - _pointerDownPosition!).distanceSquared;
       if (distSq > _kDragThresholdSq) _farFromOrigin = true;

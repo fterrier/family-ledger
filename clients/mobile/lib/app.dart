@@ -1,11 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/api_client.dart';
+import 'core/filter_persistence.dart';
 import 'core/secure_settings.dart';
 import 'repositories/account_repository.dart';
 import 'repositories/commodity_repository.dart';
 import 'repositories/importer_repository.dart';
 import 'repositories/transaction_repository.dart';
+import 'screens/transactions/transaction_filter.dart';
 import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/settings/settings_screen.dart';
@@ -82,6 +85,14 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     setState(() => _configured = ok);
   }
 
+  // Single place to register server-specific caches that must be cleared on
+  // URL change. Add new caches here — SettingsScreen does not need to change.
+  void _invalidateServerCache() {
+    _accountRepo.invalidateCache();
+    _commodityRepo.invalidateCache();
+    unawaited(FilterPersistence.save(const TransactionFilter()));
+  }
+
   Future<void> _openSettings() async {
     final saved = await Navigator.push(
       context,
@@ -91,6 +102,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           apiClient: _apiClient,
           accountRepository: _accountRepo,
           commodityRepository: _commodityRepo,
+          onServerChanged: _invalidateServerCache,
         ),
       ),
     );
@@ -138,6 +150,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         accountRepository: _accountRepo,
         commodityRepository: _commodityRepo,
         onSaved: _checkConfiguration,
+        onServerChanged: _invalidateServerCache,
       );
     }
     return Scaffold(

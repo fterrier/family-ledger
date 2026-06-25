@@ -55,15 +55,17 @@ void main() {
     ).thenAnswer((_) async => (data: <Commodity>[], error: null));
   });
 
-  Widget buildScreen({VoidCallback? onSaved}) => MaterialApp(
-    home: SettingsScreen(
-      settings: mockSettings,
-      apiClient: mockApiClient,
-      accountRepository: mockRepo,
-      commodityRepository: mockCommodityRepo,
-      onSaved: onSaved,
-    ),
-  );
+  Widget buildScreen({VoidCallback? onSaved, VoidCallback? onServerChanged}) =>
+      MaterialApp(
+        home: SettingsScreen(
+          settings: mockSettings,
+          apiClient: mockApiClient,
+          accountRepository: mockRepo,
+          commodityRepository: mockCommodityRepo,
+          onSaved: onSaved,
+          onServerChanged: onServerChanged,
+        ),
+      );
 
   group('SettingsScreen default From account', () {
     testWidgets('shows None when no default is stored', (tester) async {
@@ -270,6 +272,70 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Default Currency'), findsNothing);
+    });
+  });
+
+  group('SettingsScreen onServerChanged callback', () {
+    testWidgets('called on every save regardless of URL change', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+      when(
+        () => mockRepo.getAllAccounts(),
+      ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+
+      var calls = 0;
+      await tester.pumpWidget(buildScreen(onServerChanged: () => calls++));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(calls, 1);
+    });
+
+    testWidgets('URL change clears last_from_account_name pref', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        _prefKeyDefaultFrom: 'Assets:Cash:Wallet',
+      });
+      when(
+        () => mockRepo.getAllAccounts(),
+      ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'http://other.com',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.containsKey(_prefKeyDefaultFrom), isFalse);
+    });
+
+    testWidgets('same URL preserves last_from_account_name pref', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        _prefKeyDefaultFrom: 'Assets:Cash:Wallet',
+      });
+      when(
+        () => mockRepo.getAllAccounts(),
+      ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(_prefKeyDefaultFrom), 'Assets:Cash:Wallet');
     });
   });
 

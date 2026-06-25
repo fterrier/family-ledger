@@ -19,6 +19,9 @@ class SettingsScreen extends StatefulWidget {
   // Called instead of Navigator.pop when screen is shown as the initial setup
   // screen (not pushed onto the navigator stack).
   final VoidCallback? onSaved;
+  // Called when the server URL changes — clears all server-specific caches.
+  // Add new caches there, not here.
+  final VoidCallback? onServerChanged;
 
   const SettingsScreen({
     super.key,
@@ -27,6 +30,7 @@ class SettingsScreen extends StatefulWidget {
     required this.accountRepository,
     required this.commodityRepository,
     this.onSaved,
+    this.onServerChanged,
   });
 
   @override
@@ -44,6 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _testing = false;
   ({bool ok, String text})? _testResult;
 
+  String _savedUrl = '';
   SharedPreferences? _prefs;
   List<AccountResource>? _accounts;
   List<Commodity>? _commodities;
@@ -64,7 +69,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ).wait;
     if (!mounted) return;
     setState(() {
-      _urlController.text = url ?? '';
+      _savedUrl = url ?? '';
+      _urlController.text = _savedUrl;
       _tokenController.text = token ?? '';
     });
     if ((url?.isNotEmpty ?? false) && (token?.isNotEmpty ?? false)) {
@@ -138,11 +144,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final urlChanged = _savedUrl != _urlController.text.trim();
     await (
       widget.settings.saveBaseUrl(_urlController.text),
       widget.settings.saveToken(_tokenController.text),
     ).wait;
-    widget.accountRepository.invalidateCache();
+    widget.onServerChanged?.call();
+    if (urlChanged) {
+      _savedUrl = _urlController.text.trim();
+      final prefs = _prefs ?? await SharedPreferences.getInstance();
+      await prefs.remove(_prefKeyDefaultFrom);
+      if (mounted) {
+        setState(() {
+          _defaultFromAccount = null;
+          _accounts = null;
+          _commodities = null;
+        });
+      }
+    }
     if (mounted) {
       ScaffoldMessenger.of(
         context,

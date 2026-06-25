@@ -35,12 +35,16 @@ dev = [
   "pytest>=8.3,<9.0",
   "pytest-cov>=6.0,<8.0",
   "ruff>=0.15,<1.0",
+  "testcontainers[postgres]>=4.0,<5.0",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", ".", "importers/src"]
 testpaths = ["tests", "importers/tests"]
-addopts = "--cov=family_ledger --cov=family_ledger_importers --cov-report=term-missing --cov-fail-under=85"
+addopts = "--cov=family_ledger --cov=family_ledger_importers --cov-report=term-missing --cov-fail-under=85 -m 'not integration'"
+markers = [
+    "integration: marks tests as integration tests requiring a real PostgreSQL instance (run with: uv run pytest -m integration tests/integration/)",
+]
 
 [tool.ruff]
 target-version = "py312"

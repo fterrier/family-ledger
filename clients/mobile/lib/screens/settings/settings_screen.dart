@@ -248,24 +248,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
               const Divider(height: 1, color: Color(0xFFF2F2F7)),
               _fieldRow(
                 label: 'Token',
+                trailing: TextButton(
+                  onPressed: () =>
+                      setState(() => _tokenVisible = !_tokenVisible),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    _tokenVisible ? 'Hide' : 'Show',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF1A73E8),
+                    ),
+                  ),
+                ),
                 child: TextFormField(
                   controller: _tokenController,
                   obscureText: !_tokenVisible,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     border: InputBorder.none,
                     isDense: true,
                     contentPadding: EdgeInsets.zero,
-                    suffixIcon: TextButton(
-                      onPressed: () =>
-                          setState(() => _tokenVisible = !_tokenVisible),
-                      child: Text(
-                        _tokenVisible ? 'Hide' : 'Show',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF1A73E8),
-                        ),
-                      ),
-                    ),
                   ),
                   style: const TextStyle(fontSize: 15),
                   validator: (v) =>
@@ -390,7 +395,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     child: Column(children: children),
   );
 
-  Widget _fieldRow({required String label, required Widget child}) => Padding(
+  Widget _fieldRow({
+    required String label,
+    required Widget child,
+    Widget? trailing,
+  }) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
     child: Row(
       children: [
@@ -402,6 +411,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         Expanded(child: child),
+        ?trailing,
       ],
     ),
   );

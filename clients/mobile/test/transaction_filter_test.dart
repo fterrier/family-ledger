@@ -83,6 +83,20 @@ void main() {
       expect(params['from_date'], '2024-01-01');
       expect(params['to_date'], '2024-12-31');
     });
+
+    test('lastImportOnly: true sends last_import=true', () {
+      final params = const TransactionFilter(
+        lastImportOnly: true,
+      ).toQueryParams();
+      expect(params['last_import'], 'true');
+    });
+
+    test('lastImportOnly: false (default) omits last_import param', () {
+      expect(
+        const TransactionFilter().toQueryParams().containsKey('last_import'),
+        isFalse,
+      );
+    });
   });
 
   group('TransactionFilter.dateRangeLabel', () {
@@ -167,6 +181,10 @@ void main() {
         TransactionFilter(toDate: DateTime(2025, 12, 31)).isActive,
         isTrue,
       );
+    });
+
+    test('active when lastImportOnly set', () {
+      expect(const TransactionFilter(lastImportOnly: true).isActive, isTrue);
     });
   });
 

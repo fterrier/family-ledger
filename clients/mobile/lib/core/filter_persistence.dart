@@ -8,6 +8,7 @@ class FilterPersistence {
   static const _keyAccountIsPrefix = 'tx_filter_account_is_prefix';
   static const _keyFromDate = 'tx_filter_from_date';
   static const _keyToDate = 'tx_filter_to_date';
+  static const _keyLastImportOnly = 'tx_filter_last_import_only';
 
   static Future<TransactionFilter> load() async {
     try {
@@ -33,6 +34,7 @@ class FilterPersistence {
         account: account,
         fromDate: fromStr != null ? DateTime.tryParse(fromStr) : null,
         toDate: toStr != null ? DateTime.tryParse(toStr) : null,
+        lastImportOnly: prefs.getBool(_keyLastImportOnly) ?? false,
       );
     } catch (_) {
       return const TransactionFilter();
@@ -48,6 +50,7 @@ class FilterPersistence {
           prefs.remove(_keyAccountDisplayName),
           prefs.remove(_keyFromDate),
           prefs.remove(_keyToDate),
+          prefs.remove(_keyLastImportOnly),
         ]);
         return;
       }
@@ -84,6 +87,11 @@ class FilterPersistence {
         );
       } else {
         futures.add(prefs.remove(_keyToDate));
+      }
+      if (filter.lastImportOnly) {
+        futures.add(prefs.setBool(_keyLastImportOnly, true));
+      } else {
+        futures.add(prefs.remove(_keyLastImportOnly));
       }
       await Future.wait(futures);
     } catch (_) {

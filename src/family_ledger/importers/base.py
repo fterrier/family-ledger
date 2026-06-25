@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -12,6 +12,7 @@ from family_ledger.api.schemas import (
     AccountCreate,
     BalanceAssertionCreate,
     CommodityCreate,
+    ImportMetadata,
     PadResponse,
     PriceCreate,
     TransactionNormalizeData,
@@ -42,11 +43,17 @@ class ImportContext:
     always populated so the Sheets incremental sync receives the correct resource names.
     """
 
-    def __init__(self, session: Session, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        settings: Settings | None = None,
+        import_timestamp: datetime | None = None,
+    ) -> None:
         self._session = session
         self._settings = settings
         self._result = ImportResult()
         self._seen_commodity_symbols: set[str] = set()
+        self._import_timestamp = import_timestamp
 
     @property
     def session(self) -> Session:
@@ -86,6 +93,16 @@ class ImportContext:
 
     def create_transaction(self, payload: TransactionNormalizeData) -> bool:
         """Returns True if created, False if duplicate."""
+        if self._import_timestamp is not None:
+            existing = payload.import_metadata
+            payload = payload.model_copy(
+                update={
+                    "import_metadata": ImportMetadata(
+                        source_native_ids=existing.source_native_ids if existing else [],
+                        import_timestamp=self._import_timestamp,
+                    )
+                }
+            )
         return (
             self._track(
                 "transaction",

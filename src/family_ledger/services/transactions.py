@@ -4,7 +4,7 @@ import json
 from datetime import date
 from typing import Any, Literal, cast
 
-from sqlalchemy import or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
@@ -50,8 +50,11 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
     ]
 
     import_metadata = (
-        ImportMetadata(source_native_ids=transaction.source_native_ids)
-        if transaction.source_native_ids
+        ImportMetadata(
+            source_native_ids=transaction.source_native_ids,
+            import_timestamp=transaction.import_timestamp,
+        )
+        if (transaction.source_native_ids or transaction.import_timestamp)
         else None
     )
 
@@ -160,6 +163,7 @@ def persist_transaction(
 
     if _masked("import_metadata"):
         new_ids = payload.import_metadata.source_native_ids if payload.import_metadata else []
+        new_ts = payload.import_metadata.import_timestamp if payload.import_metadata else None
         exclude = None if is_create else transaction.name
         _check_source_ids_available(session, new_ids, exclude_name=exclude)
 
@@ -177,6 +181,7 @@ def persist_transaction(
         transaction.entity_metadata = payload.entity_metadata
     if _masked("import_metadata"):
         transaction.source_native_ids = new_ids
+        transaction.import_timestamp = new_ts
     if _masked("tags"):
         transaction.tags = payload.tags
     if _masked("postings"):
@@ -249,11 +254,15 @@ def list_transactions_page(
     to_date: date | None,
     account: str | None,
     account_name: str | None,
+    last_import: bool = False,
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     query = select(Transaction).options(
         selectinload(Transaction.postings).selectinload(Posting.account)
     )
+    if last_import:
+        max_ts = select(func.max(Transaction.import_timestamp)).scalar_subquery()
+        query = query.where(Transaction.import_timestamp == max_ts)
     if from_date is not None:
         query = query.where(Transaction.transaction_date >= from_date)
     if to_date is not None:
@@ -359,6 +368,10 @@ def merge_transactions(
             result_postings.append(sp)
 
     merged_ids = list(dict.fromkeys(primary.source_native_ids + secondary.source_native_ids))
+    merged_ts = max(
+        (t for t in [primary.import_timestamp, secondary.import_timestamp] if t is not None),
+        default=None,
+    )
 
     merged = Transaction(
         name=generate_resource_name("transactions", "txn"),
@@ -368,6 +381,7 @@ def merge_transactions(
         tags=list(dict.fromkeys(primary.tags + secondary.tags)),
         entity_metadata=primary.entity_metadata,
         source_native_ids=merged_ids,
+        import_timestamp=merged_ts,
     )
     session.add(merged)
     session.flush()

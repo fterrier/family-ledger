@@ -37,6 +37,7 @@ def list_transactions(
     to_date: date | None = None,
     account: str | None = None,
     account_name: str | None = None,
+    last_import: bool = False,
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
     return _call_service(
@@ -48,6 +49,7 @@ def list_transactions(
         to_date=to_date,
         account=account,
         account_name=account_name,
+        last_import=last_import,
         order=order,
     )
 

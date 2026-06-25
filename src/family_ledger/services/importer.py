@@ -13,6 +13,7 @@ from family_ledger.config import Settings
 from family_ledger.importers.base import ImportContext, ImportResult
 from family_ledger.importers.registry import get_importer, get_importers
 from family_ledger.models.importer import Importer
+from family_ledger.models.ledger import utcnow
 from family_ledger.services.errors import NotFoundError, ValidationError
 
 
@@ -143,5 +144,5 @@ def execute_import(
     stored_config = _load_stored_config(session, plugin_name)
     config_override = _parse_config_override(config_override_raw)
     merged = _resolve_importer_config(stored_config, config_override, importer.get_schema())
-    ctx = ImportContext(session, settings)
+    ctx = ImportContext(session, settings, import_timestamp=utcnow())
     return importer.execute(ctx, files, merged, settings)

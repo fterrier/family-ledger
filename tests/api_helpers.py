@@ -69,12 +69,18 @@ def create_transaction(
     postings: list[dict],
     *,
     source_native_ids: list[str] | None = None,
+    import_timestamp: str | None = None,
     payee: str | None = None,
     narration: str | None = None,
 ) -> dict:
     body: dict = {"transaction_date": tx_date, "postings": postings}
-    if source_native_ids is not None:
-        body["import_metadata"] = {"source_native_ids": source_native_ids}
+    if source_native_ids is not None or import_timestamp is not None:
+        import_metadata: dict = {}
+        if source_native_ids is not None:
+            import_metadata["source_native_ids"] = source_native_ids
+        if import_timestamp is not None:
+            import_metadata["import_timestamp"] = import_timestamp
+        body["import_metadata"] = import_metadata
     if payee is not None:
         body["payee"] = payee
     if narration is not None:

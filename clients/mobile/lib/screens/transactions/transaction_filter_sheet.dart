@@ -249,6 +249,37 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
             ),
             const Divider(height: 1, color: Color(0xFFE5E5EA)),
 
+            // Last import toggle
+            InkWell(
+              onTap: () => setState(() {
+                _draft = _draft.copyWith(
+                  lastImportOnly: !_draft.lastImportOnly,
+                );
+              }),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                child: Row(
+                  children: [
+                    const Text(
+                      'Last import',
+                      style: TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
+                    ),
+                    const Spacer(),
+                    Switch.adaptive(
+                      value: _draft.lastImportOnly,
+                      onChanged: (v) => setState(
+                        () => _draft = _draft.copyWith(lastImportOnly: v),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFE5E5EA)),
+
             // Account section
             InkWell(
               onTap: _pickAccount,

@@ -1708,3 +1708,121 @@ def test_merge_originals_can_be_deleted_after_merge() -> None:
     assert client.delete(f"/{primary['name']}").status_code == 204
     assert client.delete(f"/{secondary['name']}").status_code == 204
     assert client.get(f"/{merged_name}").status_code == 200
+
+
+def test_list_transactions_last_import() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking:LI")
+    equity = create_account(client, "Equity:Opening:LI")
+    create_commodity(client, "CHF")
+
+    postings = [
+        {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+        {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+    ]
+
+    create_transaction(client, "2026-01-01", postings, import_timestamp="2026-01-01T10:00:00")
+    b = create_transaction(client, "2026-01-02", postings, import_timestamp="2026-01-02T10:00:00")
+
+    resp = client.get("/transactions?last_import=true")
+    assert resp.status_code == 200
+    names = [t["name"] for t in resp.json()["transactions"]]
+    assert names == [b["name"]]
+
+
+def test_list_transactions_last_import_no_imports() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking:LINI")
+    equity = create_account(client, "Equity:Opening:LINI")
+    create_commodity(client, "CHF")
+
+    create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ],
+    )
+
+    resp = client.get("/transactions?last_import=true")
+    assert resp.status_code == 200
+    assert resp.json()["transactions"] == []
+
+
+def test_merge_transactions_import_timestamp() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking:MTS")
+    equity = create_account(client, "Equity:Opening:MTS")
+    create_commodity(client, "CHF")
+
+    postings = [
+        {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+        {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+    ]
+
+    primary = create_transaction(
+        client,
+        "2026-01-01",
+        postings,
+        source_native_ids=["mts:1"],
+        import_timestamp="2026-01-01T10:00:00",
+    )
+    secondary = create_transaction(
+        client,
+        "2026-01-01",
+        postings,
+        source_native_ids=["mts:2"],
+        import_timestamp="2026-01-02T10:00:00",
+    )
+
+    merged_resp = client.post(
+        "/transactions:merge",
+        json={"primary_transaction": primary["name"], "secondary_transaction": secondary["name"]},
+    )
+    assert merged_resp.status_code == 200
+    merged = merged_resp.json()
+
+    assert merged["import_metadata"]["import_timestamp"] == "2026-01-02T10:00:00"
+
+
+def test_list_transactions_last_import_combined_with_account() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Checking:LICA")
+    savings = create_account(client, "Assets:Savings:LICA")
+    equity = create_account(client, "Equity:Opening:LICA")
+    create_commodity(client, "CHF")
+
+    def checking_posting():
+        return [
+            {"account": checking["name"], "units": {"amount": "100.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
+        ]
+
+    def savings_posting():
+        return [
+            {"account": savings["name"], "units": {"amount": "200.00", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "-200.00", "symbol": "CHF"}},
+        ]
+
+    # Batch 1: one checking, one savings
+    create_transaction(
+        client, "2026-01-01", checking_posting(), import_timestamp="2026-01-01T10:00:00"
+    )
+    create_transaction(
+        client, "2026-01-01", savings_posting(), import_timestamp="2026-01-01T10:00:00"
+    )
+
+    # Batch 2: one checking, one savings
+    checking_b2 = create_transaction(
+        client, "2026-01-02", checking_posting(), import_timestamp="2026-01-02T10:00:00"
+    )
+    create_transaction(
+        client, "2026-01-02", savings_posting(), import_timestamp="2026-01-02T10:00:00"
+    )
+
+    # last_import + account_name filter → only checking from batch 2
+    resp = client.get("/transactions?last_import=true&account_name=Assets:Checking:LICA")
+    assert resp.status_code == 200
+    names = [t["name"] for t in resp.json()["transactions"]]
+    assert names == [checking_b2["name"]]

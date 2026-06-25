@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -42,6 +42,7 @@ class PostingPayload(BaseModel):
 
 class ImportMetadata(BaseModel):
     source_native_ids: list[str] = Field(default_factory=list)
+    import_timestamp: datetime | None = None
 
 
 class AccountData(BaseModel):

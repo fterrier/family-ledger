@@ -15,6 +15,7 @@ import 'screens/import/import_screen.dart';
 import 'screens/transactions/transaction_filter.dart';
 import 'screens/transactions/transaction_list_screen.dart';
 import 'widgets/app_logo.dart';
+import 'widgets/expandable_fab.dart';
 
 class FamilyLedgerApp extends StatefulWidget {
   const FamilyLedgerApp({super.key});
@@ -242,11 +243,6 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
               ],
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.upload_file_outlined),
-            onPressed: () => _openImport(),
-            tooltip: 'Import',
-          ),
         ],
       ),
       backgroundColor: const Color(0xFFF2F2F7),
@@ -257,11 +253,9 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         commodityRepository: _commodityRepo,
         filterActiveNotifier: _filterActive,
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _openAddTransaction,
-        backgroundColor: const Color(0xFF1A73E8),
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.add),
+      floatingActionButton: ExpandableFab(
+        onAddTransaction: _openAddTransaction,
+        onImport: _openImport,
       ),
     );
   }

@@ -1,17 +1,18 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/api_client.dart';
+import 'core/app_preferences.dart';
 import 'core/filter_persistence.dart';
 import 'core/secure_settings.dart';
 import 'repositories/account_repository.dart';
 import 'repositories/commodity_repository.dart';
 import 'repositories/importer_repository.dart';
 import 'repositories/transaction_repository.dart';
-import 'screens/transactions/transaction_filter.dart';
+import 'screens/settings/app_settings_screen.dart';
+import 'screens/settings/server_settings_screen.dart';
 import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
-import 'screens/settings/settings_screen.dart';
+import 'screens/transactions/transaction_filter.dart';
 import 'screens/transactions/transaction_list_screen.dart';
 import 'widgets/app_logo.dart';
 
@@ -85,28 +86,41 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     setState(() => _configured = ok);
   }
 
-  // Single place to register server-specific caches that must be cleared on
-  // URL change. Add new caches here — SettingsScreen does not need to change.
-  void _invalidateServerCache() {
+  // Clears all server-specific state. Add new caches here — screen code does
+  // not need to change when a new cache is introduced.
+  Future<void> _invalidateServerCache() async {
     _accountRepo.invalidateCache();
     _commodityRepo.invalidateCache();
-    unawaited(FilterPersistence.save(const TransactionFilter()));
+    await Future.wait([
+      FilterPersistence.save(const TransactionFilter()),
+      AppPreferences.clear(),
+    ]);
   }
 
-  Future<void> _openSettings() async {
+  Future<void> _openServerSettings() async {
     final saved = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => SettingsScreen(
+        builder: (_) => ServerSettingsScreen(
           settings: _settings,
           apiClient: _apiClient,
-          accountRepository: _accountRepo,
-          commodityRepository: _commodityRepo,
           onServerChanged: _invalidateServerCache,
         ),
       ),
     );
     if (saved == true) _checkConfiguration();
+  }
+
+  Future<void> _openAppSettings() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AppSettingsScreen(
+          accountRepository: _accountRepo,
+          commodityRepository: _commodityRepo,
+        ),
+      ),
+    );
   }
 
   Future<void> _openImport({String? filePath, String? mimeType}) async {
@@ -115,7 +129,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       MaterialPageRoute(
         builder: (_) => ImportScreen(
           importerRepository: _importerRepo,
-          onOpenSettings: _openSettings,
+          onOpenSettings: _openServerSettings,
           initialFilePath: filePath,
           initialMimeType: mimeType,
         ),
@@ -131,7 +145,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           accountRepository: _accountRepo,
           commodityRepository: _commodityRepo,
           transactionRepository: _transactionRepo,
-          onOpenSettings: _openSettings,
+          onOpenSettings: _openServerSettings,
         ),
       ),
     );
@@ -144,21 +158,57 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (!_configured!) {
-      return SettingsScreen(
+      return ServerSettingsScreen(
         settings: _settings,
         apiClient: _apiClient,
-        accountRepository: _accountRepo,
-        commodityRepository: _commodityRepo,
         onSaved: _checkConfiguration,
         onServerChanged: _invalidateServerCache,
       );
     }
     return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [AppLogo(), SizedBox(width: 10), Text('Family Ledger')],
+      drawer: Drawer(
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.white),
+              child: Row(
+                children: [
+                  AppLogo(),
+                  SizedBox(width: 10),
+                  Text(
+                    'Family Ledger',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF1C1C1E),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            ListTile(
+              leading: const Icon(Icons.tune_outlined),
+              title: const Text('App Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                _openAppSettings();
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.dns_outlined),
+              title: const Text('Server'),
+              onTap: () {
+                Navigator.pop(context);
+                _openServerSettings();
+              },
+            ),
+          ],
         ),
+      ),
+      appBar: AppBar(
+        title: const Text('Family Ledger'),
+        titleSpacing: 0,
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF1C1C1E),
         elevation: 0,
@@ -196,11 +246,6 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
             icon: const Icon(Icons.upload_file_outlined),
             onPressed: () => _openImport(),
             tooltip: 'Import',
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: _openSettings,
-            tooltip: 'Settings',
           ),
         ],
       ),

@@ -67,7 +67,13 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       if (mounted) {
         setState(() {
           _connecting = false;
-          _errorMessage = 'Cannot reach server. Check the URL.';
+          _errorMessage = switch (healthErr) {
+            NetworkError(:final message) => message,
+            AuthError() => 'Authentication failed.',
+            MissingSettingsError() => 'Server not configured.',
+            ValidationError(:final message) ||
+            ServerError(:final message) => 'Server error: $message',
+          };
         });
       }
       return;

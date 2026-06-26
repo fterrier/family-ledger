@@ -9,6 +9,7 @@ import 'secure_settings.dart';
 
 class ApiClient {
   final SecureSettings _settings;
+  final http.Client _client = http.Client();
 
   ApiClient(this._settings);
 
@@ -18,7 +19,7 @@ class ApiClient {
       return const MissingSettingsError();
     }
     try {
-      final response = await http
+      final response = await _client
           .get(Uri.parse('$baseUrl/healthz'))
           .timeout(const Duration(seconds: 10));
       if (response.statusCode == 200) return null;
@@ -39,7 +40,7 @@ class ApiClient {
     path,
     queryParams: queryParams,
     makeRequest: (uri, headers) =>
-        http.get(uri, headers: headers).timeout(const Duration(seconds: 15)),
+        _client.get(uri, headers: headers).timeout(const Duration(seconds: 15)),
   );
 
   Future<Result<Map<String, dynamic>>> post(
@@ -47,7 +48,7 @@ class ApiClient {
     Map<String, dynamic> body,
   ) => _call(
     path,
-    makeRequest: (uri, headers) => http
+    makeRequest: (uri, headers) => _client
         .post(uri, headers: headers, body: jsonEncode(body))
         .timeout(const Duration(seconds: 15)),
   );
@@ -57,7 +58,7 @@ class ApiClient {
     Map<String, dynamic> body,
   ) => _call(
     path,
-    makeRequest: (uri, headers) => http
+    makeRequest: (uri, headers) => _client
         .patch(uri, headers: headers, body: jsonEncode(body))
         .timeout(const Duration(seconds: 15)),
   );
@@ -92,9 +93,9 @@ class ApiClient {
     }
 
     try {
-      final streamed = await request.send().timeout(
-        const Duration(seconds: 60),
-      );
+      final streamed = await _client
+          .send(request)
+          .timeout(const Duration(seconds: 60));
       final response = await http.Response.fromStream(streamed);
       return _parseResponse(response);
     } catch (e) {

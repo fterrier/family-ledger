@@ -50,7 +50,6 @@ function buildSheetConfig_(key, name, columnLayout, options) {
     result[header] = Object.freeze({ index: index, column: index + 1 });
     return result;
   }, {});
-
   return Object.freeze({
     key: key,
     name: name,
@@ -72,12 +71,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to open the Edit/Delete Transaction sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 180,
       role: 'system',
       note: 'Technical transaction resource name used by the client.',
       alignment: 'left',
+      header_text: 'resource name',
     },
     transaction_date: {
       width: 95,
@@ -87,6 +88,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       numberFormat: 'yyyy-mm-dd',
       quickFilter: 'date',
       insertionOrder: true,
+      header_text: 'date',
     },
     payee: {
       width: 300,
@@ -94,18 +96,21 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Editable payee. Applies to the whole transaction.',
       alignment: 'left',
       wrapStrategy: 'CLIP',
+      header_text: 'payee (from/to)',
     },
     narration: {
       width: 200,
       role: 'editable',
       note: 'Editable narration. Normal text = transaction narration; italic = posting-specific narration.',
       alignment: 'left',
+      header_text: 'narration (remarks)',
     },
     narration_source: {
       width: 95,
       role: 'system',
       note: 'Technical narration ownership marker used by the client.',
       alignment: 'left',
+      header_text: 'narration source',
     },
     source_account_name: {
       width: 230,
@@ -114,6 +119,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       quickFilter: 'account',
+      header_text: 'source account name',
     },
     destination_account_name: {
       width: 280,
@@ -123,31 +129,36 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       quickFilter: 'account',
       validation: 'account',
+      header_text: 'destination account name',
     },
     symbol: {
       width: 55,
       role: 'readonly',
       note: 'Read-only commodity symbol.',
       alignment: 'center',
+      header_text: 'symbol',
     },
     amount: {
-      width: 90,
+      width: 85,
       role: 'editable',
       note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
       alignment: 'right',
       numberFormat: '#,##0.00',
+      header_text: 'amount',
     },
     split_off_amount: {
-      width: 95,
+      width: 85,
       role: 'action',
       note: 'Action field. Enter an amount to split, or x / - to delete a split row.',
       alignment: 'right',
+      header_text: 'split',
     },
     tags: {
-      width: 90,
+      width: 100,
       role: 'editable',
       note: 'Editable comma-separated tags for this transaction.',
       alignment: 'left',
+      header_text: 'tags',
     },
     issues: {
       width: 600,
@@ -157,14 +168,16 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       wrapStrategy: 'OVERFLOW',
       formulaManaged: true,
+      header_text: 'issues',
     },
-    hasCostPrice: {
+    has_cost_price: {
       width: 60,
       role: 'system',
       note: 'True when any posting in this transaction group has a cost or price annotation. Used to guard inline edits.',
+      header_text: 'has cost price',
     },
   }, {
-    hiddenHeaders: ['resource_name', 'narration_source', 'hasCostPrice'],
+    hiddenHeaders: ['resource_name', 'narration_source', 'has_cost_price'],
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
@@ -174,12 +187,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Check to open the edit sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 220,
       role: 'system',
       note: 'Technical balance assertion resource name used by the client.',
       alignment: 'left',
+      header_text: 'resource name',
     },
     assertion_date: {
       width: 95,
@@ -189,6 +204,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       numberFormat: 'yyyy-mm-dd',
       quickFilter: 'date',
       insertionOrder: true,
+      header_text: 'assertion date',
     },
     account: {
       width: 320,
@@ -197,6 +213,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       quickFilter: 'account',
+      header_text: 'account',
     },
     amount: {
       width: 110,
@@ -204,12 +221,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only asserted amount.',
       alignment: 'right',
       numberFormat: '#,##0.00',
+      header_text: 'amount',
     },
     symbol: {
       width: 55,
       role: 'readonly',
       note: 'Read-only commodity symbol.',
       alignment: 'center',
+      header_text: 'symbol',
     },
     issues: {
       width: 600,
@@ -219,6 +238,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       wrapStrategy: 'OVERFLOW',
       formulaManaged: true,
+      header_text: 'issues',
     },
   }, {
     hiddenHeaders: ['resource_name'],
@@ -231,12 +251,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to open the Edit/Delete Account sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 180,
       role: 'system',
       note: 'Technical resource name used by the client.',
       alignment: 'left',
+      header_text: 'resource name',
     },
     account_name: {
       width: 320,
@@ -245,6 +267,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       quickFilter: 'account',
+      header_text: 'account name',
     },
     effective_start_date: {
       width: 95,
@@ -252,6 +275,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only account opening date.',
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
+      header_text: 'effective start date',
     },
     effective_end_date: {
       width: 95,
@@ -259,6 +283,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only account closing date.',
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
+      header_text: 'effective end date',
     },
     issues: {
       width: 600,
@@ -268,6 +293,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       wrapStrategy: 'OVERFLOW',
       formulaManaged: true,
+      header_text: 'issues',
     },
   }, {
     hiddenHeaders: ['resource_name'],
@@ -280,10 +306,12 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to open the Edit sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 180,
       role: 'system',
+      header_text: 'resource name',
     },
     symbol: {
       width: 80,
@@ -291,12 +319,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Commodity symbol.',
       alignment: 'left',
       insertionOrder: true,
+      header_text: 'symbol',
     },
     ticker: {
       width: 120,
       role: 'readonly',
       note: 'Market ticker used for price fetching, e.g. NESN.SW, USDCHF=X.',
       alignment: 'left',
+      header_text: 'ticker',
     },
   }, { issueHeader: null, hiddenHeaders: ['resource_name'], protectedHeaders: ['resource_name'] }),
   prices: buildSheetConfig_('prices', FAMILY_LEDGER_SHEET_NAMES.prices, {
@@ -306,12 +336,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to open the Edit/Delete Price sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 200,
       role: 'system',
       note: 'Technical price resource name used by the client.',
       alignment: 'left',
+      header_text: 'resource name',
     },
     price_date: {
       width: 95,
@@ -320,12 +352,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       numberFormat: 'yyyy-mm-dd',
       insertionOrder: true,
+      header_text: 'price date',
     },
     base_symbol: {
       width: 80,
       role: 'readonly',
       note: 'Read-only base commodity symbol.',
       alignment: 'left',
+      header_text: 'base symbol',
     },
     quote_amount: {
       width: 110,
@@ -333,12 +367,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Read-only price per unit of base in quote currency.',
       alignment: 'right',
       numberFormat: '#,##0.0000',
+      header_text: 'quote amount',
     },
     quote_symbol: {
       width: 80,
       role: 'readonly',
       note: 'Read-only quote currency symbol.',
       alignment: 'left',
+      header_text: 'quote symbol',
     },
   }, {
     issueHeader: null,
@@ -352,12 +388,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'Click to open the Edit/Delete Attachment sidebar.',
       alignment: 'center',
       checkbox: true,
+      header_text: 'edit',
     },
     resource_name: {
       width: 200,
       role: 'system',
       note: 'Technical attachment resource name used by the client.',
       alignment: 'left',
+      header_text: 'resource name',
     },
     attachment_date: {
       width: 95,
@@ -367,6 +405,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       numberFormat: 'yyyy-mm-dd',
       quickFilter: 'date',
       insertionOrder: true,
+      header_text: 'attachment date',
     },
     account: {
       width: 280,
@@ -375,18 +414,21 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       quickFilter: 'account',
+      header_text: 'account',
     },
     original_filename: {
       width: 300,
       role: 'readonly',
       note: 'Read-only filename. Hyperlinked to document URL when available.',
       alignment: 'left',
+      header_text: 'original filename',
     },
     status: {
       width: 120,
       role: 'readonly',
       note: 'Read-only attachment status (e.g. stored, pending_upload).',
       alignment: 'left',
+      header_text: 'status',
     },
     issues: {
       width: 600,
@@ -396,6 +438,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       wrap: false,
       wrapStrategy: 'OVERFLOW',
       formulaManaged: true,
+      header_text: 'issues',
     },
   }, {
     hiddenHeaders: ['resource_name'],
@@ -407,6 +450,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       role: 'system',
       note: 'Technical resource name of the affected entity.',
       alignment: 'left',
+      header_text: 'target',
     },
     navigate: {
       width: 300,
@@ -415,12 +459,14 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrapStrategy: 'CLIP',
       formulaManaged: true,
+      header_text: 'navigate',
     },
     issue_codes: {
       width: 200,
       role: 'readonly',
       note: 'Issue code identifiers.',
       alignment: 'left',
+      header_text: 'issue codes',
     },
     issues_text: {
       width: 500,
@@ -429,6 +475,7 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       wrap: false,
       wrapStrategy: 'OVERFLOW',
+      header_text: 'issues text',
     },
   }, {
     issueHeader: null,

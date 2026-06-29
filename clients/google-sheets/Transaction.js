@@ -254,7 +254,7 @@ class Transaction extends Entity {
     const api = parseTransactionRowsToApi_(rows, (context || {}).accountDisplayNameToResource || {});
     const tx = new Transaction(api, context);
     tx._span = span || null;
-    tx._hasCostPrice = rows.length > 0 && !!rows[0].hasCostPrice;
+    tx._hasCostPrice = rows.length > 0 && !!rows[0].has_cost_price;
     return tx;
   }
 
@@ -468,7 +468,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         split_off_amount: '',
         symbol: group.symbol,
         tags: tagsText,
-        hasCostPrice: group.hasCostPrice,
+        has_cost_price: group.hasCostPrice,
       });
       return;
     }
@@ -497,7 +497,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         split_off_amount: '',
         symbol: weight.symbol,
         tags: tagsText,
-        hasCostPrice: group.hasCostPrice,
+        has_cost_price: group.hasCostPrice,
       });
     });
 
@@ -515,7 +515,7 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
         split_off_amount: '',
         symbol: rem.symbol,
         tags: tagsText,
-        hasCostPrice: group.hasCostPrice,
+        has_cost_price: group.hasCostPrice,
       });
     }
   });

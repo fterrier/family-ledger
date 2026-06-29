@@ -388,7 +388,7 @@ test('flattenTransactionForSheet_ investment buy: uses weight for amount/symbol,
   assert.equal(rows[0].destination_account_name, '[A] Investments - VTI');
   assert.equal(rows[0].amount, 1000);
   assert.equal(rows[0].symbol, 'CHF');
-  assert.equal(rows[0].hasCostPrice, true);
+  assert.equal(rows[0].has_cost_price, true);
 });
 
 test('flattenTransactionForSheet_ FX conversion: two rows, one per weight symbol', () => {
@@ -445,7 +445,7 @@ test('flattenTransactionForSheet_ hasCostPrice false when no posting has cost or
     'accounts/food': '[X] Food',
   });
 
-  assert.equal(rows[0].hasCostPrice, false);
+  assert.equal(rows[0].has_cost_price, false);
 });
 
 test('flattenTransactionForSheet_ unbalanced 2-posting: adds blank destination row for remainder', () => {
@@ -1870,7 +1870,7 @@ function complexSheetRow(overrides) {
     destination_account_name: '[X] Food',
     amount: 1000,
     symbol: 'CHF',
-    hasCostPrice: true,
+    has_cost_price: true,
     __rowNumber: 2,
   }, overrides);
 }
@@ -1883,7 +1883,7 @@ test('Transaction.fromRows() sets _hasCostPrice true when hasCostPrice is true i
 
 test('Transaction.fromRows() sets _hasCostPrice false when hasCostPrice is false in rows', () => {
   const { Transaction } = loadT_();
-  const row = complexSheetRow({ hasCostPrice: false });
+  const row = complexSheetRow({ has_cost_price: false });
   const tx = Transaction.fromRows([row], ACCOUNT_LOOKUP, { start: 2, count: 1 });
   assert.equal(tx._hasCostPrice, false);
 });

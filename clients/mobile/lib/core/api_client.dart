@@ -63,6 +63,13 @@ class ApiClient {
         .timeout(const Duration(seconds: 15)),
   );
 
+  Future<ApiError?> delete(String path) => _callVoid(
+    path,
+    makeRequest: (uri, headers) => _client
+        .delete(uri, headers: headers)
+        .timeout(const Duration(seconds: 15)),
+  );
+
   Future<Result<Map<String, dynamic>>> postMultipart(
     String path, {
     required Map<String, (Uint8List bytes, String filename)> files,
@@ -100,6 +107,47 @@ class ApiClient {
       return _parseResponse(response);
     } catch (e) {
       return (data: null, error: _mapException(e));
+    }
+  }
+
+  Future<ApiError?> _callVoid(
+    String path, {
+    required Future<http.Response> Function(Uri, Map<String, String>)
+    makeRequest,
+  }) async {
+    final creds = await _resolveCredentials();
+    if (creds == null) return const MissingSettingsError();
+    final (baseUrl, token) = creds;
+    final uri = Uri.parse('$baseUrl$path');
+    final headers = {
+      'Authorization': 'Bearer $token',
+      'Content-Type': 'application/json',
+    };
+    try {
+      final response = await makeRequest(uri, headers);
+      if (response.statusCode == 204 || response.statusCode == 200) return null;
+      if (response.statusCode == 401) return const AuthError();
+      if (response.body.isEmpty) {
+        return ServerError(
+          response.statusCode,
+          'error',
+          'Unexpected status ${response.statusCode}',
+        );
+      }
+      try {
+        return _errorFromDecoded(
+          response.statusCode,
+          jsonDecode(response.body) as Map<String, dynamic>,
+        );
+      } catch (_) {
+        return ServerError(
+          response.statusCode,
+          'error',
+          'Unexpected status ${response.statusCode}',
+        );
+      }
+    } catch (e) {
+      return _mapException(e);
     }
   }
 
@@ -147,21 +195,22 @@ class ApiClient {
     }
     final decoded = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode >= 400) {
-      final detail = decoded['detail'];
-      final code =
-          (detail is Map ? detail['code'] : null) as String? ?? 'error';
-      final message =
-          (detail is Map ? detail['message'] : detail?.toString()) as String? ??
-          'Unknown error';
-      if (response.statusCode == 400) {
-        return (data: null, error: ValidationError(message));
-      }
       return (
         data: null,
-        error: ServerError(response.statusCode, code, message),
+        error: _errorFromDecoded(response.statusCode, decoded),
       );
     }
     return (data: decoded, error: null);
+  }
+
+  static ApiError _errorFromDecoded(int statusCode, Map<String, dynamic> body) {
+    final detail = body['detail'];
+    final code = (detail is Map ? detail['code'] : null) as String? ?? 'error';
+    final message =
+        (detail is Map ? detail['message'] : detail?.toString()) as String? ??
+        'Unknown error';
+    if (statusCode == 400) return ValidationError(message);
+    return ServerError(statusCode, code, message);
   }
 
   static ApiError _mapException(Object e) {

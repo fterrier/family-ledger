@@ -26,3 +26,13 @@ class ValidationError extends ApiError {
 class MissingSettingsError extends ApiError {
   const MissingSettingsError();
 }
+
+extension ApiErrorMessage on ApiError {
+  String get displayMessage => switch (this) {
+    NetworkError e => e.message,
+    ServerError e => e.message,
+    ValidationError e => e.message,
+    AuthError() => 'Authentication failed',
+    MissingSettingsError() => 'Server not configured',
+  };
+}

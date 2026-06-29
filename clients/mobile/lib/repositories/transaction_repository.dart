@@ -1,4 +1,5 @@
 import '../core/api_client.dart';
+import '../core/api_error.dart';
 import '../core/result.dart';
 import '../models/transaction.dart';
 import '../screens/transactions/transaction_filter.dart';
@@ -57,6 +58,20 @@ class TransactionRepository {
     final nextPageToken = body['next_page_token'] as String?;
 
     return (data: (transactions, nextPageToken), error: null);
+  }
+
+  Future<ApiError?> deleteTransaction(String name) => _client.delete('/$name');
+
+  Future<Result<TransactionResource>> mergeTransactions(
+    String primary,
+    String secondary,
+  ) async {
+    final result = await _client.post('/transactions:merge', {
+      'primary_transaction': primary,
+      'secondary_transaction': secondary,
+    });
+    if (result.error != null) return (data: null, error: result.error);
+    return (data: TransactionResource.fromJson(result.data!), error: null);
   }
 
   Future<Result<(int, int)>> getYearRange() async {

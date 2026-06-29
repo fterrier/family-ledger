@@ -37,6 +37,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   bool? _configured;
   final _listKey = GlobalKey<TransactionListScreenState>();
   final _filterActive = ValueNotifier<bool>(false);
+  final _bulkSelectionNotifier = ValueNotifier<Set<String>>({});
 
   @override
   void initState() {
@@ -79,6 +80,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   void dispose() {
     _shareChannel.setMethodCallHandler(null);
     _filterActive.dispose();
+    _bulkSelectionNotifier.dispose();
     super.dispose();
   }
 
@@ -153,6 +155,83 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     _listKey.currentState?.refresh();
   }
 
+  static final _appBarDivider = PreferredSize(
+    preferredSize: const Size.fromHeight(1),
+    child: Container(height: 1, color: const Color(0xFFE5E5EA)),
+  );
+
+  AppBar _buildNormalAppBar() {
+    return AppBar(
+      title: const Text('Family Ledger'),
+      titleSpacing: 0,
+      backgroundColor: Colors.white,
+      foregroundColor: const Color(0xFF1C1C1E),
+      elevation: 0,
+      bottom: _appBarDivider,
+      actions: [
+        ValueListenableBuilder<bool>(
+          valueListenable: _filterActive,
+          builder: (context, active, child) => Stack(
+            children: [
+              IconButton(
+                icon: const Icon(Icons.filter_list_outlined),
+                onPressed: () => _listKey.currentState?.openFilter(),
+                tooltip: 'Filter',
+              ),
+              if (active)
+                Positioned(
+                  right: 8,
+                  top: 8,
+                  child: Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF1A73E8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  AppBar _buildSelectionAppBar(Set<String> selected) {
+    return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () => _listKey.currentState?.exitSelectionMode(),
+      ),
+      title: Text('${selected.length} selected'),
+      backgroundColor: Colors.white,
+      foregroundColor: const Color(0xFF1C1C1E),
+      elevation: 0,
+      bottom: _appBarDivider,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.delete_outline),
+          onPressed: () => _listKey.currentState?.deleteSelected(),
+          tooltip: 'Delete',
+        ),
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (value) {
+            if (value == 'merge') _listKey.currentState?.mergeSelected();
+          },
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              value: 'merge',
+              enabled: selected.length == 2,
+              child: const Text('Merge'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_configured == null) {
@@ -166,97 +245,74 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         onServerChanged: _invalidateServerCache,
       );
     }
-    return Scaffold(
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(color: Colors.white),
-              child: Row(
-                children: [
-                  AppLogo(),
-                  SizedBox(width: 10),
-                  Text(
-                    'Family Ledger',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF1C1C1E),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.tune_outlined),
-              title: const Text('App Settings'),
-              onTap: () {
-                Navigator.pop(context);
-                _openAppSettings();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.dns_outlined),
-              title: const Text('Server'),
-              onTap: () {
-                Navigator.pop(context);
-                _openServerSettings();
-              },
-            ),
-          ],
-        ),
-      ),
-      appBar: AppBar(
-        title: const Text('Family Ledger'),
-        titleSpacing: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: const Color(0xFF1C1C1E),
-        elevation: 0,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1),
-          child: Container(height: 1, color: const Color(0xFFE5E5EA)),
-        ),
-        actions: [
-          ValueListenableBuilder<bool>(
-            valueListenable: _filterActive,
-            builder: (context, active, child) => Stack(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.filter_list_outlined),
-                  onPressed: () => _listKey.currentState?.openFilter(),
-                  tooltip: 'Filter',
-                ),
-                if (active)
-                  Positioned(
-                    right: 8,
-                    top: 8,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF1A73E8),
-                        shape: BoxShape.circle,
+    return ListenableBuilder(
+      listenable: _bulkSelectionNotifier,
+      builder: (context, _) {
+        final selected = _bulkSelectionNotifier.value;
+        final isSelecting = selected.isNotEmpty;
+        return Scaffold(
+          drawer: isSelecting
+              ? null
+              : Drawer(
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      const DrawerHeader(
+                        decoration: BoxDecoration(color: Colors.white),
+                        child: Row(
+                          children: [
+                            AppLogo(),
+                            SizedBox(width: 10),
+                            Text(
+                              'Family Ledger',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1C1C1E),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
+                      ListTile(
+                        leading: const Icon(Icons.tune_outlined),
+                        title: const Text('App Settings'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openAppSettings();
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.dns_outlined),
+                        title: const Text('Server'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openServerSettings();
+                        },
+                      ),
+                    ],
                   ),
-              ],
-            ),
+                ),
+          appBar: isSelecting
+              ? _buildSelectionAppBar(selected)
+              : _buildNormalAppBar(),
+          backgroundColor: const Color(0xFFF2F2F7),
+          body: TransactionListScreen(
+            key: _listKey,
+            transactionRepository: _transactionRepo,
+            accountRepository: _accountRepo,
+            commodityRepository: _commodityRepo,
+            filterActiveNotifier: _filterActive,
+            selectionNotifier: _bulkSelectionNotifier,
           ),
-        ],
-      ),
-      backgroundColor: const Color(0xFFF2F2F7),
-      body: TransactionListScreen(
-        key: _listKey,
-        transactionRepository: _transactionRepo,
-        accountRepository: _accountRepo,
-        commodityRepository: _commodityRepo,
-        filterActiveNotifier: _filterActive,
-      ),
-      floatingActionButton: ExpandableFab(
-        onAddTransaction: _openAddTransaction,
-        onImport: _openImport,
-      ),
+          floatingActionButton: isSelecting
+              ? null
+              : ExpandableFab(
+                  onAddTransaction: _openAddTransaction,
+                  onImport: _openImport,
+                ),
+        );
+      },
     );
   }
 }

@@ -21,6 +21,7 @@ class TransactionListScreen extends StatefulWidget {
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
   final ValueNotifier<bool>? filterActiveNotifier;
+  final ValueNotifier<Set<String>>? selectionNotifier;
 
   const TransactionListScreen({
     super.key,
@@ -28,6 +29,7 @@ class TransactionListScreen extends StatefulWidget {
     required this.accountRepository,
     required this.commodityRepository,
     this.filterActiveNotifier,
+    this.selectionNotifier,
   });
 
   @override
@@ -52,6 +54,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   TransactionFilter _filter = const TransactionFilter();
   List<AccountResource> _accounts = const [];
   bool _filterOpen = false;
+
+  Set<String> _selectedNames = {};
+  bool _bulkActionBusy = false;
 
   @override
   void initState() {
@@ -142,6 +147,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   // Sets _isLoading = true inside setState BEFORE jumpTo(0) so the synchronous
   // _onScroll callback fired by jumpTo sees _isLoading = true and bails.
   Future<void> refresh() async {
+    if (_bulkActionBusy) return;
     _loadGeneration++;
     final generation = _loadGeneration;
     setState(() {
@@ -166,6 +172,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     );
     _filterOpen = false;
     if (result != null && mounted) {
+      exitSelectionMode();
       _filter = result;
       unawaited(FilterPersistence.save(_filter));
       widget.filterActiveNotifier?.value = _filter.isActive;
@@ -211,6 +218,97 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     });
   }
 
+  void _updateSelection(Set<String> next) {
+    setState(() => _selectedNames = next);
+    widget.selectionNotifier?.value = next;
+  }
+
+  void _enterSelection(TransactionResource tx) => _updateSelection({tx.name});
+
+  void _toggleSelection(TransactionResource tx) {
+    final next = Set<String>.from(_selectedNames);
+    if (next.contains(tx.name)) {
+      next.remove(tx.name);
+    } else {
+      next.add(tx.name);
+    }
+    _updateSelection(next);
+  }
+
+  void exitSelectionMode() {
+    _bulkActionBusy = false;
+    _updateSelection({});
+  }
+
+  Future<void> deleteSelected() async {
+    if (_bulkActionBusy || _selectedNames.isEmpty) return;
+    setState(() => _bulkActionBusy = true);
+    final toDelete = Set<String>.from(_selectedNames);
+    final errors = await Future.wait(
+      toDelete.map(
+        (name) => widget.transactionRepository.deleteTransaction(name),
+      ),
+    );
+    if (!mounted) return;
+    final firstError = errors.firstWhere((e) => e != null, orElse: () => null);
+    if (firstError != null) {
+      setState(() => _bulkActionBusy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(firstError.displayMessage)));
+      return;
+    }
+    setState(() => _transactions.removeWhere((t) => toDelete.contains(t.name)));
+    exitSelectionMode();
+  }
+
+  Future<void> mergeSelected() async {
+    if (_bulkActionBusy || _selectedNames.length != 2) return;
+    setState(() => _bulkActionBusy = true);
+    final names = _selectedNames.toList();
+    final mergeResult = await widget.transactionRepository.mergeTransactions(
+      names[0],
+      names[1],
+    );
+    if (!mounted) return;
+    if (mergeResult.error != null) {
+      setState(() => _bulkActionBusy = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(mergeResult.error!.displayMessage)),
+      );
+      return;
+    }
+    final deleteErrors = await Future.wait(
+      names.map((name) => widget.transactionRepository.deleteTransaction(name)),
+    );
+    if (!mounted) return;
+    final firstError = deleteErrors.firstWhere(
+      (e) => e != null,
+      orElse: () => null,
+    );
+    if (firstError != null) {
+      setState(() => _bulkActionBusy = false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(firstError.displayMessage)));
+      return;
+    }
+    final mergedTx = mergeResult.data!;
+    final toRemove = Set<String>.from(names);
+    setState(() {
+      final primaryIdx = _transactions.indexWhere((t) => t.name == names[0]);
+      final secondaryIdx = _transactions.indexWhere((t) => t.name == names[1]);
+      final insertAt = primaryIdx < 0
+          ? 0
+          : (primaryIdx -
+                    (secondaryIdx >= 0 && secondaryIdx < primaryIdx ? 1 : 0))
+                .clamp(0, _transactions.length - toRemove.length);
+      _transactions.removeWhere((t) => toRemove.contains(t.name));
+      _transactions.insert(insertAt, mergedTx);
+    });
+    exitSelectionMode();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_error != null && _transactions.isEmpty) {
@@ -233,6 +331,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // to null before _isLoading = true, so this stays false and only
     // RefreshIndicator's own top indicator shows.
     final showBottomSpinner = _isLoading && _nextPageToken != null;
+    final isSelecting = _selectedNames.isNotEmpty;
 
     Widget listContent = RefreshIndicator(
       onRefresh: refresh,
@@ -271,12 +370,16 @@ class TransactionListScreenState extends State<TransactionListScreen> {
               ),
             );
           }
+          final tx = _transactions[index];
           return _TransactionRow(
-            transaction: _transactions[index],
-            hasIssue: _transactionsWithIssues.contains(
-              _transactions[index].name,
-            ),
-            onTap: () => _openTransaction(_transactions[index]),
+            transaction: tx,
+            hasIssue: _transactionsWithIssues.contains(tx.name),
+            isSelecting: isSelecting,
+            isSelected: _selectedNames.contains(tx.name),
+            onTap: isSelecting
+                ? () => _toggleSelection(tx)
+                : () => _openTransaction(tx),
+            onLongPress: () => _enterSelection(tx),
           );
         },
       ),
@@ -296,12 +399,18 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 class _TransactionRow extends StatelessWidget {
   final TransactionResource transaction;
   final bool hasIssue;
+  final bool isSelecting;
+  final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback onLongPress;
 
   const _TransactionRow({
     required this.transaction,
     required this.hasIssue,
+    required this.isSelecting,
+    required this.isSelected,
     required this.onTap,
+    required this.onLongPress,
   });
 
   static final _dateFormatCurrentYear = DateFormat('MMM d');
@@ -332,6 +441,14 @@ class _TransactionRow extends StatelessWidget {
         ? transaction.narration
         : null;
 
+    final rowColor = isSelected ? const Color(0xFFE8F0FE) : Colors.white;
+    final selectionIcon = isSelected
+        ? Icons.check_circle
+        : Icons.radio_button_unchecked;
+    final selectionColor = isSelected
+        ? const Color(0xFF1A73E8)
+        : const Color(0xFF8E8E93);
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -339,8 +456,9 @@ class _TransactionRow extends StatelessWidget {
           children: [
             InkWell(
               onTap: onTap,
+              onLongPress: onLongPress,
               child: ColoredBox(
-                color: Colors.white,
+                color: rowColor,
                 child: SizedBox(
                   height: 88,
                   child: Padding(
@@ -351,7 +469,18 @@ class _TransactionRow extends StatelessWidget {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _PostingPills(postings: transaction.postings),
+                        if (isSelecting)
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: Icon(
+                              selectionIcon,
+                              size: 18,
+                              color: selectionColor,
+                            ),
+                          )
+                        else
+                          _PostingPills(postings: transaction.postings),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(

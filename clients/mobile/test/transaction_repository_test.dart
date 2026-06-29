@@ -537,4 +537,80 @@ void main() {
       expect(result.data, isNull);
     });
   });
+
+  group('TransactionRepository.deleteTransaction', () {
+    test('calls delete on /{name} and returns null on success', () async {
+      when(() => mockClient.delete(any())).thenAnswer((_) async => null);
+
+      final error = await repo.deleteTransaction('transactions/t1');
+
+      expect(error, isNull);
+
+      final call = verify(() => mockClient.delete(captureAny()));
+      call.called(1);
+      expect(call.captured.single, '/transactions/t1');
+    });
+
+    test('propagates error from client', () async {
+      when(
+        () => mockClient.delete(any()),
+      ).thenAnswer((_) async => const NetworkError('timeout'));
+
+      final error = await repo.deleteTransaction('transactions/t1');
+
+      expect(error, isA<NetworkError>());
+    });
+  });
+
+  group('TransactionRepository.mergeTransactions', () {
+    final mergedJson = <String, dynamic>{
+      'name': 'transactions/merged',
+      'transaction_date': '2026-06-01',
+      'payee': 'Migros',
+      'narration': null,
+      'postings': [
+        {
+          'account': 'accounts/acc_checking',
+          'account_name': 'Assets:Bank:Checking',
+          'units': {'amount': '-42.50', 'symbol': 'CHF'},
+        },
+      ],
+    };
+
+    test('posts to /transactions:merge and returns parsed resource', () async {
+      when(
+        () => mockClient.post(any(), any()),
+      ).thenAnswer((_) async => (data: mergedJson, error: null));
+
+      final result = await repo.mergeTransactions(
+        'transactions/t1',
+        'transactions/t2',
+      );
+
+      expect(result.error, isNull);
+      expect(result.data?.name, 'transactions/merged');
+      expect(result.data?.payee, 'Migros');
+
+      final call = verify(() => mockClient.post(captureAny(), captureAny()));
+      call.called(1);
+      final args = call.captured;
+      expect(args[0], '/transactions:merge');
+      expect((args[1] as Map)['primary_transaction'], 'transactions/t1');
+      expect((args[1] as Map)['secondary_transaction'], 'transactions/t2');
+    });
+
+    test('propagates error from client', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final result = await repo.mergeTransactions(
+        'transactions/t1',
+        'transactions/t2',
+      );
+
+      expect(result.error, isA<NetworkError>());
+      expect(result.data, isNull);
+    });
+  });
 }

@@ -900,4 +900,270 @@ void main() {
       expect(find.text('Migros'), findsNothing);
     },
   );
+
+  // --- Bulk selection tests ---
+
+  group('bulk selection', () {
+    late ValueNotifier<Set<String>> selectionNotifier;
+
+    TransactionResource tx2({
+      String name = 'transactions/t2',
+      String? payee = 'Coop',
+    }) => _tx(name: name, payee: payee, narration: null);
+
+    Widget buildScreenWithSelection() {
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      return MaterialApp(
+        home: Scaffold(
+          body: TransactionListScreen(
+            transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
+            selectionNotifier: selectionNotifier,
+          ),
+        ),
+      );
+    }
+
+    setUp(() {
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+        ),
+      ).thenAnswer((_) async => (data: ([_tx(), tx2()], null), error: null));
+      when(
+        () => mockRepo.deleteTransaction(any()),
+      ).thenAnswer((_) async => null);
+      when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
+        (_) async => (
+          data: _tx(
+            name: 'transactions/merged',
+            payee: 'Merged',
+            narration: null,
+          ),
+          error: null,
+        ),
+      );
+    });
+
+    testWidgets('long-press activates selection and selects that row', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildScreenWithSelection());
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      expect(selectionNotifier.value, {'transactions/t1'});
+      expect(find.byIcon(Icons.check_circle), findsOneWidget);
+    });
+
+    testWidgets('tapping another row in selection mode adds to selection', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildScreenWithSelection());
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+
+      expect(selectionNotifier.value, {'transactions/t1', 'transactions/t2'});
+      expect(find.byIcon(Icons.check_circle), findsNWidgets(2));
+    });
+
+    testWidgets('tapping a selected row deselects it', (tester) async {
+      await tester.pumpWidget(buildScreenWithSelection());
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      expect(selectionNotifier.value, {'transactions/t1'});
+
+      await tester.tap(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      expect(selectionNotifier.value, isEmpty);
+    });
+
+    testWidgets('exitSelectionMode clears selection and notifier', (
+      tester,
+    ) async {
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      expect(selectionNotifier.value, isNotEmpty);
+
+      key.currentState?.exitSelectionMode();
+      await tester.pumpAndSettle();
+
+      expect(selectionNotifier.value, isEmpty);
+      expect(find.byIcon(Icons.check_circle), findsNothing);
+      expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
+    });
+
+    testWidgets('deleteSelected removes rows and clears selection', (
+      tester,
+    ) async {
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Select both rows.
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+      expect(selectionNotifier.value.length, 2);
+
+      await key.currentState!.deleteSelected();
+      await tester.pumpAndSettle();
+
+      verify(() => mockRepo.deleteTransaction(any())).called(2);
+      expect(find.text('Migros'), findsNothing);
+      expect(find.text('Coop'), findsNothing);
+      expect(selectionNotifier.value, isEmpty);
+    });
+
+    testWidgets('deleteSelected on error shows SnackBar and keeps rows', (
+      tester,
+    ) async {
+      when(
+        () => mockRepo.deleteTransaction(any()),
+      ).thenAnswer((_) async => const NetworkError('timeout'));
+
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.deleteSelected();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Migros'), findsOneWidget);
+    });
+
+    testWidgets('mergeSelected calls merge + 2 deletes and removes both rows', (
+      tester,
+    ) async {
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.mergeSelected();
+      await tester.pumpAndSettle();
+
+      verify(() => mockRepo.mergeTransactions(any(), any())).called(1);
+      verify(() => mockRepo.deleteTransaction(any())).called(2);
+      expect(find.text('Migros'), findsNothing);
+      expect(find.text('Coop'), findsNothing);
+      expect(find.text('Merged'), findsOneWidget);
+      expect(selectionNotifier.value, isEmpty);
+    });
+
+    testWidgets('mergeSelected on error shows SnackBar and keeps rows', (
+      tester,
+    ) async {
+      when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.mergeSelected();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SnackBar), findsOneWidget);
+      expect(find.text('Migros'), findsOneWidget);
+      expect(find.text('Coop'), findsOneWidget);
+    });
+  });
 }

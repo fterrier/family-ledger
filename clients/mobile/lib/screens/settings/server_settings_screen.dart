@@ -68,7 +68,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
         setState(() {
           _connecting = false;
           _errorMessage = switch (healthErr) {
-            NetworkError(:final message) => message,
+            NetworkError() => 'Cannot reach server. Check the URL.',
             AuthError() => 'Authentication failed.',
             MissingSettingsError() => 'Server not configured.',
             ValidationError(:final message) ||

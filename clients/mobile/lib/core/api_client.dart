@@ -214,9 +214,7 @@ class ApiClient {
   }
 
   static ApiError _mapException(Object e) {
-    if (e is SocketException) {
-      return NetworkError('Cannot reach server: ${e.message}');
-    }
+    if (e is SocketException) return NetworkError(e.message);
     if (e is HttpException) return NetworkError(e.message);
     return NetworkError(e.toString());
   }

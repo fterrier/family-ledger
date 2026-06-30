@@ -2,7 +2,7 @@ function managedSheet_(sheet, sheetConfig) {
   return {
     setHeaders: function() {
       sheet.getRange(1, 1, 1, sheetConfig.headers.length)
-        .setValues([sheetConfig.headers.map(function(h) { return sheetConfig.columnLayout[h].header_text; })]);
+        .setValues([sheetConfig.headers.map(function(h) { return sheetConfig.columnLayout[h].header_text ?? h; })]);
     },
 
     setRow: function(rowNumber, row) {

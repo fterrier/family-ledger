@@ -51,7 +51,7 @@ class ErrorBanner extends StatelessWidget {
   (String, (String, VoidCallback?)?) _resolve(ApiError err) {
     return switch (err) {
       NetworkError(:final message) => (
-        message,
+        'Cannot reach server. $message',
         onRetry != null ? ('Retry', onRetry) : null,
       ),
       AuthError() => (

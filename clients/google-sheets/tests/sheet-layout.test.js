@@ -19,7 +19,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [sheetConfig.headers] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [sheetConfig.headers.map(function(h) { return sheetConfig.columnLayout[h].header_text ?? h; })] },
   ]);
 });
 

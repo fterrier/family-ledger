@@ -5,11 +5,12 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import MoneyValue, PadEntry, PadResponse
 from family_ledger.models import Account, BalanceAssertion, Posting, Transaction
+from family_ledger.services.account_matching import account_subtree_clause
 from family_ledger.services.errors import NotFoundError, ValidationError
 from family_ledger.services.transaction_balancing import resolve_tolerance
 from family_ledger.services.validation import resource_name
@@ -87,12 +88,7 @@ def _has_cost_tracked_positions(
         .select_from(Posting)
         .join(Posting.account)
         .join(Posting.transaction)
-        .where(
-            or_(
-                Account.account_name == account_name,
-                Account.account_name.like(account_name + ":%"),
-            )
-        )
+        .where(account_subtree_clause(Account.account_name, account_name))
         .where(Posting.units_symbol == units_symbol)
         .where(Posting.cost_symbol.is_not(None))
         .where(Transaction.transaction_date < before_date)
@@ -125,12 +121,7 @@ def compute_pad(session: Session, account_name: str, pad_date: date) -> PadRespo
         select(Transaction.id)
         .join(Transaction.postings)
         .join(Posting.account)
-        .where(
-            or_(
-                Account.account_name == account.account_name,
-                Account.account_name.like(account.account_name + ":%"),
-            )
-        )
+        .where(account_subtree_clause(Account.account_name, account.account_name))
     )
     transactions = list(
         session.scalars(

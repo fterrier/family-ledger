@@ -13,5 +13,6 @@ Current ADRs:
 - `0008-modular-import-system.md`
 - `0009-shared-balance-assertion-diffs.md`
 - `0010-pad-semantics.md`
+- `0011-reporting-query-language.md`
 
 Add an ADR when a decision is structural, non-obvious, expensive to reverse, or likely to be revisited.

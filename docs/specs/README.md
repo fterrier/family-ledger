@@ -10,3 +10,4 @@ Canonical current behavior lives here.
 - `google-sheets-client.md`: current Sheets client workflows and constraints
 - `account-balance-and-pad.md`: balance assertion, doctor, and pad semantics
 - `beancount-export.md`: `export-beancount` CLI and output format
+- `reporting-query.md`: proposed BQL-subset reporting endpoint and mobile account detail screen (not yet implemented)

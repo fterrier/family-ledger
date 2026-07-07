@@ -4,7 +4,7 @@ import json
 from datetime import date
 from typing import Any, Literal, cast
 
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from family_ledger.api.schemas import (
@@ -19,6 +19,7 @@ from family_ledger.api.schemas import (
     TransactionResource,
 )
 from family_ledger.models import Account, Posting, Transaction
+from family_ledger.services.account_matching import account_subtree_clause
 from family_ledger.services.errors import ConflictError, NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import normalize_and_validate_transaction_payload
@@ -281,12 +282,7 @@ def list_transactions_page(
             select(Transaction.id)
             .join(Transaction.postings)
             .join(Posting.account)
-            .where(
-                or_(
-                    Account.account_name == account_name,
-                    Account.account_name.like(account_name + ":%"),
-                )
-            )
+            .where(account_subtree_clause(Account.account_name, account_name))
         )
         query = query.where(Transaction.id.in_(matching_ids))
     if order == "desc":

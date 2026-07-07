@@ -172,6 +172,15 @@ Each issue has the following fields:
 | `details` | object | Code-specific key-value pairs (amounts, symbols, accounts) |
 | `target_summary` | object | Snapshot of the target's key fields for display without a second API call |
 
+## Reporting
+
+- `POST /ledger:query`
+
+Read-only reporting endpoint accepting a subset of the Beancount Query
+Language. Full request/response contract, cell encoding, worked examples,
+and error codes: [reporting-query.md](reporting-query.md). Decision record:
+ADR 0011.
+
 ## Importers
 
 - `GET /importers`

@@ -11,6 +11,7 @@ from family_ledger.api.commodities import router as commodities_router
 from family_ledger.api.health import router as health_router
 from family_ledger.api.importer import router as importer_router
 from family_ledger.api.prices import router as prices_router
+from family_ledger.api.query import router as query_router
 from family_ledger.api.transactions import router as transactions_router
 from family_ledger.config import get_ledger_config, get_settings
 from family_ledger.db import wait_for_database
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(commodities_router)
     app.include_router(transactions_router)
     app.include_router(prices_router)
+    app.include_router(query_router)
     app.include_router(balance_assertions_router)
     app.include_router(importer_router)
     app.include_router(attachment_router)

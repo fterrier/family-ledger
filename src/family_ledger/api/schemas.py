@@ -336,3 +336,24 @@ class ImportResponse(BaseModel):
 class MergeTransactionRequest(BaseModel):
     primary_transaction: str
     secondary_transaction: str
+
+
+class QueryLedgerRequest(BaseModel):
+    query: str
+
+
+class QueryColumn(BaseModel):
+    name: str
+    type: str
+
+
+class QueryWarning(BaseModel):
+    code: str
+    message: str
+    details: dict[str, str] = Field(default_factory=dict)
+
+
+class QueryLedgerResponse(BaseModel):
+    columns: list[QueryColumn] = Field(default_factory=list)
+    rows: list[list[Any]] = Field(default_factory=list)
+    warnings: list[QueryWarning] = Field(default_factory=list)

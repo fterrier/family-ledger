@@ -1,10 +1,10 @@
 # Reporting Query And Account Detail
 
-> Status: **phase 1 (backend) implemented** — `POST /ledger:query` with
-> parser/compiler/executor is live (2026-07-06), including a BQL parity
-> integration test against the Beancount export
-> (`tests/integration/test_query_parity.py`). Phases 2–4 (mobile screens)
-> are not yet implemented. Decision record: ADR 0011.
+> Status: **implemented** — backend `POST /ledger:query` (2026-07-06, with
+> beanquery parity tests in `tests/integration/test_query_parity.py`) and
+> the mobile account view (2026-07-08: chart card on the home screen driven
+> by the global filter, doctor overlay, picker polish). Decision record:
+> ADR 0011.
 
 ## Use Case
 
@@ -397,61 +397,90 @@ New package `src/family_ledger/services/query/`:
 
 API: `api/query.py` router with `POST /ledger:query`.
 
-## Mobile App
+## Mobile App (implemented 2026-07-08)
 
-New dependency: `fl_chart` (wrapped in local widgets so the library stays
-contained).
+**The filter IS the account selection.** One app-global `TransactionFilter`
+(already persisted via `FilterPersistence`) drives everything. When
+`filter.account` is set, the home transaction list becomes the account view:
+an `AccountChartCard` leads the list, sharing the filter's date range with
+the transaction rows below it. There is no separate account-detail screen
+and no second range vocabulary — "filtering to one account" and "selecting
+an account" are the same operation by construction.
 
-### Navigation
+New dependency: `fl_chart` (contained in `widgets/account_chart_card.dart`).
 
-New sidebar entry **Accounts** → accounts browse screen → tap account →
-account detail screen.
+### User Journeys (UX decisions 2026-07-07)
 
-### Accounts Browse Screen
+1. **Check on an account**: drawer → Accounts → pick (search-as-you-type,
+   prefixes selectable) → home shows current balance + trend + scoped list.
+2. **Why did it dip?** (also the import-anomaly journey): a doctor issue or
+   an odd-looking curve → tap that point/bar → the shared filter narrows to
+   that bucket, the list follows → tap a transaction → existing edit
+   screen. Deliberate post-import chart checking matters mainly for
+   sparse-assertion accounts (pensions/historical imports) where doctor is
+   blind to gaps.
+3. **Spending pulse**: expense subtree → monthly bars, compare months.
+4. **Portfolio value**: invested accounts → converted market-value line.
 
-`screens/accounts/accounts_screen.dart`
+Display conventions: **raw ledger signs everywhere** (liabilities plot
+below zero; a rising line means shrinking debt) — no per-category sign
+inversion, except expense/income *bars* which display magnitudes.
 
-- reuses `core/account_search.dart` matching and the category icons/colors
-  from `core/account_category.dart`
-- search field on top; results grouped by top-level category
-- prefix (intermediate) accounts are tappable too — detail then shows the
-  subtree aggregate (the subtree regex gives this for free)
+### Ranges and granularity
 
-### Account Detail Screen
+No relative presets (no 3M/1Y chips): the existing filter sheet (year pills
++ FROM/TO month-year picker) is the only range editor, and the card shows
+the filter's `dateRangeLabel`. Bucket granularity derives from the span:
+≤ ~4 months daily, ≤ ~4 years monthly, longer (or unbounded start) yearly.
+Default view = whatever the persisted filter says; Reset = all history.
 
-`screens/accounts/account_detail_screen.dart`
+### AccountChartCard (`widgets/account_chart_card.dart`)
 
-- **Header**: formatted account name, category icon, current balance (last
-  point of the series)
-- **Chart (P0)**:
-  - Assets/Liabilities/Equity → `BalanceLineChart` (`last(balance)` query;
-    client carries values forward across empty months)
-  - Expenses/Income → `PeriodBarChart` (monthly `sum(position)`;
-    sign-adjusted so income displays positive)
-  - range chips: `1Y` (default) / `3Y` / `All`; monthly buckets, daily when
-    the range is ≤ 3 months
-  - currency: single-currency account → that currency, no chrome.
-    Multi-currency → chips per currency + a "≈ CHF" converted option
-    (default currency from app settings) using the
-    `convert(last(balance), 'CHF')` market-value query
-  - **warnings are a display requirement**: when the response carries
-    `missing_price` warnings, the chart must show a visible indicator
-    (e.g. a warning badge listing the affected currencies/dates) and render
-    `null` cells as gaps — silently hiding unconverted entries is not
-    acceptable. (Decision 2026-07-07; the alternative — falling back to
-    another display currency — is on the roadmap.)
-- **Transactions (P1)**: reuse the row widget and pagination logic from
-  `transaction_list_screen.dart` with the existing
-  `GET /transactions?account_name=` filter; tap → existing
-  `TransactionEditScreen`
+- **Header**: category icon, account name, current balance (last point) or
+  range total for expense/income, range-delta chip for balance accounts,
+  and the range label
+- Assets/Liabilities/Equity → running-balance line (`last(balance)`,
+  `FROM OPEN ON` seeding, carry-forward across empty buckets); Expenses/
+  Income → magnitude bars (`sum(position)`, zero-filled gaps)
+- scrub tooltip (date + value); tapping a bucket narrows the shared filter
+  to that bucket via the same persist/notify/refresh path as the sheet
+- currency: single-currency → no chrome. Multi-currency → chips per
+  currency (client-side re-projection of the inventory series, no refetch)
+  + a "≈ CHF" converted chip (default currency from app settings, separate
+  `convert(...)` query) which is the default selection
+- **warnings are a display requirement**: `missing_price` warnings show an
+  amber count badge (tap → list) and `null` cells render as line gaps that
+  also poison carry-forward until the next known value
+- the chart reflects account + dates only; a hint appears when the
+  `last import` filter toggle is active
+- **doctor overlay**: failed balance assertions for the account subtree
+  render as translucent red bands over their buckets plus a red count badge
+  (tap → sheet listing date, expected, actual, diff per failure)
 
-New client plumbing:
+### Account selection and picker
 
-- `repositories/query_repository.dart` — `runQuery(...)` → typed table
-  result (int/str/date/decimal/amount/inventory cells)
-- `core/bql.dart` — tiny builder producing the BQL strings, including
-  regex-escaping account names into the `^...(:|$)` subtree pattern (keeps
-  query construction testable and in one place)
+- Drawer entry **Accounts** opens the existing `AccountPickerScreen` with
+  the prefix superset (`core/account_hierarchy.dart` `buildPickerAccounts`,
+  shared with the filter sheet) and applies the result to the global filter
+  (`TransactionListScreenState.selectAccount`)
+- closed accounts (`effective_end_date` set) are hidden behind a
+  "show closed" toggle (prefix rows always visible), dimmed when revealed —
+  in every picker context
+- picker rows show the home list's 4 px red issue bar when the account's
+  subtree has failed balance assertions
+
+### Client plumbing
+
+- `repositories/query_repository.dart` — `run(query)` → `QueryResult`
+  (typed int/str/date/decimal/amount/inventory cells; unknown column types
+  pass through for forward compatibility)
+- `core/bql.dart` — query-string builders incl. regex-escaping account
+  names into the `^...(:|$)` subtree pattern and span→granularity
+- `core/chart_series.dart` — pure series assembly: bucket math, gap
+  filling/carry-forward, magnitude bars, converted series
+- `models/doctor_issue.dart` + `TransactionRepository.runDoctorIssues()` —
+  full doctor issues; the home list's transaction-issue set is derived from
+  the same single doctor call
 
 ## Testing
 
@@ -468,23 +497,23 @@ Backend (pytest, run with `uv run`):
 
 Mobile (flutter test):
 
-- BQL builder unit tests (exact query strings, regex escaping)
-- `QueryRepository` tests with mocked `ApiClient` (all cell types)
-- widget tests: accounts screen search/grouping; detail screen renders line
-  vs bar per category, carry-forward across empty months, range chips
-  re-query, currency chips appear only for multi-currency accounts
+- BQL builder unit tests (exact query strings, regex escaping, granularity)
+- `chart_series` unit tests (bucket ends incl. leap years, carry-forward,
+  null poisoning, zero-fill, magnitudes)
+- `QueryRepository` tests with mocked `ApiClient` (all cell types, unknown
+  types, malformed responses)
+- widget tests: line vs bars per category, raw liability signs, delta chip,
+  currency chips (re-projection without refetch), warning badge + sheet,
+  assertion badge/bands/sheet, chart card presence driven by the filter,
+  bucket tap narrowing + persistence, picker closed-toggle and red bars
 
 ## Implementation Phases
 
-1. **Backend**: BQL-subset lexer/parser/compiler/executor +
-   `POST /ledger:query` + tests; update `docs/specs/backend-api.md`; add
-   ADR 0011.
-2. **Mobile**: Accounts browse screen + sidebar navigation.
-3. **Mobile (P0)**: account detail screen with adaptive chart, range and
-   currency selection.
-4. **Mobile (P1)**: embedded transaction list on the detail screen.
-
-Each phase lands independently shippable.
+1. **Backend** (done 2026-07-06): BQL-subset lexer/parser/compiler/executor
+   + `POST /ledger:query` + tests; ADR 0011.
+2. **Mobile** (done 2026-07-08): query plumbing, `AccountChartCard` on the
+   home screen, drawer Accounts entry + picker closed-toggle, doctor
+   overlay (assertion bands + picker indicators).
 
 ## Findings From The First Real-Ledger Run (2026-07-06)
 

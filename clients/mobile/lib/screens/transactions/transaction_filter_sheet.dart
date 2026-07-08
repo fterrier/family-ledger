@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../core/account_hierarchy.dart';
 import '../../models/account.dart';
 import '../../repositories/transaction_repository.dart';
 import '../add_transaction/account_picker_screen.dart';
@@ -52,7 +53,7 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
   void initState() {
     super.initState();
     _draft = widget.initial;
-    _pickerAccounts = _buildPickerAccounts(widget.accounts);
+    _pickerAccounts = buildPickerAccounts(widget.accounts);
     _loadYears();
   }
 
@@ -167,23 +168,6 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
     if (picked != null && mounted) {
       setState(() => _draft = _draft.copyWith(toDate: picked));
     }
-  }
-
-  List<AccountResource> _buildPickerAccounts(List<AccountResource> accounts) {
-    final realAccountNames = accounts.map((a) => a.accountName).toSet();
-    final prefixPaths = <String>{};
-    for (final a in accounts) {
-      final parts = a.accountName.split(':');
-      var prefix = parts[0];
-      for (var i = 1; i < parts.length; i++) {
-        if (!realAccountNames.contains(prefix)) {
-          prefixPaths.add(prefix);
-        }
-        prefix = '$prefix:${parts[i]}';
-      }
-    }
-    return [...prefixPaths.map(AccountResource.prefix), ...accounts]
-      ..sort((a, b) => a.accountName.compareTo(b.accountName));
   }
 
   Future<void> _pickAccount() async {

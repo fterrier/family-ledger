@@ -7,9 +7,12 @@ import 'core/secure_settings.dart';
 import 'repositories/account_repository.dart';
 import 'repositories/commodity_repository.dart';
 import 'repositories/importer_repository.dart';
+import 'repositories/query_repository.dart';
 import 'repositories/transaction_repository.dart';
 import 'screens/settings/app_settings_screen.dart';
 import 'screens/settings/server_settings_screen.dart';
+import 'models/account.dart';
+import 'screens/add_transaction/account_picker_screen.dart';
 import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/transactions/transaction_filter.dart';
@@ -33,6 +36,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   late final CommodityRepository _commodityRepo;
   late final TransactionRepository _transactionRepo;
   late final ImporterRepository _importerRepo;
+  late final QueryRepository _queryRepo;
 
   bool? _configured;
   final _listKey = GlobalKey<TransactionListScreenState>();
@@ -47,6 +51,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     _commodityRepo = CommodityRepository(_apiClient);
     _transactionRepo = TransactionRepository(_apiClient);
     _importerRepo = ImporterRepository(_apiClient);
+    _queryRepo = QueryRepository(_apiClient);
     _checkConfiguration();
     _initShareChannel();
   }
@@ -112,6 +117,26 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       ),
     );
     if (saved == true) _checkConfiguration();
+  }
+
+  // Drawer "Accounts": picking an account IS setting the global filter's
+  // account — the home screen then shows the chart + scoped list.
+  Future<void> _openAccounts() async {
+    final listState = _listKey.currentState;
+    if (listState == null) return;
+    final result = await Navigator.push<AccountResource>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AccountPickerScreen(
+          accounts: listState.pickerAccounts,
+          selected: listState.selectedAccount,
+          issueAccountNames: listState.accountsWithAssertionIssues,
+        ),
+      ),
+    );
+    if (result != null) {
+      _listKey.currentState?.selectAccount(result);
+    }
   }
 
   Future<void> _openAppSettings() async {
@@ -275,6 +300,14 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
                         ),
                       ),
                       ListTile(
+                        leading: const Icon(Icons.account_balance_outlined),
+                        title: const Text('Accounts'),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openAccounts();
+                        },
+                      ),
+                      ListTile(
                         leading: const Icon(Icons.tune_outlined),
                         title: const Text('App Settings'),
                         onTap: () {
@@ -302,6 +335,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
             transactionRepository: _transactionRepo,
             accountRepository: _accountRepo,
             commodityRepository: _commodityRepo,
+            queryRepository: _queryRepo,
             filterActiveNotifier: _filterActive,
             selectionNotifier: _bulkSelectionNotifier,
           ),

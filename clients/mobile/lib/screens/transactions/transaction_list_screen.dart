@@ -2,15 +2,21 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/account_category.dart';
+import '../../core/account_hierarchy.dart';
 import '../../core/amount_format.dart';
+import '../../core/app_preferences.dart';
 import '../../models/account.dart';
 import '../../core/api_error.dart';
 import '../../core/filter_persistence.dart';
+import '../../models/doctor_issue.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
+import '../../repositories/query_repository.dart';
 import '../../repositories/transaction_repository.dart';
+import '../../widgets/account_chart_card.dart';
 import '../../widgets/error_banner.dart';
 import '../transaction_edit/transaction_edit_screen.dart';
 import 'transaction_filter.dart';
@@ -20,6 +26,7 @@ class TransactionListScreen extends StatefulWidget {
   final TransactionRepository transactionRepository;
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
+  final QueryRepository queryRepository;
   final ValueNotifier<bool>? filterActiveNotifier;
   final ValueNotifier<Set<String>>? selectionNotifier;
 
@@ -28,6 +35,7 @@ class TransactionListScreen extends StatefulWidget {
     required this.transactionRepository,
     required this.accountRepository,
     required this.commodityRepository,
+    required this.queryRepository,
     this.filterActiveNotifier,
     this.selectionNotifier,
   });
@@ -49,11 +57,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   int _loadGeneration = 0;
 
   Set<String> _transactionsWithIssues = {};
+  List<DoctorIssue> _assertionIssues = const [];
   int _doctorGeneration = 0;
 
   TransactionFilter _filter = const TransactionFilter();
   List<AccountResource> _accounts = const [];
   bool _filterOpen = false;
+
+  String _defaultCurrency = 'CHF';
+  int _chartRefreshTick = 0;
 
   Set<String> _selectedNames = {};
   bool _bulkActionBusy = false;
@@ -64,6 +76,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     _scrollController.addListener(_onScroll);
     _restoreFilter();
     _prefetchAccounts();
+    _loadDefaultCurrency();
   }
 
   Future<void> _restoreFilter() async {
@@ -72,6 +85,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     _filter = saved;
     widget.filterActiveNotifier?.value = _filter.isActive;
     _load();
+  }
+
+  Future<void> _loadDefaultCurrency() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final stored = prefs.getString(AppPreferences.keyDefaultCurrency);
+    if (stored != null && stored.isNotEmpty && stored != _defaultCurrency) {
+      setState(() => _defaultCurrency = stored);
+    }
   }
 
   Future<void> _prefetchAccounts() async {
@@ -102,16 +124,46 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   void _refreshDoctorIssues() {
     _doctorGeneration++;
     final gen = _doctorGeneration;
-    widget.transactionRepository.runDoctor().then((result) {
+    widget.transactionRepository.runDoctorIssues().then((result) {
       if (!mounted || _doctorGeneration != gen) return;
-      if (result.data != null) {
-        final newIssues = result.data!;
-        if (newIssues.length != _transactionsWithIssues.length ||
-            !_transactionsWithIssues.containsAll(newIssues)) {
-          setState(() => _transactionsWithIssues = newIssues);
-        }
+      final issues = result.data;
+      if (issues == null) return;
+      final txIssues = {
+        for (final issue in issues)
+          if (issue.target != null) issue.target!,
+      };
+      final assertionIssues = [
+        for (final issue in issues)
+          if (issue.code == DoctorIssue.balanceAssertionFailed) issue,
+      ];
+      final txChanged =
+          txIssues.length != _transactionsWithIssues.length ||
+          !_transactionsWithIssues.containsAll(txIssues);
+      if (txChanged || assertionIssues.length != _assertionIssues.length) {
+        setState(() {
+          _transactionsWithIssues = txIssues;
+          _assertionIssues = assertionIssues;
+        });
       }
     });
+  }
+
+  /// Account names (subtree roots) with failed balance assertions — feeds
+  /// the account picker's red indicators.
+  Set<String> get accountsWithAssertionIssues => {
+    for (final issue in _assertionIssues)
+      if (issue.accountName != null) issue.accountName!,
+  };
+
+  List<DoctorIssue> get _selectedAccountAssertionIssues {
+    final accountName = _filter.account?.accountName;
+    if (accountName == null) return const [];
+    return [
+      for (final issue in _assertionIssues)
+        if (issue.accountName == accountName ||
+            (issue.accountName?.startsWith('$accountName:') ?? false))
+          issue,
+    ];
   }
 
   Future<void> _load({String? pageToken}) async {
@@ -156,6 +208,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       _error = null;
       _paginationError = false;
       _transactionsWithIssues = {};
+      _chartRefreshTick++;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     await _doFetch(generation: generation);
@@ -216,6 +269,45 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _onScroll();
     });
+  }
+
+  // Chart bucket tap: narrow the shared filter to that bucket. Same path as
+  // applying the filter sheet — persist, notify, refresh.
+  void _narrowToBucket(DateTime from, DateTime to) {
+    exitSelectionMode();
+    _filter = _filter.copyWith(fromDate: from, toDate: to);
+    unawaited(FilterPersistence.save(_filter));
+    widget.filterActiveNotifier?.value = _filter.isActive;
+    refresh();
+  }
+
+  // "Selecting an account" IS setting the account on the global filter —
+  // used by the drawer's Accounts entry.
+  void selectAccount(AccountResource account) {
+    exitSelectionMode();
+    _filter = _filter.copyWith(account: account);
+    unawaited(FilterPersistence.save(_filter));
+    widget.filterActiveNotifier?.value = _filter.isActive;
+    refresh();
+  }
+
+  List<AccountResource> get pickerAccounts => buildPickerAccounts(_accounts);
+
+  AccountResource? get selectedAccount => _filter.account;
+
+  Widget _buildChartCard() {
+    return AccountChartCard(
+      queryRepository: widget.queryRepository,
+      account: _filter.account!,
+      fromDate: _filter.fromDate,
+      toDate: _filter.toDate,
+      rangeLabel: _filter.dateRangeLabel,
+      defaultCurrency: _defaultCurrency,
+      showsLastImportHint: _filter.lastImportOnly,
+      refreshTick: _chartRefreshTick,
+      onBucketSelected: _narrowToBucket,
+      assertionIssues: _selectedAccountAssertionIssues,
+    );
   }
 
   void _updateSelection(Set<String> next) {
@@ -311,11 +403,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_error != null && _transactions.isEmpty) {
+    // With an account selected, the home list becomes the account view: the
+    // chart card leads the list, even when there are no transactions.
+    final hasChart = _filter.account != null;
+
+    if (_error != null && _transactions.isEmpty && !hasChart) {
       return ErrorBanner(error: _error!, onRetry: refresh);
     }
 
-    if (_transactions.isEmpty) {
+    if (_transactions.isEmpty && !hasChart) {
       if (_isLoading) {
         return const Center(child: CircularProgressIndicator(strokeWidth: 2));
       }
@@ -332,6 +428,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // RefreshIndicator's own top indicator shows.
     final showBottomSpinner = _isLoading && _nextPageToken != null;
     final isSelecting = _selectedNames.isNotEmpty;
+    final leading = hasChart ? 1 : 0;
+    final showEmptyState = hasChart && _transactions.isEmpty && !_isLoading;
+    final hasTrailing = showBottomSpinner || _paginationError || showEmptyState;
 
     Widget listContent = RefreshIndicator(
       onRefresh: refresh,
@@ -341,11 +440,11 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         physics: const AlwaysScrollableScrollPhysics(
           parent: ClampingScrollPhysics(),
         ),
-        itemCount:
-            _transactions.length +
-            (showBottomSpinner || _paginationError ? 1 : 0),
+        itemCount: leading + _transactions.length + (hasTrailing ? 1 : 0),
         itemBuilder: (context, index) {
-          if (index == _transactions.length) {
+          if (hasChart && index == 0) return _buildChartCard();
+          final txIndex = index - leading;
+          if (txIndex == _transactions.length) {
             if (showBottomSpinner) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
@@ -358,19 +457,30 @@ class TransactionListScreenState extends State<TransactionListScreen> {
                 ),
               );
             }
-            return Center(
-              child: TextButton(
-                onPressed: () {
-                  setState(() => _paginationError = false);
-                  _load(
-                    pageToken: _nextPageToken,
-                  ); // reuses preserved token — does not reset to page 1
-                },
-                child: const Text('Retry'),
+            if (_paginationError) {
+              return Center(
+                child: TextButton(
+                  onPressed: () {
+                    setState(() => _paginationError = false);
+                    _load(
+                      pageToken: _nextPageToken,
+                    ); // reuses preserved token — does not reset to page 1
+                  },
+                  child: const Text('Retry'),
+                ),
+              );
+            }
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Text(
+                  'No transactions in range',
+                  style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
+                ),
               ),
             );
           }
-          final tx = _transactions[index];
+          final tx = _transactions[txIndex];
           return _TransactionRow(
             transaction: tx,
             hasIssue: _transactionsWithIssues.contains(tx.name),

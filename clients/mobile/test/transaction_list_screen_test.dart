@@ -7,14 +7,19 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
+import 'package:family_ledger_mobile/models/doctor_issue.dart';
 import 'package:family_ledger_mobile/models/posting.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
 import 'package:family_ledger_mobile/repositories/account_repository.dart';
 import 'package:family_ledger_mobile/repositories/commodity_repository.dart';
+import 'package:family_ledger_mobile/models/query_result.dart';
+import 'package:family_ledger_mobile/repositories/query_repository.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
+import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_list_screen.dart';
+import 'package:family_ledger_mobile/widgets/account_chart_card.dart';
 
-typedef _DoctorResult = ({Set<String>? data, ApiError? error});
+typedef _DoctorResult = ({List<DoctorIssue>? data, ApiError? error});
 
 // Finds the red issue-indicator bar (a ColoredBox painted with the issue color).
 bool _hasRedLeftBorder(WidgetTester tester) {
@@ -29,10 +34,15 @@ class MockAccountRepository extends Mock implements AccountRepository {}
 
 class MockCommodityRepository extends Mock implements CommodityRepository {}
 
+class MockQueryRepository extends Mock implements QueryRepository {}
+
 typedef _ListResult = ({
   (List<TransactionResource>, String?)? data,
   ApiError? error,
 });
+
+DoctorIssue _issue(String target) =>
+    DoctorIssue(target: target, code: 'unbalanced_transaction');
 
 TransactionResource _tx({
   String name = 'transactions/t1',
@@ -58,6 +68,7 @@ void main() {
   late MockTransactionRepository mockRepo;
   late MockAccountRepository mockAccountRepo;
   late MockCommodityRepository mockCommodityRepo;
+  late MockQueryRepository mockQueryRepo;
 
   setUpAll(() {
     registerFallbackValue(
@@ -70,10 +81,18 @@ void main() {
     mockRepo = MockTransactionRepository();
     mockAccountRepo = MockAccountRepository();
     mockCommodityRepo = MockCommodityRepository();
+    mockQueryRepo = MockQueryRepository();
+    // Default: chart queries return an empty series
+    when(() => mockQueryRepo.run(any())).thenAnswer(
+      (_) async => (
+        data: const QueryResult(columns: [], rows: [], warnings: []),
+        error: null,
+      ),
+    );
     // Default: doctor returns no issues (keeps existing tests unaffected)
     when(
-      () => mockRepo.runDoctor(),
-    ).thenAnswer((_) async => (data: <String>{}, error: null));
+      () => mockRepo.runDoctorIssues(),
+    ).thenAnswer((_) async => (data: <DoctorIssue>[], error: null));
     when(
       () => mockRepo.getYearRange(),
     ).thenAnswer((_) async => (data: (2024, 2026), error: null));
@@ -92,6 +111,7 @@ void main() {
         transactionRepository: mockRepo,
         accountRepository: mockAccountRepo,
         commodityRepository: mockCommodityRepo,
+        queryRepository: mockQueryRepo,
       ),
     ),
   );
@@ -269,6 +289,7 @@ void main() {
             transactionRepository: mockRepo,
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
           ),
         ),
       ),
@@ -327,6 +348,7 @@ void main() {
             transactionRepository: mockRepo,
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
           ),
         ),
       ),
@@ -411,6 +433,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
             ),
           ),
         ),
@@ -499,6 +522,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
             ),
           ),
         ),
@@ -565,6 +589,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
             ),
           ),
         ),
@@ -611,6 +636,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
             ),
           ),
         ),
@@ -635,8 +661,8 @@ void main() {
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
     when(
-      () => mockRepo.runDoctor(),
-    ).thenAnswer((_) async => (data: {'transactions/t1'}, error: null));
+      () => mockRepo.runDoctorIssues(),
+    ).thenAnswer((_) async => (data: [_issue('transactions/t1')], error: null));
 
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
@@ -671,7 +697,9 @@ void main() {
         filter: any(named: 'filter'),
       ),
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
-    when(() => mockRepo.runDoctor()).thenAnswer((_) => doctorCompleter.future);
+    when(
+      () => mockRepo.runDoctorIssues(),
+    ).thenAnswer((_) => doctorCompleter.future);
 
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
@@ -681,7 +709,7 @@ void main() {
     expect(_hasRedLeftBorder(tester), isFalse);
 
     // Doctor resolves — border appears
-    doctorCompleter.complete((data: {'transactions/t1'}, error: null));
+    doctorCompleter.complete((data: [_issue('transactions/t1')], error: null));
     await tester.pumpAndSettle();
 
     expect(_hasRedLeftBorder(tester), isTrue);
@@ -697,9 +725,9 @@ void main() {
     ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
 
     var doctorCallCount = 0;
-    when(() => mockRepo.runDoctor()).thenAnswer((_) async {
+    when(() => mockRepo.runDoctorIssues()).thenAnswer((_) async {
       doctorCallCount++;
-      return (data: <String>{}, error: null);
+      return (data: <DoctorIssue>[], error: null);
     });
 
     final key = GlobalKey<TransactionListScreenState>();
@@ -711,6 +739,7 @@ void main() {
             transactionRepository: mockRepo,
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
           ),
         ),
       ),
@@ -764,9 +793,9 @@ void main() {
     });
 
     // Doctor returns the page-2 transaction as having an issue
-    when(
-      () => mockRepo.runDoctor(),
-    ).thenAnswer((_) async => (data: {'transactions/p2t0'}, error: null));
+    when(() => mockRepo.runDoctorIssues()).thenAnswer(
+      (_) async => (data: [_issue('transactions/p2t0')], error: null),
+    );
 
     await tester.pumpWidget(buildScreen());
     await tester
@@ -791,7 +820,7 @@ void main() {
     final doctor2Completer = Completer<_DoctorResult>();
     var doctorCallIndex = 0;
 
-    when(() => mockRepo.runDoctor()).thenAnswer((_) {
+    when(() => mockRepo.runDoctorIssues()).thenAnswer((_) {
       final i = doctorCallIndex++;
       if (i == 0) return doctor1Completer.future;
       return doctor2Completer.future;
@@ -806,6 +835,7 @@ void main() {
             transactionRepository: mockRepo,
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
           ),
         ),
       ),
@@ -817,12 +847,12 @@ void main() {
     await tester.pump();
 
     // Stale doctor1 resolves with an issue — must be discarded
-    doctor1Completer.complete((data: {'transactions/t1'}, error: null));
+    doctor1Completer.complete((data: [_issue('transactions/t1')], error: null));
     await tester.pump();
     expect(_hasRedLeftBorder(tester), isFalse);
 
     // doctor2 resolves with no issues
-    doctor2Completer.complete((data: <String>{}, error: null));
+    doctor2Completer.complete((data: <DoctorIssue>[], error: null));
     await tester.pumpAndSettle();
     expect(_hasRedLeftBorder(tester), isFalse);
   });
@@ -919,6 +949,7 @@ void main() {
             transactionRepository: mockRepo,
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
             selectionNotifier: selectionNotifier,
           ),
         ),
@@ -1004,6 +1035,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1036,6 +1068,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1076,6 +1109,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1106,6 +1140,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1146,6 +1181,7 @@ void main() {
               transactionRepository: mockRepo,
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1164,6 +1200,123 @@ void main() {
       expect(find.byType(SnackBar), findsOneWidget);
       expect(find.text('Migros'), findsOneWidget);
       expect(find.text('Coop'), findsOneWidget);
+    });
+  });
+  group('account chart card integration', () {
+    void stubList() {
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+        ),
+      ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+    }
+
+    testWidgets('no chart card without an account filter', (tester) async {
+      stubList();
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      expect(find.byType(AccountChartCard), findsNothing);
+    });
+
+    testWidgets('chart card appears when the persisted filter has an account', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'tx_filter_account_name': 'accounts/acc-1',
+        'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+        'tx_filter_account_is_prefix': false,
+      });
+      stubList();
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      expect(find.byType(AccountChartCard), findsOneWidget);
+      // The card and the transaction rows coexist in the same list.
+      expect(find.text('Migros'), findsOneWidget);
+    });
+
+    testWidgets('bucket tap narrows the shared filter, persists, refreshes', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'tx_filter_account_name': 'accounts/acc-1',
+        'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+        'tx_filter_account_is_prefix': false,
+      });
+      stubList();
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      final card = tester.widget<AccountChartCard>(
+        find.byType(AccountChartCard),
+      );
+      card.onBucketSelected!(DateTime(2026, 3), DateTime(2026, 3, 31));
+      await tester.pumpAndSettle();
+
+      final captured = verify(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: captureAny(named: 'filter'),
+        ),
+      ).captured;
+      final narrowed = captured.last as TransactionFilter;
+      expect(narrowed.fromDate, DateTime(2026, 3));
+      expect(narrowed.toDate, DateTime(2026, 3, 31));
+      expect(narrowed.account?.accountName, 'Assets:Checking:ZKB');
+
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('tx_filter_from_date'), '2026-03-01');
+      expect(prefs.getString('tx_filter_to_date'), '2026-03-31');
+    });
+
+    testWidgets('selectAccount sets the account on the shared filter', (
+      tester,
+    ) async {
+      stubList();
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      expect(find.byType(AccountChartCard), findsNothing);
+
+      final state = tester.state<TransactionListScreenState>(
+        find.byType(TransactionListScreen),
+      );
+      state.selectAccount(
+        const AccountResource(
+          name: 'accounts/acc-9',
+          accountName: 'Assets:Cash',
+          effectiveStartDate: '2020-01-01',
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AccountChartCard), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString('tx_filter_account_display_name'), 'Assets:Cash');
+    });
+
+    testWidgets('chart card shows an empty-state row when no transactions', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'tx_filter_account_name': 'accounts/acc-1',
+        'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+        'tx_filter_account_is_prefix': false,
+      });
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+        ),
+      ).thenAnswer(
+        (_) async => (data: (<TransactionResource>[], null), error: null),
+      );
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      expect(find.byType(AccountChartCard), findsOneWidget);
+      expect(find.text('No transactions in range'), findsOneWidget);
     });
   });
 }

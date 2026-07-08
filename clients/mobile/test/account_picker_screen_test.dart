@@ -177,4 +177,79 @@ void main() {
       expect(picked, isNull);
     });
   });
+  group('closed accounts toggle', () {
+    final withClosed = [
+      ..._accounts,
+      const AccountResource(
+        name: 'accounts/assets_old',
+        accountName: 'Assets:OldBank',
+        effectiveStartDate: '2018-01-01',
+        effectiveEndDate: '2022-12-31',
+      ),
+      AccountResource.prefix('Assets'),
+    ];
+
+    Widget buildWithClosed() =>
+        MaterialApp(home: AccountPickerScreen(accounts: withClosed));
+
+    testWidgets('closed accounts are hidden by default', (tester) async {
+      await tester.pumpWidget(buildWithClosed());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Show closed accounts'), findsOneWidget);
+      expect(find.text('Assets · OldBank'), findsNothing);
+      // Prefix entries always visible even though their end date is unset.
+      expect(find.text('Assets'), findsOneWidget);
+    });
+
+    testWidgets('toggle reveals closed accounts', (tester) async {
+      await tester.pumpWidget(buildWithClosed());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(Switch).first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Assets · OldBank'), findsOneWidget);
+    });
+
+    testWidgets('no toggle when every account is open', (tester) async {
+      await tester.pumpWidget(buildPicker());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Show closed accounts'), findsNothing);
+    });
+  });
+  group('assertion issue indicators', () {
+    testWidgets('marks accounts and their prefixes with a red bar', (
+      tester,
+    ) async {
+      final accounts = [..._accounts, AccountResource.prefix('Assets')];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AccountPickerScreen(
+            accounts: accounts,
+            issueAccountNames: const {'Assets:Cash:Wallet'},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Two red bars: the account itself and its 'Assets' prefix subtree.
+      final redBars = find.byWidgetPredicate(
+        (w) => w is ColoredBox && w.color == const Color(0xFFFF3B30),
+      );
+      expect(redBars, findsNWidgets(2));
+    });
+
+    testWidgets('no red bars without issues', (tester) async {
+      await tester.pumpWidget(buildPicker());
+      await tester.pumpAndSettle();
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color == const Color(0xFFFF3B30),
+        ),
+        findsNothing,
+      );
+    });
+  });
 }

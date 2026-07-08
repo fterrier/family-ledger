@@ -7,7 +7,16 @@ class AccountPickerScreen extends StatefulWidget {
   final List<AccountResource> accounts;
   final AccountResource? selected;
 
-  const AccountPickerScreen({super.key, required this.accounts, this.selected});
+  /// Account names whose subtree has failed balance assertions (from
+  /// doctor); marked with the same red bar as problem transactions.
+  final Set<String> issueAccountNames;
+
+  const AccountPickerScreen({
+    super.key,
+    required this.accounts,
+    this.selected,
+    this.issueAccountNames = const {},
+  });
 
   @override
   State<AccountPickerScreen> createState() => _AccountPickerScreenState();
@@ -17,22 +26,40 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
   final _searchController = TextEditingController();
   List<AccountResource> _filtered = [];
   String _lastQuery = '';
+  bool _showClosed = false;
+
+  bool get _hasClosedAccounts => widget.accounts.any((a) => !a.isActive);
+
+  // Synthetic prefix entries always look active and must never be hidden.
+  List<AccountResource> get _visibleAccounts => _showClosed
+      ? widget.accounts
+      : widget.accounts.where((a) => a.isActive || a.isPrefix).toList();
 
   @override
   void initState() {
     super.initState();
-    _filtered = widget.accounts;
+    _filtered = _visibleAccounts;
     _searchController.addListener(_onSearch);
+  }
+
+  void _refilter() {
+    _filtered = filterAccounts(_visibleAccounts, _searchController.text);
   }
 
   void _onSearch() {
     final query = _searchController.text;
     if (query == _lastQuery) return;
     _lastQuery = query;
-    setState(() {
-      _filtered = filterAccounts(widget.accounts, query);
-    });
+    setState(_refilter);
   }
+
+  // An account is marked when it, a descendant, or (for prefix rows) any
+  // account in its subtree has a failed balance assertion.
+  bool _hasIssue(AccountResource account) => widget.issueAccountNames.any(
+    (name) =>
+        name == account.accountName ||
+        name.startsWith('${account.accountName}:'),
+  );
 
   @override
   void dispose() {
@@ -88,6 +115,27 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
               ),
             ),
           ),
+          if (_hasClosedAccounts)
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  const Text(
+                    'Show closed accounts',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF8E8E93)),
+                  ),
+                  const Spacer(),
+                  Switch.adaptive(
+                    value: _showClosed,
+                    onChanged: (value) => setState(() {
+                      _showClosed = value;
+                      _refilter();
+                    }),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: ListView.builder(
               itemCount: _filtered.length,
@@ -97,6 +145,7 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
                 return _AccountItem(
                   account: account,
                   isSelected: isSelected,
+                  hasIssue: _hasIssue(account),
                   query: _searchController.text,
                   onTap: () => Navigator.pop(context, account),
                 );
@@ -112,49 +161,65 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
 class _AccountItem extends StatelessWidget {
   final AccountResource account;
   final bool isSelected;
+  final bool hasIssue;
   final String query;
   final VoidCallback onTap;
 
   const _AccountItem({
     required this.account,
     required this.isSelected,
+    required this.hasIssue,
     required this.query,
     required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          border: Border(bottom: BorderSide(color: Color(0xFFF2F2F7))),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 10,
-              height: 10,
-              margin: const EdgeInsets.only(right: 12),
-              decoration: BoxDecoration(
-                color: themeForAccount(account.accountName).color,
-                shape: BoxShape.circle,
-              ),
+    return Stack(
+      children: [
+        InkWell(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(bottom: BorderSide(color: Color(0xFFF2F2F7))),
             ),
-            Expanded(
-              child: _HighlightedText(
-                text: account.displayName,
-                query: query,
-                dimmed: account.isPrefix,
-              ),
+            child: Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  margin: const EdgeInsets.only(right: 12),
+                  decoration: BoxDecoration(
+                    color: themeForAccount(account.accountName).color,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Expanded(
+                  child: _HighlightedText(
+                    text: account.displayName,
+                    query: query,
+                    dimmed: account.isPrefix || !account.isActive,
+                  ),
+                ),
+                if (isSelected)
+                  const Icon(Icons.check, color: Color(0xFF1A73E8), size: 18),
+              ],
             ),
-            if (isSelected)
-              const Icon(Icons.check, color: Color(0xFF1A73E8), size: 18),
-          ],
+          ),
         ),
-      ),
+        if (hasIssue)
+          const Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: SizedBox(
+              width: 4,
+              child: ColoredBox(color: Color(0xFFFF3B30)),
+            ),
+          ),
+      ],
     );
   }
 }

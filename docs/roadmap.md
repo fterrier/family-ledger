@@ -69,13 +69,15 @@ Planned behavior:
 
 Open design question: whether the close date lives in Sheets document properties (per-spreadsheet, no backend change) or in `ledger.yaml` (authoritative for all clients). The server-side option is more correct but requires a backend change.
 
-**Reporting query endpoint + mobile account detail screen**
+**Reporting query endpoint + mobile account view** *(implemented)*
 
-A read-only `POST /ledger:query` endpoint accepting a Beancount Query
-Language (BQL) subset (backend implemented, incl. single-hop transitive
-price conversion), plus a mobile Accounts browse screen and an account
-detail screen with a balance-over-time chart (P0) and embedded transaction
-list (P1). Full design: [specs/reporting-query.md](specs/reporting-query.md).
+Backend: read-only `POST /ledger:query` accepting a Beancount Query
+Language (BQL) subset, incl. single-hop transitive price conversion.
+Mobile: the global transaction filter doubles as account selection — with
+an account selected, the home screen shows a balance/spending chart card
+(fl_chart) above the scoped transaction list, with doctor
+balance-assertion bands and picker issue indicators. Full spec:
+[specs/reporting-query.md](specs/reporting-query.md).
 
 *Follow-up — currency fallback for unconvertible entries*: `convert()`
 currently emits a `null` cell plus a `missing_price` warning when a currency

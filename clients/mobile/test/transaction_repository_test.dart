@@ -4,6 +4,7 @@ import 'package:family_ledger_mobile/core/api_client.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/posting.dart';
+import 'package:family_ledger_mobile/models/doctor_issue.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
@@ -611,6 +612,49 @@ void main() {
 
       expect(result.error, isA<NetworkError>());
       expect(result.data, isNull);
+    });
+  });
+  group('TransactionRepository.runDoctorIssues', () {
+    test('parses full issues including details and target summary', () async {
+      final mockClient = MockApiClient();
+      final repo = TransactionRepository(mockClient);
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (
+          data: {
+            'issues': [
+              {
+                'target': 'balanceAssertions/ba-1',
+                'code': 'balance_assertion_failed',
+                'severity': 'error',
+                'message': 'Balance assertion not satisfied.',
+                'details': {'symbol': 'CHF', 'diff': '-1.50'},
+                'target_summary': {
+                  'date': '2026-01-05',
+                  'account': 'Assets:Liquid:ZKB:Checking:Family',
+                },
+              },
+              {
+                'target': null,
+                'code': 'attachment_pending_upload',
+                'severity': 'error',
+                'message': 'pending',
+              },
+            ],
+          },
+          error: null,
+        ),
+      );
+
+      final result = await repo.runDoctorIssues();
+
+      expect(result.error, isNull);
+      expect(result.data, hasLength(2));
+      final assertion = result.data![0];
+      expect(assertion.code, DoctorIssue.balanceAssertionFailed);
+      expect(assertion.accountName, 'Assets:Liquid:ZKB:Checking:Family');
+      expect(assertion.date, DateTime(2026, 1, 5));
+      expect(assertion.details['diff'], '-1.50');
+      expect(result.data![1].target, isNull);
     });
   });
 }

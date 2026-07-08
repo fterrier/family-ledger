@@ -1,6 +1,7 @@
 import '../core/api_client.dart';
 import '../core/api_error.dart';
 import '../core/result.dart';
+import '../models/doctor_issue.dart';
 import '../models/transaction.dart';
 import '../screens/transactions/transaction_filter.dart';
 
@@ -28,15 +29,26 @@ class TransactionRepository {
     return (data: TransactionResource.fromJson(result.data!), error: null);
   }
 
-  Future<Result<Set<String>>> runDoctor() async {
+  Future<Result<List<DoctorIssue>>> runDoctorIssues() async {
     final result = await _client.post('/ledger:doctor', {});
     if (result.error != null) return (data: null, error: result.error);
     final issues = (result.data!['issues'] as List)
         .cast<Map<String, dynamic>>()
-        .where((e) => e['target'] != null)
-        .map((e) => e['target'] as String)
-        .toSet();
+        .map(DoctorIssue.fromJson)
+        .toList();
     return (data: issues, error: null);
+  }
+
+  Future<Result<Set<String>>> runDoctor() async {
+    final result = await runDoctorIssues();
+    if (result.error != null) return (data: null, error: result.error);
+    return (
+      data: {
+        for (final issue in result.data!)
+          if (issue.target != null) issue.target!,
+      },
+      error: null,
+    );
   }
 
   Future<Result<(List<TransactionResource>, String?)>> listTransactions({

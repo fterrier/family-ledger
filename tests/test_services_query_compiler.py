@@ -358,6 +358,32 @@ def test_no_open_on_means_no_seed(session: Session) -> None:
     assert compiled.post.running_balance is True
 
 
+def test_post_plan_carries_open_on_for_running_balance_queries() -> None:
+    compiled = compile_query(
+        q(
+            (Y, M, LAST_BALANCE),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("y", "m"),
+            from_options=FromOptions(open_on=date(2025, 7, 1)),
+        )
+    )
+    assert compiled.post.open_on == date(2025, 7, 1)
+
+
+def test_post_plan_open_on_is_none_without_running_balance() -> None:
+    # A plain aggregate has no seed/synthetic-bucket use for open_on, so the
+    # executor shouldn't be tempted to apply seed-bucket logic to it.
+    compiled = compile_query(
+        q(
+            (Y, M, SUM_POSITION),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("y", "m"),
+            from_options=FromOptions(open_on=date(2025, 7, 1)),
+        )
+    )
+    assert compiled.post.open_on is None
+
+
 # ---------------------------------------------------------------------------
 # Post plan: conversions, output columns, group keys
 # ---------------------------------------------------------------------------

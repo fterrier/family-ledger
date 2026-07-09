@@ -32,10 +32,17 @@ class TransactionRepository {
   Future<Result<List<DoctorIssue>>> runDoctorIssues() async {
     final result = await _client.post('/ledger:doctor', {});
     if (result.error != null) return (data: null, error: result.error);
-    final issues = (result.data!['issues'] as List)
-        .cast<Map<String, dynamic>>()
-        .map(DoctorIssue.fromJson)
-        .toList();
+    final issues = <DoctorIssue>[];
+    for (final entry
+        in (result.data!['issues'] as List).cast<Map<String, dynamic>>()) {
+      // One nonconforming issue (e.g. a future issue type/version skew)
+      // must not blank every red indicator app-wide — skip just that entry.
+      try {
+        issues.add(DoctorIssue.fromJson(entry));
+      } catch (_) {
+        continue;
+      }
+    }
     return (data: issues, error: null);
   }
 

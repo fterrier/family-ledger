@@ -656,5 +656,44 @@ void main() {
       expect(assertion.details['diff'], '-1.50');
       expect(result.data![1].target, isNull);
     });
+
+    test(
+      'one malformed issue is skipped, not fatal to the whole batch',
+      () async {
+        final mockClient = MockApiClient();
+        final repo = TransactionRepository(mockClient);
+        when(() => mockClient.post(any(), any())).thenAnswer(
+          (_) async => (
+            data: {
+              'issues': [
+                {
+                  'target': 'transactions/t1',
+                  'code': 'unbalanced_transaction',
+                  'severity': 'error',
+                  'message': 'off by 0.01',
+                },
+                // Missing required 'code' — version-skew / malformed entry.
+                {'target': 'transactions/t2', 'severity': 'error'},
+                {
+                  'target': 'transactions/t3',
+                  'code': 'unbalanced_transaction',
+                  'severity': 'error',
+                  'message': 'off by 0.02',
+                },
+              ],
+            },
+            error: null,
+          ),
+        );
+
+        final result = await repo.runDoctorIssues();
+
+        expect(result.error, isNull);
+        expect(result.data!.map((i) => i.target), [
+          'transactions/t1',
+          'transactions/t3',
+        ]);
+      },
+    );
   });
 }

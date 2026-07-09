@@ -112,6 +112,34 @@ void main() {
       expect(series.valuesByCurrency['USD'], [null, 50, 50, 50]);
     });
 
+    test(
+      'a currency dropping out of a later row reads as zero, not carried',
+      () {
+        // USD appears in August, then is fully liquidated by October: the
+        // October row exists (CHF moved) but omits USD entirely, per the
+        // server's zero-balance-omission rule.
+        final series = buildBalanceSeries(
+          _inventoryResult([
+            [
+              2025,
+              8,
+              inv({'CHF': '4000', 'USD': '50'}),
+            ],
+            [
+              2025,
+              10,
+              inv({'CHF': '4100'}),
+            ],
+          ]),
+          Granularity.monthly,
+        );
+
+        // Aug=50, Sep carried (no row that month), Oct=0 (row exists,
+        // omits USD).
+        expect(series.valuesByCurrency['USD'], [50, 50, 0]);
+      },
+    );
+
     test('empty result yields an empty series', () {
       final series = buildBalanceSeries(
         _inventoryResult([]),

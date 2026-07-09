@@ -62,6 +62,7 @@ void main() {
     void Function(DateTime, DateTime)? onBucketSelected,
     bool showsLastImportHint = false,
     List<DoctorIssue> assertionIssues = const [],
+    String defaultCurrency = 'CHF',
   }) => MaterialApp(
     home: Scaffold(
       body: SingleChildScrollView(
@@ -73,6 +74,7 @@ void main() {
           onBucketSelected: onBucketSelected,
           showsLastImportHint: showsLastImportHint,
           assertionIssues: assertionIssues,
+          defaultCurrency: defaultCurrency,
         ),
       ),
     ),
@@ -223,6 +225,156 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('50.00 USD'), findsOneWidget);
       verifyNever(() => repo.run(any(that: contains("currency = 'USD'"))));
+    },
+  );
+
+  testWidgets(
+    'a failed converted query only breaks the chart slot, not the whole card',
+    (tester) async {
+      when(() => repo.run(any(that: contains('convert(')))).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timed out')),
+      );
+      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              8,
+              _inv({'CHF': '4000', 'USD': '50'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+
+      // Header/headline/currency chips stay driven by the valid base
+      // series; only the chart slot shows the error + retry.
+      expect(find.text('Assets · Checking · ZKB'), findsOneWidget);
+      expect(find.text('CHF'), findsOneWidget);
+      expect(find.text('USD'), findsOneWidget);
+      expect(find.text('timed out'), findsOneWidget);
+      expect(find.byType(LineChart), findsNothing);
+
+      // Switching to a single-currency chip still works without a refetch.
+      await tester.tap(find.text('USD'));
+      await tester.pumpAndSettle();
+      expect(find.text('50.00 USD'), findsOneWidget);
+      expect(find.byType(LineChart), findsOneWidget);
+    },
+  );
+
+  testWidgets('retrying a failed converted query recovers the chart', (
+    tester,
+  ) async {
+    var convertedCalls = 0;
+    when(() => repo.run(any(that: contains('convert(')))).thenAnswer((_) async {
+      convertedCalls++;
+      if (convertedCalls == 1) {
+        return (data: null, error: const NetworkError('timed out'));
+      }
+      return (
+        data: const QueryResult(
+          columns: [
+            QueryColumnDef(name: 'y', type: 'int'),
+            QueryColumnDef(name: 'm', type: 'int'),
+            QueryColumnDef(name: 'bal', type: 'amount'),
+          ],
+          rows: [
+            [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
+          ],
+          warnings: [],
+        ),
+        error: null,
+      );
+    });
+    when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
+      (_) async => (
+        data: _inventoryResult([
+          [
+            2025,
+            8,
+            _inv({'CHF': '4000', 'USD': '50'}),
+          ],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+    expect(find.text('timed out'), findsOneWidget);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('4,040.00 CHF'), findsOneWidget);
+    expect(find.byType(LineChart), findsOneWidget);
+  });
+
+  testWidgets(
+    'changing the default currency re-fetches the converted view without '
+    'mislabeling stale values',
+    (tester) async {
+      when(() => repo.run(any(that: contains("'CHF'")))).thenAnswer(
+        (_) async => (
+          data: const QueryResult(
+            columns: [
+              QueryColumnDef(name: 'y', type: 'int'),
+              QueryColumnDef(name: 'm', type: 'int'),
+              QueryColumnDef(name: 'bal', type: 'amount'),
+            ],
+            rows: [
+              [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
+            ],
+            warnings: [],
+          ),
+          error: null,
+        ),
+      );
+      when(() => repo.run(any(that: contains("'USD'")))).thenAnswer(
+        (_) async => (
+          data: const QueryResult(
+            columns: [
+              QueryColumnDef(name: 'y', type: 'int'),
+              QueryColumnDef(name: 'm', type: 'int'),
+              QueryColumnDef(name: 'bal', type: 'amount'),
+            ],
+            rows: [
+              [2025, 8, QueryAmount(number: '4750', currency: 'USD')],
+            ],
+            warnings: [],
+          ),
+          error: null,
+        ),
+      );
+      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              8,
+              _inv({'CHF': '4000', 'EUR': '50'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+      expect(find.text('4,040.00 CHF'), findsOneWidget);
+
+      await tester.pumpWidget(build(_checking, defaultCurrency: 'USD'));
+      await tester.pumpAndSettle();
+
+      // Re-fetched with the new target and labeled/valued consistently —
+      // never '4,040.00 USD' (old CHF number under the new label).
+      expect(find.text('4,750.00 USD'), findsOneWidget);
+      expect(find.text('4,040.00 USD'), findsNothing);
+      expect(find.text('≈ USD'), findsOneWidget);
     },
   );
 

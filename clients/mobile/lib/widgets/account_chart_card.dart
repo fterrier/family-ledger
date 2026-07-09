@@ -61,6 +61,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
   ApiError? _error;
   AccountChartSeries? _series;
   ConvertedChartSeries? _converted;
+  ApiError? _convertedError;
   List<QueryWarningInfo> _warnings = const [];
 
   /// Selected currency chip; null means the converted (≈) view.
@@ -90,6 +91,15 @@ class _AccountChartCardState extends State<AccountChartCard> {
         old.toDate != widget.toDate ||
         old.refreshTick != widget.refreshTick) {
       _loadBase();
+    } else if (old.defaultCurrency != widget.defaultCurrency &&
+        (_series?.currencies.length ?? 0) > 1) {
+      // Only the conversion target changed — no need to re-fetch the
+      // per-currency series, just the converted (≈) one.
+      setState(() {
+        _converted = null;
+        _convertedError = null;
+      });
+      _loadConverted(_generation);
     }
   }
 
@@ -99,6 +109,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       _loading = true;
       _error = null;
       _converted = null;
+      _convertedError = null;
       _warnings = const [];
     });
     final granularity = _granularity;
@@ -159,7 +170,10 @@ class _AccountChartCardState extends State<AccountChartCard> {
     final result = await widget.queryRepository.run(query);
     if (!mounted || generation != _generation) return;
     if (result.error != null) {
-      setState(() => _error = result.error);
+      // Keep this scoped to the converted view: the base series (and any
+      // single-currency chip) already loaded successfully and must stay
+      // usable rather than being hidden behind a full-card error.
+      setState(() => _convertedError = result.error);
       return;
     }
     setState(() {
@@ -169,9 +183,12 @@ class _AccountChartCardState extends State<AccountChartCard> {
         currency: widget.defaultCurrency,
         cumulative: !_isFlow,
       );
+      _convertedError = null;
       _warnings = result.data!.warnings;
     });
   }
+
+  Future<void> _retryConverted() => _loadConverted(_generation);
 
   // -- projections -----------------------------------------------------------
 
@@ -185,8 +202,14 @@ class _AccountChartCardState extends State<AccountChartCard> {
       ? _converted?.values ?? const []
       : _series!.valuesByCurrency[_selectedCurrency] ?? const [];
 
-  String get _displayCurrency =>
-      _showingConverted ? widget.defaultCurrency : _selectedCurrency ?? '';
+  // Reads the currency actually baked into the loaded converted series
+  // (falling back to the live default while that series is in flight),
+  // rather than the widget's current defaultCurrency — the two can
+  // momentarily disagree if the default currency changes while a
+  // previously-fetched converted series is still displayed.
+  String get _displayCurrency => _showingConverted
+      ? _converted?.currency ?? widget.defaultCurrency
+      : _selectedCurrency ?? '';
 
   double? get _lastValue =>
       _values.lastWhere((v) => v != null, orElse: () => null);
@@ -374,9 +397,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
         const SizedBox(height: 12),
         // The converted projection is empty until its query returns; fl_chart
         // crashes on empty data (maxX would be -1), so show a placeholder.
+        // A converted-query failure is scoped to this slot only — the
+        // header/headline/chips above stay driven by the valid base series.
         SizedBox(
           height: 180,
-          child: _values.isEmpty
+          child: _showingConverted && _convertedError != null
+              ? _buildConvertedError()
+              : _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : _isFlow
               ? _buildBars()
@@ -795,6 +822,22 @@ class _AccountChartCardState extends State<AccountChartCard> {
             }
           },
         ),
+      ),
+    );
+  }
+
+  Widget _buildConvertedError() {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _convertedError!.displayMessage,
+            style: const TextStyle(fontSize: 13, color: _textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          TextButton(onPressed: _retryConverted, child: const Text('Retry')),
+        ],
       ),
     );
   }

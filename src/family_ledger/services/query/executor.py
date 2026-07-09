@@ -66,6 +66,26 @@ def _serialize_inventory(balances: dict[str, Decimal]) -> list[dict[str, str]]:
     ]
 
 
+def _bucket_key_for_date(
+    target: date, group_key_buckets: tuple[str | None, ...]
+) -> tuple[Any, ...] | None:
+    """Decomposes a date into the (year, month, day) tuple a bucketed
+    running-balance query would have grouped it into. Returns None if any
+    group key isn't a date bucket (running_balance already requires
+    buckets-only grouping, so this is only a defensive guard)."""
+    values: list[int] = []
+    for bucket in group_key_buckets:
+        if bucket == "year":
+            values.append(target.year)
+        elif bucket == "month":
+            values.append(target.month)
+        elif bucket == "day":
+            values.append(target.day)
+        else:
+            return None
+    return tuple(values)
+
+
 def _bucket_end(key: tuple[Any, ...], buckets: tuple[str | None, ...]) -> date | None:
     parts = {
         bucket: int(value) for bucket, value in zip(buckets, key, strict=True) if bucket is not None
@@ -232,6 +252,15 @@ def _assemble_aggregate(
                 currency: _to_decimal(total)
                 for currency, total in _execute(session, compiled.seed_select).all()
             }
+        # An account can be dormant (zero postings) inside the queried
+        # window while still holding a nonzero opening balance. Without a
+        # synthetic bucket here, `order` would stay empty and a real,
+        # nonzero balance would be reported as "no data" instead of flat.
+        if not order and balances and post.open_on is not None:
+            synthetic_key = _bucket_key_for_date(post.open_on, post.group_key_buckets)
+            if synthetic_key is not None:
+                order.append(synthetic_key)
+                per_key[synthetic_key] = {}
         for key in order:
             for currency, delta in per_key[key].items():
                 balances[currency] = balances.get(currency, Decimal(0)) + delta

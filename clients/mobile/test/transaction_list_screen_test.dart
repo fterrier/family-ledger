@@ -18,6 +18,7 @@ import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_list_screen.dart';
 import 'package:family_ledger_mobile/widgets/account_chart_card.dart';
+import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 typedef _DoctorResult = ({List<DoctorIssue>? data, ApiError? error});
 
@@ -1318,5 +1319,151 @@ void main() {
       expect(find.byType(AccountChartCard), findsOneWidget);
       expect(find.text('No transactions in range'), findsOneWidget);
     });
+
+    testWidgets(
+      "a load error never shows alongside 'No transactions in range'",
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'tx_filter_account_name': 'accounts/acc-1',
+          'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+          'tx_filter_account_is_prefix': false,
+        });
+        when(
+          () => mockRepo.listTransactions(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+            filter: any(named: 'filter'),
+          ),
+        ).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('down')),
+        );
+
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AccountChartCard), findsOneWidget);
+        expect(find.byType(ErrorBanner), findsOneWidget);
+        expect(find.text('No transactions in range'), findsNothing);
+      },
+    );
+
+    testWidgets('editing a transaction bumps the chart refresh tick', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'tx_filter_account_name': 'accounts/acc-1',
+        'tx_filter_account_display_name': 'Assets:Bank:Checking',
+        'tx_filter_account_is_prefix': false,
+      });
+      final original = _tx();
+      const updated = TransactionResource(
+        name: 'transactions/t1',
+        transactionDate: '2026-06-18',
+        payee: 'Updated Migros',
+        narration: 'Groceries',
+        postings: [
+          PostingResource(
+            account: 'accounts/acc_checking',
+            accountName: 'Assets:Bank:Checking',
+            units: MoneyValue(amount: '-99.00', symbol: 'CHF'),
+          ),
+          PostingResource(
+            account: 'accounts/acc_food',
+            accountName: 'Expenses:Food',
+            units: MoneyValue(amount: '99.00', symbol: 'CHF'),
+          ),
+        ],
+      );
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+        ),
+      ).thenAnswer((_) async => (data: ([original], null), error: null));
+      when(
+        () => mockRepo.updateTransaction(any(), any()),
+      ).thenAnswer((_) async => (data: updated, error: null));
+      when(
+        () => mockRepo.getTransaction('transactions/t1'),
+      ).thenAnswer((_) async => (data: updated, error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      final before = tester
+          .widget<AccountChartCard>(find.byType(AccountChartCard))
+          .refreshTick;
+
+      await tester.tap(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final after = tester
+          .widget<AccountChartCard>(find.byType(AccountChartCard))
+          .refreshTick;
+      expect(after, greaterThan(before));
+    });
+
+    testWidgets(
+      'a same-count assertion detail change (e.g. a shrinking diff) still refreshes',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'tx_filter_account_name': 'accounts/acc-1',
+          'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+          'tx_filter_account_is_prefix': false,
+        });
+        when(
+          () => mockRepo.listTransactions(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+            filter: any(named: 'filter'),
+          ),
+        ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+
+        DoctorIssue assertionIssue(String diff) => DoctorIssue(
+          target: 'balanceAssertions/ba-1',
+          code: DoctorIssue.balanceAssertionFailed,
+          targetSummary: const {
+            'date': '2026-01-05',
+            'account': 'Assets:Checking:ZKB',
+          },
+          details: {'diff': diff},
+        );
+
+        when(() => mockRepo.runDoctorIssues()).thenAnswer(
+          (_) async => (data: [assertionIssue('-50.00')], error: null),
+        );
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .widget<AccountChartCard>(find.byType(AccountChartCard))
+              .assertionIssues
+              .single
+              .details['diff'],
+          '-50.00',
+        );
+
+        // Same count (1), different diff amount — must still propagate.
+        when(() => mockRepo.runDoctorIssues()).thenAnswer(
+          (_) async => (data: [assertionIssue('-10.00')], error: null),
+        );
+        final state = tester.state<TransactionListScreenState>(
+          find.byType(TransactionListScreen),
+        );
+        state.refresh();
+        await tester.pumpAndSettle();
+
+        expect(
+          tester
+              .widget<AccountChartCard>(find.byType(AccountChartCard))
+              .assertionIssues
+              .single
+              .details['diff'],
+          '-10.00',
+        );
+      },
+    );
   });
 }

@@ -89,6 +89,10 @@ class PostPlan:
     # aligned with group_keys: 'year' | 'month' | 'day' for bucket keys,
     # None for scalar keys
     group_key_buckets: tuple[str | None, ...] = field(default=())
+    # FROM OPEN ON date, when running_balance is True and a seed exists.
+    # Lets the executor synthesize a single seed-only bucket for accounts
+    # with a nonzero opening balance but zero postings inside the window.
+    open_on: date | None = None
 
 
 @dataclass(frozen=True)
@@ -502,5 +506,6 @@ def compile_query(query: Query) -> CompiledQuery:
             conversion=analysis.conversion,
             is_aggregate=analysis.has_aggregates,
             group_key_buckets=tuple(t.bucket for t in grouped),
+            open_on=open_on if analysis.running_balance else None,
         ),
     )

@@ -30,10 +30,17 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
 
   bool get _hasClosedAccounts => widget.accounts.any((a) => !a.isActive);
 
-  // Synthetic prefix entries always look active and must never be hidden.
+  // Synthetic prefix entries always look active and must never be hidden;
+  // the current selection is always shown too, even if closed, so it isn't
+  // silently hidden with no checkmark and no way to confirm/re-pick it.
   List<AccountResource> get _visibleAccounts => _showClosed
       ? widget.accounts
-      : widget.accounts.where((a) => a.isActive || a.isPrefix).toList();
+      : widget.accounts
+            .where(
+              (a) =>
+                  a.isActive || a.isPrefix || a.name == widget.selected?.name,
+            )
+            .toList();
 
   @override
   void initState() {
@@ -214,9 +221,13 @@ class _AccountItem extends StatelessWidget {
             left: 0,
             top: 0,
             bottom: 0,
-            child: SizedBox(
-              width: 4,
-              child: ColoredBox(color: Color(0xFFFF3B30)),
+            // ColoredBox hit-tests as opaque by default, which would steal
+            // taps landing on this 4px strip before they reach the InkWell.
+            child: IgnorePointer(
+              child: SizedBox(
+                width: 4,
+                child: ColoredBox(color: Color(0xFFFF3B30)),
+              ),
             ),
           ),
       ],

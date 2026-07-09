@@ -81,6 +81,43 @@ def test_running_balance_without_open_on_starts_at_zero(session: Session) -> Non
     ]
 
 
+def test_dormant_window_with_nonzero_seed_returns_one_flat_bucket(session: Session) -> None:
+    # No postings at all in Jan 2026, but the account holds a nonzero
+    # balance as of the OPEN ON date — the window must not read as empty.
+    result = execute_query(
+        session,
+        f"{SELECT_YM} last(balance) AS bal"
+        " FROM OPEN ON 2026-01-01 CLOSE ON 2026-02-01"
+        f"{ZKB_WHERE}{GROUP_YM}",
+    )
+    assert result.rows == [[2026, 1, [amount("4000", "CHF"), amount("50", "USD")]]]
+
+
+def test_dormant_window_with_zero_seed_stays_empty(session: Session) -> None:
+    # A dormant window with NO prior balance at all (account never touched
+    # before the window) must still report no rows, not a synthetic zero.
+    result = execute_query(
+        session,
+        f"{SELECT_YM} last(balance) AS bal"
+        " FROM OPEN ON 2020-01-01 CLOSE ON 2020-02-01"
+        f"{ZKB_WHERE}{GROUP_YM}",
+    )
+    assert result.rows == []
+
+
+def test_dormant_window_converted_view_also_flattens(session: Session) -> None:
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(last(balance), 'CHF') AS bal"
+        " FROM OPEN ON 2026-01-01 CLOSE ON 2026-02-01"
+        f"{ZKB_WHERE}{GROUP_YM}",
+    )
+    # The synthetic bucket converts exactly like a live one: 2025-08-10's
+    # 0.80 rate is still the latest USD price on or before the bucket end.
+    assert result.rows == [[2026, 1, amount("4040", "CHF")]]
+    assert result.warnings == []
+
+
 # ---------------------------------------------------------------------------
 # Conversion
 # ---------------------------------------------------------------------------

@@ -121,6 +121,10 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     }
   }
 
+  // Doctor is authoritative and already re-runs on every load/refresh/edit,
+  // so the fresh result always wins outright — no "did anything actually
+  // change" comparison to get subtly wrong (a stale-detail bug lived here
+  // before: a same-count assertion whose amounts changed wasn't detected).
   void _refreshDoctorIssues() {
     _doctorGeneration++;
     final gen = _doctorGeneration;
@@ -128,23 +132,16 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       if (!mounted || _doctorGeneration != gen) return;
       final issues = result.data;
       if (issues == null) return;
-      final txIssues = {
-        for (final issue in issues)
-          if (issue.target != null) issue.target!,
-      };
-      final assertionIssues = [
-        for (final issue in issues)
-          if (issue.code == DoctorIssue.balanceAssertionFailed) issue,
-      ];
-      final txChanged =
-          txIssues.length != _transactionsWithIssues.length ||
-          !_transactionsWithIssues.containsAll(txIssues);
-      if (txChanged || assertionIssues.length != _assertionIssues.length) {
-        setState(() {
-          _transactionsWithIssues = txIssues;
-          _assertionIssues = assertionIssues;
-        });
-      }
+      setState(() {
+        _transactionsWithIssues = {
+          for (final issue in issues)
+            if (issue.target != null) issue.target!,
+        };
+        _assertionIssues = [
+          for (final issue in issues)
+            if (issue.code == DoctorIssue.balanceAssertionFailed) issue,
+        ];
+      });
     });
   }
 
@@ -190,6 +187,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       setState(() {
         final idx = _transactions.indexWhere((t) => t.name == updated.name);
         if (idx >= 0) _transactions[idx] = updated;
+        // The edit may have changed amounts/postings on the charted
+        // account; the chart has no other way to learn that.
+        _chartRefreshTick++;
       });
       _refreshDoctorIssues();
     }
@@ -350,7 +350,10 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       ).showSnackBar(SnackBar(content: Text(firstError.displayMessage)));
       return;
     }
-    setState(() => _transactions.removeWhere((t) => toDelete.contains(t.name)));
+    setState(() {
+      _transactions.removeWhere((t) => toDelete.contains(t.name));
+      _chartRefreshTick++;
+    });
     exitSelectionMode();
   }
 
@@ -397,6 +400,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
                 .clamp(0, _transactions.length - toRemove.length);
       _transactions.removeWhere((t) => toRemove.contains(t.name));
       _transactions.insert(insertAt, mergedTx);
+      _chartRefreshTick++;
     });
     exitSelectionMode();
   }
@@ -425,12 +429,27 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
     // Bottom spinner only during pagination. During refresh, _nextPageToken is reset
     // to null before _isLoading = true, so this stays false and only
-    // RefreshIndicator's own top indicator shows.
+    // RefreshIndicator's own top indicator shows — except RefreshIndicator's
+    // spinner only appears for a user pull gesture, not a programmatic
+    // refresh() (e.g. the initial load right after selecting an account),
+    // so a hasChart initial/empty load needs its own visible cue here.
     final showBottomSpinner = _isLoading && _nextPageToken != null;
+    final showInitialChartLoading =
+        hasChart &&
+        _isLoading &&
+        _transactions.isEmpty &&
+        _nextPageToken == null;
     final isSelecting = _selectedNames.isNotEmpty;
     final leading = hasChart ? 1 : 0;
-    final showEmptyState = hasChart && _transactions.isEmpty && !_isLoading;
-    final hasTrailing = showBottomSpinner || _paginationError || showEmptyState;
+    // Never claim the range is empty while a load error is still showing —
+    // the fetch didn't actually succeed, so "no transactions" isn't true.
+    final showEmptyState =
+        hasChart && _transactions.isEmpty && !_isLoading && _error == null;
+    final hasTrailing =
+        showBottomSpinner ||
+        _paginationError ||
+        showInitialChartLoading ||
+        showEmptyState;
 
     Widget listContent = RefreshIndicator(
       onRefresh: refresh,
@@ -445,7 +464,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
           if (hasChart && index == 0) return _buildChartCard();
           final txIndex = index - leading;
           if (txIndex == _transactions.length) {
-            if (showBottomSpinner) {
+            if (showBottomSpinner || showInitialChartLoading) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(
@@ -658,9 +677,14 @@ class _TransactionRow extends StatelessWidget {
                 left: 0,
                 top: 0,
                 bottom: 0,
-                child: SizedBox(
-                  width: 4,
-                  child: ColoredBox(color: Color(0xFFFF3B30)),
+                // ColoredBox hit-tests as opaque by default, which would
+                // steal taps landing on this 4px strip before they reach
+                // the InkWell.
+                child: IgnorePointer(
+                  child: SizedBox(
+                    width: 4,
+                    child: ColoredBox(color: Color(0xFFFF3B30)),
+                  ),
                 ),
               ),
           ],

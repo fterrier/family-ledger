@@ -218,6 +218,27 @@ void main() {
 
       expect(find.text('Show closed accounts'), findsNothing);
     });
+
+    testWidgets(
+      'the current selection stays visible and checked even when closed',
+      (tester) async {
+        const oldBank = AccountResource(
+          name: 'accounts/assets_old',
+          accountName: 'Assets:OldBank',
+          effectiveStartDate: '2018-01-01',
+          effectiveEndDate: '2022-12-31',
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AccountPickerScreen(accounts: withClosed, selected: oldBank),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Assets · OldBank'), findsOneWidget);
+        expect(find.byIcon(Icons.check), findsOneWidget);
+      },
+    );
   });
   group('assertion issue indicators', () {
     testWidgets('marks accounts and their prefixes with a red bar', (
@@ -251,5 +272,45 @@ void main() {
         findsNothing,
       );
     });
+
+    testWidgets(
+      'a flagged row is still fully tappable through the red bar strip',
+      (tester) async {
+        AccountResource? popped;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  popped = await Navigator.push<AccountResource>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AccountPickerScreen(
+                        accounts: _accounts,
+                        issueAccountNames: const {'Assets:Cash:Wallet'},
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        // Tap at the very left edge of the flagged row, inside the 4px
+        // bar's footprint — the bar must not swallow this hit and prevent
+        // the pop.
+        final rowTopLeft = tester.getTopLeft(
+          find.text('Assets · Cash · Wallet'),
+        );
+        await tester.tapAt(Offset(2, rowTopLeft.dy + 10));
+        await tester.pumpAndSettle();
+
+        expect(popped?.accountName, 'Assets:Cash:Wallet');
+      },
+    );
   });
 }

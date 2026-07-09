@@ -113,6 +113,14 @@ List<DateTime> _continuousBucketStarts(
 /// Running-balance line series from inventory cells: gaps between buckets
 /// carry the last balance forward; a currency contributes null before it
 /// first appears.
+///
+/// Each bucket row is the account's *complete* inventory snapshot at that
+/// point (the server omits exactly-zero currencies, per
+/// docs/specs/reporting-query.md's cell-encoding rules) — so once a
+/// currency has appeared, its absence from a later (non-gap) row means the
+/// position was closed out to zero, not "unchanged." Buckets with no row at
+/// all mean no activity that period, so prior values genuinely carry
+/// forward unchanged.
 AccountChartSeries buildBalanceSeries(
   QueryResult result,
   Granularity granularity,
@@ -127,11 +135,19 @@ AccountChartSeries buildBalanceSeries(
 
   final values = {for (final c in currencies) c: <double?>[]};
   final running = <String, double>{};
+  final started = <String>{};
   for (final start in starts) {
     final row = byBucket[start];
-    if (row != null) running.addAll(row);
+    if (row != null) {
+      started.addAll(row.keys);
+      for (final currency in started) {
+        running[currency] = row[currency] ?? 0.0;
+      }
+    }
     for (final currency in currencies) {
-      values[currency]!.add(running[currency]);
+      values[currency]!.add(
+        started.contains(currency) ? running[currency] : null,
+      );
     }
   }
   return AccountChartSeries(

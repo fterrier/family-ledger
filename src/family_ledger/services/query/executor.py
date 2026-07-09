@@ -256,11 +256,16 @@ def _assemble_aggregate(
         # window while still holding a nonzero opening balance. Without a
         # synthetic bucket here, `order` would stay empty and a real,
         # nonzero balance would be reported as "no data" instead of flat.
+        # Only safe because the guard requires `order` to be completely
+        # empty: there is no real key this could collide with and silently
+        # overwrite. `setdefault` (rather than a raw assignment) keeps that
+        # invariant enforced if this branch is ever reached with a
+        # non-empty `order` in the future.
         if not order and balances and post.open_on is not None:
             synthetic_key = _bucket_key_for_date(post.open_on, post.group_key_buckets)
             if synthetic_key is not None:
                 order.append(synthetic_key)
-                per_key[synthetic_key] = {}
+                per_key.setdefault(synthetic_key, {})
         for key in order:
             for currency, delta in per_key[key].items():
                 balances[currency] = balances.get(currency, Decimal(0)) + delta

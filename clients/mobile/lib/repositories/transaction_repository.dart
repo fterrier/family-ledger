@@ -46,18 +46,6 @@ class TransactionRepository {
     return (data: issues, error: null);
   }
 
-  Future<Result<Set<String>>> runDoctor() async {
-    final result = await runDoctorIssues();
-    if (result.error != null) return (data: null, error: result.error);
-    return (
-      data: {
-        for (final issue in result.data!)
-          if (issue.target != null) issue.target!,
-      },
-      error: null,
-    );
-  }
-
   Future<Result<(List<TransactionResource>, String?)>> listTransactions({
     int pageSize = 100,
     String? pageToken,

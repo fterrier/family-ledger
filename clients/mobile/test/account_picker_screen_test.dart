@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/screens/add_transaction/account_picker_screen.dart';
+import 'package:family_ledger_mobile/widgets/issue_bar.dart';
 
 AccountResource _acct(String accountName) => AccountResource(
   name: 'accounts/${accountName.toLowerCase().replaceAll(':', '_')}',
@@ -256,21 +257,13 @@ void main() {
       await tester.pumpAndSettle();
 
       // Two red bars: the account itself and its 'Assets' prefix subtree.
-      final redBars = find.byWidgetPredicate(
-        (w) => w is ColoredBox && w.color == const Color(0xFFFF3B30),
-      );
-      expect(redBars, findsNWidgets(2));
+      expect(find.byType(IssueBar), findsNWidgets(2));
     });
 
     testWidgets('no red bars without issues', (tester) async {
       await tester.pumpWidget(buildPicker());
       await tester.pumpAndSettle();
-      expect(
-        find.byWidgetPredicate(
-          (w) => w is ColoredBox && w.color == const Color(0xFFFF3B30),
-        ),
-        findsNothing,
-      );
+      expect(find.byType(IssueBar), findsNothing);
     });
 
     testWidgets(

@@ -19,15 +19,12 @@ import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dar
 import 'package:family_ledger_mobile/screens/transactions/transaction_list_screen.dart';
 import 'package:family_ledger_mobile/widgets/account_chart_card.dart';
 import 'package:family_ledger_mobile/widgets/error_banner.dart';
+import 'package:family_ledger_mobile/widgets/issue_bar.dart';
 
 typedef _DoctorResult = ({List<DoctorIssue>? data, ApiError? error});
 
-// Finds the red issue-indicator bar (a ColoredBox painted with the issue color).
-bool _hasRedLeftBorder(WidgetTester tester) {
-  return tester
-      .widgetList<ColoredBox>(find.byType(ColoredBox))
-      .any((w) => w.color == const Color(0xFFFF3B30));
-}
+bool _hasRedLeftBorder(WidgetTester tester) =>
+    find.byType(IssueBar).evaluate().isNotEmpty;
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
 

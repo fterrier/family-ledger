@@ -53,9 +53,30 @@ class AccountChartCard extends StatefulWidget {
 
 class _AccountChartCardState extends State<AccountChartCard> {
   static const _issueRed = Color(0xFFFF3B30);
+  static const _issueRedBg = Color(0xFFFFEBEE);
   static const _positiveGreen = Color(0xFF34C759);
+  static const _positiveGreenBg = Color(0xFFE8F5E9);
+  static const _warningOrange = Color(0xFFFF9500);
+  static const _warningOrangeBg = Color(0xFFFFF3E0);
   static const _textPrimary = Color(0xFF1C1C1E);
   static const _textSecondary = Color(0xFF8E8E93);
+
+  static const _tooltipTextStyle = TextStyle(
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    color: Colors.white,
+  );
+  static const _gridData = FlGridData(drawVerticalLine: false);
+  static final _borderData = FlBorderData(show: false);
+
+  // Constructed once and reused: fl_chart re-invokes axis-title and tooltip
+  // callbacks on every touch/drag frame, so building a formatter fresh
+  // inside them allocates dozens of times per second during interaction.
+  static final _compactFormat = NumberFormat.compact();
+  static final _assertionDateFormat = DateFormat('MMM d, yyyy');
+  static final _dailyBucketFormat = DateFormat('d MMM');
+  static final _monthlyBucketFormat = DateFormat('MMM yy');
+  static final _yearlyBucketFormat = DateFormat('yyyy');
 
   bool _loading = true;
   ApiError? _error;
@@ -103,6 +124,24 @@ class _AccountChartCardState extends State<AccountChartCard> {
     }
   }
 
+  String _seriesQuery(Granularity granularity, {String? convertTo}) {
+    return _isFlow
+        ? periodTotalsQuery(
+            accountName: widget.account.accountName,
+            granularity: granularity,
+            from: widget.fromDate,
+            to: widget.toDate,
+            convertTo: convertTo,
+          )
+        : balanceSeriesQuery(
+            accountName: widget.account.accountName,
+            granularity: granularity,
+            from: widget.fromDate,
+            to: widget.toDate,
+            convertTo: convertTo,
+          );
+  }
+
   Future<void> _loadBase() async {
     final generation = ++_generation;
     setState(() {
@@ -113,20 +152,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       _warnings = const [];
     });
     final granularity = _granularity;
-    final query = _isFlow
-        ? periodTotalsQuery(
-            accountName: widget.account.accountName,
-            granularity: granularity,
-            from: widget.fromDate,
-            to: widget.toDate,
-          )
-        : balanceSeriesQuery(
-            accountName: widget.account.accountName,
-            granularity: granularity,
-            from: widget.fromDate,
-            to: widget.toDate,
-          );
-    final result = await widget.queryRepository.run(query);
+    final result = await widget.queryRepository.run(_seriesQuery(granularity));
     if (!mounted || generation != _generation) return;
     if (result.error != null) {
       setState(() {
@@ -152,21 +178,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   Future<void> _loadConverted(int generation) async {
     final granularity = _granularity;
-    final query = _isFlow
-        ? periodTotalsQuery(
-            accountName: widget.account.accountName,
-            granularity: granularity,
-            from: widget.fromDate,
-            to: widget.toDate,
-            convertTo: widget.defaultCurrency,
-          )
-        : balanceSeriesQuery(
-            accountName: widget.account.accountName,
-            granularity: granularity,
-            from: widget.fromDate,
-            to: widget.toDate,
-            convertTo: widget.defaultCurrency,
-          );
+    final query = _seriesQuery(granularity, convertTo: widget.defaultCurrency);
     final result = await widget.queryRepository.run(query);
     if (!mounted || generation != _generation) return;
     if (result.error != null) {
@@ -244,7 +256,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
   }
 
   void _showAssertionFailures() {
-    final dateFormat = DateFormat('MMM d, yyyy');
     showModalBottomSheet<void>(
       context: context,
       builder: (context) => SafeArea(
@@ -265,7 +276,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
                   children: [
                     Text(
                       issue.date != null
-                          ? dateFormat.format(issue.date!)
+                          ? _assertionDateFormat.format(issue.date!)
                           : (issue.targetSummary['date'] ?? ''),
                       style: const TextStyle(
                         fontSize: 14,
@@ -320,9 +331,9 @@ class _AccountChartCardState extends State<AccountChartCard> {
   // -- labels ----------------------------------------------------------------
 
   DateFormat get _bucketFormat => switch (_granularity) {
-    Granularity.daily => DateFormat('d MMM'),
-    Granularity.monthly => DateFormat('MMM yy'),
-    Granularity.yearly => DateFormat('yyyy'),
+    Granularity.daily => _dailyBucketFormat,
+    Granularity.monthly => _monthlyBucketFormat,
+    Granularity.yearly => _yearlyBucketFormat,
   };
 
   String _formatValue(double v) => '${formatFixedAmount(v)} $_displayCurrency';
@@ -350,22 +361,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       );
     }
     if (_error != null) {
-      return SizedBox(
-        height: 120,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error!.displayMessage,
-                style: const TextStyle(fontSize: 13, color: _textSecondary),
-                textAlign: TextAlign.center,
-              ),
-              TextButton(onPressed: _loadBase, child: const Text('Retry')),
-            ],
-          ),
-        ),
-      );
+      return SizedBox(height: 120, child: _errorView(_error!, _loadBase));
     }
     final series = _series;
     if (series == null || series.isEmpty) {
@@ -402,7 +398,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         SizedBox(
           height: 180,
           child: _showingConverted && _convertedError != null
-              ? _buildConvertedError()
+              ? _errorView(_convertedError!, _retryConverted)
               : _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : _isFlow
@@ -422,6 +418,22 @@ class _AccountChartCardState extends State<AccountChartCard> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _errorView(ApiError error, VoidCallback onRetry) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            error.displayMessage,
+            style: const TextStyle(fontSize: 13, color: _textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
+        ],
+      ),
     );
   }
 
@@ -451,61 +463,21 @@ class _AccountChartCardState extends State<AccountChartCard> {
         if (widget.assertionIssues.isNotEmpty)
           Padding(
             padding: const EdgeInsets.only(right: 6),
-            child: GestureDetector(
+            child: _badge(
+              icon: Icons.error_outline,
+              label: '${widget.assertionIssues.length}',
+              background: _issueRedBg,
+              foreground: _issueRed,
               onTap: _showAssertionFailures,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEBEE),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error_outline, size: 14, color: _issueRed),
-                    const SizedBox(width: 4),
-                    Text(
-                      '${widget.assertionIssues.length}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: _issueRed,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
             ),
           ),
         if (_warnings.isNotEmpty && _showingConverted)
-          GestureDetector(
+          _badge(
+            icon: Icons.warning_amber_rounded,
+            label: '${_warnings.length}',
+            background: _warningOrangeBg,
+            foreground: _warningOrange,
             onTap: _showWarnings,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF3E0),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(
-                    Icons.warning_amber_rounded,
-                    size: 14,
-                    color: Color(0xFFFF9500),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '${_warnings.length}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFFF9500),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
       ],
     );
@@ -531,20 +503,10 @@ class _AccountChartCardState extends State<AccountChartCard> {
       final percent = first != 0
           ? ' · ${positive ? '+' : ''}${(delta / first.abs() * 100).toStringAsFixed(1)}%'
           : '';
-      deltaChip = Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: positive ? const Color(0xFFE8F5E9) : const Color(0xFFFFEBEE),
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Text(
-          '${positive ? '+' : ''}${formatFixedAmount(delta)}$percent',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: positive ? _positiveGreen : _issueRed,
-          ),
-        ),
+      deltaChip = _badge(
+        label: '${positive ? '+' : ''}${formatFixedAmount(delta)}$percent',
+        background: positive ? _positiveGreenBg : _issueRedBg,
+        foreground: positive ? _positiveGreen : _issueRed,
       );
     }
 
@@ -571,6 +533,47 @@ class _AccountChartCardState extends State<AccountChartCard> {
         ),
       ],
     );
+  }
+
+  /// Small colored pill shared by the assertion badge, warnings badge, and
+  /// delta chip: an optional leading icon plus a label, tappable when
+  /// [onTap] is given. The currency-selector chips (below) have a
+  /// different shape (selection-state coloring, always tappable) and stay
+  /// on their own [_chip] helper.
+  Widget _badge({
+    IconData? icon,
+    required String label,
+    required Color background,
+    required Color foreground,
+    VoidCallback? onTap,
+  }) {
+    final content = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: foreground),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: foreground,
+            ),
+          ),
+        ],
+      ),
+    );
+    return onTap == null
+        ? content
+        : GestureDetector(onTap: onTap, child: content);
   }
 
   Widget _buildCurrencyChips() {
@@ -638,6 +641,31 @@ class _AccountChartCardState extends State<AccountChartCard> {
     return n <= 5 ? 1 : (n / 4).ceilToDouble();
   }
 
+  /// Axis config shared by the line and bar charts — identical labeling,
+  /// only the plotted data differs.
+  FlTitlesData get _titlesData => FlTitlesData(
+    topTitles: const AxisTitles(),
+    rightTitles: const AxisTitles(),
+    leftTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: true,
+        reservedSize: 52,
+        getTitlesWidget: (value, meta) => Text(
+          _compactFormat.format(value),
+          style: const TextStyle(fontSize: 10, color: _textSecondary),
+        ),
+      ),
+    ),
+    bottomTitles: AxisTitles(
+      sideTitles: SideTitles(
+        showTitles: true,
+        interval: _labelInterval,
+        getTitlesWidget: _bottomTitle,
+        reservedSize: 24,
+      ),
+    ),
+  );
+
   Widget _buildLine() {
     final theme = themeForAccount(widget.account.accountName);
     final values = _values;
@@ -701,30 +729,9 @@ class _AccountChartCardState extends State<AccountChartCard> {
         ),
         minX: 0,
         maxX: (values.length - 1).toDouble(),
-        gridData: const FlGridData(drawVerticalLine: false),
-        borderData: FlBorderData(show: false),
-        titlesData: FlTitlesData(
-          topTitles: const AxisTitles(),
-          rightTitles: const AxisTitles(),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 52,
-              getTitlesWidget: (value, meta) => Text(
-                NumberFormat.compact().format(value),
-                style: const TextStyle(fontSize: 10, color: _textSecondary),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: _labelInterval,
-              getTitlesWidget: _bottomTitle,
-              reservedSize: 24,
-            ),
-          ),
-        ),
+        gridData: _gridData,
+        borderData: _borderData,
+        titlesData: _titlesData,
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => [
@@ -732,11 +739,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
                 LineTooltipItem(
                   '${_bucketFormat.format(_buckets[spot.x.toInt()].start)}\n'
                   '${_formatValue(spot.y)}',
-                  const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+                  _tooltipTextStyle,
                 ),
             ],
           ),
@@ -779,41 +782,16 @@ class _AccountChartCardState extends State<AccountChartCard> {
               ],
             ),
         ],
-        gridData: const FlGridData(drawVerticalLine: false),
-        borderData: FlBorderData(show: false),
-        titlesData: FlTitlesData(
-          topTitles: const AxisTitles(),
-          rightTitles: const AxisTitles(),
-          leftTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              reservedSize: 52,
-              getTitlesWidget: (value, meta) => Text(
-                NumberFormat.compact().format(value),
-                style: const TextStyle(fontSize: 10, color: _textSecondary),
-              ),
-            ),
-          ),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: _labelInterval,
-              getTitlesWidget: _bottomTitle,
-              reservedSize: 24,
-            ),
-          ),
-        ),
+        gridData: _gridData,
+        borderData: _borderData,
+        titlesData: _titlesData,
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
             getTooltipItem: (group, groupIndex, rod, rodIndex) =>
                 BarTooltipItem(
                   '${_bucketFormat.format(_buckets[group.x].start)}\n'
                   '${_formatValue(rod.toY)}',
-                  const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
+                  _tooltipTextStyle,
                 ),
           ),
           touchCallback: (event, response) {
@@ -822,22 +800,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
             }
           },
         ),
-      ),
-    );
-  }
-
-  Widget _buildConvertedError() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _convertedError!.displayMessage,
-            style: const TextStyle(fontSize: 13, color: _textSecondary),
-            textAlign: TextAlign.center,
-          ),
-          TextButton(onPressed: _retryConverted, child: const Text('Retry')),
-        ],
       ),
     );
   }

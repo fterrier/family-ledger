@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/account_category.dart';
+import '../../core/account_hierarchy.dart';
 import '../../core/account_search.dart';
 import '../../models/account.dart';
+import '../../widgets/issue_bar.dart';
 
 class AccountPickerScreen extends StatefulWidget {
   final List<AccountResource> accounts;
@@ -63,9 +65,7 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
   // An account is marked when it, a descendant, or (for prefix rows) any
   // account in its subtree has a failed balance assertion.
   bool _hasIssue(AccountResource account) => widget.issueAccountNames.any(
-    (name) =>
-        name == account.accountName ||
-        name.startsWith('${account.accountName}:'),
+    (name) => isAccountOrDescendant(name, account.accountName),
   );
 
   @override
@@ -217,19 +217,7 @@ class _AccountItem extends StatelessWidget {
           ),
         ),
         if (hasIssue)
-          const Positioned(
-            left: 0,
-            top: 0,
-            bottom: 0,
-            // ColoredBox hit-tests as opaque by default, which would steal
-            // taps landing on this 4px strip before they reach the InkWell.
-            child: IgnorePointer(
-              child: SizedBox(
-                width: 4,
-                child: ColoredBox(color: Color(0xFFFF3B30)),
-              ),
-            ),
-          ),
+          const Positioned(left: 0, top: 0, bottom: 0, child: IssueBar()),
       ],
     );
   }

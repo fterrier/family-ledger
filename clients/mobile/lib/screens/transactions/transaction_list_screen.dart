@@ -18,6 +18,7 @@ import '../../repositories/query_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/account_chart_card.dart';
 import '../../widgets/error_banner.dart';
+import '../../widgets/issue_bar.dart';
 import '../transaction_edit/transaction_edit_screen.dart';
 import 'transaction_filter.dart';
 import 'transaction_filter_sheet.dart';
@@ -157,8 +158,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     if (accountName == null) return const [];
     return [
       for (final issue in _assertionIssues)
-        if (issue.accountName == accountName ||
-            (issue.accountName?.startsWith('$accountName:') ?? false))
+        if (issue.accountName != null &&
+            isAccountOrDescendant(issue.accountName!, accountName))
           issue,
     ];
   }
@@ -224,13 +225,18 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       transactionRepository: widget.transactionRepository,
     );
     _filterOpen = false;
-    if (result != null && mounted) {
-      exitSelectionMode();
-      _filter = result;
-      unawaited(FilterPersistence.save(_filter));
-      widget.filterActiveNotifier?.value = _filter.isActive;
-      refresh();
-    }
+    if (result != null && mounted) _applyFilter(result);
+  }
+
+  // Applying a new filter value — from the sheet, a chart bucket tap, or
+  // picking an account — is always the same choreography: drop any active
+  // selection, persist, notify the app-bar dot, and reload.
+  void _applyFilter(TransactionFilter next) {
+    exitSelectionMode();
+    _filter = next;
+    unawaited(FilterPersistence.save(_filter));
+    widget.filterActiveNotifier?.value = _filter.isActive;
+    refresh();
   }
 
   // Shared fetch. Caller must have incremented _loadGeneration, set _isLoading = true,
@@ -273,23 +279,13 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   // Chart bucket tap: narrow the shared filter to that bucket. Same path as
   // applying the filter sheet — persist, notify, refresh.
-  void _narrowToBucket(DateTime from, DateTime to) {
-    exitSelectionMode();
-    _filter = _filter.copyWith(fromDate: from, toDate: to);
-    unawaited(FilterPersistence.save(_filter));
-    widget.filterActiveNotifier?.value = _filter.isActive;
-    refresh();
-  }
+  void _narrowToBucket(DateTime from, DateTime to) =>
+      _applyFilter(_filter.copyWith(fromDate: from, toDate: to));
 
   // "Selecting an account" IS setting the account on the global filter —
   // used by the drawer's Accounts entry.
-  void selectAccount(AccountResource account) {
-    exitSelectionMode();
-    _filter = _filter.copyWith(account: account);
-    unawaited(FilterPersistence.save(_filter));
-    widget.filterActiveNotifier?.value = _filter.isActive;
-    refresh();
-  }
+  void selectAccount(AccountResource account) =>
+      _applyFilter(_filter.copyWith(account: account));
 
   List<AccountResource> get pickerAccounts => buildPickerAccounts(_accounts);
 
@@ -673,20 +669,7 @@ class _TransactionRow extends StatelessWidget {
               ),
             ),
             if (hasIssue)
-              const Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                // ColoredBox hit-tests as opaque by default, which would
-                // steal taps landing on this 4px strip before they reach
-                // the InkWell.
-                child: IgnorePointer(
-                  child: SizedBox(
-                    width: 4,
-                    child: ColoredBox(color: Color(0xFFFF3B30)),
-                  ),
-                ),
-              ),
+              const Positioned(left: 0, top: 0, bottom: 0, child: IssueBar()),
           ],
         ),
         const Divider(

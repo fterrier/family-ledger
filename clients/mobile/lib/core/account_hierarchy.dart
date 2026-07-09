@@ -1,5 +1,10 @@
 import '../models/account.dart';
 
+/// True when [candidate] is [root] itself or a `:`-separated descendant of
+/// it (`Assets:Checking:ZKB` is a descendant of `Assets:Checking`).
+bool isAccountOrDescendant(String candidate, String root) =>
+    candidate == root || candidate.startsWith('$root:');
+
 /// Builds the account-picker superset: real accounts plus synthesized
 /// prefix entries for every intermediate `:`-separated path segment that is
 /// not itself a real account. Selecting a prefix filters/charts the whole

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/account_category.dart';
 import '../../core/api_error.dart';
+import '../../core/app_preferences.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
 import '../../models/posting.dart';
@@ -37,9 +38,6 @@ class AddTransactionScreen extends StatefulWidget {
 }
 
 class _AddTransactionScreenState extends State<AddTransactionScreen> {
-  static const _prefKeyLastFrom = 'last_from_account_name';
-  static const _prefKeyDefaultCurrency = 'default_currency';
-
   final _amountController = TextEditingController();
   final _amountFocusNode = FocusNode();
   final _payeeController = TextEditingController();
@@ -52,7 +50,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
   List<AccountResource>? _accounts;
   List<Commodity> _commodities = [];
-  SharedPreferences? _prefs;
   bool _saving = false;
   ApiError? _error;
 
@@ -72,7 +69,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       widget.commodityRepository.getAllCommodities(),
       SharedPreferences.getInstance(),
     ).wait;
-    _prefs = prefs;
     if (!mounted) return;
     if (accountsResult.error != null) {
       setState(() {
@@ -81,12 +77,12 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
     final active = accountsResult.data!.where((a) => a.isActive).toList();
-    final lastFromName = prefs.getString(_prefKeyLastFrom);
-    final lastFrom = lastFromName != null
-        ? active.firstWhereOrNull((a) => a.accountName == lastFromName)
+    final defaultFromName = prefs.getString(AppPreferences.keyDefaultFrom);
+    final defaultFrom = defaultFromName != null
+        ? active.firstWhereOrNull((a) => a.accountName == defaultFromName)
         : null;
     final commodities = commoditiesResult.data ?? [];
-    final defaultCurrency = prefs.getString(_prefKeyDefaultCurrency);
+    final defaultCurrency = prefs.getString(AppPreferences.keyDefaultCurrency);
     final currency =
         defaultCurrency ??
         (commodities.isNotEmpty ? commodities.first.symbol : 'CHF');
@@ -94,7 +90,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       _accounts = active;
       _commodities = commodities;
       _currency = currency;
-      _fromAccount = lastFrom;
+      _fromAccount = defaultFrom;
     });
   }
 
@@ -118,6 +114,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         }
       });
     }
+  }
+
+  void _swapAccounts() {
+    setState(() {
+      final swapped = _fromAccount;
+      _fromAccount = _toAccount;
+      _toAccount = swapped;
+    });
   }
 
   Future<void> _pickDate() async {
@@ -187,25 +191,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       return;
     }
 
-    _prefs!.setString(_prefKeyLastFrom, _fromAccount!.accountName);
-
-    setState(() {
-      _saving = false;
-      _amountController.clear();
-      _payeeController.clear();
-      _narrationController.clear();
-      _date = DateTime.now();
-      _toAccount = null;
-    });
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Transaction saved'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    }
+    Navigator.pop(context, true);
   }
 
   @override
@@ -263,6 +249,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                   loading: _accounts == null && _error == null,
                   onFromTap: () => _pickAccount(isFrom: true),
                   onToTap: () => _pickAccount(isFrom: false),
+                  onSwapTap: _saving ? null : _swapAccounts,
                   date: _date,
                   onDateTap: _pickDate,
                   payeeController: _payeeController,
@@ -407,6 +394,7 @@ class _FlowCard extends StatelessWidget {
   final bool loading;
   final VoidCallback onFromTap;
   final VoidCallback onToTap;
+  final VoidCallback? onSwapTap;
   final DateTime date;
   final VoidCallback onDateTap;
   final TextEditingController payeeController;
@@ -418,6 +406,7 @@ class _FlowCard extends StatelessWidget {
     required this.loading,
     required this.onFromTap,
     required this.onToTap,
+    required this.onSwapTap,
     required this.date,
     required this.onDateTap,
     required this.payeeController,
@@ -448,7 +437,7 @@ class _FlowCard extends StatelessWidget {
             onTap: onFromTap,
           ),
           Padding(
-            padding: const EdgeInsets.only(left: 30),
+            padding: const EdgeInsets.only(left: 30, right: 12),
             child: Row(
               children: [
                 SizedBox(
@@ -471,6 +460,8 @@ class _FlowCard extends StatelessWidget {
                 const Expanded(
                   child: Divider(height: 1, color: Color(0xFFF2F2F7)),
                 ),
+                const SizedBox(width: 8),
+                _SwapButton(onTap: onSwapTap),
               ],
             ),
           ),
@@ -528,6 +519,37 @@ class _FlowCard extends StatelessWidget {
             hintText: 'Weekly groceries…',
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SwapButton extends StatelessWidget {
+  final VoidCallback? onTap;
+
+  const _SwapButton({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onTap != null;
+    return Tooltip(
+      message: 'Swap accounts',
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 28,
+          height: 28,
+          decoration: BoxDecoration(
+            color: enabled ? const Color(0xFFEBF2FE) : const Color(0xFFF2F2F7),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(
+            Icons.swap_vert,
+            size: 16,
+            color: enabled ? const Color(0xFF1A73E8) : const Color(0xFFC7C7CC),
+          ),
+        ),
       ),
     );
   }

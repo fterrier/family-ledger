@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/app_preferences.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
@@ -17,9 +18,6 @@ class MockAccountRepository extends Mock implements AccountRepository {}
 class MockCommodityRepository extends Mock implements CommodityRepository {}
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
-
-const _prefKeyLastFrom = 'last_from_account_name';
-const _prefKeyDefaultCurrency = 'default_currency';
 
 AccountResource _acct(String accountName) => AccountResource(
   name: 'accounts/${accountName.toLowerCase().replaceAll(':', '_')}',
@@ -66,12 +64,44 @@ void main() {
     ),
   );
 
-  Future<void> fillAndSubmit(
+  // AddTransactionScreen is always pushed onto a stack in the real app and
+  // pops itself on a successful save — mounting it directly as `home` can't
+  // exercise that. This mounts a placeholder "Open" screen underneath and
+  // pushes AddTransactionScreen on top, capturing the pop result.
+  Future<bool?> pushAddTransactionAndSubmit(
     WidgetTester tester, {
     String amount = '42.50',
+    String? narration,
   }) async {
-    await tester.pumpWidget(buildScreen());
+    bool? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: TextButton(
+                onPressed: () async {
+                  result = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AddTransactionScreen(
+                        accountRepository: mockAccountRepo,
+                        commodityRepository: mockCommodityRepo,
+                        transactionRepository: mockTransactionRepo,
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
+
     await tester.enterText(find.byType(TextField).first, amount);
     await tester.tap(find.text('Select account…').first);
     await tester.pumpAndSettle();
@@ -81,18 +111,23 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Expenses · Food'));
     await tester.pumpAndSettle();
+    if (narration != null) {
+      await tester.enterText(find.byType(TextField).at(2), narration);
+    }
     await tester.ensureVisible(find.text('Add Transaction'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add Transaction'));
     await tester.pumpAndSettle();
+
+    return result;
   }
 
   group('AddTransactionScreen initial load', () {
-    testWidgets('shows From account from SharedPreferences on open', (
+    testWidgets('shows default From account from SharedPreferences on open', (
       tester,
     ) async {
       SharedPreferences.setMockInitialValues({
-        _prefKeyLastFrom: 'Assets:Cash:Wallet',
+        AppPreferences.keyDefaultFrom: 'Assets:Cash:Wallet',
       });
 
       await tester.pumpWidget(buildScreen());
@@ -104,7 +139,9 @@ void main() {
     testWidgets('shows default currency from SharedPreferences on open', (
       tester,
     ) async {
-      SharedPreferences.setMockInitialValues({_prefKeyDefaultCurrency: 'EUR'});
+      SharedPreferences.setMockInitialValues({
+        AppPreferences.keyDefaultCurrency: 'EUR',
+      });
       when(
         () => mockAccountRepo.getAllAccounts(),
       ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
@@ -212,8 +249,10 @@ void main() {
       ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
     });
 
-    testWidgets('submits correct payload and resets form', (tester) async {
-      await fillAndSubmit(tester);
+    testWidgets('submits correct payload and returns to the previous screen', (
+      tester,
+    ) async {
+      final result = await pushAddTransactionAndSubmit(tester);
 
       final captured = verify(
         () => mockTransactionRepo.createTransaction(captureAny()),
@@ -225,25 +264,87 @@ void main() {
       expect(tx.postings[1].units.amount, '42.50');
       expect(tx.postings[0].account, contains('assets'));
       expect(tx.postings[1].account, contains('expenses'));
-      expect(find.text('Transaction saved'), findsOneWidget);
-      expect(find.text('42.50'), findsNothing);
+
+      expect(result, isTrue);
+      expect(find.byType(AddTransactionScreen), findsNothing);
+      expect(find.text('Open'), findsOneWidget);
     });
 
-    testWidgets('saves From account name to SharedPreferences on submit', (
-      tester,
-    ) async {
-      await fillAndSubmit(tester, amount: '10');
+    testWidgets(
+      'does not overwrite the default From account preference on submit',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          AppPreferences.keyDefaultFrom: 'Assets:Cash:Wallet',
+        });
+        when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
+          (_) async => (
+            data: [
+              _acct('Assets:Cash:Wallet'),
+              _acct('Assets:Cash:Savings'),
+              _acct('Expenses:Food'),
+            ],
+            error: null,
+          ),
+        );
 
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(_prefKeyLastFrom), 'Assets:Cash:Wallet');
-    });
+        bool? result;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () async {
+                    result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AddTransactionScreen(
+                          accountRepository: mockAccountRepo,
+                          commodityRepository: mockCommodityRepo,
+                          transactionRepository: mockTransactionRepo,
+                        ),
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        // From is preselected with the configured default (Wallet) — tap it
+        // to reassign it to a different account before submitting.
+        await tester.enterText(find.byType(TextField).first, '10');
+        await tester.tap(find.text('Assets · Cash · Wallet'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Assets · Cash · Savings'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Select account…').first);
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Expenses · Food'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Add Transaction'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Add Transaction'));
+        await tester.pumpAndSettle();
+
+        expect(result, isTrue);
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString(AppPreferences.keyDefaultFrom),
+          'Assets:Cash:Wallet',
+        );
+      },
+    );
 
     testWidgets('shows API error in banner on failed submit', (tester) async {
       when(
         () => mockTransactionRepo.createTransaction(any()),
       ).thenAnswer((_) async => (data: null, error: const AuthError()));
 
-      await fillAndSubmit(tester);
+      await pushAddTransactionAndSubmit(tester);
 
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
@@ -264,23 +365,7 @@ void main() {
         () => mockTransactionRepo.createTransaction(any()),
       ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
 
-      await tester.pumpWidget(buildScreen());
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, '42.50');
-      await tester.tap(find.text('Select account…').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Assets · Cash · Wallet'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Select account…').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Expenses · Food'));
-      await tester.pumpAndSettle();
-      // Narration is the third TextField (after amount and payee)
-      await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
-      await tester.ensureVisible(find.text('Add Transaction'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add Transaction'));
-      await tester.pumpAndSettle();
+      await pushAddTransactionAndSubmit(tester, narration: 'Weekly groceries');
 
       final tx =
           verify(
@@ -295,7 +380,7 @@ void main() {
         () => mockTransactionRepo.createTransaction(any()),
       ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
 
-      await fillAndSubmit(tester);
+      await pushAddTransactionAndSubmit(tester);
 
       final tx =
           verify(
@@ -303,35 +388,6 @@ void main() {
               ).captured.first
               as TransactionCreate;
       expect(tx.narration, isNull);
-    });
-
-    testWidgets('narration is cleared after successful submit', (tester) async {
-      when(
-        () => mockTransactionRepo.createTransaction(any()),
-      ).thenAnswer((_) async => (data: <String, dynamic>{}, error: null));
-
-      await tester.pumpWidget(buildScreen());
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, '42.50');
-      await tester.tap(find.text('Select account…').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Assets · Cash · Wallet'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Select account…').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Expenses · Food'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).at(2), 'Weekly groceries');
-      await tester.ensureVisible(find.text('Add Transaction'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add Transaction'));
-      await tester.pumpAndSettle();
-
-      expect(
-        (tester.widget<TextField>(find.byType(TextField).at(2)).controller)!
-            .text,
-        isEmpty,
-      );
     });
   });
 
@@ -372,6 +428,56 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('EUR'), findsOneWidget);
+    });
+  });
+
+  group('AddTransactionScreen swap accounts', () {
+    testWidgets('swap button exchanges the From and To accounts', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Assets · Cash · Wallet'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Expenses · Food'));
+      await tester.pumpAndSettle();
+
+      // FROM renders above TO — capture that ordering before swapping.
+      final fromDyBefore = tester
+          .getTopLeft(find.text('Assets · Cash · Wallet'))
+          .dy;
+      final toDyBefore = tester.getTopLeft(find.text('Expenses · Food')).dy;
+      expect(fromDyBefore, lessThan(toDyBefore));
+
+      await tester.tap(find.byTooltip('Swap accounts'));
+      await tester.pumpAndSettle();
+
+      final fromDyAfter = tester.getTopLeft(find.text('Expenses · Food')).dy;
+      final toDyAfter = tester
+          .getTopLeft(find.text('Assets · Cash · Wallet'))
+          .dy;
+      expect(fromDyAfter, lessThan(toDyAfter));
+    });
+
+    testWidgets('swap with only From selected moves it to To', (tester) async {
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Select account…').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Assets · Cash · Wallet'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byTooltip('Swap accounts'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Assets · Cash · Wallet'), findsOneWidget);
+      expect(find.text('Select account…'), findsOneWidget);
     });
   });
 }

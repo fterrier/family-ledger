@@ -166,7 +166,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   }
 
   Future<void> _openAddTransaction() async {
-    await Navigator.push(
+    final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
         builder: (_) => AddTransactionScreen(
@@ -178,6 +178,14 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       ),
     );
     _listKey.currentState?.refresh();
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Transaction saved'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   static final _appBarDivider = PreferredSize(

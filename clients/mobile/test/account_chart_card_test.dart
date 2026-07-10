@@ -890,6 +890,59 @@ void main() {
     expect(find.text('150.00 CHF'), findsOneWidget);
   });
 
+  testWidgets(
+    'switching granularity keeps the header/headline visible instead of '
+    'collapsing the card to the loading placeholder '
+    '(regression: card got visibly shorter while a same-view reload ran)',
+    (tester) async {
+      final dailyCompleter =
+          Completer<({QueryResult? data, ApiError? error})>();
+      when(
+        () => repo.run(any(that: contains('day(date)'))),
+      ).thenAnswer((_) => dailyCompleter.future);
+      when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              7,
+              _inv({'CHF': '100'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+      expect(find.text('100.00 CHF'), findsOneWidget);
+
+      await tester.tap(find.text('Day'));
+      await tester.pump(); // reload starts; daily query still pending
+
+      // Stale header/headline stay up (same view, just a different
+      // granularity) rather than the card collapsing to the small
+      // full-card spinner used only when there's no previous data at all.
+      expect(find.text('100.00 CHF'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(LineChart), findsNothing);
+
+      dailyCompleter.complete((
+        data: _dailyInventoryResult([
+          [
+            2025,
+            7,
+            15,
+            _inv({'CHF': '150'}),
+          ],
+        ]),
+        error: null,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('150.00 CHF'), findsOneWidget);
+    },
+  );
+
   testWidgets('tapping Year re-queries with only a year bucket', (
     tester,
   ) async {

@@ -147,7 +147,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       if (isNewView) {
         _granularity = granularityForSpan(widget.fromDate, widget.toDate);
       }
-      _loadBase();
+      _loadBase(isNewView: isNewView);
     } else if (old.defaultCurrency != widget.defaultCurrency &&
         (_series?.currencies.length ?? 0) > 1) {
       // Only the conversion target changed — no need to re-fetch the
@@ -180,7 +180,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
           );
   }
 
-  Future<void> _loadBase() async {
+  // isNewView: a different account or date range makes the previous series
+  // meaningless (it's for the wrong view) — drop it so the loading state
+  // falls back to the full-card spinner. Otherwise (granularity/currency
+  // change, or a refreshTick bump) the previous series is kept around so
+  // the header/headline/card height stay put and only the chart's own slot
+  // shows a spinner, avoiding a jarring height collapse on every reload.
+  Future<void> _loadBase({bool isNewView = false}) async {
     final generation = ++_generation;
     setState(() {
       _loading = true;
@@ -188,6 +194,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       _converted = null;
       _convertedError = null;
       _warnings = const [];
+      if (isNewView) _series = null;
     });
     final granularity = _granularity;
     final result = await widget.queryRepository.run(_seriesQuery(granularity));
@@ -398,7 +405,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
   }
 
   Widget _buildContent() {
-    if (_loading) {
+    final series = _series;
+    // Only the very first load (or a switch to a new account/date range,
+    // which drops the previous series — see _loadBase) has nothing to show
+    // yet. A same-view reload (granularity/currency change, refresh) keeps
+    // rendering the previous series below so the card doesn't collapse to
+    // this shorter placeholder and back, which reads as a flicker.
+    if (_loading && series == null) {
       return const SizedBox(
         height: 220,
         child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
@@ -407,7 +420,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
     if (_error != null) {
       return SizedBox(height: 120, child: _errorView(_error!, _loadBase));
     }
-    final series = _series;
     if (series == null || series.isEmpty) {
       return SizedBox(
         height: 120,
@@ -441,7 +453,9 @@ class _AccountChartCardState extends State<AccountChartCard> {
         // header/headline/chips above stay driven by the valid base series.
         SizedBox(
           height: 180,
-          child: _showingConverted && _convertedError != null
+          child: _loading
+              ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+              : _showingConverted && _convertedError != null
               ? _errorView(_convertedError!, _retryConverted)
               : _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))

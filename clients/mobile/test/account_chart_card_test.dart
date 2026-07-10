@@ -137,9 +137,99 @@ void main() {
 
     expect(find.byType(LineChart), findsOneWidget);
     expect(find.text('4,000.00 CHF'), findsOneWidget);
-    expect(find.textContaining('-1,800.00'), findsOneWidget);
+    // Delta chip shows only the percentage change, not the absolute amount.
+    expect(find.text('-31.0%'), findsOneWidget);
+    expect(find.textContaining('1,800.00'), findsNothing);
     verify(() => repo.run(any())).called(1);
   });
+
+  testWidgets('no delta chip when the first value in range is zero', (
+    tester,
+  ) async {
+    when(() => repo.run(any())).thenAnswer(
+      (_) async => (
+        data: _inventoryResult([
+          [
+            2025,
+            7,
+            _inv({'CHF': '0'}),
+          ],
+          [
+            2025,
+            8,
+            _inv({'CHF': '500'}),
+          ],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+
+    // A percentage change from a zero base is undefined — no chip at all,
+    // rather than falling back to showing the absolute amount.
+    expect(find.textContaining('%'), findsNothing);
+  });
+
+  testWidgets('headline balance is never truncated with an ellipsis', (
+    tester,
+  ) async {
+    when(() => repo.run(any())).thenAnswer(
+      (_) async => (
+        data: _inventoryResult([
+          [
+            2025,
+            8,
+            _inv({'CHF': '1234567.89'}),
+          ],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+
+    final headline = tester.widget<Text>(find.text('1,234,567.89 CHF'));
+    expect(headline.overflow, isNot(TextOverflow.ellipsis));
+    expect(headline.maxLines, isNull);
+  });
+
+  testWidgets(
+    'headline and delta chip do not overflow the header row at narrow widths',
+    (tester) async {
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      tester.view.physicalSize = const Size(320, 800);
+      tester.view.devicePixelRatio = 1.0;
+
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              7,
+              _inv({'CHF': '5800'}),
+            ],
+            [
+              2025,
+              8,
+              _inv({'CHF': '4000'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('4,000.00 CHF'), findsOneWidget);
+      expect(find.text('-31.0%'), findsOneWidget);
+    },
+  );
 
   testWidgets('liability balances keep their raw negative sign', (
     tester,
@@ -649,9 +739,8 @@ void main() {
         error: null,
       ),
     );
-    // Uses the expense (bar-chart) account rather than checking: at very
-    // narrow widths the balance card's delta chip overflows its header row
-    // regardless of the axis-label fix under test here.
+    // Uses the expense (bar-chart) account, which never renders a delta
+    // chip, to isolate axis-label thinning from the header row layout.
     await tester.pumpWidget(
       build(_groceries, from: DateTime(2025), to: DateTime(2025, 12, 31)),
     );

@@ -542,41 +542,44 @@ class _AccountChartCardState extends State<AccountChartCard> {
         ? _formatValue(_values.fold<double>(0, (sum, v) => sum + (v ?? 0)))
         : _formatValue(last);
 
+    // Percentage change only — the absolute delta is redundant with the
+    // headline balance right above it, and previously made this chip long
+    // enough to overflow the header row at narrow widths.
     Widget? deltaChip;
     final first = _firstValue;
-    if (!_isFlow && first != null && _values.length > 1) {
+    if (!_isFlow && first != null && first != 0 && _values.length > 1) {
       final delta = last - first;
       final positive = delta >= 0;
-      final percent = first != 0
-          ? ' · ${positive ? '+' : ''}${(delta / first.abs() * 100).toStringAsFixed(1)}%'
-          : '';
+      final percent = (delta / first.abs() * 100).toStringAsFixed(1);
       deltaChip = _badge(
-        label: '${positive ? '+' : ''}${formatFixedAmount(delta)}$percent',
+        label: '${positive ? '+' : ''}$percent%',
         background: positive ? _positiveGreenBg : _issueRedBg,
         foreground: positive ? _positiveGreen : _issueRed,
       );
     }
 
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.end,
+    // The balance gets its own full-width row so large amounts are never
+    // clipped; the delta chip and range label share a second row below.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Flexible(
-          child: Text(
-            headline,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              color: _textPrimary,
-            ),
+        Text(
+          headline,
+          style: const TextStyle(
+            fontSize: 22,
+            fontWeight: FontWeight.w600,
+            color: _textPrimary,
           ),
         ),
-        if (deltaChip != null) ...[const SizedBox(width: 8), deltaChip],
-        const Spacer(),
-        Text(
-          widget.rangeLabel ?? 'All history',
-          style: const TextStyle(fontSize: 12, color: _textSecondary),
+        const SizedBox(height: 2),
+        Row(
+          children: [
+            if (deltaChip != null) ...[deltaChip, const SizedBox(width: 8)],
+            Text(
+              widget.rangeLabel ?? 'All history',
+              style: const TextStyle(fontSize: 12, color: _textSecondary),
+            ),
+          ],
         ),
       ],
     );

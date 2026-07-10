@@ -205,39 +205,53 @@ void main() {
     },
   );
 
-  testWidgets('range label sits alongside the assertion-issue pill', (
-    tester,
-  ) async {
-    when(() => repo.run(any())).thenAnswer(
-      (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            8,
-            _inv({'CHF': '4000'}),
-          ],
-        ]),
-        error: null,
-      ),
-    );
-    const issue = DoctorIssue(
-      target: 'balanceAssertions/ba-1',
-      code: DoctorIssue.balanceAssertionFailed,
-      targetSummary: {'date': '2025-08-15', 'account': 'Assets:Checking:ZKB'},
-    );
+  testWidgets(
+    'assertion-issue pill is right-aligned on the granularity-chip row',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              7,
+              _inv({'CHF': '5800'}),
+            ],
+            [
+              2025,
+              8,
+              _inv({'CHF': '4000'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+      const issue = DoctorIssue(
+        target: 'balanceAssertions/ba-1',
+        code: DoctorIssue.balanceAssertionFailed,
+        targetSummary: {'date': '2025-08-15', 'account': 'Assets:Checking:ZKB'},
+      );
 
-    await tester.pumpWidget(
-      build(_checking, assertionIssues: [issue], rangeLabel: 'Last 12 months'),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        build(
+          _checking,
+          assertionIssues: [issue],
+          rangeLabel: 'Last 12 months',
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    // Same header row: pill and range label share a vertical center, with
-    // the range label to the left of the pill.
-    final pillCenter = tester.getCenter(find.text('1'));
-    final rangeCenter = tester.getCenter(find.text('Last 12 months'));
-    expect(rangeCenter.dy, closeTo(pillCenter.dy, 1));
-    expect(rangeCenter.dx, lessThan(pillCenter.dx));
-  });
+      // Below the header/headline, and on the same row as the granularity
+      // chips — to the chips' right.
+      final pillCenter = tester.getCenter(find.text('1'));
+      final rangeDy = tester.getTopLeft(find.text('Last 12 months')).dy;
+      final balanceDy = tester.getTopLeft(find.text('4,000.00 CHF')).dy;
+      final dayChipCenter = tester.getCenter(find.text('Day'));
+      expect(pillCenter.dy, greaterThan(rangeDy));
+      expect(pillCenter.dy, greaterThan(balanceDy));
+      expect(pillCenter.dy, closeTo(dayChipCenter.dy, 1));
+      expect(pillCenter.dx, greaterThan(dayChipCenter.dx));
+    },
+  );
 
   testWidgets('headline balance is never truncated with an ellipsis', (
     tester,

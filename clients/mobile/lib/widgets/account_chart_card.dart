@@ -455,7 +455,12 @@ class _AccountChartCardState extends State<AccountChartCard> {
                 ),
         ),
         const SizedBox(height: 8),
-        _buildGranularityChips(),
+        Row(
+          children: [
+            Expanded(child: _buildGranularityChips()),
+            if (_hasIssuePills) _buildIssuePills(),
+          ],
+        ),
         if (widget.showsLastImportHint)
           const Padding(
             padding: EdgeInsets.only(top: 8),
@@ -511,20 +516,33 @@ class _AccountChartCardState extends State<AccountChartCard> {
           widget.rangeLabel ?? 'All history',
           style: const TextStyle(fontSize: 12, color: _textSecondary),
         ),
+      ],
+    );
+  }
+
+  bool get _hasIssuePills =>
+      widget.assertionIssues.isNotEmpty ||
+      (_warnings.isNotEmpty && _showingConverted);
+
+  /// Assertion/warning pills, right-aligned in the granularity-chip row
+  /// below the chart rather than competing for space in the header row.
+  Widget _buildIssuePills() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
         if (widget.assertionIssues.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: _badge(
-              icon: Icons.error_outline,
-              label: '${widget.assertionIssues.length}',
-              background: _issueRedBg,
-              foreground: _issueRed,
-              onTap: _showAssertionFailures,
-            ),
+          _badge(
+            icon: Icons.error_outline,
+            label: '${widget.assertionIssues.length}',
+            background: _issueRedBg,
+            foreground: _issueRed,
+            onTap: _showAssertionFailures,
           ),
         if (_warnings.isNotEmpty && _showingConverted)
           Padding(
-            padding: const EdgeInsets.only(left: 6),
+            padding: EdgeInsets.only(
+              left: widget.assertionIssues.isNotEmpty ? 6 : 0,
+            ),
             child: _badge(
               icon: Icons.warning_amber_rounded,
               label: '${_warnings.length}',

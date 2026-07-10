@@ -527,8 +527,8 @@ class _AccountChartCardState extends State<AccountChartCard> {
   /// Assertion/warning pills, right-aligned in the granularity-chip row
   /// below the chart rather than competing for space in the header row.
   Widget _buildIssuePills() {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
+      spacing: 6,
       children: [
         if (widget.assertionIssues.isNotEmpty)
           _badge(
@@ -539,17 +539,12 @@ class _AccountChartCardState extends State<AccountChartCard> {
             onTap: _showAssertionFailures,
           ),
         if (_warnings.isNotEmpty && _showingConverted)
-          Padding(
-            padding: EdgeInsets.only(
-              left: widget.assertionIssues.isNotEmpty ? 6 : 0,
-            ),
-            child: _badge(
-              icon: Icons.warning_amber_rounded,
-              label: '${_warnings.length}',
-              background: _warningOrangeBg,
-              foreground: _warningOrange,
-              onTap: _showWarnings,
-            ),
+          _badge(
+            icon: Icons.warning_amber_rounded,
+            label: '${_warnings.length}',
+            background: _warningOrangeBg,
+            foreground: _warningOrange,
+            onTap: _showWarnings,
           ),
       ],
     );

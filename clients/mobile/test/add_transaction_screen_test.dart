@@ -19,6 +19,12 @@ class MockCommodityRepository extends Mock implements CommodityRepository {}
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
 
+/// Mutable box for the `Navigator.push<bool>` result of a pushed
+/// AddTransactionScreen, filled in once the pushed route pops.
+class _PendingPop {
+  bool? result;
+}
+
 AccountResource _acct(String accountName) => AccountResource(
   name: 'accounts/${accountName.toLowerCase().replaceAll(':', '_')}',
   accountName: accountName,
@@ -66,14 +72,11 @@ void main() {
 
   // AddTransactionScreen is always pushed onto a stack in the real app and
   // pops itself on a successful save — mounting it directly as `home` can't
-  // exercise that. This mounts a placeholder "Open" screen underneath and
-  // pushes AddTransactionScreen on top, capturing the pop result.
-  Future<bool?> pushAddTransactionAndSubmit(
-    WidgetTester tester, {
-    String amount = '42.50',
-    String? narration,
-  }) async {
-    bool? result;
+  // exercise that. This mounts a placeholder "Open" screen underneath,
+  // pushes AddTransactionScreen on top, and hands back a box that captures
+  // the pop result once the caller finishes its own fill/submit steps.
+  Future<_PendingPop> pushAddTransactionScreen(WidgetTester tester) async {
+    final pending = _PendingPop();
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -81,7 +84,7 @@ void main() {
             body: Center(
               child: TextButton(
                 onPressed: () async {
-                  result = await Navigator.push<bool>(
+                  pending.result = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
                       builder: (_) => AddTransactionScreen(
@@ -101,6 +104,15 @@ void main() {
     );
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
+    return pending;
+  }
+
+  Future<bool?> pushAddTransactionAndSubmit(
+    WidgetTester tester, {
+    String amount = '42.50',
+    String? narration,
+  }) async {
+    final pending = await pushAddTransactionScreen(tester);
 
     await tester.enterText(find.byType(TextField).first, amount);
     await tester.tap(find.text('Select account…').first);
@@ -119,7 +131,7 @@ void main() {
     await tester.tap(find.text('Add Transaction'));
     await tester.pumpAndSettle();
 
-    return result;
+    return pending.result;
   }
 
   group('AddTransactionScreen initial load', () {
@@ -287,32 +299,7 @@ void main() {
           ),
         );
 
-        bool? result;
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Builder(
-              builder: (context) => Scaffold(
-                body: TextButton(
-                  onPressed: () async {
-                    result = await Navigator.push<bool>(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AddTransactionScreen(
-                          accountRepository: mockAccountRepo,
-                          commodityRepository: mockCommodityRepo,
-                          transactionRepository: mockTransactionRepo,
-                        ),
-                      ),
-                    );
-                  },
-                  child: const Text('Open'),
-                ),
-              ),
-            ),
-          ),
-        );
-        await tester.tap(find.text('Open'));
-        await tester.pumpAndSettle();
+        final pending = await pushAddTransactionScreen(tester);
 
         // From is preselected with the configured default (Wallet) — tap it
         // to reassign it to a different account before submitting.
@@ -330,7 +317,7 @@ void main() {
         await tester.tap(find.text('Add Transaction'));
         await tester.pumpAndSettle();
 
-        expect(result, isTrue);
+        expect(pending.result, isTrue);
         final prefs = await SharedPreferences.getInstance();
         expect(
           prefs.getString(AppPreferences.keyDefaultFrom),

@@ -86,6 +86,38 @@ lossy in practice, fall back to expressing the unconvertible position in an
 alternative currency (e.g. its cost currency) or return it unconverted in
 the inventory, BQL-style.
 
+*Follow-up — chart bug fixes, granularity picker, commodity filter*
+*(implemented)*: fixed two bugs found in manual testing (account-category
+prefix matching, so top-level `Assets`/`Expenses`/etc. picker rows get
+their real color and correct line-vs-bars rendering; x-axis label overlap,
+now width-aware). Added a `Day | Month | Year` granularity picker (chip
+row, defaults to the existing span-derived heuristic, resets on account/
+date changes) and a commodity filter — added as a `currency` param on
+`GET /transactions` (mirrors the existing `account_name` filter shape) so
+it scopes both the transaction list and the chart identically, replacing
+the old per-card currency chips with a single shared filter field (no
+raw/converted toggle — see the three follow-ups below). Full details:
+[specs/reporting-query.md](specs/reporting-query.md).
+
+*Follow-up — raw/converted toggle on the chart (not done)*: a "≈ CHF"
+toggle for single-currency series was prototyped and then deliberately
+removed as not useful (toggling an already-single currency to itself,
+converted, added no value). If picked up again it likely belongs on the
+*multi*-currency case instead — today that always forces the combined
+converted view with no way back to a raw per-currency breakdown.
+
+*Follow-up — weekly/quarterly chart granularity (not done)*: the
+granularity picker only offers Day/Month/Year because BQL only has
+`year`/`month`/`day` bucket functions server-side. Needs a new backend
+bucket function plus client-side `Granularity`/bucket-math/picker support.
+
+*Follow-up — home-screen chart(s) (not done)*: with no account filter
+applied, a balance-sheet-style chart (Assets − Liabilities net worth,
+toggle to Expenses + Income cash flow) on the home screen. Deferred because
+`AccountChartCard` is single-account-shaped throughout and this needs its
+own widget; see [specs/reporting-query.md](specs/reporting-query.md)'s
+Risks/Notes for the recommended client-side-netting approach.
+
 **Snapshot after import**
 
 After a successful `POST /importers/{importer}:import` run, export the full ledger to a timestamped Beancount file (e.g. `backups/YYYY-MM-DDTHH:MM:SS-post-import.beancount`). Provides a recoverable checkpoint tied to each import event.

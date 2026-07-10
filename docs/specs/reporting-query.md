@@ -430,9 +430,15 @@ inversion, except expense/income *bars* which display magnitudes.
 
 No relative presets (no 3M/1Y chips): the existing filter sheet (year pills
 + FROM/TO month-year picker) is the only range editor, and the card shows
-the filter's `dateRangeLabel`. Bucket granularity derives from the span:
-≤ ~4 months daily, ≤ ~4 years monthly, longer (or unbounded start) yearly.
-Default view = whatever the persisted filter says; Reset = all history.
+the filter's `dateRangeLabel`. Default view = whatever the persisted filter
+says; Reset = all history.
+
+Bucket granularity defaults to a span-derived heuristic (`granularityForSpan`
+in `core/bql.dart`): ≤ ~4 months daily, ≤ ~4 years monthly, longer (or
+unbounded start) yearly. A `Day | Month | Year` chip row on the card lets
+the user override this per view; the pick sticks until the account or date
+range changes (including a bucket-tap narrowing), at which point it resets
+back to the span-derived default for the new view.
 
 ### AccountChartCard (`widgets/account_chart_card.dart`)
 
@@ -444,10 +450,25 @@ Default view = whatever the persisted filter says; Reset = all history.
   Income → magnitude bars (`sum(position)`, zero-filled gaps)
 - scrub tooltip (date + value); tapping a bucket narrows the shared filter
   to that bucket via the same persist/notify/refresh path as the sheet
-- currency: single-currency → no chrome. Multi-currency → chips per
-  currency (client-side re-projection of the inventory series, no refetch)
-  + a "≈ CHF" converted chip (default currency from app settings, separate
-  `convert(...)` query) which is the default selection
+- axis labels thin themselves to fit: the widest bucket label's measured
+  width vs. the available plot width picks how many buckets to skip
+  between labels, so dense ranges (e.g. daily buckets over months) don't
+  overlap
+- Expenses/Income bar width is likewise sized from the plot width and
+  bucket count (fl_chart's `BarChartAlignment.spaceEvenly` default spaces
+  groups evenly but never shrinks a fixed rod width to fit), so bars
+  neither collide at high bucket counts (daily granularity) nor look like
+  thin slivers against wide gaps at low bucket counts (yearly)
+- currency: the commodity to chart is part of the shared, persisted
+  `TransactionFilter` (same "Commodity" row in the filter sheet that scopes
+  the transaction list) — not a per-card chip. A series with more than one
+  currency (no filter applied, or the account naturally holds several) has
+  no single "unit" to fall back to, so it always shows the combined
+  converted view (default currency from app settings); a single-currency
+  series (filtered to one commodity, or naturally single-currency) just
+  shows that currency's raw values, no conversion. A raw/converted toggle
+  for the single-currency case was prototyped and deliberately removed —
+  see Risks/Notes
 - **warnings are a display requirement**: `missing_price` warnings show an
   amber count badge (tap → list) and `null` cells render as line gaps that
   also poison carry-forward until the next known value
@@ -475,9 +496,16 @@ Default view = whatever the persisted filter says; Reset = all history.
   (typed int/str/date/decimal/amount/inventory cells; unknown column types
   pass through for forward compatibility)
 - `core/bql.dart` — query-string builders incl. regex-escaping account
-  names into the `^...(:|$)` subtree pattern and span→granularity
+  names into the `^...(:|$)` subtree pattern and span→granularity; a
+  `currency` filter and a `convertTo` target can be combined in the same
+  query (a single commodity, shown converted)
 - `core/chart_series.dart` — pure series assembly: bucket math, gap
   filling/carry-forward, magnitude bars, converted series
+- `screens/transactions/transaction_filter.dart` +
+  `core/filter_persistence.dart` — the commodity filter is a field on the
+  same persisted `TransactionFilter` as account/dates/last-import, so it
+  scopes the transaction list (`GET /transactions?currency=...`, backend
+  filter on `Posting.units_symbol`) and the chart identically
 - `models/doctor_issue.dart` + `TransactionRepository.runDoctorIssues()` —
   full doctor issues; the home list's transaction-issue set is derived from
   the same single doctor call
@@ -503,9 +531,14 @@ Mobile (flutter test):
 - `QueryRepository` tests with mocked `ApiClient` (all cell types, unknown
   types, malformed responses)
 - widget tests: line vs bars per category, raw liability signs, delta chip,
-  currency chips (re-projection without refetch), warning badge + sheet,
+  the forced-converted view (multi-currency, no toggle) vs. the raw
+  single-currency view (no toggle either), warning badge + sheet,
   assertion badge/bands/sheet, chart card presence driven by the filter,
-  bucket tap narrowing + persistence, picker closed-toggle and red bars
+  bucket tap narrowing + persistence, picker closed-toggle and red bars,
+  granularity chip row (span-derived default, resets on account/date
+  change but survives a refreshTick- or commodity-filter-only reload),
+  axis-label thinning at narrow widths, bar width scaling at both bucket-
+  count extremes (daily/many vs. yearly/few)
 
 ## Implementation Phases
 
@@ -550,3 +583,22 @@ re-imported from `scukas.beancount`, with beanquery running on the same file:
   cost/lot columns (`cost(position)`,
   `units(position)`), user-facing query console. The AST/whitelist design
   leaves room for all of these while staying inside BQL's vocabulary.
+- **Weekly/quarterly bucket granularity** is not implemented — only
+  `year`/`month`/`day` bucket functions exist server-side (`compiler.py`'s
+  `_BUCKET_FUNCTIONS`); the mobile granularity picker offers only
+  Day/Month/Year for the same reason. Both backend (a new bucket function)
+  and client (`Granularity` enum, bucket math in `chart_series.dart`,
+  picker chip) work would be needed.
+- **Raw/converted toggle for single-currency series**: prototyped
+  (2026-07-09) as a "≈ CHF" chip next to the granularity row, then
+  deliberately removed — a single already-displayed currency toggling to
+  itself-converted wasn't judged useful. If revisited, the toggle likely
+  belongs on the *multi*-currency case instead (today always forced into
+  the combined converted view with no way back to a raw per-currency
+  breakdown).
+- **Home-screen balance-sheet chart** (Assets − Liabilities, with a toggle
+  to a cash-flow view of Expenses + Income) is deferred. `AccountChartCard`
+  is single-account-shaped end to end, so this needs its own widget; the
+  recommended approach nets/sums two or more separate subtree queries
+  client-side (BQL's `WHERE` still has no `OR` combinator) rather than a
+  hand-built alternation regex. No doctor overlay planned for it initially.

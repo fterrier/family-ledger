@@ -61,7 +61,6 @@ String balanceSeriesQuery({
   String? currency,
   String? convertTo,
 }) {
-  assert(currency == null || convertTo == null);
   final value = convertTo != null
       ? 'convert(last(balance), ${_quote(convertTo)}) AS bal'
       : 'last(balance) AS bal';
@@ -88,7 +87,6 @@ String periodTotalsQuery({
   String? currency,
   String? convertTo,
 }) {
-  assert(currency == null || convertTo == null);
   final value = convertTo != null
       ? 'convert(sum(position), ${_quote(convertTo)}) AS total'
       : 'sum(position) AS total';

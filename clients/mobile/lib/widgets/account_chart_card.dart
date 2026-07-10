@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -25,6 +27,10 @@ class AccountChartCard extends StatefulWidget {
   final DateTime? toDate;
   final String? rangeLabel;
   final String defaultCurrency;
+
+  /// Commodity the shared transaction filter narrowed to, if any — scopes
+  /// the chart's query exactly like it scopes the transaction list.
+  final String? currencyFilter;
   final bool showsLastImportHint;
   final int refreshTick;
   final void Function(DateTime from, DateTime to)? onBucketSelected;
@@ -41,6 +47,7 @@ class AccountChartCard extends StatefulWidget {
     this.toDate,
     this.rangeLabel,
     this.defaultCurrency = 'CHF',
+    this.currencyFilter,
     this.showsLastImportHint = false,
     this.refreshTick = 0,
     this.onBucketSelected,
@@ -85,9 +92,22 @@ class _AccountChartCardState extends State<AccountChartCard> {
   ApiError? _convertedError;
   List<QueryWarningInfo> _warnings = const [];
 
-  /// Selected currency chip; null means the converted (≈) view.
-  String? _selectedCurrency;
   int _generation = 0;
+
+  /// Bucket granularity. Defaults to the span-derived heuristic
+  /// ([granularityForSpan]) and resets to it whenever the account or date
+  /// range changes — including a bucket-tap narrowing, which is itself a
+  /// date-range change. A user's chip pick otherwise sticks for that view:
+  /// it survives a commodity-filter change or an unrelated data refresh
+  /// (e.g. editing a transaction elsewhere in the list), both of which
+  /// still reload the chart's data but aren't a new view.
+  late Granularity _granularity;
+
+  // Memoized against the exact bucket list currently on screen so a resize
+  // (which re-invokes the LayoutBuilder below) doesn't re-measure text on
+  // every frame.
+  List<ChartBucket>? _labelWidthCacheKey;
+  double _labelWidthCache = 0;
 
   bool get _isFlow {
     final category = categoryOf(widget.account.accountName);
@@ -95,22 +115,38 @@ class _AccountChartCardState extends State<AccountChartCard> {
         category == AccountCategory.income;
   }
 
-  Granularity get _granularity =>
-      granularityForSpan(widget.fromDate, widget.toDate);
-
   @override
   void initState() {
     super.initState();
+    _granularity = granularityForSpan(widget.fromDate, widget.toDate);
     _loadBase();
   }
 
   @override
   void didUpdateWidget(AccountChartCard old) {
     super.didUpdateWidget(old);
-    if (old.account.name != widget.account.name ||
+    // A new account or date range (including a bucket-tap narrowing) is a
+    // new view: reset the granularity pick back to the span-derived
+    // default. refreshTick, by contrast, fires on plenty of unrelated
+    // events (editing/deleting/merging a transaction elsewhere in the
+    // list) — it must still trigger a reload (the data may have changed)
+    // but must NOT reset a granularity the user already picked for this
+    // same view. Keeping this as its own boolean (rather than folding it
+    // into the reload condition below) is what makes that distinction
+    // actually take effect, rather than reload and reset always agreeing
+    // just because both conditions happened to overlap.
+    final isNewView =
+        old.account.name != widget.account.name ||
         old.fromDate != widget.fromDate ||
-        old.toDate != widget.toDate ||
-        old.refreshTick != widget.refreshTick) {
+        old.toDate != widget.toDate;
+    final needsReload =
+        isNewView ||
+        old.refreshTick != widget.refreshTick ||
+        old.currencyFilter != widget.currencyFilter;
+    if (needsReload) {
+      if (isNewView) {
+        _granularity = granularityForSpan(widget.fromDate, widget.toDate);
+      }
       _loadBase();
     } else if (old.defaultCurrency != widget.defaultCurrency &&
         (_series?.currencies.length ?? 0) > 1) {
@@ -131,6 +167,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             granularity: granularity,
             from: widget.fromDate,
             to: widget.toDate,
+            currency: widget.currencyFilter,
             convertTo: convertTo,
           )
         : balanceSeriesQuery(
@@ -138,6 +175,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             granularity: granularity,
             from: widget.fromDate,
             to: widget.toDate,
+            currency: widget.currencyFilter,
             convertTo: convertTo,
           );
   }
@@ -166,9 +204,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
         : buildBalanceSeries(result.data!, granularity);
     setState(() {
       _series = series;
-      _selectedCurrency = series.currencies.length == 1
-          ? series.currencies.single
-          : null; // multi-currency defaults to the converted view
       _loading = false;
     });
     if (series.currencies.length > 1) {
@@ -204,24 +239,33 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   // -- projections -----------------------------------------------------------
 
-  bool get _showingConverted =>
-      _selectedCurrency == null && (_series?.currencies.length ?? 0) > 1;
+  // Multi-currency series have no single "unit" to fall back to, so they
+  // always show the combined converted view; single- and zero-currency
+  // series show the raw series as-is.
+  bool get _showingConverted => (_series?.currencies.length ?? 0) > 1;
 
   List<ChartBucket> get _buckets =>
       _showingConverted ? _converted?.buckets ?? const [] : _series!.buckets;
 
-  List<double?> get _values => _showingConverted
-      ? _converted?.values ?? const []
-      : _series!.valuesByCurrency[_selectedCurrency] ?? const [];
+  List<double?> get _values {
+    if (_showingConverted) return _converted?.values ?? const [];
+    final currencies = _series!.currencies;
+    if (currencies.length != 1) return const [];
+    return _series!.valuesByCurrency[currencies.single] ?? const [];
+  }
 
   // Reads the currency actually baked into the loaded converted series
   // (falling back to the live default while that series is in flight),
   // rather than the widget's current defaultCurrency — the two can
   // momentarily disagree if the default currency changes while a
   // previously-fetched converted series is still displayed.
-  String get _displayCurrency => _showingConverted
-      ? _converted?.currency ?? widget.defaultCurrency
-      : _selectedCurrency ?? '';
+  String get _displayCurrency {
+    if (_showingConverted) {
+      return _converted?.currency ?? widget.defaultCurrency;
+    }
+    final currencies = _series?.currencies ?? const [];
+    return currencies.length == 1 ? currencies.single : '';
+  }
 
   double? get _lastValue =>
       _values.lastWhere((v) => v != null, orElse: () => null);
@@ -401,14 +445,17 @@ class _AccountChartCardState extends State<AccountChartCard> {
               ? _errorView(_convertedError!, _retryConverted)
               : _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
-              : _isFlow
-              ? _buildBars()
-              : _buildLine(),
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final interval = _labelInterval(constraints.maxWidth);
+                    return _isFlow
+                        ? _buildBars(interval, _barWidth(constraints.maxWidth))
+                        : _buildLine(interval);
+                  },
+                ),
         ),
-        if (series.currencies.length > 1) ...[
-          const SizedBox(height: 8),
-          _buildCurrencyChips(),
-        ],
+        const SizedBox(height: 8),
+        _buildGranularityChips(),
         if (widget.showsLastImportHint)
           const Padding(
             padding: EdgeInsets.only(top: 8),
@@ -576,24 +623,28 @@ class _AccountChartCardState extends State<AccountChartCard> {
         : GestureDetector(onTap: onTap, child: content);
   }
 
-  Widget _buildCurrencyChips() {
-    final series = _series!;
-    final chips = <Widget>[
-      for (final currency in series.currencies)
-        _chip(
-          currency,
-          selected: _selectedCurrency == currency,
-          onTap: () {
-            setState(() => _selectedCurrency = currency);
-          },
-        ),
-      _chip(
-        '≈ ${widget.defaultCurrency}',
-        selected: _showingConverted,
-        onTap: () => setState(() => _selectedCurrency = null),
-      ),
-    ];
-    return Wrap(spacing: 6, children: chips);
+  static const _granularityLabels = {
+    Granularity.daily: 'Day',
+    Granularity.monthly: 'Month',
+    Granularity.yearly: 'Year',
+  };
+
+  Widget _buildGranularityChips() {
+    return Wrap(
+      spacing: 6,
+      children: [
+        for (final granularity in Granularity.values)
+          _chip(
+            _granularityLabels[granularity]!,
+            selected: _granularity == granularity,
+            onTap: () {
+              if (_granularity == granularity) return;
+              setState(() => _granularity = granularity);
+              _loadBase();
+            },
+          ),
+      ],
+    );
   }
 
   Widget _chip(
@@ -621,10 +672,18 @@ class _AccountChartCardState extends State<AccountChartCard> {
     );
   }
 
-  Widget _bottomTitle(double value, TitleMeta meta) {
+  // fl_chart's bar charts generate one axis tick per bar group directly
+  // (bypassing SideTitles.interval entirely, unlike line charts), so the
+  // thinning has to be enforced here rather than relying on `interval`
+  // alone — this filter applies regardless of which chart type invoked it.
+  Widget _bottomTitle(double value, TitleMeta meta, double labelInterval) {
     final index = value.round();
     final buckets = _buckets;
-    if (index < 0 || index >= buckets.length || value != index.toDouble()) {
+    final step = labelInterval.round().clamp(1, 1 << 30);
+    if (index < 0 ||
+        index >= buckets.length ||
+        value != index.toDouble() ||
+        index % step != 0) {
       return const SizedBox.shrink();
     }
     return SideTitleWidget(
@@ -636,20 +695,83 @@ class _AccountChartCardState extends State<AccountChartCard> {
     );
   }
 
-  double get _labelInterval {
-    final n = _buckets.length;
-    return n <= 5 ? 1 : (n / 4).ceilToDouble();
+  /// Widest rendered width of the current buckets' axis labels, in the same
+  /// text style [_bottomTitle] draws with. Measured once per bucket list
+  /// (not per frame/rebuild) via the cache above.
+  double _maxLabelWidth() {
+    final buckets = _buckets;
+    if (identical(buckets, _labelWidthCacheKey)) return _labelWidthCache;
+    final format = _bucketFormat;
+    var maxWidth = 0.0;
+    for (final bucket in buckets) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: format.format(bucket.start),
+          style: const TextStyle(fontSize: 10),
+        ),
+        textDirection: ui.TextDirection.ltr,
+      )..layout();
+      if (painter.width > maxWidth) maxWidth = painter.width;
+    }
+    _labelWidthCache = maxWidth;
+    _labelWidthCacheKey = buckets;
+    return maxWidth;
+  }
+
+  // Reserved width of the left (y-axis) titles — must match _titlesData's
+  // leftTitles.reservedSize below, since both _labelInterval and _barWidth
+  // need the same "how much plot width is actually left" answer it does.
+  static const _leftAxisWidth = 52.0;
+
+  /// Remaining horizontal space for plotted content once the left axis's
+  /// reserved width is subtracted, or null if there's no room (empty state
+  /// callers should fall back to a fixed default rather than divide by ~0).
+  double? _plotWidth(double availableWidth) {
+    if (_buckets.isEmpty) return null;
+    final plotWidth = availableWidth - _leftAxisWidth;
+    return plotWidth > 0 ? plotWidth : null;
+  }
+
+  /// Bottom-axis label spacing so labels don't overlap: how many buckets'
+  /// worth of [availableWidth] (chart width minus the left axis's reserved
+  /// space) the widest label actually needs, rounded up to whole buckets.
+  double _labelInterval(double availableWidth) {
+    final plotWidth = _plotWidth(availableWidth);
+    if (plotWidth == null) return 1;
+    final raw = _maxLabelWidth() * _buckets.length / plotWidth;
+    return raw <= 1 ? 1 : raw.ceilToDouble();
+  }
+
+  /// Bar width sized to the available plot space and bucket count: fl_chart
+  /// spaces groups evenly across the full width regardless of rod width
+  /// (`BarChartAlignment.spaceEvenly`, the default) and never shrinks rods to
+  /// fit, so a fixed width either collides at high bucket counts (daily over
+  /// a long range) or looks like a sliver against wide gaps at low bucket
+  /// counts (yearly). Each bar gets ~60% of its group's fair share of the
+  /// plot (`plotWidth / bucketCount`), capped at a size that stays visible
+  /// without ballooning into a solid block for very few buckets. There is
+  /// deliberately no lower-bound floor: with enough buckets, a floor above
+  /// the fair share would push the *total* bar width past the plot width,
+  /// reintroducing the exact collision this sizing exists to prevent —
+  /// tight-but-thin bars are the correct outcome, not a floor-enforced
+  /// overlap.
+  double _barWidth(double availableWidth) {
+    final plotWidth = _plotWidth(availableWidth);
+    if (plotWidth == null) return 8;
+    final fairShare = plotWidth / _buckets.length;
+    final ideal = fairShare * 0.6;
+    return ideal > 24.0 ? 24.0 : ideal;
   }
 
   /// Axis config shared by the line and bar charts — identical labeling,
   /// only the plotted data differs.
-  FlTitlesData get _titlesData => FlTitlesData(
+  FlTitlesData _titlesData(double labelInterval) => FlTitlesData(
     topTitles: const AxisTitles(),
     rightTitles: const AxisTitles(),
     leftTitles: AxisTitles(
       sideTitles: SideTitles(
         showTitles: true,
-        reservedSize: 52,
+        reservedSize: _leftAxisWidth,
         getTitlesWidget: (value, meta) => Text(
           _compactFormat.format(value),
           style: const TextStyle(fontSize: 10, color: _textSecondary),
@@ -659,14 +781,15 @@ class _AccountChartCardState extends State<AccountChartCard> {
     bottomTitles: AxisTitles(
       sideTitles: SideTitles(
         showTitles: true,
-        interval: _labelInterval,
-        getTitlesWidget: _bottomTitle,
+        interval: labelInterval,
+        getTitlesWidget: (value, meta) =>
+            _bottomTitle(value, meta, labelInterval),
         reservedSize: 24,
       ),
     ),
   );
 
-  Widget _buildLine() {
+  Widget _buildLine(double labelInterval) {
     final theme = themeForAccount(widget.account.accountName);
     final values = _values;
 
@@ -731,7 +854,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         maxX: (values.length - 1).toDouble(),
         gridData: _gridData,
         borderData: _borderData,
-        titlesData: _titlesData,
+        titlesData: _titlesData(labelInterval),
         lineTouchData: LineTouchData(
           touchTooltipData: LineTouchTooltipData(
             getTooltipItems: (spots) => [
@@ -754,7 +877,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
     );
   }
 
-  Widget _buildBars() {
+  Widget _buildBars(double labelInterval, double barWidth) {
     final theme = themeForAccount(widget.account.accountName);
     final values = _values;
 
@@ -776,7 +899,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
                 BarChartRodData(
                   toY: values[i] ?? 0,
                   color: theme.color,
-                  width: 8,
+                  width: barWidth,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ],
@@ -784,7 +907,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         ],
         gridData: _gridData,
         borderData: _borderData,
-        titlesData: _titlesData,
+        titlesData: _titlesData(labelInterval),
         barTouchData: BarTouchData(
           touchTooltipData: BarTouchTooltipData(
             getTooltipItem: (group, groupIndex, rod, rodIndex) =>

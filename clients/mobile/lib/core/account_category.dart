@@ -50,11 +50,14 @@ const accountCategoryThemes = <AccountCategory, AccountCategoryTheme>{
 
 AccountCategory categoryOf(String? accountName) {
   if (accountName == null) return AccountCategory.equity;
-  if (accountName.startsWith('Expenses:')) return AccountCategory.expense;
-  if (accountName.startsWith('Income:')) return AccountCategory.income;
-  if (accountName.startsWith('Assets:')) return AccountCategory.asset;
-  if (accountName.startsWith('Liabilities:')) return AccountCategory.liability;
-  return AccountCategory.equity;
+  final root = accountName.split(':').first;
+  return switch (root) {
+    'Expenses' => AccountCategory.expense,
+    'Income' => AccountCategory.income,
+    'Assets' => AccountCategory.asset,
+    'Liabilities' => AccountCategory.liability,
+    _ => AccountCategory.equity,
+  };
 }
 
 AccountCategoryTheme themeForAccount(String? accountName) {

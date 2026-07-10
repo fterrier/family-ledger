@@ -97,6 +97,18 @@ void main() {
         isFalse,
       );
     });
+
+    test('currency filter sends currency param', () {
+      final params = const TransactionFilter(currency: 'USD').toQueryParams();
+      expect(params['currency'], 'USD');
+    });
+
+    test('no currency filter omits currency param', () {
+      expect(
+        const TransactionFilter().toQueryParams().containsKey('currency'),
+        isFalse,
+      );
+    });
   });
 
   group('TransactionFilter.dateRangeLabel', () {
@@ -186,6 +198,10 @@ void main() {
     test('active when lastImportOnly set', () {
       expect(const TransactionFilter(lastImportOnly: true).isActive, isTrue);
     });
+
+    test('active when currency set', () {
+      expect(const TransactionFilter(currency: 'USD').isActive, isTrue);
+    });
   });
 
   group('TransactionFilter.copyWith', () {
@@ -227,6 +243,24 @@ void main() {
       final copy = f.copyWith(fromDate: DateTime(2024));
       expect(copy.fromDate, DateTime(2024));
       expect(copy.toDate, f.toDate);
+    });
+
+    test('can set currency', () {
+      const f = TransactionFilter();
+      final copy = f.copyWith(currency: 'USD');
+      expect(copy.currency, 'USD');
+    });
+
+    test('can clear currency to null using sentinel', () {
+      const f = TransactionFilter(currency: 'USD');
+      final copy = f.copyWith(currency: null);
+      expect(copy.currency, isNull);
+    });
+
+    test('preserves currency when unchanged', () {
+      const f = TransactionFilter(currency: 'USD');
+      final copy = f.copyWith(fromDate: DateTime(2025));
+      expect(copy.currency, 'USD');
     });
   });
 }

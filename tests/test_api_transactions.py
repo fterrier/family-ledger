@@ -1337,6 +1337,139 @@ def test_list_transactions_account_name_no_duplicates() -> None:
     assert names == [tx["name"]]
 
 
+def test_list_transactions_currency_filter() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    brokerage = create_account(client, "Assets:Broker:IBKR")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    tx_chf = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "100", "symbol": "CHF"}},
+        ],
+    )
+    create_transaction(
+        client,
+        "2026-01-02",
+        [
+            {"account": brokerage["name"], "units": {"amount": "-50", "symbol": "USD"}},
+            {"account": equity["name"], "units": {"amount": "50", "symbol": "USD"}},
+        ],
+    )
+
+    response = client.get("/transactions?currency=CHF")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx_chf["name"]]
+
+
+def test_list_transactions_currency_filter_combines_with_account_name() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    brokerage = create_account(client, "Assets:Broker:IBKR")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "100", "symbol": "CHF"}},
+        ],
+    )
+    tx_broker_usd = create_transaction(
+        client,
+        "2026-01-02",
+        [
+            {"account": brokerage["name"], "units": {"amount": "-50", "symbol": "USD"}},
+            {"account": equity["name"], "units": {"amount": "50", "symbol": "USD"}},
+        ],
+    )
+    create_transaction(
+        client,
+        "2026-01-03",
+        [
+            {"account": brokerage["name"], "units": {"amount": "-10", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "10", "symbol": "CHF"}},
+        ],
+    )
+
+    # AND semantics: only the brokerage transaction that is also in USD.
+    response = client.get("/transactions?account_name=Assets:Broker&currency=USD")
+
+    assert response.status_code == 200
+    names = [t["name"] for t in response.json()["transactions"]]
+    assert names == [tx_broker_usd["name"]]
+
+
+def test_list_transactions_account_name_and_currency_require_same_posting() -> None:
+    client = make_client()
+    brokerage = create_account(client, "Assets:Broker:IBKR")
+    other = create_account(client, "Assets:Cash")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    # The brokerage leg is CHF only; the USD amount lives on a *different*
+    # posting (Assets:Cash), balanced by an elastic-equity plug that expands
+    # into one CHF leg and one USD leg. account_name=Broker matches only the
+    # CHF posting and currency=USD matches only the cash/equity postings —
+    # no single posting satisfies both, so this must NOT be returned.
+    create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": brokerage["name"], "units": {"amount": "-50", "symbol": "CHF"}},
+            {"account": other["name"], "units": {"amount": "50", "symbol": "USD"}},
+            {"account": equity["name"]},
+        ],
+    )
+
+    response = client.get("/transactions?account_name=Assets:Broker&currency=USD")
+
+    assert response.status_code == 200
+    assert response.json()["transactions"] == []
+
+
+def test_list_transactions_currency_filter_no_match_returns_empty() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+    equity = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+
+    create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": equity["name"], "units": {"amount": "100", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get("/transactions?currency=USD")
+
+    assert response.status_code == 200
+    assert response.json()["transactions"] == []
+
+
+def test_list_transactions_rejects_account_and_account_name_together() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking")
+
+    response = client.get(f"/transactions?account={checking['name']}&account_name=Assets:Bank")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "conflicting_account_filters"
+
+
 # ---------------------------------------------------------------------------
 # merge transactions
 # ---------------------------------------------------------------------------

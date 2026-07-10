@@ -84,11 +84,24 @@ Accounts expose stable resource names such as `accounts/...` plus mutable `accou
 - `DELETE /transactions/{transaction}`
 - `POST /transactions:normalize`
 
-`GET /transactions` also supports the current ad hoc filters:
+`GET /transactions` also supports the current ad hoc filters (combined with AND):
 
 - `from_date`
 - `to_date`
-- `account`
+- `account` (exact resource name match, e.g. `accounts/acc-1`)
+- `account_name` (the account itself or any `:`-separated descendant)
+- `currency` (narrows to transactions with at least one posting in this commodity)
+- `last_import` (only transactions from the most recent import batch)
+
+`from_date`/`to_date`/`last_import` are transaction-level (a transaction has
+exactly one date and import batch, shared by all its postings). `account`,
+`account_name`, and `currency` are posting-level and, when combined, require
+the *same* posting to satisfy all of them — e.g. `account_name=Assets:Broker
+&currency=USD` only matches if some single posting is both in that subtree
+and in USD, not a transaction where one leg is in the subtree and an
+unrelated leg happens to be in USD. `account` and `account_name` are
+mutually exclusive — both being set returns `400 conflicting_account_filters`
+rather than silently picking one or requiring them to agree.
 
 `POST /transactions:normalize` validates and normalizes a candidate transaction payload without persisting it. The persisted create and update routes use the same transaction shape but store canonical rows.
 

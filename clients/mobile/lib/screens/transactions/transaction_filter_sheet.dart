@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/account_hierarchy.dart';
 import '../../models/account.dart';
+import '../../models/commodity.dart';
+import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
 import '../add_transaction/account_picker_screen.dart';
 import 'transaction_filter.dart';
@@ -11,6 +13,7 @@ Future<TransactionFilter?> showTransactionFilterSheet(
   required List<AccountResource> accounts,
   required TransactionFilter current,
   required TransactionRepository transactionRepository,
+  required CommodityRepository commodityRepository,
 }) {
   return showModalBottomSheet<TransactionFilter>(
     context: context,
@@ -22,6 +25,7 @@ Future<TransactionFilter?> showTransactionFilterSheet(
       accounts: accounts,
       initial: current,
       transactionRepository: transactionRepository,
+      commodityRepository: commodityRepository,
     ),
   );
 }
@@ -30,12 +34,14 @@ class TransactionFilterSheet extends StatefulWidget {
   final List<AccountResource> accounts;
   final TransactionFilter initial;
   final TransactionRepository transactionRepository;
+  final CommodityRepository commodityRepository;
 
   const TransactionFilterSheet({
     super.key,
     required this.accounts,
     required this.initial,
     required this.transactionRepository,
+    required this.commodityRepository,
   });
 
   @override
@@ -48,6 +54,8 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
   List<int> _years = [];
   bool _yearsLoading = true;
   final ScrollController _yearsScrollController = ScrollController();
+  List<Commodity> _commodities = [];
+  bool _commoditiesLoading = true;
 
   @override
   void initState() {
@@ -55,12 +63,22 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
     _draft = widget.initial;
     _pickerAccounts = buildPickerAccounts(widget.accounts);
     _loadYears();
+    _loadCommodities();
   }
 
   @override
   void dispose() {
     _yearsScrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadCommodities() async {
+    final result = await widget.commodityRepository.getAllCommodities();
+    if (!mounted) return;
+    setState(() {
+      _commoditiesLoading = false;
+      if (result.data != null) _commodities = result.data!;
+    });
   }
 
   Future<void> _loadYears() async {
@@ -320,6 +338,56 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
             ),
             const Divider(height: 1, indent: 16, color: Color(0xFFE5E5EA)),
 
+            // Commodity section
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Commodity',
+                    style: TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
+                  ),
+                  const SizedBox(height: 8),
+                  _commoditiesLoading
+                      ? const SizedBox(
+                          height: 32,
+                          child: Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        )
+                      : Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            _FilterPill(
+                              label: 'Any commodity',
+                              selected: _draft.currency == null,
+                              onTap: () => setState(
+                                () => _draft = _draft.copyWith(currency: null),
+                              ),
+                            ),
+                            for (final commodity in _commodities)
+                              _FilterPill(
+                                label: commodity.symbol,
+                                selected: _draft.currency == commodity.symbol,
+                                onTap: () => setState(
+                                  () => _draft = _draft.copyWith(
+                                    currency: commodity.symbol,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                ],
+              ),
+            ),
+            const Divider(height: 1, indent: 16, color: Color(0xFFE5E5EA)),
+
             // Year pills
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
@@ -345,8 +413,8 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
                               year <= (toYear ?? fromYear);
                           return Padding(
                             padding: const EdgeInsets.only(right: 8),
-                            child: _YearPill(
-                              year: year,
+                            child: _FilterPill(
+                              label: '$year',
                               selected: selected,
                               onTap: () => _onYearTap(year),
                             ),
@@ -397,13 +465,14 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
   }
 }
 
-class _YearPill extends StatelessWidget {
-  final int year;
+/// Selectable pill shared by the year and commodity rows.
+class _FilterPill extends StatelessWidget {
+  final String label;
   final bool selected;
   final VoidCallback onTap;
 
-  const _YearPill({
-    required this.year,
+  const _FilterPill({
+    required this.label,
     required this.selected,
     required this.onTap,
   });
@@ -423,7 +492,7 @@ class _YearPill extends StatelessWidget {
           ),
         ),
         child: Text(
-          '$year',
+          label,
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,

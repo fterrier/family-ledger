@@ -223,6 +223,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       accounts: _accounts,
       current: _filter,
       transactionRepository: widget.transactionRepository,
+      commodityRepository: widget.commodityRepository,
     );
     _filterOpen = false;
     if (result != null && mounted) _applyFilter(result);
@@ -299,6 +300,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       toDate: _filter.toDate,
       rangeLabel: _filter.dateRangeLabel,
       defaultCurrency: _defaultCurrency,
+      currencyFilter: _filter.currency,
       showsLastImportHint: _filter.lastImportOnly,
       refreshTick: _chartRefreshTick,
       onBucketSelected: _narrowToBucket,

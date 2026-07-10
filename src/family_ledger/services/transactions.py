@@ -20,7 +20,12 @@ from family_ledger.api.schemas import (
 )
 from family_ledger.models import Account, Posting, Transaction
 from family_ledger.services.account_matching import account_subtree_clause
-from family_ledger.services.errors import ConflictError, NotFoundError, commit_or_raise
+from family_ledger.services.errors import (
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+    commit_or_raise,
+)
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import normalize_and_validate_transaction_payload
 from family_ledger.services.pagination import run_list_page
@@ -255,9 +260,15 @@ def list_transactions_page(
     to_date: date | None,
     account: str | None,
     account_name: str | None,
+    currency: str | None = None,
     last_import: bool = False,
     order: Literal["asc", "desc"] = "asc",
 ) -> ListTransactionsResponse:
+    if account is not None and account_name is not None:
+        raise ValidationError(
+            code="conflicting_account_filters",
+            message="account and account_name cannot both be set",
+        )
     query = select(Transaction).options(
         selectinload(Transaction.postings).selectinload(Posting.account)
     )
@@ -268,22 +279,26 @@ def list_transactions_page(
         query = query.where(Transaction.transaction_date >= from_date)
     if to_date is not None:
         query = query.where(Transaction.transaction_date <= to_date)
+    # account/account_name/currency all scope by posting; combined into one
+    # subquery over a single Posting join so a transaction only matches when
+    # the *same* posting satisfies every active condition (e.g. account_name
+    # + currency together requires one posting in that subtree AND in that
+    # commodity, not two different postings independently). account and
+    # account_name are mutually exclusive (guarded above), so at most one of
+    # them ever contributes a condition here.
+    posting_conditions = []
     if account is not None:
         resolved = resource_name("accounts", account)
-        matching_ids = (
-            select(Transaction.id)
-            .join(Transaction.postings)
-            .join(Posting.account)
-            .where(Account.name == resolved)
-        )
-        query = query.where(Transaction.id.in_(matching_ids))
+        posting_conditions.append(Account.name == resolved)
     if account_name is not None:
-        matching_ids = (
-            select(Transaction.id)
-            .join(Transaction.postings)
-            .join(Posting.account)
-            .where(account_subtree_clause(Account.account_name, account_name))
-        )
+        posting_conditions.append(account_subtree_clause(Account.account_name, account_name))
+    if currency is not None:
+        posting_conditions.append(Posting.units_symbol == currency)
+    if posting_conditions:
+        matching_ids = select(Transaction.id).join(Transaction.postings)
+        if account is not None or account_name is not None:
+            matching_ids = matching_ids.join(Posting.account)
+        matching_ids = matching_ids.where(*posting_conditions)
         query = query.where(Transaction.id.in_(matching_ids))
     if order == "desc":
         query = query.order_by(Transaction.transaction_date.desc(), Transaction.name.desc())

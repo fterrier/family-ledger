@@ -5,17 +5,23 @@ class TransactionFilter {
   final AccountResource? account;
   final DateTime? fromDate;
   final DateTime? toDate;
+  final String? currency;
   final bool lastImportOnly;
 
   const TransactionFilter({
     this.account,
     this.fromDate,
     this.toDate,
+    this.currency,
     this.lastImportOnly = false,
   });
 
   bool get isActive =>
-      account != null || fromDate != null || toDate != null || lastImportOnly;
+      account != null ||
+      fromDate != null ||
+      toDate != null ||
+      currency != null ||
+      lastImportOnly;
 
   static const Object _absent = Object();
 
@@ -23,6 +29,7 @@ class TransactionFilter {
     Object? account = _absent,
     Object? fromDate = _absent,
     Object? toDate = _absent,
+    Object? currency = _absent,
     bool? lastImportOnly,
   }) {
     return TransactionFilter(
@@ -33,6 +40,9 @@ class TransactionFilter {
           ? this.fromDate
           : fromDate as DateTime?,
       toDate: identical(toDate, _absent) ? this.toDate : toDate as DateTime?,
+      currency: identical(currency, _absent)
+          ? this.currency
+          : currency as String?,
       lastImportOnly: lastImportOnly ?? this.lastImportOnly,
     );
   }
@@ -44,6 +54,7 @@ class TransactionFilter {
     }
     if (fromDate != null) params['from_date'] = _fmt.format(fromDate!);
     if (toDate != null) params['to_date'] = _fmt.format(toDate!);
+    if (currency != null) params['currency'] = currency!;
     if (lastImportOnly) params['last_import'] = 'true';
     return params;
   }

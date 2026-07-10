@@ -137,6 +137,22 @@ void main() {
       );
     });
 
+    test('currency filter and convertTo can combine — a single commodity, '
+        'shown converted', () {
+      expect(
+        balanceSeriesQuery(
+          accountName: 'Assets:Liquid:IBKR',
+          granularity: Granularity.monthly,
+          currency: 'USD',
+          convertTo: 'CHF',
+        ),
+        'SELECT year(date) AS y, month(date) AS m,'
+        " convert(last(balance), 'CHF') AS bal"
+        " WHERE account ~ '^Assets:Liquid:IBKR(:|\$)' AND currency = 'USD'"
+        ' GROUP BY y, m',
+      );
+    });
+
     test('apostrophes in account names are doubled for the BQL literal', () {
       expect(
         balanceSeriesQuery(
@@ -174,6 +190,22 @@ void main() {
         'SELECT year(date) AS y,'
         " convert(sum(position), 'CHF') AS total"
         " WHERE account ~ '^Expenses:Travel(:|\$)'"
+        ' GROUP BY y',
+      );
+    });
+
+    test('currency filter and convertTo can combine — a single commodity, '
+        'shown converted', () {
+      expect(
+        periodTotalsQuery(
+          accountName: 'Expenses:Travel',
+          granularity: Granularity.yearly,
+          currency: 'USD',
+          convertTo: 'CHF',
+        ),
+        'SELECT year(date) AS y,'
+        " convert(sum(position), 'CHF') AS total"
+        " WHERE account ~ '^Expenses:Travel(:|\$)' AND currency = 'USD'"
         ' GROUP BY y',
       );
     });

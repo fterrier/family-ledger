@@ -507,9 +507,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
             ),
           ),
         ),
+        Text(
+          widget.rangeLabel ?? 'All history',
+          style: const TextStyle(fontSize: 12, color: _textSecondary),
+        ),
         if (widget.assertionIssues.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.only(right: 6),
+            padding: const EdgeInsets.only(left: 6),
             child: _badge(
               icon: Icons.error_outline,
               label: '${widget.assertionIssues.length}',
@@ -519,12 +523,15 @@ class _AccountChartCardState extends State<AccountChartCard> {
             ),
           ),
         if (_warnings.isNotEmpty && _showingConverted)
-          _badge(
-            icon: Icons.warning_amber_rounded,
-            label: '${_warnings.length}',
-            background: _warningOrangeBg,
-            foreground: _warningOrange,
-            onTap: _showWarnings,
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: _badge(
+              icon: Icons.warning_amber_rounded,
+              label: '${_warnings.length}',
+              background: _warningOrangeBg,
+              foreground: _warningOrange,
+              onTap: _showWarnings,
+            ),
           ),
       ],
     );
@@ -532,18 +539,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   Widget _buildHeadline() {
     final last = _lastValue;
-    if (last == null) {
-      return Text(
-        widget.rangeLabel ?? 'All history',
-        style: const TextStyle(fontSize: 12, color: _textSecondary),
-      );
-    }
+    if (last == null) return const SizedBox.shrink();
     final headline = _isFlow
         ? _formatValue(_values.fold<double>(0, (sum, v) => sum + (v ?? 0)))
         : _formatValue(last);
 
     // Percentage change only — the absolute delta is redundant with the
-    // headline balance right above it, and previously made this chip long
+    // headline balance right next to it, and previously made this chip long
     // enough to overflow the header row at narrow widths.
     Widget? deltaChip;
     final first = _firstValue;
@@ -558,10 +560,12 @@ class _AccountChartCardState extends State<AccountChartCard> {
       );
     }
 
-    // The balance gets its own full-width row so large amounts are never
-    // clipped; the delta chip and range label share a second row below.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // Wrap (not Row) so the amount is never ellipsis-truncated: if the pair
+    // doesn't fit on one line, the chip wraps below instead of clipping the
+    // balance text.
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 8,
       children: [
         Text(
           headline,
@@ -571,16 +575,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             color: _textPrimary,
           ),
         ),
-        const SizedBox(height: 2),
-        Row(
-          children: [
-            if (deltaChip != null) ...[deltaChip, const SizedBox(width: 8)],
-            Text(
-              widget.rangeLabel ?? 'All history',
-              style: const TextStyle(fontSize: 12, color: _textSecondary),
-            ),
-          ],
-        ),
+        ?deltaChip,
       ],
     );
   }

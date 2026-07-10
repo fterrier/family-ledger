@@ -92,6 +92,7 @@ void main() {
     String defaultCurrency = 'CHF',
     String? currencyFilter,
     int refreshTick = 0,
+    String? rangeLabel,
   }) => MaterialApp(
     home: Scaffold(
       body: SingleChildScrollView(
@@ -106,6 +107,7 @@ void main() {
           defaultCurrency: defaultCurrency,
           currencyFilter: currencyFilter,
           refreshTick: refreshTick,
+          rangeLabel: rangeLabel,
         ),
       ),
     ),
@@ -141,6 +143,12 @@ void main() {
     expect(find.text('-31.0%'), findsOneWidget);
     expect(find.textContaining('1,800.00'), findsNothing);
     verify(() => repo.run(any())).called(1);
+
+    // Chip is vertically centered against the (much taller) amount text,
+    // not bottom-aligned with it.
+    final amountCenter = tester.getCenter(find.text('4,000.00 CHF'));
+    final chipCenter = tester.getCenter(find.text('-31.0%'));
+    expect(chipCenter.dy, closeTo(amountCenter.dy, 2));
   });
 
   testWidgets('no delta chip when the first value in range is zero', (
@@ -170,6 +178,65 @@ void main() {
     // A percentage change from a zero base is undefined — no chip at all,
     // rather than falling back to showing the absolute amount.
     expect(find.textContaining('%'), findsNothing);
+  });
+
+  testWidgets(
+    'range label renders in the header row, above the balance headline',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _inventoryResult([
+            [
+              2025,
+              8,
+              _inv({'CHF': '4000'}),
+            ],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking, rangeLabel: 'Last 12 months'));
+      await tester.pumpAndSettle();
+
+      final rangeDy = tester.getTopLeft(find.text('Last 12 months')).dy;
+      final balanceDy = tester.getTopLeft(find.text('4,000.00 CHF')).dy;
+      expect(rangeDy, lessThan(balanceDy));
+    },
+  );
+
+  testWidgets('range label sits alongside the assertion-issue pill', (
+    tester,
+  ) async {
+    when(() => repo.run(any())).thenAnswer(
+      (_) async => (
+        data: _inventoryResult([
+          [
+            2025,
+            8,
+            _inv({'CHF': '4000'}),
+          ],
+        ]),
+        error: null,
+      ),
+    );
+    const issue = DoctorIssue(
+      target: 'balanceAssertions/ba-1',
+      code: DoctorIssue.balanceAssertionFailed,
+      targetSummary: {'date': '2025-08-15', 'account': 'Assets:Checking:ZKB'},
+    );
+
+    await tester.pumpWidget(
+      build(_checking, assertionIssues: [issue], rangeLabel: 'Last 12 months'),
+    );
+    await tester.pumpAndSettle();
+
+    // Same header row: pill and range label share a vertical center, with
+    // the range label to the left of the pill.
+    final pillCenter = tester.getCenter(find.text('1'));
+    final rangeCenter = tester.getCenter(find.text('Last 12 months'));
+    expect(rangeCenter.dy, closeTo(pillCenter.dy, 1));
+    expect(rangeCenter.dx, lessThan(pillCenter.dx));
   });
 
   testWidgets('headline balance is never truncated with an ellipsis', (

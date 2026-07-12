@@ -25,8 +25,11 @@ class AccountChartCard extends StatefulWidget {
   final AccountResource account;
   final DateTime? fromDate;
   final DateTime? toDate;
-  final String? rangeLabel;
-  final String defaultCurrency;
+
+  /// Currency every account's chart is converted to. Null means no default
+  /// is configured yet (App Settings) — the card warns instead of guessing
+  /// one, since silently picking a currency would misrepresent the balance.
+  final String? defaultCurrency;
 
   /// Commodity the shared transaction filter narrowed to, if any — scopes
   /// the chart's query exactly like it scopes the transaction list.
@@ -45,8 +48,7 @@ class AccountChartCard extends StatefulWidget {
     required this.account,
     this.fromDate,
     this.toDate,
-    this.rangeLabel,
-    this.defaultCurrency = 'CHF',
+    this.defaultCurrency,
     this.currencyFilter,
     this.showsLastImportHint = false,
     this.refreshTick = 0,
@@ -87,9 +89,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   bool _loading = true;
   ApiError? _error;
-  AccountChartSeries? _series;
-  ConvertedChartSeries? _converted;
-  ApiError? _convertedError;
+  ConvertedChartSeries? _series;
   List<QueryWarningInfo> _warnings = const [];
 
   int _generation = 0;
@@ -119,48 +119,47 @@ class _AccountChartCardState extends State<AccountChartCard> {
   void initState() {
     super.initState();
     _granularity = granularityForSpan(widget.fromDate, widget.toDate);
-    _loadBase();
+    if (widget.defaultCurrency != null) _load();
   }
 
+  // The account/date-range pair is a new "view" — but that's handled by
+  // keying AccountChartCard on them at the call site (transaction_list_
+  // screen.dart), so a change there tears down this State and runs
+  // initState fresh instead of reaching didUpdateWidget at all. Everything
+  // this method sees is by construction a same-view reload.
   @override
   void didUpdateWidget(AccountChartCard old) {
     super.didUpdateWidget(old);
-    // A new account or date range (including a bucket-tap narrowing) is a
-    // new view: reset the granularity pick back to the span-derived
-    // default. refreshTick, by contrast, fires on plenty of unrelated
-    // events (editing/deleting/merging a transaction elsewhere in the
-    // list) — it must still trigger a reload (the data may have changed)
-    // but must NOT reset a granularity the user already picked for this
-    // same view. Keeping this as its own boolean (rather than folding it
-    // into the reload condition below) is what makes that distinction
-    // actually take effect, rather than reload and reset always agreeing
-    // just because both conditions happened to overlap.
-    final isNewView =
-        old.account.name != widget.account.name ||
-        old.fromDate != widget.fromDate ||
-        old.toDate != widget.toDate;
     final needsReload =
-        isNewView ||
         old.refreshTick != widget.refreshTick ||
-        old.currencyFilter != widget.currencyFilter;
-    if (needsReload) {
-      if (isNewView) {
-        _granularity = granularityForSpan(widget.fromDate, widget.toDate);
-      }
-      _loadBase();
-    } else if (old.defaultCurrency != widget.defaultCurrency &&
-        (_series?.currencies.length ?? 0) > 1) {
-      // Only the conversion target changed — no need to re-fetch the
-      // per-currency series, just the converted (≈) one.
+        old.currencyFilter != widget.currencyFilter ||
+        old.defaultCurrency != widget.defaultCurrency;
+    if (!needsReload) return;
+    if (widget.defaultCurrency != null) {
+      _load();
+    } else {
+      // The default currency was cleared — nothing to convert to, so drop
+      // any stale series rather than show it under a no-longer-valid
+      // assumption.
       setState(() {
-        _converted = null;
-        _convertedError = null;
+        _loading = false;
+        _error = null;
+        _series = null;
       });
-      _loadConverted(_generation);
     }
   }
 
-  String _seriesQuery(Granularity granularity, {String? convertTo}) {
+  // Every series is requested already converted to the display currency —
+  // the chart only ever needs one number per bucket, never a per-currency
+  // breakdown, so there's nothing to reconcile across a second query. Only
+  // called once a non-null defaultCurrency is confirmed (see initState /
+  // didUpdateWidget).
+  String _seriesQuery(Granularity granularity) {
+    assert(
+      widget.defaultCurrency != null,
+      '_seriesQuery requires a defaultCurrency; callers must guard for null',
+    );
+    final convertTo = widget.defaultCurrency;
     return _isFlow
         ? periodTotalsQuery(
             accountName: widget.account.accountName,
@@ -180,13 +179,17 @@ class _AccountChartCardState extends State<AccountChartCard> {
           );
   }
 
-  Future<void> _loadBase() async {
+  // Always a same-view reload (granularity/currency change, refresh bump —
+  // see didUpdateWidget); the previous series is kept around so the
+  // header/headline/card height stay put, reading the stale series, while
+  // `_loading` gates only the chart's own slot to a spinner. This is what
+  // avoids a jarring height collapse — or the headline blanking out — on
+  // every reload.
+  Future<void> _load() async {
     final generation = ++_generation;
     setState(() {
       _loading = true;
       _error = null;
-      _converted = null;
-      _convertedError = null;
       _warnings = const [];
     });
     final granularity = _granularity;
@@ -199,73 +202,30 @@ class _AccountChartCardState extends State<AccountChartCard> {
       });
       return;
     }
-    final series = _isFlow
-        ? buildTotalsSeries(result.data!, granularity)
-        : buildBalanceSeries(result.data!, granularity);
     setState(() {
-      _series = series;
-      _loading = false;
-    });
-    if (series.currencies.length > 1) {
-      await _loadConverted(generation);
-    }
-  }
-
-  Future<void> _loadConverted(int generation) async {
-    final granularity = _granularity;
-    final query = _seriesQuery(granularity, convertTo: widget.defaultCurrency);
-    final result = await widget.queryRepository.run(query);
-    if (!mounted || generation != _generation) return;
-    if (result.error != null) {
-      // Keep this scoped to the converted view: the base series (and any
-      // single-currency chip) already loaded successfully and must stay
-      // usable rather than being hidden behind a full-card error.
-      setState(() => _convertedError = result.error);
-      return;
-    }
-    setState(() {
-      _converted = buildConvertedSeries(
+      _series = buildConvertedSeries(
         result.data!,
         granularity,
-        currency: widget.defaultCurrency,
+        currency: widget.defaultCurrency!,
         cumulative: !_isFlow,
       );
-      _convertedError = null;
+      _loading = false;
       _warnings = result.data!.warnings;
     });
   }
 
-  Future<void> _retryConverted() => _loadConverted(_generation);
-
   // -- projections -----------------------------------------------------------
 
-  // Multi-currency series have no single "unit" to fall back to, so they
-  // always show the combined converted view; single- and zero-currency
-  // series show the raw series as-is.
-  bool get _showingConverted => (_series?.currencies.length ?? 0) > 1;
+  List<ChartBucket> get _buckets => _series?.buckets ?? const [];
 
-  List<ChartBucket> get _buckets =>
-      _showingConverted ? _converted?.buckets ?? const [] : _series!.buckets;
+  List<double?> get _values => _series?.values ?? const [];
 
-  List<double?> get _values {
-    if (_showingConverted) return _converted?.values ?? const [];
-    final currencies = _series!.currencies;
-    if (currencies.length != 1) return const [];
-    return _series!.valuesByCurrency[currencies.single] ?? const [];
-  }
-
-  // Reads the currency actually baked into the loaded converted series
-  // (falling back to the live default while that series is in flight),
-  // rather than the widget's current defaultCurrency — the two can
-  // momentarily disagree if the default currency changes while a
-  // previously-fetched converted series is still displayed.
-  String get _displayCurrency {
-    if (_showingConverted) {
-      return _converted?.currency ?? widget.defaultCurrency;
-    }
-    final currencies = _series?.currencies ?? const [];
-    return currencies.length == 1 ? currencies.single : '';
-  }
+  // Reads the currency actually baked into the loaded series, rather than
+  // the widget's live defaultCurrency — the two can momentarily disagree if
+  // the default currency changes while a previously-fetched series is still
+  // displayed (see _load). Only read once a series exists (see
+  // _buildContent), so there's no null case to fall back from.
+  String get _displayCurrency => _series!.currency;
 
   double? get _lastValue =>
       _values.lastWhere((v) => v != null, orElse: () => null);
@@ -398,52 +358,41 @@ class _AccountChartCardState extends State<AccountChartCard> {
   }
 
   Widget _buildContent() {
-    if (_loading) {
-      return const SizedBox(
-        height: 220,
-        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+    if (widget.defaultCurrency == null) {
+      return _placeholderCard(
+        'Set a default currency in App Settings to see this chart.',
       );
-    }
-    if (_error != null) {
-      return SizedBox(height: 120, child: _errorView(_error!, _loadBase));
     }
     final series = _series;
-    if (series == null || series.isEmpty) {
-      return SizedBox(
-        height: 120,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _buildHeader(),
-            const Expanded(
-              child: Center(
-                child: Text(
-                  'No data in range',
-                  style: TextStyle(fontSize: 13, color: _textSecondary),
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
+    // A same-view reload (granularity/currency change, refresh) keeps the
+    // previous series around — see _load — so it reaches the full content
+    // below even while `_loading` or `_error` is set; only the chart's own
+    // slot reflects those, leaving the header/headline/card height put.
+    // Only the very first load for this view has nothing to fall back on: a
+    // failure there is the whole card's story, so it gets the full-card
+    // error view instead.
+    if (series == null) {
+      return _error != null
+          ? SizedBox(height: 120, child: _errorView(_error!, _load))
+          : const SizedBox(
+              height: 220,
+              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+            );
+    }
+    if (series.isEmpty) {
+      return _placeholderCard('No data in range');
     }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildHeader(),
-        const SizedBox(height: 4),
         _buildHeadline(),
         const SizedBox(height: 12),
-        // The converted projection is empty until its query returns; fl_chart
-        // crashes on empty data (maxX would be -1), so show a placeholder.
-        // A converted-query failure is scoped to this slot only — the
-        // header/headline/chips above stay driven by the valid base series.
         SizedBox(
           height: 180,
-          child: _showingConverted && _convertedError != null
-              ? _errorView(_convertedError!, _retryConverted)
-              : _values.isEmpty
+          child: _error != null
+              ? _errorView(_error!, _load)
+              : _loading || _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : LayoutBuilder(
                   builder: (context, constraints) {
@@ -473,6 +422,21 @@ class _AccountChartCardState extends State<AccountChartCard> {
     );
   }
 
+  /// Short-card placeholder shared by the "no default currency" and "no
+  /// data in range" states.
+  Widget _placeholderCard(String message) {
+    return SizedBox(
+      height: 120,
+      child: Center(
+        child: Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 13, color: _textSecondary),
+        ),
+      ),
+    );
+  }
+
   Widget _errorView(ApiError error, VoidCallback onRetry) {
     return Center(
       child: Column(
@@ -489,40 +453,8 @@ class _AccountChartCardState extends State<AccountChartCard> {
     );
   }
 
-  Widget _buildHeader() {
-    final theme = themeForAccount(widget.account.accountName);
-    return Row(
-      children: [
-        Container(
-          width: 18,
-          height: 18,
-          decoration: BoxDecoration(color: theme.color, shape: BoxShape.circle),
-          child: Icon(theme.icon, size: 10, color: Colors.white),
-        ),
-        const SizedBox(width: 8),
-        Expanded(
-          child: Text(
-            widget.account.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: _textPrimary,
-            ),
-          ),
-        ),
-        Text(
-          widget.rangeLabel ?? 'All history',
-          style: const TextStyle(fontSize: 12, color: _textSecondary),
-        ),
-      ],
-    );
-  }
-
   bool get _hasIssuePills =>
-      widget.assertionIssues.isNotEmpty ||
-      (_warnings.isNotEmpty && _showingConverted);
+      widget.assertionIssues.isNotEmpty || _warnings.isNotEmpty;
 
   /// Assertion/warning pills, right-aligned in the granularity-chip row
   /// below the chart rather than competing for space in the header row.
@@ -538,7 +470,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             foreground: _issueRed,
             onTap: _showAssertionFailures,
           ),
-        if (_warnings.isNotEmpty && _showingConverted)
+        if (_warnings.isNotEmpty)
           _badge(
             icon: Icons.warning_amber_rounded,
             label: '${_warnings.length}',
@@ -651,7 +583,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             onTap: () {
               if (_granularity == granularity) return;
               setState(() => _granularity = granularity);
-              _loadBase();
+              _load();
             },
           ),
       ],
@@ -885,6 +817,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
           },
         ),
       ),
+      // Reloads regularly swap in a very differently-shaped chart (new
+      // bucket count/axis range on a granularity change, a fresh series on
+      // account switch) — fl_chart's default 150ms tween morphs between
+      // those mismatched shapes rather than a clean cut, which reads as
+      // janky rather than smooth. Disabling it renders the new data
+      // immediately instead.
+      duration: Duration.zero,
     );
   }
 
@@ -935,6 +874,8 @@ class _AccountChartCardState extends State<AccountChartCard> {
           },
         ),
       ),
+      // See the matching comment on LineChart's duration above.
+      duration: Duration.zero,
     );
   }
 }

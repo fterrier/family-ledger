@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'core/account_category.dart';
 import 'core/api_client.dart';
 import 'core/app_preferences.dart';
 import 'core/filter_persistence.dart';
@@ -11,12 +12,11 @@ import 'repositories/query_repository.dart';
 import 'repositories/transaction_repository.dart';
 import 'screens/settings/app_settings_screen.dart';
 import 'screens/settings/server_settings_screen.dart';
-import 'models/account.dart';
-import 'screens/add_transaction/account_picker_screen.dart';
 import 'screens/add_transaction/add_transaction_screen.dart';
 import 'screens/import/import_screen.dart';
 import 'screens/transactions/transaction_filter.dart';
 import 'screens/transactions/transaction_list_screen.dart';
+import 'widgets/account_category_dot.dart';
 import 'widgets/app_logo.dart';
 import 'widgets/expandable_fab.dart';
 
@@ -40,7 +40,9 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
 
   bool? _configured;
   final _listKey = GlobalKey<TransactionListScreenState>();
-  final _filterActive = ValueNotifier<bool>(false);
+  final _filterNotifier = ValueNotifier<TransactionFilter>(
+    const TransactionFilter(),
+  );
   final _bulkSelectionNotifier = ValueNotifier<Set<String>>({});
 
   @override
@@ -84,7 +86,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   @override
   void dispose() {
     _shareChannel.setMethodCallHandler(null);
-    _filterActive.dispose();
+    _filterNotifier.dispose();
     _bulkSelectionNotifier.dispose();
     super.dispose();
   }
@@ -117,26 +119,6 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
       ),
     );
     if (saved == true) _checkConfiguration();
-  }
-
-  // Drawer "Accounts": picking an account IS setting the global filter's
-  // account — the home screen then shows the chart + scoped list.
-  Future<void> _openAccounts() async {
-    final listState = _listKey.currentState;
-    if (listState == null) return;
-    final result = await Navigator.push<AccountResource>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AccountPickerScreen(
-          accounts: listState.pickerAccounts,
-          selected: listState.selectedAccount,
-          issueAccountNames: listState.accountsWithAssertionIssues,
-        ),
-      ),
-    );
-    if (result != null) {
-      _listKey.currentState?.selectAccount(result);
-    }
   }
 
   Future<void> _openAppSettings() async {
@@ -193,40 +175,114 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     child: Container(height: 1, color: const Color(0xFFE5E5EA)),
   );
 
+  // The title IS the account/date navigator — not a wordmark. Always
+  // present (unlike the chart, which only renders once an account is
+  // picked), so it doubles as the only way to pick an account the first
+  // time: no separate icon or empty-state affordance needed for either.
   AppBar _buildNormalAppBar() {
     return AppBar(
-      title: const Text('Family Ledger'),
       titleSpacing: 0,
+      title: ValueListenableBuilder<TransactionFilter>(
+        valueListenable: _filterNotifier,
+        builder: (context, filter, child) {
+          return Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => _listKey.currentState?.openAccountPicker(),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // themeForAccount(null) already resolves to the
+                      // neutral noAccountTheme — same fallback the account
+                      // picker/chart used.
+                      AccountCategoryDot(
+                        theme: themeForAccount(filter.account?.accountName),
+                        size: 16,
+                        iconSize: 9,
+                      ),
+                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Text(
+                          filter.account?.displayName ?? 'Select account',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: filter.account != null
+                                ? const Color(0xFF1C1C1E)
+                                : const Color(0xFFC7C7CC),
+                          ),
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: Color(0xFF8E8E93),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: () => _listKey.currentState?.openDateFilter(),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    filter.dateRangeLabel ?? 'All history',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF8E8E93),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
       backgroundColor: Colors.white,
       foregroundColor: const Color(0xFF1C1C1E),
       elevation: 0,
       bottom: _appBarDivider,
       actions: [
-        ValueListenableBuilder<bool>(
-          valueListenable: _filterActive,
-          builder: (context, active, child) => Stack(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.filter_list_outlined),
-                onPressed: () => _listKey.currentState?.openFilter(),
-                tooltip: 'Filter',
-              ),
-              if (active)
-                Positioned(
-                  right: 8,
-                  top: 8,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF1A73E8),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-            ],
+        ValueListenableBuilder<TransactionFilter>(
+          valueListenable: _filterNotifier,
+          builder: (context, filter, child) => _actionIcon(
+            icon: Icons.filter_list_outlined,
+            active: filter.hasMoreFilters,
+            onPressed: () => _listKey.currentState?.openMoreFilters(),
+            tooltip: 'More filters',
           ),
         ),
+      ],
+    );
+  }
+
+  // An icon button with a small blue dot badge when active.
+  Widget _actionIcon({
+    required IconData icon,
+    required bool active,
+    required VoidCallback onPressed,
+    required String tooltip,
+  }) {
+    return Stack(
+      children: [
+        IconButton(icon: Icon(icon), onPressed: onPressed, tooltip: tooltip),
+        if (active)
+          Positioned(
+            right: 8,
+            top: 8,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: const BoxDecoration(
+                color: Color(0xFF1A73E8),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -308,14 +364,6 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
                         ),
                       ),
                       ListTile(
-                        leading: const Icon(Icons.account_balance_outlined),
-                        title: const Text('Accounts'),
-                        onTap: () {
-                          Navigator.pop(context);
-                          _openAccounts();
-                        },
-                      ),
-                      ListTile(
                         leading: const Icon(Icons.tune_outlined),
                         title: const Text('App Settings'),
                         onTap: () {
@@ -344,7 +392,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
             accountRepository: _accountRepo,
             commodityRepository: _commodityRepo,
             queryRepository: _queryRepo,
-            filterActiveNotifier: _filterActive,
+            filterNotifier: _filterNotifier,
             selectionNotifier: _bulkSelectionNotifier,
           ),
           floatingActionButton: isSelecting

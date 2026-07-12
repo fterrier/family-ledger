@@ -17,11 +17,10 @@ class TransactionFilter {
   });
 
   bool get isActive =>
-      account != null ||
-      fromDate != null ||
-      toDate != null ||
-      currency != null ||
-      lastImportOnly;
+      account != null || fromDate != null || toDate != null || hasMoreFilters;
+
+  /// Backs the "more filters" action icon's badge dot.
+  bool get hasMoreFilters => currency != null || lastImportOnly;
 
   static const Object _absent = Object();
 

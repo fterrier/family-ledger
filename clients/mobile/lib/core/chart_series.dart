@@ -52,21 +52,6 @@ DateTime _rowBucketStart(List<Object?> row, Granularity granularity) =>
       ),
     };
 
-/// Multi-currency series: one optional value per bucket per currency.
-class AccountChartSeries {
-  final List<ChartBucket> buckets;
-  final List<String> currencies; // sorted
-  final Map<String, List<double?>> valuesByCurrency;
-
-  const AccountChartSeries({
-    required this.buckets,
-    required this.currencies,
-    required this.valuesByCurrency,
-  });
-
-  bool get isEmpty => buckets.isEmpty;
-}
-
 /// Single-currency (converted) series; null values are price gaps.
 class ConvertedChartSeries {
   final List<ChartBucket> buckets;
@@ -108,78 +93,6 @@ List<DateTime> _continuousBucketStarts(
     cursor = nextBucketStart(cursor, granularity);
   }
   return starts;
-}
-
-/// Running-balance line series from inventory cells: gaps between buckets
-/// carry the last balance forward; a currency contributes null before it
-/// first appears.
-///
-/// Each bucket row is the account's *complete* inventory snapshot at that
-/// point (the server omits exactly-zero currencies, per
-/// docs/specs/reporting-query.md's cell-encoding rules) — so once a
-/// currency has appeared, its absence from a later (non-gap) row means the
-/// position was closed out to zero, not "unchanged." Buckets with no row at
-/// all mean no activity that period, so prior values genuinely carry
-/// forward unchanged.
-AccountChartSeries buildBalanceSeries(
-  QueryResult result,
-  Granularity granularity,
-) {
-  final byBucket = _rowsByBucket(result, granularity, (cell) {
-    final amounts = (cell as List?)?.cast<QueryAmount>() ?? const [];
-    return {for (final a in amounts) a.currency: double.parse(a.number)};
-  });
-  final starts = _continuousBucketStarts(byBucket.keys, granularity);
-  final currencies = byBucket.values.expand((m) => m.keys).toSet().toList()
-    ..sort();
-
-  final values = {for (final c in currencies) c: <double?>[]};
-  final running = <String, double>{};
-  final started = <String>{};
-  for (final start in starts) {
-    final row = byBucket[start];
-    if (row != null) {
-      started.addAll(row.keys);
-      for (final currency in started) {
-        running[currency] = row[currency] ?? 0.0;
-      }
-    }
-    for (final currency in currencies) {
-      values[currency]!.add(
-        started.contains(currency) ? running[currency] : null,
-      );
-    }
-  }
-  return AccountChartSeries(
-    buckets: [for (final s in starts) bucketAt(s, granularity)],
-    currencies: currencies,
-    valuesByCurrency: values,
-  );
-}
-
-/// Per-bucket flow totals (bars) from inventory cells: gaps are zero-filled
-/// and values are magnitudes (income postings are negative in the ledger).
-AccountChartSeries buildTotalsSeries(
-  QueryResult result,
-  Granularity granularity,
-) {
-  final byBucket = _rowsByBucket(result, granularity, (cell) {
-    final amounts = (cell as List?)?.cast<QueryAmount>() ?? const [];
-    return {for (final a in amounts) a.currency: double.parse(a.number).abs()};
-  });
-  final starts = _continuousBucketStarts(byBucket.keys, granularity);
-  final currencies = byBucket.values.expand((m) => m.keys).toSet().toList()
-    ..sort();
-
-  final values = {
-    for (final c in currencies)
-      c: <double?>[for (final s in starts) byBucket[s]?[c] ?? 0.0],
-  };
-  return AccountChartSeries(
-    buckets: [for (final s in starts) bucketAt(s, granularity)],
-    currencies: currencies,
-    valuesByCurrency: values,
-  );
 }
 
 /// Converted (single-currency) series from amount cells. For [cumulative]

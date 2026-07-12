@@ -31,46 +31,36 @@ const _card = AccountResource(
   effectiveStartDate: '2020-01-01',
 );
 
-QueryResult _inventoryResult(List<List<Object?>> rows) => QueryResult(
-  columns: const [
-    QueryColumnDef(name: 'y', type: 'int'),
-    QueryColumnDef(name: 'm', type: 'int'),
-    QueryColumnDef(name: 'bal', type: 'inventory'),
-  ],
-  rows: rows,
-  warnings: const [],
-);
-
-QueryResult _dailyInventoryResult(List<List<Object?>> rows) => QueryResult(
-  columns: const [
+// Every chart query is requested pre-converted to a single currency (see
+// AccountChartCard._seriesQuery), so every fixture below is amount-shaped
+// (one QueryAmount cell per bucket) rather than the multi-currency
+// inventory shape the raw (non-converted) query used to return.
+// keyCount selects how many leading bucket-key columns precede `bal`: 1 for
+// yearly (y), 2 for monthly (y, m — the default), 3 for daily (y, m, d).
+QueryResult _amountResult(List<List<Object?>> rows, {int keyCount = 2}) {
+  const keyColumns = [
     QueryColumnDef(name: 'y', type: 'int'),
     QueryColumnDef(name: 'm', type: 'int'),
     QueryColumnDef(name: 'd', type: 'int'),
-    QueryColumnDef(name: 'bal', type: 'inventory'),
-  ],
-  rows: rows,
-  warnings: const [],
-);
+  ];
+  return QueryResult(
+    columns: [
+      ...keyColumns.take(keyCount),
+      const QueryColumnDef(name: 'bal', type: 'amount'),
+    ],
+    rows: rows,
+    warnings: const [],
+  );
+}
 
-QueryResult _yearlyInventoryResult(List<List<Object?>> rows) => QueryResult(
-  columns: const [
-    QueryColumnDef(name: 'y', type: 'int'),
-    QueryColumnDef(name: 'bal', type: 'inventory'),
-  ],
-  rows: rows,
-  warnings: const [],
-);
-
-List<QueryAmount> _inv(Map<String, String> amounts) => [
-  for (final e in amounts.entries)
-    QueryAmount(number: e.value, currency: e.key),
-];
+QueryAmount _amt(String value, [String currency = 'CHF']) =>
+    QueryAmount(number: value, currency: currency);
 
 List<Object?> _dailyRow(DateTime d, String value) => [
   d.year,
   d.month,
   d.day,
-  _inv({'CHF': value}),
+  _amt(value),
 ];
 
 void main() {
@@ -89,46 +79,48 @@ void main() {
     void Function(DateTime, DateTime)? onBucketSelected,
     bool showsLastImportHint = false,
     List<DoctorIssue> assertionIssues = const [],
-    String defaultCurrency = 'CHF',
+    String? defaultCurrency = 'CHF',
     String? currencyFilter,
     int refreshTick = 0,
-    String? rangeLabel,
-  }) => MaterialApp(
-    home: Scaffold(
-      body: SingleChildScrollView(
-        child: AccountChartCard(
-          queryRepository: repo,
-          account: account,
-          fromDate: from ?? DateTime(2025, 7),
-          toDate: to ?? DateTime(2026, 6, 30),
-          onBucketSelected: onBucketSelected,
-          showsLastImportHint: showsLastImportHint,
-          assertionIssues: assertionIssues,
-          defaultCurrency: defaultCurrency,
-          currencyFilter: currencyFilter,
-          refreshTick: refreshTick,
-          rangeLabel: rangeLabel,
+  }) {
+    final fromDate = from ?? DateTime(2025, 7);
+    final toDate = to ?? DateTime(2026, 6, 30);
+    return MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: AccountChartCard(
+            // Matches the ValueKey transaction_list_screen.dart gives
+            // AccountChartCard in production: a change here must remount a
+            // fresh State (not reach didUpdateWidget), same as real usage.
+            key: ValueKey((
+              account.name,
+              fromDate.toIso8601String(),
+              toDate.toIso8601String(),
+            )),
+            queryRepository: repo,
+            account: account,
+            fromDate: fromDate,
+            toDate: toDate,
+            onBucketSelected: onBucketSelected,
+            showsLastImportHint: showsLastImportHint,
+            assertionIssues: assertionIssues,
+            defaultCurrency: defaultCurrency,
+            currencyFilter: currencyFilter,
+            refreshTick: refreshTick,
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 
   testWidgets('asset account renders a line with balance and delta', (
     tester,
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '5800'}),
-          ],
-          [
-            2025,
-            8,
-            _inv({'CHF': '4000'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('5800')],
+          [2025, 8, _amt('4000')],
         ]),
         error: null,
       ),
@@ -142,7 +134,9 @@ void main() {
     // Delta chip shows only the percentage change, not the absolute amount.
     expect(find.text('-31.0%'), findsOneWidget);
     expect(find.textContaining('1,800.00'), findsNothing);
-    verify(() => repo.run(any())).called(1);
+    verify(
+      () => repo.run(any()),
+    ).called(1); // a single, already-converted fetch
 
     // Chip is vertically centered against the (much taller) amount text,
     // not bottom-aligned with it.
@@ -156,17 +150,9 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '0'}),
-          ],
-          [
-            2025,
-            8,
-            _inv({'CHF': '500'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('0')],
+          [2025, 8, _amt('500')],
         ]),
         error: null,
       ),
@@ -181,46 +167,13 @@ void main() {
   });
 
   testWidgets(
-    'range label renders in the header row, above the balance headline',
-    (tester) async {
-      when(() => repo.run(any())).thenAnswer(
-        (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000'}),
-            ],
-          ]),
-          error: null,
-        ),
-      );
-
-      await tester.pumpWidget(build(_checking, rangeLabel: 'Last 12 months'));
-      await tester.pumpAndSettle();
-
-      final rangeDy = tester.getTopLeft(find.text('Last 12 months')).dy;
-      final balanceDy = tester.getTopLeft(find.text('4,000.00 CHF')).dy;
-      expect(rangeDy, lessThan(balanceDy));
-    },
-  );
-
-  testWidgets(
     'assertion-issue pill is right-aligned on the granularity-chip row',
     (tester) async {
       when(() => repo.run(any())).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '5800'}),
-            ],
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('5800')],
+            [2025, 8, _amt('4000')],
           ]),
           error: null,
         ),
@@ -231,22 +184,14 @@ void main() {
         targetSummary: {'date': '2025-08-15', 'account': 'Assets:Checking:ZKB'},
       );
 
-      await tester.pumpWidget(
-        build(
-          _checking,
-          assertionIssues: [issue],
-          rangeLabel: 'Last 12 months',
-        ),
-      );
+      await tester.pumpWidget(build(_checking, assertionIssues: [issue]));
       await tester.pumpAndSettle();
 
-      // Below the header/headline, and on the same row as the granularity
-      // chips — to the chips' right.
+      // Below the headline, and on the same row as the granularity chips —
+      // to the chips' right.
       final pillCenter = tester.getCenter(find.text('1'));
-      final rangeDy = tester.getTopLeft(find.text('Last 12 months')).dy;
       final balanceDy = tester.getTopLeft(find.text('4,000.00 CHF')).dy;
       final dayChipCenter = tester.getCenter(find.text('Day'));
-      expect(pillCenter.dy, greaterThan(rangeDy));
       expect(pillCenter.dy, greaterThan(balanceDy));
       expect(pillCenter.dy, closeTo(dayChipCenter.dy, 1));
       expect(pillCenter.dx, greaterThan(dayChipCenter.dx));
@@ -258,12 +203,8 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            8,
-            _inv({'CHF': '1234567.89'}),
-          ],
+        data: _amountResult([
+          [2025, 8, _amt('1234567.89')],
         ]),
         error: null,
       ),
@@ -287,17 +228,9 @@ void main() {
 
       when(() => repo.run(any())).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '5800'}),
-            ],
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('5800')],
+            [2025, 8, _amt('4000')],
           ]),
           error: null,
         ),
@@ -317,12 +250,8 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2026,
-            1,
-            _inv({'CHF': '-3200'}),
-          ],
+        data: _amountResult([
+          [2026, 1, _amt('-3200')],
         ]),
         error: null,
       ),
@@ -340,17 +269,9 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '200'}),
-          ],
-          [
-            2025,
-            8,
-            _inv({'CHF': '300'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('200')],
+          [2025, 8, _amt('300')],
         ]),
         error: null,
       ),
@@ -364,20 +285,20 @@ void main() {
   });
 
   testWidgets(
-    'multi-currency defaults to converted view with no toggle, and warnings',
+    'shows the converted amount and surfaces price warnings from the fetch',
     (tester) async {
-      when(() => repo.run(any(that: contains('convert(')))).thenAnswer(
+      when(() => repo.run(any())).thenAnswer(
         (_) async => (
-          data: const QueryResult(
-            columns: [
+          data: QueryResult(
+            columns: const [
               QueryColumnDef(name: 'y', type: 'int'),
               QueryColumnDef(name: 'm', type: 'int'),
               QueryColumnDef(name: 'bal', type: 'amount'),
             ],
             rows: [
-              [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
+              [2025, 8, _amt('4040')],
             ],
-            warnings: [
+            warnings: const [
               QueryWarningInfo(
                 code: 'missing_price',
                 message: 'No CHF price for USD on or before 2025-08-31.',
@@ -387,30 +308,12 @@ void main() {
           error: null,
         ),
       );
-      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
-        (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000', 'USD': '50'}),
-            ],
-          ]),
-          error: null,
-        ),
-      );
 
       await tester.pumpWidget(build(_checking));
       await tester.pumpAndSettle();
 
-      // Converted view by default: two queries, converted headline, no
-      // per-currency chips or toggle (multi-currency has no single "unit"
-      // to fall back to).
       expect(find.text('4,040.00 CHF'), findsOneWidget);
-      expect(find.text('CHF'), findsNothing);
-      expect(find.text('USD'), findsNothing);
-      expect(find.text('≈ CHF'), findsNothing);
-      verify(() => repo.run(any())).called(2);
+      verify(() => repo.run(any())).called(1);
 
       // Warning badge is visible; tapping it lists the warning.
       expect(find.text('1'), findsOneWidget);
@@ -425,127 +328,21 @@ void main() {
   );
 
   testWidgets(
-    'a failed converted query only breaks the chart slot, not the whole card',
-    (tester) async {
-      when(() => repo.run(any(that: contains('convert(')))).thenAnswer(
-        (_) async => (data: null, error: const NetworkError('timed out')),
-      );
-      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
-        (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000', 'USD': '50'}),
-            ],
-          ]),
-          error: null,
-        ),
-      );
-
-      await tester.pumpWidget(build(_checking));
-      await tester.pumpAndSettle();
-
-      // Header/headline stay driven by the valid base series; only the
-      // chart slot shows the error + retry.
-      expect(find.text('Assets · Checking · ZKB'), findsOneWidget);
-      expect(find.text('timed out'), findsOneWidget);
-      expect(find.byType(LineChart), findsNothing);
-    },
-  );
-
-  testWidgets('retrying a failed converted query recovers the chart', (
-    tester,
-  ) async {
-    var convertedCalls = 0;
-    when(() => repo.run(any(that: contains('convert(')))).thenAnswer((_) async {
-      convertedCalls++;
-      if (convertedCalls == 1) {
-        return (data: null, error: const NetworkError('timed out'));
-      }
-      return (
-        data: const QueryResult(
-          columns: [
-            QueryColumnDef(name: 'y', type: 'int'),
-            QueryColumnDef(name: 'm', type: 'int'),
-            QueryColumnDef(name: 'bal', type: 'amount'),
-          ],
-          rows: [
-            [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
-          ],
-          warnings: [],
-        ),
-        error: null,
-      );
-    });
-    when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
-      (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            8,
-            _inv({'CHF': '4000', 'USD': '50'}),
-          ],
-        ]),
-        error: null,
-      ),
-    );
-
-    await tester.pumpWidget(build(_checking));
-    await tester.pumpAndSettle();
-    expect(find.text('timed out'), findsOneWidget);
-
-    await tester.tap(find.text('Retry'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('4,040.00 CHF'), findsOneWidget);
-    expect(find.byType(LineChart), findsOneWidget);
-  });
-
-  testWidgets(
-    'changing the default currency re-fetches the converted view without '
-    'mislabeling stale values',
+    'changing the default currency re-fetches with the new target and never '
+    'mislabels stale values',
     (tester) async {
       when(() => repo.run(any(that: contains("'CHF'")))).thenAnswer(
         (_) async => (
-          data: const QueryResult(
-            columns: [
-              QueryColumnDef(name: 'y', type: 'int'),
-              QueryColumnDef(name: 'm', type: 'int'),
-              QueryColumnDef(name: 'bal', type: 'amount'),
-            ],
-            rows: [
-              [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
-            ],
-            warnings: [],
-          ),
+          data: _amountResult([
+            [2025, 8, _amt('4040')],
+          ]),
           error: null,
         ),
       );
       when(() => repo.run(any(that: contains("'USD'")))).thenAnswer(
         (_) async => (
-          data: const QueryResult(
-            columns: [
-              QueryColumnDef(name: 'y', type: 'int'),
-              QueryColumnDef(name: 'm', type: 'int'),
-              QueryColumnDef(name: 'bal', type: 'amount'),
-            ],
-            rows: [
-              [2025, 8, QueryAmount(number: '4750', currency: 'USD')],
-            ],
-            warnings: [],
-          ),
-          error: null,
-        ),
-      );
-      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
-        (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000', 'EUR': '50'}),
-            ],
+          data: _amountResult([
+            [2025, 8, _amt('4750', 'USD')],
           ]),
           error: null,
         ),
@@ -566,27 +363,44 @@ void main() {
   );
 
   testWidgets(
-    'single-currency series shows the raw value with no Converted toggle',
+    'headline keeps showing the previous value (correctly still labeled in '
+    'its own currency) while a new conversion is pending '
+    '(regression: headline blanked to nothing during that gap)',
     (tester) async {
-      when(() => repo.run(any())).thenAnswer(
+      when(() => repo.run(any(that: contains("'CHF'")))).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '5800'}),
-            ],
+          data: _amountResult([
+            [2025, 8, _amt('4040')],
           ]),
           error: null,
         ),
       );
+      final usdCompleter = Completer<({QueryResult? data, ApiError? error})>();
+      when(
+        () => repo.run(any(that: contains("'USD'"))),
+      ).thenAnswer((_) => usdCompleter.future);
 
       await tester.pumpWidget(build(_checking));
       await tester.pumpAndSettle();
+      expect(find.text('4,040.00 CHF'), findsOneWidget);
 
-      expect(find.text('≈ CHF'), findsNothing);
-      expect(find.text('5,800.00 CHF'), findsOneWidget);
-      verify(() => repo.run(any())).called(1); // no converted fetch at all
+      await tester.pumpWidget(build(_checking, defaultCurrency: 'USD'));
+      await tester.pump(); // USD fetch requested but still pending
+
+      // Still showing the previous (CHF) value under its own correct
+      // label — not blank, and not mislabeled as USD.
+      expect(find.text('4,040.00 CHF'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(LineChart), findsNothing);
+
+      usdCompleter.complete((
+        data: _amountResult([
+          [2025, 8, _amt('4750', 'USD')],
+        ]),
+        error: null,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('4,750.00 USD'), findsOneWidget);
     },
   );
 
@@ -595,12 +409,8 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'USD': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100', 'USD')],
         ]),
         error: null,
       ),
@@ -617,12 +427,8 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'USD': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100', 'USD')],
         ]),
         error: null,
       ),
@@ -650,12 +456,8 @@ void main() {
 
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -665,10 +467,59 @@ void main() {
     expect(find.text('100.00 CHF'), findsOneWidget);
   });
 
+  testWidgets(
+    'a same-view reload failure keeps the previous content visible instead '
+    'of collapsing the whole card '
+    '(regression: header/headline disappeared behind a bare error box)',
+    (tester) async {
+      when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timed out')),
+      );
+      when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+      expect(find.text('100.00 CHF'), findsOneWidget);
+
+      // Same-view reload (granularity tap) fails.
+      await tester.tap(find.text('Day'));
+      await tester.pumpAndSettle();
+
+      // Stale headline/granularity chips survive; only the chart slot
+      // shows the error + retry, not a full-card collapse.
+      expect(find.text('100.00 CHF'), findsOneWidget);
+      expect(find.text('Day'), findsOneWidget);
+      expect(find.text('timed out'), findsOneWidget);
+      expect(find.text('Retry'), findsOneWidget);
+
+      // Retrying recovers the chart.
+      when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, 15, _amt('150')],
+          ], keyCount: 3),
+          error: null,
+        ),
+      );
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('150.00 CHF'), findsOneWidget);
+      expect(find.byType(LineChart), findsOneWidget);
+    },
+  );
+
   testWidgets('empty series shows a hint instead of a chart', (tester) async {
     when(
       () => repo.run(any()),
-    ).thenAnswer((_) async => (data: _inventoryResult([]), error: null));
+    ).thenAnswer((_) async => (data: _amountResult([]), error: null));
 
     await tester.pumpWidget(build(_checking));
     await tester.pumpAndSettle();
@@ -677,17 +528,85 @@ void main() {
     expect(find.byType(LineChart), findsNothing);
   });
 
+  testWidgets('no default currency configured warns instead of guessing one', (
+    tester,
+  ) async {
+    await tester.pumpWidget(build(_checking, defaultCurrency: null));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Set a default currency in App Settings to see this chart.'),
+      findsOneWidget,
+    );
+    expect(find.byType(LineChart), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    // No default currency to convert to — nothing is ever fetched.
+    verifyNever(() => repo.run(any()));
+  });
+
+  testWidgets(
+    'gaining a default currency after mounting without one loads the chart',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking, defaultCurrency: null));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Set a default currency in App Settings to see this chart.'),
+        findsOneWidget,
+      );
+
+      // e.g. the user just picked one in App Settings while this screen
+      // was still mounted underneath.
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+
+      expect(find.text('100.00 CHF'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'losing the default currency while mounted falls back to the warning',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+      expect(find.text('100.00 CHF'), findsOneWidget);
+
+      // e.g. the user cleared the setting in App Settings.
+      await tester.pumpWidget(build(_checking, defaultCurrency: null));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text('Set a default currency in App Settings to see this chart.'),
+        findsOneWidget,
+      );
+      expect(find.text('100.00 CHF'), findsNothing);
+    },
+  );
+
   testWidgets('last-import hint appears when the filter toggle is on', (
     tester,
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -698,22 +617,15 @@ void main() {
 
     expect(find.text("Chart ignores the 'last import' filter"), findsOneWidget);
   });
+
   testWidgets('assertion failures render a badge, band, and details sheet', (
     tester,
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '5800'}),
-          ],
-          [
-            2025,
-            8,
-            _inv({'CHF': '4000'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('5800')],
+          [2025, 8, _amt('4000')],
         ]),
         error: null,
       ),
@@ -749,49 +661,24 @@ void main() {
       findsOneWidget,
     );
   });
+
   testWidgets(
-    'multi-currency shows a placeholder while the converted query is pending '
-    '(regression: fl_chart crashed on the empty transient projection)',
+    'first load shows a spinner (not a crash) while the fetch is pending',
     (tester) async {
-      final convertedCompleter =
-          Completer<({QueryResult? data, ApiError? error})>();
-      when(
-        () => repo.run(any(that: contains('convert('))),
-      ).thenAnswer((_) => convertedCompleter.future);
-      when(() => repo.run(any(that: isNot(contains('convert('))))).thenAnswer(
-        (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              8,
-              _inv({'CHF': '4000', 'USD': '50'}),
-            ],
-          ]),
-          error: null,
-        ),
-      );
+      final completer = Completer<({QueryResult? data, ApiError? error})>();
+      when(() => repo.run(any())).thenAnswer((_) => completer.future);
 
       await tester.pumpWidget(build(_checking));
-      await tester.pump(); // base query resolves
-      await tester.pump(); // frame with converted projection still empty
+      await tester.pump();
 
-      // No crash; chart slot shows a spinner instead of an empty LineChart.
       expect(tester.takeException(), isNull);
       expect(find.byType(LineChart), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
-      convertedCompleter.complete((
-        data: const QueryResult(
-          columns: [
-            QueryColumnDef(name: 'y', type: 'int'),
-            QueryColumnDef(name: 'm', type: 'int'),
-            QueryColumnDef(name: 'bal', type: 'amount'),
-          ],
-          rows: [
-            [2025, 8, QueryAmount(number: '4040', currency: 'CHF')],
-          ],
-          warnings: [],
-        ),
+      completer.complete((
+        data: _amountResult([
+          [2025, 8, _amt('4040')],
+        ]),
         error: null,
       ));
       await tester.pumpAndSettle();
@@ -809,13 +696,8 @@ void main() {
   Future<void> pumpTwelveMonths(WidgetTester tester) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          for (var m = 1; m <= 12; m++)
-            [
-              2025,
-              m,
-              _inv({'CHF': '${100 + m}'}),
-            ],
+        data: _amountResult([
+          for (var m = 1; m <= 12; m++) [2025, m, _amt('${100 + m}')],
         ]),
         error: null,
       ),
@@ -833,12 +715,8 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -855,25 +733,16 @@ void main() {
   testWidgets('tapping Day re-queries with daily buckets', (tester) async {
     when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
       (_) async => (
-        data: _dailyInventoryResult([
-          [
-            2025,
-            7,
-            15,
-            _inv({'CHF': '150'}),
-          ],
-        ]),
+        data: _amountResult([
+          [2025, 7, 15, _amt('150')],
+        ], keyCount: 3),
         error: null,
       ),
     );
     when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -890,29 +759,66 @@ void main() {
     expect(find.text('150.00 CHF'), findsOneWidget);
   });
 
+  testWidgets(
+    'switching granularity keeps the header/headline visible instead of '
+    'collapsing the card to the loading placeholder '
+    '(regression: card got visibly shorter while a same-view reload ran)',
+    (tester) async {
+      final dailyCompleter =
+          Completer<({QueryResult? data, ApiError? error})>();
+      when(
+        () => repo.run(any(that: contains('day(date)'))),
+      ).thenAnswer((_) => dailyCompleter.future);
+      when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+      expect(find.text('100.00 CHF'), findsOneWidget);
+
+      await tester.tap(find.text('Day'));
+      await tester.pump(); // reload starts; daily query still pending
+
+      // Stale header/headline stay up (same view, just a different
+      // granularity) rather than the card collapsing to the small
+      // full-card spinner used only when there's no previous data at all.
+      expect(find.text('100.00 CHF'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byType(LineChart), findsNothing);
+
+      dailyCompleter.complete((
+        data: _amountResult([
+          [2025, 7, 15, _amt('150')],
+        ], keyCount: 3),
+        error: null,
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('150.00 CHF'), findsOneWidget);
+    },
+  );
+
   testWidgets('tapping Year re-queries with only a year bucket', (
     tester,
   ) async {
     when(() => repo.run(any(that: contains('month(date)')))).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
     );
     when(() => repo.run(any(that: isNot(contains('month(date)'))))).thenAnswer(
       (_) async => (
-        data: _yearlyInventoryResult([
-          [
-            2025,
-            _inv({'CHF': '999'}),
-          ],
-        ]),
+        data: _amountResult([
+          [2025, _amt('999')],
+        ], keyCount: 1),
         error: null,
       ),
     );
@@ -933,25 +839,16 @@ void main() {
     (tester) async {
       when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
         (_) async => (
-          data: _dailyInventoryResult([
-            [
-              2025,
-              7,
-              15,
-              _inv({'CHF': '150'}),
-            ],
-          ]),
+          data: _amountResult([
+            [2025, 7, 15, _amt('150')],
+          ], keyCount: 3),
           error: null,
         ),
       );
       when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '100'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('100')],
           ]),
           error: null,
         ),
@@ -966,15 +863,19 @@ void main() {
 
       // A new date range is a new view: the daily override doesn't survive
       // it — back to the span-derived default (monthly for a ~1yr span),
-      // not a second daily query for the new range. (The prior daily call
-      // was already consumed by the `verify` above, so any further match
-      // here would have to be a new one.)
+      // fetched fresh for the new range, not a second daily query. (The
+      // prior daily call was already consumed by the `verify` above, so any
+      // further match here would have to be a new one.)
       await tester.pumpWidget(
         build(_checking, from: DateTime(2024), to: DateTime(2024, 12, 31)),
       );
       await tester.pumpAndSettle();
 
       verifyNever(() => repo.run(any(that: contains('day(date)'))));
+      // Genuinely re-fetched for the new range (not just silently keeping
+      // the old range's data around) — 1 call for the initial load, 1 more
+      // for this new view.
+      verify(() => repo.run(any(that: isNot(contains('day(date)'))))).called(2);
     },
   );
 
@@ -984,25 +885,16 @@ void main() {
     (tester) async {
       when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
         (_) async => (
-          data: _dailyInventoryResult([
-            [
-              2025,
-              7,
-              15,
-              _inv({'CHF': '150'}),
-            ],
-          ]),
+          data: _amountResult([
+            [2025, 7, 15, _amt('150')],
+          ], keyCount: 3),
           error: null,
         ),
       );
       when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '100'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('100')],
           ]),
           error: null,
         ),
@@ -1030,25 +922,16 @@ void main() {
   ) async {
     when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
       (_) async => (
-        data: _dailyInventoryResult([
-          [
-            2025,
-            7,
-            15,
-            _inv({'CHF': '150'}),
-          ],
-        ]),
+        data: _amountResult([
+          [2025, 7, 15, _amt('150')],
+        ], keyCount: 3),
         error: null,
       ),
     );
     when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -1104,21 +987,17 @@ void main() {
     final start = DateTime(2025);
     when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
       (_) async => (
-        data: _dailyInventoryResult([
+        data: _amountResult([
           for (var i = 0; i < 100; i++)
             _dailyRow(start.add(Duration(days: i)), '10'),
-        ]),
+        ], keyCount: 3),
         error: null,
       ),
     );
     when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '100'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('100')],
         ]),
         error: null,
       ),
@@ -1153,21 +1032,17 @@ void main() {
       final start = DateTime(2023);
       when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
         (_) async => (
-          data: _dailyInventoryResult([
+          data: _amountResult([
             for (var i = 0; i < bucketCount; i++)
               _dailyRow(start.add(Duration(days: i)), '10'),
-          ]),
+          ], keyCount: 3),
           error: null,
         ),
       );
       when(() => repo.run(any(that: isNot(contains('day(date)'))))).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '100'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('100')],
           ]),
           error: null,
         ),
@@ -1196,12 +1071,8 @@ void main() {
     (tester) async {
       when(() => repo.run(any(that: contains('month(date)')))).thenAnswer(
         (_) async => (
-          data: _inventoryResult([
-            [
-              2025,
-              7,
-              _inv({'CHF': '100'}),
-            ],
+          data: _amountResult([
+            [2025, 7, _amt('100')],
           ]),
           error: null,
         ),
@@ -1210,16 +1081,10 @@ void main() {
         () => repo.run(any(that: isNot(contains('month(date)')))),
       ).thenAnswer(
         (_) async => (
-          data: _yearlyInventoryResult([
-            [
-              2023,
-              _inv({'CHF': '100'}),
-            ],
-            [
-              2024,
-              _inv({'CHF': '150'}),
-            ],
-          ]),
+          data: _amountResult([
+            [2023, _amt('100')],
+            [2024, _amt('150')],
+          ], keyCount: 1),
           error: null,
         ),
       );
@@ -1243,17 +1108,9 @@ void main() {
   ) async {
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
-        data: _inventoryResult([
-          [
-            2025,
-            7,
-            _inv({'CHF': '1000'}),
-          ],
-          [
-            2025,
-            10,
-            _inv({'CHF': '1000'}),
-          ],
+        data: _amountResult([
+          [2025, 7, _amt('1000')],
+          [2025, 10, _amt('1000')],
         ]),
         error: null,
       ),

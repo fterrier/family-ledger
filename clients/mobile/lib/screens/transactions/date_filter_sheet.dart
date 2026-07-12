@@ -1,19 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../../core/account_hierarchy.dart';
-import '../../models/account.dart';
-import '../../models/commodity.dart';
-import '../../repositories/commodity_repository.dart';
 import '../../repositories/transaction_repository.dart';
-import '../add_transaction/account_picker_screen.dart';
+import '../../widgets/filter_pill.dart';
+import '../../widgets/filter_sheet_header.dart';
 import 'transaction_filter.dart';
 
-Future<TransactionFilter?> showTransactionFilterSheet(
+Future<TransactionFilter?> showDateFilterSheet(
   BuildContext context, {
-  required List<AccountResource> accounts,
   required TransactionFilter current,
   required TransactionRepository transactionRepository,
-  required CommodityRepository commodityRepository,
 }) {
   return showModalBottomSheet<TransactionFilter>(
     context: context,
@@ -21,64 +16,44 @@ Future<TransactionFilter?> showTransactionFilterSheet(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (_) => TransactionFilterSheet(
-      accounts: accounts,
+    builder: (_) => DateFilterSheet(
       initial: current,
       transactionRepository: transactionRepository,
-      commodityRepository: commodityRepository,
     ),
   );
 }
 
-class TransactionFilterSheet extends StatefulWidget {
-  final List<AccountResource> accounts;
+class DateFilterSheet extends StatefulWidget {
   final TransactionFilter initial;
   final TransactionRepository transactionRepository;
-  final CommodityRepository commodityRepository;
 
-  const TransactionFilterSheet({
+  const DateFilterSheet({
     super.key,
-    required this.accounts,
     required this.initial,
     required this.transactionRepository,
-    required this.commodityRepository,
   });
 
   @override
-  State<TransactionFilterSheet> createState() => _TransactionFilterSheetState();
+  State<DateFilterSheet> createState() => _DateFilterSheetState();
 }
 
-class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
+class _DateFilterSheetState extends State<DateFilterSheet> {
   late TransactionFilter _draft;
-  late List<AccountResource> _pickerAccounts;
   List<int> _years = [];
   bool _yearsLoading = true;
   final ScrollController _yearsScrollController = ScrollController();
-  List<Commodity> _commodities = [];
-  bool _commoditiesLoading = true;
 
   @override
   void initState() {
     super.initState();
     _draft = widget.initial;
-    _pickerAccounts = buildPickerAccounts(widget.accounts);
     _loadYears();
-    _loadCommodities();
   }
 
   @override
   void dispose() {
     _yearsScrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadCommodities() async {
-    final result = await widget.commodityRepository.getAllCommodities();
-    if (!mounted) return;
-    setState(() {
-      _commoditiesLoading = false;
-      if (result.data != null) _commodities = result.data!;
-    });
   }
 
   Future<void> _loadYears() async {
@@ -188,21 +163,6 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
     }
   }
 
-  Future<void> _pickAccount() async {
-    final result = await Navigator.push<AccountResource>(
-      context,
-      MaterialPageRoute(
-        builder: (_) => AccountPickerScreen(
-          accounts: _pickerAccounts,
-          selected: _draft.account,
-        ),
-      ),
-    );
-    if (result != null && mounted) {
-      setState(() => _draft = _draft.copyWith(account: result));
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final fromYear = _draftFromYear;
@@ -215,178 +175,14 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                children: [
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.pop(context, const TransactionFilter()),
-                    child: const Text(
-                      'Reset',
-                      style: TextStyle(color: Color(0xFF1A73E8)),
-                    ),
-                  ),
-                  const Expanded(
-                    child: Text(
-                      'Filter',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1C1C1E),
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, _draft),
-                    child: const Text(
-                      'Apply',
-                      style: TextStyle(color: Color(0xFF1A73E8)),
-                    ),
-                  ),
-                ],
+            FilterSheetHeader(
+              title: 'Date range',
+              onReset: () => Navigator.pop(
+                context,
+                widget.initial.copyWith(fromDate: null, toDate: null),
               ),
+              onApply: () => Navigator.pop(context, _draft),
             ),
-            const Divider(height: 1, color: Color(0xFFE5E5EA)),
-
-            // Last import toggle
-            InkWell(
-              onTap: () => setState(() {
-                _draft = _draft.copyWith(
-                  lastImportOnly: !_draft.lastImportOnly,
-                );
-              }),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'Last import',
-                      style: TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-                    ),
-                    const Spacer(),
-                    Switch.adaptive(
-                      value: _draft.lastImportOnly,
-                      onChanged: (v) => setState(
-                        () => _draft = _draft.copyWith(lastImportOnly: v),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 1, color: Color(0xFFE5E5EA)),
-
-            // Account section
-            InkWell(
-              onTap: _pickAccount,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                child: Row(
-                  children: [
-                    const Text(
-                      'Account',
-                      style: TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _draft.accountLabel ?? 'Any account',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.end,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                    ),
-                    if (_draft.account != null)
-                      GestureDetector(
-                        onTap: () => setState(
-                          () => _draft = _draft.copyWith(account: null),
-                        ),
-                        child: const Padding(
-                          padding: EdgeInsets.only(left: 8),
-                          child: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: Color(0xFF8E8E93),
-                          ),
-                        ),
-                      )
-                    else
-                      const Padding(
-                        padding: EdgeInsets.only(left: 8),
-                        child: Icon(
-                          Icons.chevron_right,
-                          size: 20,
-                          color: Color(0xFF8E8E93),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const Divider(height: 1, indent: 16, color: Color(0xFFE5E5EA)),
-
-            // Commodity section
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Commodity',
-                    style: TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
-                  ),
-                  const SizedBox(height: 8),
-                  _commoditiesLoading
-                      ? const SizedBox(
-                          height: 32,
-                          child: Center(
-                            child: SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                        )
-                      : Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _FilterPill(
-                              label: 'Any commodity',
-                              selected: _draft.currency == null,
-                              onTap: () => setState(
-                                () => _draft = _draft.copyWith(currency: null),
-                              ),
-                            ),
-                            for (final commodity in _commodities)
-                              _FilterPill(
-                                label: commodity.symbol,
-                                selected: _draft.currency == commodity.symbol,
-                                onTap: () => setState(
-                                  () => _draft = _draft.copyWith(
-                                    currency: commodity.symbol,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, indent: 16, color: Color(0xFFE5E5EA)),
 
             // Year pills
             Padding(
@@ -413,7 +209,7 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
                               year <= (toYear ?? fromYear);
                           return Padding(
                             padding: const EdgeInsets.only(right: 8),
-                            child: _FilterPill(
+                            child: FilterPill(
                               label: '$year',
                               selected: selected,
                               onTap: () => _onYearTap(year),
@@ -459,45 +255,6 @@ class _TransactionFilterSheetState extends State<TransactionFilterSheet> {
             ),
             const SizedBox(height: 8),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Selectable pill shared by the year and commodity rows.
-class _FilterPill extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _FilterPill({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFF1A73E8) : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? const Color(0xFF1A73E8) : const Color(0xFFDADCE0),
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: selected ? Colors.white : const Color(0xFF3C4043),
-          ),
         ),
       ),
     );

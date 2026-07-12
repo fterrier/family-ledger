@@ -16,19 +16,22 @@ import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
 import '../../repositories/query_repository.dart';
 import '../../repositories/transaction_repository.dart';
+import '../../widgets/account_category_dot.dart';
 import '../../widgets/account_chart_card.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/issue_bar.dart';
+import '../add_transaction/account_picker_screen.dart';
 import '../transaction_edit/transaction_edit_screen.dart';
+import 'date_filter_sheet.dart';
+import 'more_filters_sheet.dart';
 import 'transaction_filter.dart';
-import 'transaction_filter_sheet.dart';
 
 class TransactionListScreen extends StatefulWidget {
   final TransactionRepository transactionRepository;
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
   final QueryRepository queryRepository;
-  final ValueNotifier<bool>? filterActiveNotifier;
+  final ValueNotifier<TransactionFilter>? filterNotifier;
   final ValueNotifier<Set<String>>? selectionNotifier;
 
   const TransactionListScreen({
@@ -37,7 +40,7 @@ class TransactionListScreen extends StatefulWidget {
     required this.accountRepository,
     required this.commodityRepository,
     required this.queryRepository,
-    this.filterActiveNotifier,
+    this.filterNotifier,
     this.selectionNotifier,
   });
 
@@ -63,9 +66,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   TransactionFilter _filter = const TransactionFilter();
   List<AccountResource> _accounts = const [];
-  bool _filterOpen = false;
+  bool _filterSheetOpen = false;
 
-  String _defaultCurrency = 'CHF';
+  String? _defaultCurrency;
   int _chartRefreshTick = 0;
 
   Set<String> _selectedNames = {};
@@ -84,7 +87,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final saved = await FilterPersistence.load();
     if (!mounted) return;
     _filter = saved;
-    widget.filterActiveNotifier?.value = _filter.isActive;
+    widget.filterNotifier?.value = _filter;
     _load();
   }
 
@@ -92,7 +95,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     final stored = prefs.getString(AppPreferences.keyDefaultCurrency);
-    if (stored != null && stored.isNotEmpty && stored != _defaultCurrency) {
+    if (stored != null && stored.isNotEmpty) {
       setState(() => _defaultCurrency = stored);
     }
   }
@@ -215,28 +218,38 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     await _doFetch(generation: generation);
   }
 
-  Future<void> openFilter() async {
-    if (_filterOpen) return;
-    _filterOpen = true;
-    final result = await showTransactionFilterSheet(
+  Future<void> openDateFilter() async {
+    if (_filterSheetOpen) return;
+    _filterSheetOpen = true;
+    final result = await showDateFilterSheet(
       context,
-      accounts: _accounts,
       current: _filter,
       transactionRepository: widget.transactionRepository,
-      commodityRepository: widget.commodityRepository,
     );
-    _filterOpen = false;
+    _filterSheetOpen = false;
     if (result != null && mounted) _applyFilter(result);
   }
 
-  // Applying a new filter value — from the sheet, a chart bucket tap, or
+  Future<void> openMoreFilters() async {
+    if (_filterSheetOpen) return;
+    _filterSheetOpen = true;
+    final result = await showMoreFiltersSheet(
+      context,
+      current: _filter,
+      commodityRepository: widget.commodityRepository,
+    );
+    _filterSheetOpen = false;
+    if (result != null && mounted) _applyFilter(result);
+  }
+
+  // Applying a new filter value — from a sheet, a chart bucket tap, or
   // picking an account — is always the same choreography: drop any active
-  // selection, persist, notify the app-bar dot, and reload.
+  // selection, persist, notify the app-bar badges, and reload.
   void _applyFilter(TransactionFilter next) {
     exitSelectionMode();
     _filter = next;
     unawaited(FilterPersistence.save(_filter));
-    widget.filterActiveNotifier?.value = _filter.isActive;
+    widget.filterNotifier?.value = _filter;
     refresh();
   }
 
@@ -284,7 +297,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       _applyFilter(_filter.copyWith(fromDate: from, toDate: to));
 
   // "Selecting an account" IS setting the account on the global filter —
-  // used by the drawer's Accounts entry.
+  // used by the app bar title's account tap.
   void selectAccount(AccountResource account) =>
       _applyFilter(_filter.copyWith(account: account));
 
@@ -292,13 +305,35 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   AccountResource? get selectedAccount => _filter.account;
 
+  Future<void> openAccountPicker() async {
+    final result = await Navigator.push<AccountResource>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => AccountPickerScreen(
+          accounts: pickerAccounts,
+          selected: selectedAccount,
+          issueAccountNames: accountsWithAssertionIssues,
+        ),
+      ),
+    );
+    if (result != null && mounted) selectAccount(result);
+  }
+
   Widget _buildChartCard() {
     return AccountChartCard(
+      // Account or date range changing is a new view, not an update to the
+      // same one — keying on them lets Flutter tear down and recreate the
+      // card's State via a fresh initState, rather than the card having to
+      // hand-detect "is this still the same view?" in didUpdateWidget.
+      key: ValueKey((
+        _filter.account!.name,
+        _filter.fromDate?.toIso8601String(),
+        _filter.toDate?.toIso8601String(),
+      )),
       queryRepository: widget.queryRepository,
       account: _filter.account!,
       fromDate: _filter.fromDate,
       toDate: _filter.toDate,
-      rangeLabel: _filter.dateRangeLabel,
       defaultCurrency: _defaultCurrency,
       currencyFilter: _filter.currency,
       showsLastImportHint: _filter.lastImportOnly,
@@ -717,7 +752,11 @@ class _PostingPills extends StatelessWidget {
           for (var i = 0; i < pillCount; i++)
             Positioned(
               top: i * _step,
-              child: _PillCircle(category: cats[i]),
+              child: AccountCategoryDot(
+                theme: accountCategoryThemes[cats[i]]!,
+                size: _PostingPills._size,
+                iconSize: 10,
+              ),
             ),
           if (hasOverflow)
             Positioned(
@@ -726,23 +765,6 @@ class _PostingPills extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _PillCircle extends StatelessWidget {
-  final AccountCategory category;
-
-  const _PillCircle({required this.category});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = accountCategoryThemes[category]!;
-    return Container(
-      width: _PostingPills._size,
-      height: _PostingPills._size,
-      decoration: BoxDecoration(color: theme.color, shape: BoxShape.circle),
-      child: Icon(theme.icon, size: 10, color: Colors.white),
     );
   }
 }

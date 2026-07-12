@@ -1294,6 +1294,45 @@ void main() {
       expect(prefs.getString('tx_filter_account_display_name'), 'Assets:Cash');
     });
 
+    testWidgets(
+      'openAccountPicker pushes the account picker and applies the pick',
+      (tester) async {
+        stubList();
+        when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
+          (_) async => (
+            data: [
+              const AccountResource(
+                name: 'accounts/acc-9',
+                accountName: 'Assets:Cash',
+                effectiveStartDate: '2020-01-01',
+              ),
+            ],
+            error: null,
+          ),
+        );
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+        expect(find.byType(AccountChartCard), findsNothing);
+
+        final state = tester.state<TransactionListScreenState>(
+          find.byType(TransactionListScreen),
+        );
+        state.openAccountPicker();
+        await tester.pumpAndSettle();
+
+        expect(find.text('Select Account'), findsOneWidget);
+        await tester.tap(find.text('Assets · Cash'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(AccountChartCard), findsOneWidget);
+        final prefs = await SharedPreferences.getInstance();
+        expect(
+          prefs.getString('tx_filter_account_display_name'),
+          'Assets:Cash',
+        );
+      },
+    );
+
     testWidgets('chart card shows an empty-state row when no transactions', (
       tester,
     ) async {

@@ -204,6 +204,34 @@ void main() {
     });
   });
 
+  group('TransactionFilter.hasMoreFilters', () {
+    test('false by default', () {
+      expect(const TransactionFilter().hasMoreFilters, isFalse);
+    });
+
+    test('true when currency set', () {
+      expect(const TransactionFilter(currency: 'USD').hasMoreFilters, isTrue);
+    });
+
+    test('true when lastImportOnly set', () {
+      expect(
+        const TransactionFilter(lastImportOnly: true).hasMoreFilters,
+        isTrue,
+      );
+    });
+
+    test('unaffected by account or dates', () {
+      expect(
+        TransactionFilter(
+          account: _account,
+          fromDate: DateTime(2025),
+          toDate: DateTime(2025, 12, 31),
+        ).hasMoreFilters,
+        isFalse,
+      );
+    });
+  });
+
   group('TransactionFilter.copyWith', () {
     test('preserves unchanged fields', () {
       final f = TransactionFilter(

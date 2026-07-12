@@ -3,33 +3,18 @@ import 'package:family_ledger_mobile/core/bql.dart';
 import 'package:family_ledger_mobile/core/chart_series.dart';
 import 'package:family_ledger_mobile/models/query_result.dart';
 
-QueryResult _inventoryResult(List<List<Object?>> rows, {int keyCount = 2}) {
+QueryResult _amountResult(List<List<Object?>> rows, {int keyCount = 2}) {
   final keyNames = ['y', 'm', 'd'];
   return QueryResult(
     columns: [
       for (var i = 0; i < keyCount; i++)
         QueryColumnDef(name: keyNames[i], type: 'int'),
-      const QueryColumnDef(name: 'bal', type: 'inventory'),
+      const QueryColumnDef(name: 'bal', type: 'amount'),
     ],
     rows: rows,
     warnings: const [],
   );
 }
-
-QueryResult _amountResult(List<List<Object?>> rows) => QueryResult(
-  columns: const [
-    QueryColumnDef(name: 'y', type: 'int'),
-    QueryColumnDef(name: 'm', type: 'int'),
-    QueryColumnDef(name: 'bal', type: 'amount'),
-  ],
-  rows: rows,
-  warnings: const [],
-);
-
-List<QueryAmount> inv(Map<String, String> amounts) => [
-  for (final e in amounts.entries)
-    QueryAmount(number: e.value, currency: e.key),
-];
 
 void main() {
   group('bucketAt', () {
@@ -56,118 +41,6 @@ void main() {
         bucketAt(DateTime(2026, 3, 5), Granularity.daily),
         ChartBucket(DateTime(2026, 3, 5), DateTime(2026, 3, 5)),
       );
-    });
-  });
-
-  group('buildBalanceSeries', () {
-    test('carries balances forward across empty months', () {
-      final series = buildBalanceSeries(
-        _inventoryResult([
-          [
-            2025,
-            7,
-            inv({'CHF': '5800'}),
-          ],
-          [
-            2025,
-            10,
-            inv({'CHF': '4000'}),
-          ],
-        ]),
-        Granularity.monthly,
-      );
-
-      expect(series.buckets.map((b) => b.start), [
-        DateTime(2025, 7),
-        DateTime(2025, 8),
-        DateTime(2025, 9),
-        DateTime(2025, 10),
-      ]);
-      expect(series.valuesByCurrency['CHF'], [5800, 5800, 5800, 4000]);
-    });
-
-    test('a currency is null before it first appears, then carried', () {
-      final series = buildBalanceSeries(
-        _inventoryResult([
-          [
-            2025,
-            7,
-            inv({'CHF': '5800'}),
-          ],
-          [
-            2025,
-            8,
-            inv({'CHF': '4000', 'USD': '50'}),
-          ],
-          [
-            2025,
-            10,
-            inv({'CHF': '4100', 'USD': '50'}),
-          ],
-        ]),
-        Granularity.monthly,
-      );
-
-      expect(series.currencies, ['CHF', 'USD']);
-      expect(series.valuesByCurrency['USD'], [null, 50, 50, 50]);
-    });
-
-    test(
-      'a currency dropping out of a later row reads as zero, not carried',
-      () {
-        // USD appears in August, then is fully liquidated by October: the
-        // October row exists (CHF moved) but omits USD entirely, per the
-        // server's zero-balance-omission rule.
-        final series = buildBalanceSeries(
-          _inventoryResult([
-            [
-              2025,
-              8,
-              inv({'CHF': '4000', 'USD': '50'}),
-            ],
-            [
-              2025,
-              10,
-              inv({'CHF': '4100'}),
-            ],
-          ]),
-          Granularity.monthly,
-        );
-
-        // Aug=50, Sep carried (no row that month), Oct=0 (row exists,
-        // omits USD).
-        expect(series.valuesByCurrency['USD'], [50, 50, 0]);
-      },
-    );
-
-    test('empty result yields an empty series', () {
-      final series = buildBalanceSeries(
-        _inventoryResult([]),
-        Granularity.monthly,
-      );
-      expect(series.isEmpty, isTrue);
-    });
-  });
-
-  group('buildTotalsSeries', () {
-    test('zero-fills gaps and uses magnitudes for income', () {
-      final series = buildTotalsSeries(
-        _inventoryResult([
-          [
-            2025,
-            7,
-            inv({'CHF': '-5000'}),
-          ],
-          [
-            2025,
-            9,
-            inv({'CHF': '-5200'}),
-          ],
-        ]),
-        Granularity.monthly,
-      );
-
-      expect(series.valuesByCurrency['CHF'], [5000, 0.0, 5200]);
     });
   });
 
@@ -206,22 +79,28 @@ void main() {
 
       expect(series.values, [120, 0.0, 0.0]);
     });
+
+    test('empty result yields an empty series', () {
+      final series = buildConvertedSeries(
+        _amountResult([]),
+        Granularity.monthly,
+        currency: 'CHF',
+        cumulative: true,
+      );
+      expect(series.isEmpty, isTrue);
+    });
   });
 
   group('yearly and daily bucket sequences', () {
     test('yearly rows produce contiguous years', () {
-      final series = buildBalanceSeries(
-        _inventoryResult([
-          [
-            2023,
-            inv({'CHF': '100'}),
-          ],
-          [
-            2026,
-            inv({'CHF': '400'}),
-          ],
+      final series = buildConvertedSeries(
+        _amountResult([
+          [2023, const QueryAmount(number: '100', currency: 'CHF')],
+          [2026, const QueryAmount(number: '400', currency: 'CHF')],
         ], keyCount: 1),
         Granularity.yearly,
+        currency: 'CHF',
+        cumulative: true,
       );
       expect(series.buckets.map((b) => b.start), [
         DateTime(2023),
@@ -229,26 +108,18 @@ void main() {
         DateTime(2025),
         DateTime(2026),
       ]);
-      expect(series.valuesByCurrency['CHF'], [100, 100, 100, 400]);
+      expect(series.values, [100, 100, 100, 400]);
     });
 
     test('daily rows produce contiguous days across month ends', () {
-      final series = buildBalanceSeries(
-        _inventoryResult([
-          [
-            2026,
-            2,
-            27,
-            inv({'CHF': '10'}),
-          ],
-          [
-            2026,
-            3,
-            1,
-            inv({'CHF': '30'}),
-          ],
+      final series = buildConvertedSeries(
+        _amountResult([
+          [2026, 2, 27, const QueryAmount(number: '10', currency: 'CHF')],
+          [2026, 3, 1, const QueryAmount(number: '30', currency: 'CHF')],
         ], keyCount: 3),
         Granularity.daily,
+        currency: 'CHF',
+        cumulative: true,
       );
       expect(series.buckets.map((b) => b.start), [
         DateTime(2026, 2, 27),

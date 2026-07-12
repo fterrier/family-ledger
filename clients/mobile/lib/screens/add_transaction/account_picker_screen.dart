@@ -3,6 +3,7 @@ import '../../core/account_category.dart';
 import '../../core/account_hierarchy.dart';
 import '../../core/account_search.dart';
 import '../../models/account.dart';
+import '../../widgets/account_category_dot.dart';
 import '../../widgets/issue_bar.dart';
 
 class AccountPickerScreen extends StatefulWidget {
@@ -194,13 +195,11 @@ class _AccountItem extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  margin: const EdgeInsets.only(right: 12),
-                  decoration: BoxDecoration(
-                    color: themeForAccount(account.accountName).color,
-                    shape: BoxShape.circle,
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: AccountCategoryDot(
+                    theme: themeForAccount(account.accountName),
+                    size: 10,
                   ),
                 ),
                 Expanded(

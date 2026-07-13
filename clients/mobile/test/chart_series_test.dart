@@ -66,7 +66,7 @@ void main() {
       ]);
     });
 
-    test('bars: gaps zero-filled, magnitudes, null treated as zero', () {
+    test('bars: gaps zero-filled, raw signs kept, null treated as zero', () {
       final series = buildConvertedSeries(
         _amountResult([
           [2025, 7, const QueryAmount(number: '-120', currency: 'CHF')],
@@ -77,7 +77,7 @@ void main() {
         cumulative: false,
       );
 
-      expect(series.values, [120, 0.0, 0.0]);
+      expect(series.values, [-120, 0.0, 0.0]);
     });
 
     test('empty result yields an empty series', () {

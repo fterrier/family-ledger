@@ -1,7 +1,31 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:family_ledger_mobile/core/account_category.dart';
+import 'package:family_ledger_mobile/core/home_view.dart';
 
 void main() {
+  group('HomeView', () {
+    test('balance sheet nets Assets and Liabilities as a line', () {
+      expect(HomeView.balanceSheet.label, 'Balance sheet');
+      expect(HomeView.balanceSheet.rootAccounts, ['Assets', 'Liabilities']);
+      expect(HomeView.balanceSheet.isFlow, isFalse);
+    });
+
+    test('income statement nets Income and Expenses as bars', () {
+      expect(HomeView.incomeStatement.label, 'Income statement');
+      expect(HomeView.incomeStatement.rootAccounts, ['Income', 'Expenses']);
+      expect(HomeView.incomeStatement.isFlow, isTrue);
+    });
+
+    test('view themes are distinct from every account category theme', () {
+      for (final view in HomeView.values) {
+        final theme = themeForHomeView(view);
+        for (final categoryTheme in accountCategoryThemes.values) {
+          expect(theme.color, isNot(categoryTheme.color));
+        }
+      }
+    });
+  });
+
   group('categoryOf', () {
     test('matches exact top-level account names', () {
       expect(categoryOf('Expenses'), AccountCategory.expense);

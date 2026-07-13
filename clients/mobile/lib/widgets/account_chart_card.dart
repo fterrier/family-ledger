@@ -9,20 +9,66 @@ import '../core/amount_format.dart';
 import '../core/api_error.dart';
 import '../core/bql.dart';
 import '../core/chart_series.dart';
+import '../core/home_view.dart';
 import '../models/account.dart';
 import '../models/doctor_issue.dart';
 import '../models/query_result.dart';
 import '../repositories/query_repository.dart';
 
-/// Balance/spending chart for the account selected in the global filter.
+/// What the card charts: a single account subtree, or a multi-root home
+/// pseudo-view (balance sheet / income statement) netted into one series
+/// with raw ledger signs.
+class ChartSpec {
+  /// Account subtree roots the query nets over.
+  final List<String> rootAccounts;
+
+  /// Flow specs (expenses/income, income statement) render per-bucket bars
+  /// with a summed headline; stock specs a running-balance line with a
+  /// delta chip.
+  final bool isFlow;
+
+  final AccountCategoryTheme theme;
+
+  const ChartSpec({
+    required this.rootAccounts,
+    required this.isFlow,
+    required this.theme,
+  });
+
+  /// Stable identity for the view — feeds the caller's ValueKey, so a spec
+  /// change remounts the card instead of reaching didUpdateWidget. Derived
+  /// from the roots, which uniquely determine the view ('|' can't appear in
+  /// a beancount account name).
+  String get id => rootAccounts.join('|');
+
+  factory ChartSpec.forAccount(AccountResource account) {
+    final category = categoryOf(account.accountName);
+    return ChartSpec(
+      rootAccounts: [account.accountName],
+      isFlow:
+          category == AccountCategory.expense ||
+          category == AccountCategory.income,
+      theme: themeForAccount(account.accountName),
+    );
+  }
+
+  factory ChartSpec.forHomeView(HomeView view) => ChartSpec(
+    rootAccounts: view.rootAccounts,
+    isFlow: view.isFlow,
+    theme: themeForHomeView(view),
+  );
+}
+
+/// Balance/spending chart for the view selected in the global filter — an
+/// account subtree or, with no account selected, a home pseudo-view.
 ///
-/// Balance-sheet accounts (Assets/Liabilities/Equity) render a running
-/// balance line with raw ledger signs; Expenses/Income render per-bucket
-/// magnitude bars. Bucket granularity follows the filter span. Tapping a
-/// bucket narrows the shared filter to that bucket via [onBucketSelected].
+/// Stock specs render a running balance line with raw ledger signs; flow
+/// specs render per-bucket bars, also raw-signed (income plots negative).
+/// Bucket granularity follows the filter span. Tapping a bucket narrows
+/// the shared filter to that bucket via [onBucketSelected].
 class AccountChartCard extends StatefulWidget {
   final QueryRepository queryRepository;
-  final AccountResource account;
+  final ChartSpec spec;
   final DateTime? fromDate;
   final DateTime? toDate;
 
@@ -39,13 +85,14 @@ class AccountChartCard extends StatefulWidget {
   final void Function(DateTime from, DateTime to)? onBucketSelected;
 
   /// Failed balance assertions for this account's subtree (from doctor);
-  /// rendered as red bands on the chart plus a tappable badge.
+  /// rendered as red bands on the chart plus a tappable badge. Home
+  /// pseudo-views pass none — no doctor overlay there.
   final List<DoctorIssue> assertionIssues;
 
   const AccountChartCard({
     super.key,
     required this.queryRepository,
-    required this.account,
+    required this.spec,
     this.fromDate,
     this.toDate,
     this.defaultCurrency,
@@ -109,11 +156,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
   List<ChartBucket>? _labelWidthCacheKey;
   double _labelWidthCache = 0;
 
-  bool get _isFlow {
-    final category = categoryOf(widget.account.accountName);
-    return category == AccountCategory.expense ||
-        category == AccountCategory.income;
-  }
+  bool get _isFlow => widget.spec.isFlow;
 
   @override
   void initState() {
@@ -162,7 +205,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
     final convertTo = widget.defaultCurrency;
     return _isFlow
         ? periodTotalsQuery(
-            accountName: widget.account.accountName,
+            accountNames: widget.spec.rootAccounts,
             granularity: granularity,
             from: widget.fromDate,
             to: widget.toDate,
@@ -170,7 +213,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             convertTo: convertTo,
           )
         : balanceSeriesQuery(
-            accountName: widget.account.accountName,
+            accountNames: widget.spec.rootAccounts,
             granularity: granularity,
             from: widget.fromDate,
             to: widget.toDate,
@@ -733,7 +776,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
   );
 
   Widget _buildLine(double labelInterval) {
-    final theme = themeForAccount(widget.account.accountName);
+    final theme = widget.spec.theme;
     final values = _values;
 
     // Nulls (price gaps / currency not yet present) split the line into
@@ -828,18 +871,29 @@ class _AccountChartCardState extends State<AccountChartCard> {
   }
 
   Widget _buildBars(double labelInterval, double barWidth) {
-    final theme = themeForAccount(widget.account.accountName);
+    final theme = widget.spec.theme;
     final values = _values;
 
     // All-zero bars would give fl_chart a zero Y range; force a minimal one.
+    // Values keep raw ledger signs, so the range must cover negative bars
+    // (income, refunds, net savings) as well as positive ones.
     var maxY = 0.0;
+    var minY = 0.0;
     for (final v in values) {
-      if (v != null && v > maxY) maxY = v;
+      if (v == null) continue;
+      if (v > maxY) maxY = v;
+      if (v < minY) minY = v;
     }
-    maxY = maxY == 0 ? 1 : maxY * 1.1;
+    if (maxY == 0 && minY == 0) {
+      maxY = 1;
+    } else {
+      maxY *= 1.1;
+      minY *= 1.1;
+    }
 
     return BarChart(
       BarChartData(
+        minY: minY,
         maxY: maxY,
         barGroups: [
           for (var i = 0; i < values.length; i++)

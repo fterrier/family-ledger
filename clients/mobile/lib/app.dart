@@ -175,16 +175,17 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     child: Container(height: 1, color: const Color(0xFFE5E5EA)),
   );
 
-  // The title IS the account/date navigator — not a wordmark. Always
-  // present (unlike the chart, which only renders once an account is
-  // picked), so it doubles as the only way to pick an account the first
-  // time: no separate icon or empty-state affordance needed for either.
+  // The title IS the view/date navigator — not a wordmark. It always names
+  // what the screen shows: the selected account, or with none selected the
+  // home pseudo-view (balance sheet / income statement). Tapping it opens
+  // the picker, whose pinned view rows double as the "clear account" path.
   AppBar _buildNormalAppBar() {
     return AppBar(
       titleSpacing: 0,
       title: ValueListenableBuilder<TransactionFilter>(
         valueListenable: _filterNotifier,
         builder: (context, filter, child) {
+          final account = filter.account;
           return Row(
             children: [
               Expanded(
@@ -193,26 +194,23 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      // themeForAccount(null) already resolves to the
-                      // neutral noAccountTheme — same fallback the account
-                      // picker/chart used.
                       AccountCategoryDot(
-                        theme: themeForAccount(filter.account?.accountName),
+                        theme: account != null
+                            ? themeForAccount(account.accountName)
+                            : themeForHomeView(filter.homeView),
                         size: 16,
                         iconSize: 9,
                       ),
                       const SizedBox(width: 6),
                       Flexible(
                         child: Text(
-                          filter.account?.displayName ?? 'Select account',
+                          account?.displayName ?? filter.homeView.label,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w600,
-                            color: filter.account != null
-                                ? const Color(0xFF1C1C1E)
-                                : const Color(0xFFC7C7CC),
+                            color: Color(0xFF1C1C1E),
                           ),
                         ),
                       ),

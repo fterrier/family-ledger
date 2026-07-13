@@ -86,6 +86,32 @@ def test_query_balance_series() -> None:
     }
 
 
+def test_query_multi_root_alternation_nets_subtrees() -> None:
+    client = make_client()
+    _seed_ledger(client)
+
+    response = client.post(
+        "/ledger:query",
+        json={
+            "query": (
+                "SELECT year(date) AS y, month(date) AS m, sum(position) AS total"
+                " WHERE account ~ '^(Assets|Expenses)(:|$)'"
+                " GROUP BY y, m"
+            )
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    # May: Assets +1000; Jul: Expenses +200 net Assets −200 = 0 folds to
+    # empty; Aug: Assets:...:Sub +50 USD.
+    assert body["rows"] == [
+        [2025, 5, [{"number": "1000", "currency": "CHF"}]],
+        [2025, 7, []],
+        [2025, 8, [{"number": "50", "currency": "USD"}]],
+    ]
+    assert body["warnings"] == []
+
+
 def test_query_conversion_uses_stored_prices_and_warns_on_gaps() -> None:
     client = make_client()
     _seed_ledger(client)

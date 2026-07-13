@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:family_ledger_mobile/core/home_view.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
 
@@ -202,6 +203,13 @@ void main() {
     test('active when currency set', () {
       expect(const TransactionFilter(currency: 'USD').isActive, isTrue);
     });
+
+    test('active when a non-default home view is the only change', () {
+      expect(
+        const TransactionFilter(homeView: HomeView.incomeStatement).isActive,
+        isTrue,
+      );
+    });
   });
 
   group('TransactionFilter.hasMoreFilters', () {
@@ -289,6 +297,15 @@ void main() {
       const f = TransactionFilter(currency: 'USD');
       final copy = f.copyWith(fromDate: DateTime(2025));
       expect(copy.currency, 'USD');
+    });
+
+    test('preserves homeView when unchanged and can override it', () {
+      const f = TransactionFilter(homeView: HomeView.incomeStatement);
+      expect(f.copyWith(account: null).homeView, HomeView.incomeStatement);
+      expect(
+        f.copyWith(homeView: HomeView.balanceSheet).homeView,
+        HomeView.balanceSheet,
+      );
     });
   });
 }

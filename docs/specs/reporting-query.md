@@ -297,8 +297,11 @@ columns ↔ string literal) — mismatches are `query_validation_error`.
 
 - `~` is **regex match** (BQL semantics), not prefix match. Subtree matching
   is written `account ~ '^Assets:Checking(:|$)'` — the same effective
-  semantics as `account_balance.py` and pad, expressed as a regex. Clients
-  regex-escape account names when building queries.
+  semantics as `account_balance.py` and pad, expressed as a regex. A
+  multi-root subtree match is written
+  `account ~ '^(Assets|Liabilities)(:|$)'` (literal alternatives only) and
+  gets the same optimized compilation. Clients regex-escape account names
+  when building queries.
 - `=`, `!=`, `<`, `<=`, `>`, `>=` on comparable types.
 
 ### Multi-Currency: Inventories, Not Errors
@@ -389,7 +392,9 @@ New package `src/family_ledger/services/query/`:
   (OPEN ON seed query, running balance, bucket-end conversion). Date parts
   via `extract('year'/'month', ...)`, which SQLAlchemy compiles for both
   SQLite and Postgres. Anchored-prefix regexes (the common
-  `^Account:Name(:|$)` shape) compile to `=`/`LIKE`; general regexes use
+  `^Account:Name(:|$)` shape) and multi-root alternations
+  (`^(R1|R2)(:|$)`, literal alternatives only) compile to `=`/`LIKE`
+  (OR-of-subtree-clauses for the latter); general regexes use
   Postgres `~` and a registered `REGEXP` function on SQLite.
 - `executor.py` — runs select(s), applies post-processing (Decimal
   arithmetic, inventory assembly in Python), loads needed prices in one
@@ -596,9 +601,10 @@ re-imported from `scukas.beancount`, with beanquery running on the same file:
   belongs on the *multi*-currency case instead (today always forced into
   the combined converted view with no way back to a raw per-currency
   breakdown).
-- **Home-screen balance-sheet chart** (Assets − Liabilities, with a toggle
-  to a cash-flow view of Expenses + Income) is deferred. `AccountChartCard`
-  is single-account-shaped end to end, so this needs its own widget; the
-  recommended approach nets/sums two or more separate subtree queries
-  client-side (BQL's `WHERE` still has no `OR` combinator) rather than a
-  hand-built alternation regex. No doctor overlay planned for it initially.
+- **Home-screen balance-sheet / income-statement charts** (shipping): a
+  single query per chart using the multi-root alternation shape
+  (`^(Assets|Liabilities)(:|$)` netted `last(balance)` for net worth;
+  `^(Income|Expenses)(:|$)` netted `sum(position)` for the income
+  statement) — raw ledger signs make the netting automatic. BQL's `WHERE`
+  still has no `OR` combinator; the alternation pattern covers the
+  multi-root case instead. No doctor overlay planned for it initially.

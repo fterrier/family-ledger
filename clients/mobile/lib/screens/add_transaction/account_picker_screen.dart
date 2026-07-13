@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../core/account_category.dart';
 import '../../core/account_hierarchy.dart';
 import '../../core/account_search.dart';
+import '../../core/home_view.dart';
 import '../../models/account.dart';
 import '../../widgets/account_category_dot.dart';
 import '../../widgets/issue_bar.dart';
@@ -14,11 +15,23 @@ class AccountPickerScreen extends StatefulWidget {
   /// doctor); marked with the same red bar as problem transactions.
   final Set<String> issueAccountNames;
 
+  /// Pins the home pseudo-views (balance sheet / income statement) at the
+  /// top of the list. Only the transaction-list navigation flow opts in —
+  /// posting-editing flows pick real accounts. Picking one pops a
+  /// [HomeView] instead of an [AccountResource].
+  final bool showHomeViews;
+
+  /// The home view currently shown, for its checkmark; null when an
+  /// account is selected instead.
+  final HomeView? selectedHomeView;
+
   const AccountPickerScreen({
     super.key,
     required this.accounts,
     this.selected,
     this.issueAccountNames = const {},
+    this.showHomeViews = false,
+    this.selectedHomeView,
   });
 
   @override
@@ -68,6 +81,12 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
   bool _hasIssue(AccountResource account) => widget.issueAccountNames.any(
     (name) => isAccountOrDescendant(name, account.accountName),
   );
+
+  // Hidden while searching so fuzzy account results stay uncluttered.
+  List<HomeView> get _pinnedViews =>
+      widget.showHomeViews && _searchController.text.isEmpty
+      ? HomeView.values
+      : const [];
 
   @override
   void dispose() {
@@ -146,9 +165,18 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
             ),
           Expanded(
             child: ListView.builder(
-              itemCount: _filtered.length,
+              itemCount: _pinnedViews.length + _filtered.length,
               itemBuilder: (context, i) {
-                final account = _filtered[i];
+                if (i < _pinnedViews.length) {
+                  final view = _pinnedViews[i];
+                  return _HomeViewItem(
+                    view: view,
+                    isSelected: view == widget.selectedHomeView,
+                    isLast: i == _pinnedViews.length - 1,
+                    onTap: () => Navigator.pop(context, view),
+                  );
+                }
+                final account = _filtered[i - _pinnedViews.length];
                 final isSelected = account.name == widget.selected?.name;
                 return _AccountItem(
                   account: account,
@@ -161,6 +189,79 @@ class _AccountPickerScreenState extends State<AccountPickerScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Shared row shell for picker entries: dot, label, optional checkmark,
+/// bottom divider.
+class _PickerRow extends StatelessWidget {
+  final AccountCategoryTheme theme;
+  final Widget label;
+  final bool isSelected;
+  final Color dividerColor;
+  final VoidCallback onTap;
+
+  const _PickerRow({
+    required this.theme,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+    this.dividerColor = const Color(0xFFF2F2F7),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          border: Border(bottom: BorderSide(color: dividerColor)),
+        ),
+        child: Row(
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: AccountCategoryDot(theme: theme, size: 10),
+            ),
+            Expanded(child: label),
+            if (isSelected)
+              const Icon(Icons.check, color: Color(0xFF1A73E8), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A pinned home pseudo-view row, with a stronger divider after the last
+/// one to separate the views section from real accounts.
+class _HomeViewItem extends StatelessWidget {
+  final HomeView view;
+  final bool isSelected;
+  final bool isLast;
+  final VoidCallback onTap;
+
+  const _HomeViewItem({
+    required this.view,
+    required this.isSelected,
+    required this.isLast,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _PickerRow(
+      theme: themeForHomeView(view),
+      isSelected: isSelected,
+      dividerColor: isLast ? const Color(0xFFE5E5EA) : const Color(0xFFF2F2F7),
+      onTap: onTap,
+      label: Text(
+        view.label,
+        style: const TextStyle(fontSize: 15, color: Color(0xFF1C1C1E)),
       ),
     );
   }
@@ -185,34 +286,14 @@ class _AccountItem extends StatelessWidget {
   Widget build(BuildContext context) {
     return Stack(
       children: [
-        InkWell(
+        _PickerRow(
+          theme: themeForAccount(account.accountName),
+          isSelected: isSelected,
           onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: Color(0xFFF2F2F7))),
-            ),
-            child: Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: AccountCategoryDot(
-                    theme: themeForAccount(account.accountName),
-                    size: 10,
-                  ),
-                ),
-                Expanded(
-                  child: _HighlightedText(
-                    text: account.displayName,
-                    query: query,
-                    dimmed: account.isPrefix || !account.isActive,
-                  ),
-                ),
-                if (isSelected)
-                  const Icon(Icons.check, color: Color(0xFF1A73E8), size: 18),
-              ],
-            ),
+          label: _HighlightedText(
+            text: account.displayName,
+            query: query,
+            dimmed: account.isPrefix || !account.isActive,
           ),
         ),
         if (hasIssue)

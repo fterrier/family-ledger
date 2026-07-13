@@ -38,6 +38,7 @@ option "operating_currency" "CHF"
 2020-01-01 open Expenses:Groceries
 2020-01-01 open Expenses:Rent
 2020-01-01 open Income:Salary
+2020-01-01 open Liabilities:CreditCard
 2020-01-01 commodity CHF
 2020-01-01 commodity USD
 2020-01-01 commodity EUR
@@ -70,6 +71,10 @@ option "operating_currency" "CHF"
 2025-09-01 * "Boundary account activity"
   Assets:Checking:ZKBX    999 CHF
   Equity:Opening         -999 CHF
+
+2025-09-10 * "Rent on credit"
+  Liabilities:CreditCard  -400 CHF
+  Expenses:Rent            400 CHF
 
 2025-10-05 * "EUR arrival"
   Assets:Checking:ZKB:Sub   10 EUR
@@ -225,3 +230,21 @@ def test_subtree_boundary_matches(integration_client, bql_connection) -> None:
     assert ours == bql
     # 7 postings touch the ZKB subtree; the ZKBX posting must not count.
     assert ours == [(7,)]
+
+
+def test_multi_root_alternation_matches(integration_client, bql_connection) -> None:
+    # beanquery evaluates the alternation as a real regex; our engine
+    # compiles it to OR-of-subtree-clauses — results must be identical.
+    shared = (
+        "SELECT year(date) AS y, month(date) AS m, sum(position) AS total"
+        " WHERE account ~ '^(Expenses|Liabilities)(:|$)' GROUP BY y, m"
+    )
+    ours = api_rows(integration_client, shared)
+    bql = bql_rows(bql_connection, shared + " ORDER BY y, m")
+    assert ours == bql
+    # Sep nets Liabilities -400 against Expenses:Rent +400 to zero.
+    assert ours == [
+        (2025, 7, {"CHF": Decimal("200")}),
+        (2025, 8, {"CHF": Decimal("1800")}),
+        (2025, 9, {}),
+    ]

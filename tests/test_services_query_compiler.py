@@ -294,6 +294,80 @@ def test_general_regex_uses_tilde_on_postgres() -> None:
     assert "~" in sql_text(compiled.select, dialect=postgresql.dialect())
 
 
+def test_multi_root_alternation_compiles_to_like_not_regexp() -> None:
+    compiled = compile_query(
+        q(
+            (Y, M, SUM_POSITION),
+            where=(Condition(Column("account"), "~", StringLiteral("^(Assets|Liabilities)(:|$)")),),
+            group_by=("y", "m"),
+        )
+    )
+    sql = sql_text(compiled.select)
+    assert "REGEXP" not in sql.upper()
+    assert "LIKE" in sql.upper()
+    assert "Assets:%" in sql
+    assert "Liabilities:%" in sql
+
+
+def test_single_root_alternation_also_optimizes() -> None:
+    compiled = compile_query(
+        q(
+            (COUNT_STAR,),
+            where=(Condition(Column("account"), "~", StringLiteral("^(Assets)(:|$)")),),
+        )
+    )
+    sql = sql_text(compiled.select)
+    assert "REGEXP" not in sql.upper()
+    assert "Assets:%" in sql
+
+
+def test_alternation_with_regex_metacharacters_falls_back_to_regexp() -> None:
+    compiled = compile_query(
+        q(
+            (COUNT_STAR,),
+            where=(Condition(Column("account"), "~", StringLiteral("^(Assets|Lia.b)(:|$)")),),
+        )
+    )
+    assert "REGEXP" in sql_text(compiled.select).upper()
+
+
+def test_fully_anchored_alternation_falls_back_to_regexp() -> None:
+    compiled = compile_query(
+        q(
+            (COUNT_STAR,),
+            where=(Condition(Column("account"), "~", StringLiteral("^(A|B)$")),),
+        )
+    )
+    assert "REGEXP" in sql_text(compiled.select).upper()
+
+
+def test_nested_paren_alternation_falls_back_to_regexp() -> None:
+    compiled = compile_query(
+        q(
+            (COUNT_STAR,),
+            where=(Condition(Column("account"), "~", StringLiteral("^((Assets|B)|C)(:|$)")),),
+        )
+    )
+    assert "REGEXP" in sql_text(compiled.select).upper()
+
+
+def test_pattern_with_trailing_newline_falls_back_to_regexp() -> None:
+    # Python's $ matches before a trailing newline; the optimized shapes must
+    # not, or LIKE semantics would diverge from the regex fallback.
+    for pattern in (
+        "^Assets(:|$)\n",
+        "^(Assets|Liabilities)(:|$)\n",
+        "^Expenses:Rent$\n",
+    ):
+        compiled = compile_query(
+            q(
+                (COUNT_STAR,),
+                where=(Condition(Column("account"), "~", StringLiteral(pattern)),),
+            )
+        )
+        assert "REGEXP" in sql_text(compiled.select).upper(), pattern
+
+
 # ---------------------------------------------------------------------------
 # FROM OPEN ON / CLOSE ON
 # ---------------------------------------------------------------------------

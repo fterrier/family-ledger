@@ -1,6 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/account.dart';
 import '../screens/transactions/transaction_filter.dart';
+import 'home_view.dart';
 
 class FilterPersistence {
   static const _keyAccountName = 'tx_filter_account_name';
@@ -10,6 +11,7 @@ class FilterPersistence {
   static const _keyToDate = 'tx_filter_to_date';
   static const _keyCurrency = 'tx_filter_currency';
   static const _keyLastImportOnly = 'tx_filter_last_import_only';
+  static const _keyHomeView = 'tx_filter_home_view';
 
   static Future<TransactionFilter> load() async {
     try {
@@ -37,6 +39,9 @@ class FilterPersistence {
         toDate: toStr != null ? DateTime.tryParse(toStr) : null,
         currency: prefs.getString(_keyCurrency),
         lastImportOnly: prefs.getBool(_keyLastImportOnly) ?? false,
+        homeView:
+            HomeView.values.asNameMap()[prefs.getString(_keyHomeView)] ??
+            HomeView.balanceSheet,
       );
     } catch (_) {
       return const TransactionFilter();
@@ -54,6 +59,7 @@ class FilterPersistence {
           prefs.remove(_keyToDate),
           prefs.remove(_keyCurrency),
           prefs.remove(_keyLastImportOnly),
+          prefs.remove(_keyHomeView),
         ]);
         return;
       }
@@ -100,6 +106,11 @@ class FilterPersistence {
         futures.add(prefs.setBool(_keyLastImportOnly, true));
       } else {
         futures.add(prefs.remove(_keyLastImportOnly));
+      }
+      if (filter.homeView != HomeView.balanceSheet) {
+        futures.add(prefs.setString(_keyHomeView, filter.homeView.name));
+      } else {
+        futures.add(prefs.remove(_keyHomeView));
       }
       await Future.wait(futures);
     } catch (_) {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'home_view.dart';
 
 enum AccountCategory { expense, income, asset, liability, equity }
 
@@ -64,3 +65,20 @@ AccountCategoryTheme themeForAccount(String? accountName) {
   if (accountName == null || accountName.isEmpty) return noAccountTheme;
   return accountCategoryThemes[categoryOf(accountName)]!;
 }
+
+/// Themes for the home pseudo-views — deliberately outside the account
+/// palette so neither is confused with a single category.
+const homeViewThemes = <HomeView, AccountCategoryTheme>{
+  HomeView.balanceSheet: AccountCategoryTheme(
+    lightBg: Color(0xFFEDE7F6),
+    color: Color(0xFF7E57C2),
+    icon: Icons.show_chart,
+  ),
+  HomeView.incomeStatement: AccountCategoryTheme(
+    lightBg: Color(0xFFE0F2F1),
+    color: Color(0xFF26A69A),
+    icon: Icons.savings_outlined,
+  ),
+};
+
+AccountCategoryTheme themeForHomeView(HomeView view) => homeViewThemes[view]!;

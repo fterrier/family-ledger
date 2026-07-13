@@ -151,7 +151,9 @@ void main() {
     expect(find.text('Jun 18'), findsOneWidget);
   });
 
-  testWidgets('shows "No transactions yet" when list is empty', (tester) async {
+  testWidgets('empty list still leads with the home chart card', (
+    tester,
+  ) async {
     when(
       () => mockRepo.listTransactions(
         pageSize: any(named: 'pageSize'),
@@ -165,7 +167,8 @@ void main() {
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
 
-    expect(find.text('No transactions yet'), findsOneWidget);
+    expect(find.byType(AccountChartCard), findsOneWidget);
+    expect(find.text('No transactions in range'), findsOneWidget);
   });
 
   testWidgets('shows error banner on load failure', (tester) async {
@@ -1211,11 +1214,18 @@ void main() {
       ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
     }
 
-    testWidgets('no chart card without an account filter', (tester) async {
+    testWidgets('without an account filter the home balance sheet leads', (
+      tester,
+    ) async {
       stubList();
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
-      expect(find.byType(AccountChartCard), findsNothing);
+      final card = tester.widget<AccountChartCard>(
+        find.byType(AccountChartCard),
+      );
+      expect(card.spec.rootAccounts, ['Assets', 'Liabilities']);
+      // No doctor overlay on home views.
+      expect(card.assertionIssues, isEmpty);
     });
 
     testWidgets('chart card appears when the persisted filter has an account', (
@@ -1275,7 +1285,6 @@ void main() {
       stubList();
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
-      expect(find.byType(AccountChartCard), findsNothing);
 
       final state = tester.state<TransactionListScreenState>(
         find.byType(TransactionListScreen),
@@ -1289,7 +1298,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byType(AccountChartCard), findsOneWidget);
+      final card = tester.widget<AccountChartCard>(
+        find.byType(AccountChartCard),
+      );
+      expect(card.spec.rootAccounts, ['Assets:Cash']);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('tx_filter_account_display_name'), 'Assets:Cash');
     });
@@ -1312,7 +1324,6 @@ void main() {
         );
         await tester.pumpWidget(buildScreen());
         await tester.pumpAndSettle();
-        expect(find.byType(AccountChartCard), findsNothing);
 
         final state = tester.state<TransactionListScreenState>(
           find.byType(TransactionListScreen),
@@ -1324,7 +1335,13 @@ void main() {
         await tester.tap(find.text('Assets · Cash'));
         await tester.pumpAndSettle();
 
-        expect(find.byType(AccountChartCard), findsOneWidget);
+        expect(
+          tester
+              .widget<AccountChartCard>(find.byType(AccountChartCard))
+              .spec
+              .rootAccounts,
+          ['Assets:Cash'],
+        );
         final prefs = await SharedPreferences.getInstance();
         expect(
           prefs.getString('tx_filter_account_display_name'),
@@ -1332,6 +1349,64 @@ void main() {
         );
       },
     );
+
+    testWidgets(
+      'picking a home view in the picker clears the account and switches '
+      'the chart',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'tx_filter_account_name': 'accounts/acc-1',
+          'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+          'tx_filter_account_is_prefix': false,
+        });
+        stubList();
+        when(
+          () => mockAccountRepo.getAllAccounts(),
+        ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+
+        final state = tester.state<TransactionListScreenState>(
+          find.byType(TransactionListScreen),
+        );
+        state.openAccountPicker();
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Income statement'));
+        await tester.pumpAndSettle();
+
+        final card = tester.widget<AccountChartCard>(
+          find.byType(AccountChartCard),
+        );
+        expect(card.spec.rootAccounts, ['Income', 'Expenses']);
+        final prefs = await SharedPreferences.getInstance();
+        expect(prefs.getString('tx_filter_account_display_name'), isNull);
+        expect(prefs.getString('tx_filter_home_view'), 'incomeStatement');
+      },
+    );
+
+    testWidgets('bucket tap on the home chart narrows dates and stays home', (
+      tester,
+    ) async {
+      stubList();
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      final card = tester.widget<AccountChartCard>(
+        find.byType(AccountChartCard),
+      );
+      expect(card.spec.rootAccounts, ['Assets', 'Liabilities']);
+      card.onBucketSelected!(DateTime(2026, 3), DateTime(2026, 3, 31));
+      await tester.pumpAndSettle();
+
+      final narrowed = tester.widget<AccountChartCard>(
+        find.byType(AccountChartCard),
+      );
+      // Still the home view — only the date range narrowed.
+      expect(narrowed.spec.rootAccounts, ['Assets', 'Liabilities']);
+      expect(narrowed.fromDate, DateTime(2026, 3));
+      expect(narrowed.toDate, DateTime(2026, 3, 31));
+    });
 
     testWidgets('chart card shows an empty-state row when no transactions', (
       tester,

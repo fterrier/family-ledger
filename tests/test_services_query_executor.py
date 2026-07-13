@@ -81,6 +81,63 @@ def test_running_balance_without_open_on_starts_at_zero(session: Session) -> Non
     ]
 
 
+# ---------------------------------------------------------------------------
+# Multi-root subtree alternation (home-screen balance sheet / income statement)
+# ---------------------------------------------------------------------------
+
+# Assets +1000 in Jul; Liabilities -200 in Aug; AssetsX proves the root
+# boundary (must never match the Assets subtree); Equity is excluded from
+# both home views by construction.
+MULTI_ROOT_TRANSACTIONS = [
+    ("2025-07-05", [("Assets:Checking", "1000", "CHF"), ("Income:Salary", "-1000", "CHF")]),
+    ("2025-08-10", [("Liabilities:Card", "-200", "CHF"), ("Expenses:Stuff", "200", "CHF")]),
+    ("2025-09-01", [("AssetsX:Other", "999", "CHF"), ("Equity:Opening", "-999", "CHF")]),
+]
+
+
+@pytest.fixture
+def multi_root_session() -> Session:
+    return build_session(MULTI_ROOT_TRANSACTIONS)
+
+
+def test_net_worth_line_nets_assets_and_liabilities(multi_root_session: Session) -> None:
+    result = execute_query(
+        multi_root_session,
+        f"{SELECT_YM} last(balance) AS bal WHERE account ~ '^(Assets|Liabilities)(:|$)'{GROUP_YM}",
+    )
+    # Jul: assets 1000; Aug: 1000 + (-200) = 800 net worth. No Sep row:
+    # AssetsX is outside both subtrees.
+    assert result.rows == [
+        [2025, 7, [amount("1000", "CHF")]],
+        [2025, 8, [amount("800", "CHF")]],
+    ]
+
+
+def test_income_statement_nets_income_and_expenses_per_bucket(
+    multi_root_session: Session,
+) -> None:
+    result = execute_query(
+        multi_root_session,
+        f"{SELECT_YM} sum(position) AS total WHERE account ~ '^(Income|Expenses)(:|$)'{GROUP_YM}",
+    )
+    assert result.rows == [
+        [2025, 7, [amount("-1000", "CHF")]],
+        [2025, 8, [amount("200", "CHF")]],
+    ]
+
+
+def test_multi_root_open_on_seeds_netted_balance(multi_root_session: Session) -> None:
+    result = execute_query(
+        multi_root_session,
+        f"{SELECT_YM} last(balance) AS bal"
+        " FROM OPEN ON 2025-08-01"
+        " WHERE account ~ '^(Assets|Liabilities)(:|$)'"
+        f"{GROUP_YM}",
+    )
+    # The seed carries July's netted 1000 into August's running balance.
+    assert result.rows == [[2025, 8, [amount("800", "CHF")]]]
+
+
 def test_dormant_window_with_nonzero_seed_returns_one_flat_bucket(session: Session) -> None:
     # No postings at all in Jan 2026, but the account holds a nonzero
     # balance as of the OPEN ON date — the window must not read as empty.

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/home_view.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/doctor_issue.dart';
 import 'package:family_ledger_mobile/models/query_result.dart';
@@ -72,8 +73,8 @@ void main() {
 
   // Defaults to a ~1-year span so the card requests monthly buckets,
   // matching the monthly-shaped fixtures below.
-  Widget build(
-    AccountResource account, {
+  Widget buildSpec(
+    ChartSpec spec, {
     DateTime? from,
     DateTime? to,
     void Function(DateTime, DateTime)? onBucketSelected,
@@ -93,12 +94,12 @@ void main() {
             // AccountChartCard in production: a change here must remount a
             // fresh State (not reach didUpdateWidget), same as real usage.
             key: ValueKey((
-              account.name,
+              spec.id,
               fromDate.toIso8601String(),
               toDate.toIso8601String(),
             )),
             queryRepository: repo,
-            account: account,
+            spec: spec,
             fromDate: fromDate,
             toDate: toDate,
             onBucketSelected: onBucketSelected,
@@ -112,6 +113,28 @@ void main() {
       ),
     );
   }
+
+  Widget build(
+    AccountResource account, {
+    DateTime? from,
+    DateTime? to,
+    void Function(DateTime, DateTime)? onBucketSelected,
+    bool showsLastImportHint = false,
+    List<DoctorIssue> assertionIssues = const [],
+    String? defaultCurrency = 'CHF',
+    String? currencyFilter,
+    int refreshTick = 0,
+  }) => buildSpec(
+    ChartSpec.forAccount(account),
+    from: from,
+    to: to,
+    onBucketSelected: onBucketSelected,
+    showsLastImportHint: showsLastImportHint,
+    assertionIssues: assertionIssues,
+    defaultCurrency: defaultCurrency,
+    currencyFilter: currencyFilter,
+    refreshTick: refreshTick,
+  );
 
   testWidgets('asset account renders a line with balance and delta', (
     tester,
@@ -282,6 +305,79 @@ void main() {
 
     expect(find.byType(BarChart), findsOneWidget);
     expect(find.text('500.00 CHF'), findsOneWidget);
+  });
+
+  testWidgets('balance-sheet home view nets Assets and Liabilities into a '
+      'net-worth line via one multi-root query', (tester) async {
+    when(
+      () => repo.run(any(that: contains("'^(Assets|Liabilities)(:|\$)'"))),
+    ).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('1000')],
+          [2025, 8, _amt('800')],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildSpec(ChartSpec.forHomeView(HomeView.balanceSheet)),
+    );
+    await tester.pumpAndSettle();
+
+    verify(
+      () => repo.run(
+        any(
+          that: allOf(
+            contains('last(balance)'),
+            contains("'^(Assets|Liabilities)(:|\$)'"),
+          ),
+        ),
+      ),
+    ).called(1);
+    expect(find.byType(LineChart), findsOneWidget);
+    // Stock semantics: headline is the latest net worth, with a delta chip.
+    expect(find.text('800.00 CHF'), findsOneWidget);
+    expect(find.text('-20.0%'), findsOneWidget);
+  });
+
+  testWidgets('income-statement home view nets Income and Expenses into raw '
+      'signed bars via one multi-root query', (tester) async {
+    when(
+      () => repo.run(any(that: contains("'^(Income|Expenses)(:|\$)'"))),
+    ).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('-1000')], // saved: income exceeded expenses
+          [2025, 8, _amt('200')], // overspent
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(
+      buildSpec(ChartSpec.forHomeView(HomeView.incomeStatement)),
+    );
+    await tester.pumpAndSettle();
+
+    verify(
+      () => repo.run(
+        any(
+          that: allOf(
+            contains('sum(position)'),
+            contains("'^(Income|Expenses)(:|\$)'"),
+          ),
+        ),
+      ),
+    ).called(1);
+    expect(find.byType(BarChart), findsOneWidget);
+    // Flow semantics with raw signs: headline is the raw netted total.
+    expect(find.text('-800.00 CHF'), findsOneWidget);
+    // The negative July bar must be inside the axis range, not clipped.
+    final chart = tester.widget<BarChart>(find.byType(BarChart));
+    expect(chart.data.minY, lessThanOrEqualTo(-1000));
+    expect(chart.data.barGroups.first.barRods.single.toY, -1000);
   });
 
   testWidgets(

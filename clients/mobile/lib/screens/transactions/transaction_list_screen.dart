@@ -10,6 +10,7 @@ import '../../core/app_preferences.dart';
 import '../../models/account.dart';
 import '../../core/api_error.dart';
 import '../../core/filter_persistence.dart';
+import '../../core/home_view.dart';
 import '../../models/doctor_issue.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
@@ -199,10 +200,14 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     }
   }
 
-  // User-initiated: always runs, even if pagination is in flight.
+  // User-initiated (pull gesture, post-mutation, app-shell refresh): always
+  // runs, even if pagination is in flight, and re-queries the chart too —
+  // the data may have changed server-side with no other signal.
+  Future<void> refresh() => _reload(bumpChartTick: true);
+
   // Sets _isLoading = true inside setState BEFORE jumpTo(0) so the synchronous
   // _onScroll callback fired by jumpTo sees _isLoading = true and bails.
-  Future<void> refresh() async {
+  Future<void> _reload({required bool bumpChartTick}) async {
     if (_bulkActionBusy) return;
     _loadGeneration++;
     final generation = _loadGeneration;
@@ -212,7 +217,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       _error = null;
       _paginationError = false;
       _transactionsWithIssues = {};
-      _chartRefreshTick++;
+      if (bumpChartTick) _chartRefreshTick++;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     await _doFetch(generation: generation);
@@ -244,13 +249,17 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   // Applying a new filter value — from a sheet, a chart bucket tap, or
   // picking an account — is always the same choreography: drop any active
-  // selection, persist, notify the app-bar badges, and reload.
+  // selection, persist, notify the app-bar badges, and reload. No chart
+  // tick bump: account/view/date changes remount the card via its ValueKey
+  // and the currency filter reaches it as a widget field, so a bump would
+  // only force a second, identical chart query (worst case: toggling
+  // last-import, which the chart's query doesn't consume at all).
   void _applyFilter(TransactionFilter next) {
     exitSelectionMode();
     _filter = next;
     unawaited(FilterPersistence.save(_filter));
     widget.filterNotifier?.value = _filter;
-    refresh();
+    _reload(bumpChartTick: false);
   }
 
   // Shared fetch. Caller must have incremented _loadGeneration, set _isLoading = true,
@@ -301,37 +310,50 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   void selectAccount(AccountResource account) =>
       _applyFilter(_filter.copyWith(account: account));
 
+  // Selecting a home pseudo-view clears the account — this is the app's
+  // "back to the home view" affordance.
+  void selectHomeView(HomeView view) =>
+      _applyFilter(_filter.copyWith(account: null, homeView: view));
+
   List<AccountResource> get pickerAccounts => buildPickerAccounts(_accounts);
 
   AccountResource? get selectedAccount => _filter.account;
 
   Future<void> openAccountPicker() async {
-    final result = await Navigator.push<AccountResource>(
+    final result = await Navigator.push<Object>(
       context,
       MaterialPageRoute(
         builder: (_) => AccountPickerScreen(
           accounts: pickerAccounts,
           selected: selectedAccount,
           issueAccountNames: accountsWithAssertionIssues,
+          showHomeViews: true,
+          selectedHomeView: _filter.account == null ? _filter.homeView : null,
         ),
       ),
     );
-    if (result != null && mounted) selectAccount(result);
+    if (!mounted) return;
+    if (result is AccountResource) selectAccount(result);
+    if (result is HomeView) selectHomeView(result);
   }
 
   Widget _buildChartCard() {
+    final account = _filter.account;
+    final spec = account != null
+        ? ChartSpec.forAccount(account)
+        : ChartSpec.forHomeView(_filter.homeView);
     return AccountChartCard(
-      // Account or date range changing is a new view, not an update to the
+      // The view or date range changing is a new view, not an update to the
       // same one — keying on them lets Flutter tear down and recreate the
       // card's State via a fresh initState, rather than the card having to
       // hand-detect "is this still the same view?" in didUpdateWidget.
       key: ValueKey((
-        _filter.account!.name,
+        spec.id,
         _filter.fromDate?.toIso8601String(),
         _filter.toDate?.toIso8601String(),
       )),
       queryRepository: widget.queryRepository,
-      account: _filter.account!,
+      spec: spec,
       fromDate: _filter.fromDate,
       toDate: _filter.toDate,
       defaultCurrency: _defaultCurrency,
@@ -339,7 +361,10 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       showsLastImportHint: _filter.lastImportOnly,
       refreshTick: _chartRefreshTick,
       onBucketSelected: _narrowToBucket,
-      assertionIssues: _selectedAccountAssertionIssues,
+      // Doctor assertion overlays are per-account; home views show none.
+      assertionIssues: account != null
+          ? _selectedAccountAssertionIssues
+          : const [],
     );
   }
 
@@ -440,48 +465,38 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // With an account selected, the home list becomes the account view: the
-    // chart card leads the list, even when there are no transactions.
-    final hasChart = _filter.account != null;
-
-    if (_error != null && _transactions.isEmpty && !hasChart) {
-      return ErrorBanner(error: _error!, onRetry: refresh);
+    // No fetch has ever started, so the persisted filter hasn't been
+    // restored yet (the first _load comes from _restoreFilter). Building
+    // the real UI now would flash the default view — wrong chart, wrong
+    // app-bar spec — for the frames until prefs resolve.
+    if (_loadGeneration == 0) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 
-    if (_transactions.isEmpty && !hasChart) {
-      if (_isLoading) {
-        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-      }
-      return const Center(
-        child: Text(
-          'No transactions yet',
-          style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
-        ),
-      );
-    }
+    // The chart card always leads the list: an account view when one is
+    // selected, the home pseudo-view (balance sheet / income statement)
+    // otherwise — even when there are no transactions.
 
     // Bottom spinner only during pagination. During refresh, _nextPageToken is reset
     // to null before _isLoading = true, so this stays false and only
     // RefreshIndicator's own top indicator shows — except RefreshIndicator's
     // spinner only appears for a user pull gesture, not a programmatic
-    // refresh() (e.g. the initial load right after selecting an account),
-    // so a hasChart initial/empty load needs its own visible cue here.
+    // refresh(), so an initial/empty load needs its own cue here. The chart
+    // card often shows its own spinner alongside, but it can't be relied on
+    // for this: with no default currency configured it shows a placeholder,
+    // leaving this footer as the only sign the list is loading.
     final showBottomSpinner = _isLoading && _nextPageToken != null;
-    final showInitialChartLoading =
-        hasChart &&
-        _isLoading &&
-        _transactions.isEmpty &&
-        _nextPageToken == null;
+    final showInitialLoading =
+        _isLoading && _transactions.isEmpty && _nextPageToken == null;
     final isSelecting = _selectedNames.isNotEmpty;
-    final leading = hasChart ? 1 : 0;
     // Never claim the range is empty while a load error is still showing —
     // the fetch didn't actually succeed, so "no transactions" isn't true.
     final showEmptyState =
-        hasChart && _transactions.isEmpty && !_isLoading && _error == null;
+        _transactions.isEmpty && !_isLoading && _error == null;
     final hasTrailing =
         showBottomSpinner ||
         _paginationError ||
-        showInitialChartLoading ||
+        showInitialLoading ||
         showEmptyState;
 
     Widget listContent = RefreshIndicator(
@@ -492,12 +507,12 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         physics: const AlwaysScrollableScrollPhysics(
           parent: ClampingScrollPhysics(),
         ),
-        itemCount: leading + _transactions.length + (hasTrailing ? 1 : 0),
+        itemCount: 1 + _transactions.length + (hasTrailing ? 1 : 0),
         itemBuilder: (context, index) {
-          if (hasChart && index == 0) return _buildChartCard();
-          final txIndex = index - leading;
+          if (index == 0) return _buildChartCard();
+          final txIndex = index - 1;
           if (txIndex == _transactions.length) {
-            if (showBottomSpinner || showInitialChartLoading) {
+            if (showBottomSpinner || showInitialLoading) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(

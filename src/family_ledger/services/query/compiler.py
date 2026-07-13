@@ -23,9 +23,11 @@ Contract for :class:`CompiledQuery`:
 
 - ``account ~ '<regex>'`` uses regex semantics. Anchored-prefix patterns of
   the exact shape ``^<literal>(:|$)`` compile to
-  ``account = <literal> OR account LIKE <literal> || ':%'`` and
-  ``^<literal>$`` compiles to equality; any other pattern compiles to the
-  dialect regex operator (``REGEXP`` on SQLite, ``~`` on Postgres).
+  ``account = <literal> OR account LIKE <literal> || ':%'``,
+  multi-root alternations ``^(<lit>|<lit>|...)(:|$)`` compile to an OR of
+  those per-root clauses, and ``^<literal>$`` compiles to equality; any
+  other pattern compiles to the dialect regex operator (``REGEXP`` on
+  SQLite, ``~`` on Postgres).
 
 - ``convert(x, 'SYM' [, date])`` never changes the SQL; it is recorded in
   ``post.conversion`` (``at=None`` means bucket-end / today semantics).
@@ -42,7 +44,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Integer, extract, func, select
+from sqlalchemy import Integer, extract, func, or_, select
 from sqlalchemy import cast as sa_cast
 from sqlalchemy.sql import ColumnElement, Select
 
@@ -121,9 +123,20 @@ _BUCKET_FUNCTIONS = frozenset({"year", "month", "day"})
 
 _KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {"sum", "count", "last", "convert"}
 
-# ^<literal>(:|$) and ^<literal>$ where <literal> has no regex metacharacters
-_PREFIX_PATTERN_RE = re.compile(r"^\^([^\\^$.|?*+()\[\]{}]+)\(:\|\$\)$")
-_EXACT_PATTERN_RE = re.compile(r"^\^([^\\^$.|?*+()\[\]{}]+)\$$")
+# A literal with no regex metacharacters — the only content the optimized
+# pattern shapes accept.
+_LITERAL = r"[^\\^$.|?*+()\[\]{}]+"
+
+# Subtree match over one or more roots: ^<literal>(:|$), or the multi-root
+# form ^(<literal>|<literal>|...)(:|$). Exact match: ^<literal>$.
+# Anchored with \Z, not $: Python's $ also matches before a trailing newline,
+# which would silently give a pattern like '^A(:|$)\n' the optimized LIKE
+# semantics while the regex fallback (and beanquery) would require a literal
+# newline in the account name.
+_SUBTREE_PATTERN_RE = re.compile(
+    rf"^\^(?:({_LITERAL})|\(({_LITERAL}(?:\|{_LITERAL})*)\))\(:\|\$\)\Z"
+)
+_EXACT_PATTERN_RE = re.compile(rf"^\^({_LITERAL})\$\Z")
 
 
 def _validation_error(message: str) -> ValidationError:
@@ -294,9 +307,13 @@ def _resolve_group_keys(query: Query, analysis: _Analysis) -> list[_AnalyzedTarg
 
 
 def _compile_regex(column: Any, pattern: str) -> ColumnElement:
-    prefix_match = _PREFIX_PATTERN_RE.match(pattern)
-    if prefix_match:
-        return account_subtree_clause(column, prefix_match.group(1))
+    subtree_match = _SUBTREE_PATTERN_RE.match(pattern)
+    if subtree_match:
+        # Group 1 is the bare single-root form (which can't contain '|'),
+        # group 2 the parenthesized alternation — either way, one clause per
+        # root, OR-ed together.
+        roots = (subtree_match.group(1) or subtree_match.group(2)).split("|")
+        return or_(*(account_subtree_clause(column, root) for root in roots))
     exact_match = _EXACT_PATTERN_RE.match(pattern)
     if exact_match:
         return column == exact_match.group(1)

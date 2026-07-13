@@ -1,4 +1,5 @@
 import 'package:intl/intl.dart';
+import '../../core/home_view.dart';
 import '../../models/account.dart';
 
 class TransactionFilter {
@@ -8,16 +9,26 @@ class TransactionFilter {
   final String? currency;
   final bool lastImportOnly;
 
+  /// Which pseudo-view the home screen shows while [account] is null. It is
+  /// retained when an account is selected, so clearing the account returns
+  /// to the last home view.
+  final HomeView homeView;
+
   const TransactionFilter({
     this.account,
     this.fromDate,
     this.toDate,
     this.currency,
     this.lastImportOnly = false,
+    this.homeView = HomeView.balanceSheet,
   });
 
   bool get isActive =>
-      account != null || fromDate != null || toDate != null || hasMoreFilters;
+      account != null ||
+      fromDate != null ||
+      toDate != null ||
+      hasMoreFilters ||
+      homeView != HomeView.balanceSheet;
 
   /// Backs the "more filters" action icon's badge dot.
   bool get hasMoreFilters => currency != null || lastImportOnly;
@@ -30,6 +41,7 @@ class TransactionFilter {
     Object? toDate = _absent,
     Object? currency = _absent,
     bool? lastImportOnly,
+    HomeView? homeView,
   }) {
     return TransactionFilter(
       account: identical(account, _absent)
@@ -43,6 +55,7 @@ class TransactionFilter {
           ? this.currency
           : currency as String?,
       lastImportOnly: lastImportOnly ?? this.lastImportOnly,
+      homeView: homeView ?? this.homeView,
     );
   }
 

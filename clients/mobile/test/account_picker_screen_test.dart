@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:family_ledger_mobile/core/home_view.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/screens/add_transaction/account_picker_screen.dart';
 import 'package:family_ledger_mobile/widgets/issue_bar.dart';
@@ -178,6 +179,84 @@ void main() {
       expect(picked, isNull);
     });
   });
+  group('home pseudo-views', () {
+    Widget buildWithViews({HomeView? selectedHomeView}) => MaterialApp(
+      home: AccountPickerScreen(
+        accounts: _accounts,
+        showHomeViews: true,
+        selectedHomeView: selectedHomeView,
+      ),
+    );
+
+    testWidgets('pinned at the top when opted in', (tester) async {
+      await tester.pumpWidget(buildWithViews());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Balance sheet'), findsOneWidget);
+      expect(find.text('Income statement'), findsOneWidget);
+    });
+
+    testWidgets('hidden by default (posting-editing flows)', (tester) async {
+      await tester.pumpWidget(buildPicker());
+      await tester.pumpAndSettle();
+
+      expect(find.text('Balance sheet'), findsNothing);
+      expect(find.text('Income statement'), findsNothing);
+    });
+
+    testWidgets('hidden while searching', (tester) async {
+      await tester.pumpWidget(buildWithViews());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField), 'food');
+      await tester.pumpAndSettle();
+
+      expect(find.text('Balance sheet'), findsNothing);
+      expect(find.text('Income statement'), findsNothing);
+    });
+
+    testWidgets('checkmark on the currently shown view', (tester) async {
+      await tester.pumpWidget(
+        buildWithViews(selectedHomeView: HomeView.incomeStatement),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byIcon(Icons.check), findsOneWidget);
+    });
+
+    testWidgets('tapping a view pops with that HomeView', (tester) async {
+      Object? picked;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () async {
+                picked = await Navigator.push<Object>(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AccountPickerScreen(
+                      accounts: _accounts,
+                      showHomeViews: true,
+                    ),
+                  ),
+                );
+              },
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Income statement'));
+      await tester.pumpAndSettle();
+
+      expect(picked, HomeView.incomeStatement);
+    });
+  });
+
   group('closed accounts toggle', () {
     final withClosed = [
       ..._accounts,

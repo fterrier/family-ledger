@@ -165,3 +165,22 @@ def test_percent_in_account_name_is_not_a_like_wildcard(session: Session) -> Non
 def test_underscore_in_account_name_is_not_a_like_wildcard(session: Session) -> None:
     # Unescaped, LIKE 'Assets:Checking:ZK_:%' would also match ZKB:Sub.
     assert _count(session, "SELECT count(*) WHERE account ~ '^Assets:Checking:ZK_(:|$)'") == 1
+
+
+def test_like_wildcards_in_alternation_roots_match_literally(session: Session) -> None:
+    # Each alternative goes through the same LIKE-escaping as single roots:
+    # '%' matches only the literal account, plus the ZK_ literal — never
+    # the ZKB subtree.
+    assert (
+        _count(
+            session,
+            "SELECT count(*) WHERE account ~ '^(Assets:Checking:%|Assets:Checking:ZK_)(:|$)'",
+        )
+        == 2
+    )
+
+
+def test_quote_in_alternation_root_renders_as_bound_param(session: Session) -> None:
+    # A doubled quote inside an alternation alternative stays a literal —
+    # it can't break out of the bound LIKE/equality parameters.
+    assert _count(session, "SELECT count(*) WHERE account ~ '^(Assets:O''Brien|Equity)(:|$)'") == 2

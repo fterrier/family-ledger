@@ -97,8 +97,8 @@ List<DateTime> _continuousBucketStarts(
 
 /// Converted (single-currency) series from amount cells. For [cumulative]
 /// series, activity gaps carry the last value forward; missing-price nulls
-/// stay null (rendered as chart gaps). Bar series zero-fill gaps and use
-/// magnitudes.
+/// stay null (rendered as chart gaps). Bar series zero-fill gaps and keep
+/// raw ledger signs (income and net savings plot negative).
 ConvertedChartSeries buildConvertedSeries(
   QueryResult result,
   Granularity granularity, {
@@ -122,7 +122,7 @@ ConvertedChartSeries buildConvertedSeries(
         carried = v;
         values.add(v);
       } else {
-        values.add(v?.abs() ?? 0.0);
+        values.add(v ?? 0.0);
       }
     } else {
       values.add(cumulative ? carried : 0.0);

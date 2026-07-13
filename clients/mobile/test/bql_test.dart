@@ -53,13 +53,27 @@ void main() {
   group('subtreePattern', () {
     test('plain account names keep the server LIKE fast path shape', () {
       expect(
-        subtreePattern('Assets:Checking:ZKB'),
+        subtreePattern(['Assets:Checking:ZKB']),
         r'^Assets:Checking:ZKB(:|$)',
       );
     });
 
     test('regex metacharacters are escaped', () {
-      expect(subtreePattern('Assets:A+B'), r'^Assets:A\+B(:|$)');
+      expect(subtreePattern(['Assets:A+B']), r'^Assets:A\+B(:|$)');
+    });
+
+    test('multiple roots produce the server alternation fast path shape', () {
+      expect(
+        subtreePattern(['Assets', 'Liabilities']),
+        r'^(Assets|Liabilities)(:|$)',
+      );
+    });
+
+    test('regex metacharacters are escaped inside alternations', () {
+      expect(
+        subtreePattern(['Assets:A+B', 'Liabilities']),
+        r'^(Assets:A\+B|Liabilities)(:|$)',
+      );
     });
   });
 
@@ -69,7 +83,7 @@ void main() {
       () {
         expect(
           balanceSeriesQuery(
-            accountName: 'Assets:Checking:ZKB',
+            accountNames: ['Assets:Checking:ZKB'],
             granularity: Granularity.monthly,
             from: DateTime(2025, 7),
             to: DateTime(2026, 6, 30),
@@ -85,7 +99,7 @@ void main() {
     test('unbounded yearly query has no FROM clause', () {
       expect(
         balanceSeriesQuery(
-          accountName: 'Assets:Checking:ZKB',
+          accountNames: ['Assets:Checking:ZKB'],
           granularity: Granularity.yearly,
         ),
         'SELECT year(date) AS y, last(balance) AS bal'
@@ -97,7 +111,7 @@ void main() {
     test('single-currency filter adds a currency condition', () {
       expect(
         balanceSeriesQuery(
-          accountName: 'Assets:Checking:ZKB',
+          accountNames: ['Assets:Checking:ZKB'],
           granularity: Granularity.monthly,
           currency: 'USD',
         ),
@@ -110,7 +124,7 @@ void main() {
     test('converted view wraps last(balance) in convert()', () {
       expect(
         balanceSeriesQuery(
-          accountName: 'Assets:Liquid:IBKR',
+          accountNames: ['Assets:Liquid:IBKR'],
           granularity: Granularity.monthly,
           convertTo: 'CHF',
         ),
@@ -124,7 +138,7 @@ void main() {
     test('daily granularity selects day buckets', () {
       expect(
         balanceSeriesQuery(
-          accountName: 'Assets:Cash',
+          accountNames: ['Assets:Cash'],
           granularity: Granularity.daily,
           from: DateTime(2026, 3),
           to: DateTime(2026, 3, 31),
@@ -141,7 +155,7 @@ void main() {
         'shown converted', () {
       expect(
         balanceSeriesQuery(
-          accountName: 'Assets:Liquid:IBKR',
+          accountNames: ['Assets:Liquid:IBKR'],
           granularity: Granularity.monthly,
           currency: 'USD',
           convertTo: 'CHF',
@@ -156,10 +170,27 @@ void main() {
     test('apostrophes in account names are doubled for the BQL literal', () {
       expect(
         balanceSeriesQuery(
-          accountName: "Assets:O'Brien",
+          accountNames: ["Assets:O'Brien"],
           granularity: Granularity.yearly,
         ),
         contains("account ~ '^Assets:O''Brien(:|\$)'"),
+      );
+    });
+
+    test('multiple roots net into one series via the alternation pattern', () {
+      expect(
+        balanceSeriesQuery(
+          accountNames: ['Assets', 'Liabilities'],
+          granularity: Granularity.monthly,
+          from: DateTime(2025, 7),
+          to: DateTime(2026, 6, 30),
+          convertTo: 'CHF',
+        ),
+        'SELECT year(date) AS y, month(date) AS m,'
+        " convert(last(balance), 'CHF') AS bal"
+        ' FROM OPEN ON 2025-07-01 CLOSE ON 2026-07-01'
+        " WHERE account ~ '^(Assets|Liabilities)(:|\$)'"
+        ' GROUP BY y, m',
       );
     });
   });
@@ -168,7 +199,7 @@ void main() {
     test('monthly bars use plain date bounds, not OPEN ON', () {
       expect(
         periodTotalsQuery(
-          accountName: 'Expenses:Family:FoodWineHousehold',
+          accountNames: ['Expenses:Family:FoodWineHousehold'],
           granularity: Granularity.monthly,
           from: DateTime(2025, 7),
           to: DateTime(2026, 6, 30),
@@ -183,7 +214,7 @@ void main() {
     test('converted bars wrap sum(position)', () {
       expect(
         periodTotalsQuery(
-          accountName: 'Expenses:Travel',
+          accountNames: ['Expenses:Travel'],
           granularity: Granularity.yearly,
           convertTo: 'CHF',
         ),
@@ -198,7 +229,7 @@ void main() {
         'shown converted', () {
       expect(
         periodTotalsQuery(
-          accountName: 'Expenses:Travel',
+          accountNames: ['Expenses:Travel'],
           granularity: Granularity.yearly,
           currency: 'USD',
           convertTo: 'CHF',
@@ -207,6 +238,23 @@ void main() {
         " convert(sum(position), 'CHF') AS total"
         " WHERE account ~ '^Expenses:Travel(:|\$)' AND currency = 'USD'"
         ' GROUP BY y',
+      );
+    });
+
+    test('multiple roots net per bucket via the alternation pattern', () {
+      expect(
+        periodTotalsQuery(
+          accountNames: ['Income', 'Expenses'],
+          granularity: Granularity.monthly,
+          from: DateTime(2025, 7),
+          to: DateTime(2026, 6, 30),
+          convertTo: 'CHF',
+        ),
+        'SELECT year(date) AS y, month(date) AS m,'
+        " convert(sum(position), 'CHF') AS total"
+        " WHERE account ~ '^(Income|Expenses)(:|\$)'"
+        ' AND date >= 2025-07-01 AND date < 2026-07-01'
+        ' GROUP BY y, m',
       );
     });
   });

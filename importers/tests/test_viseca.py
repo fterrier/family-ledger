@@ -545,7 +545,7 @@ def test_execute_creates_balance_assertion_for_single_card(session: Session) -> 
         )
 
     bal = session.scalars(select(BalanceAssertion)).one()
-    assert bal.assertion_date == date(2025, 4, 15)
+    assert bal.assertion_date == date(2025, 2, 18)
     assert bal.amount == Decimal("-20.25")
     assert bal.symbol == "CHF"
 
@@ -577,7 +577,7 @@ def test_execute_balance_assertion_falls_back_to_section_total(session: Session)
         )
 
     bal = session.scalars(select(BalanceAssertion)).one()
-    assert bal.assertion_date == date(2025, 4, 15)
+    assert bal.assertion_date == date(2025, 2, 18)
     assert bal.amount == Decimal("-20.25")
 
 
@@ -614,6 +614,7 @@ def test_execute_balance_assertion_falls_back_to_sum_of_all_section_totals(
         )
 
     bal = session.scalars(select(BalanceAssertion)).one()
+    assert bal.assertion_date == date(2026, 4, 24)
     assert bal.amount == Decimal("394.50")
 
 
@@ -641,6 +642,7 @@ def test_execute_single_balance_assertion_when_cards_share_account(session: Sess
 
     bals = session.scalars(select(BalanceAssertion)).all()
     assert len(bals) == 1
+    assert bals[0].assertion_date == date(2025, 3, 12)
     assert bals[0].amount == Decimal("-26.60")
 
 
@@ -668,9 +670,11 @@ def test_execute_per_card_balance_assertions_for_multi_account(session: Session)
 
     bals = session.scalars(select(BalanceAssertion)).all()
     assert len(bals) == 2
-    amounts = {bal.account.name: bal.amount for bal in bals}
-    assert amounts[VISA_ACCOUNT_RESOURCE] == Decimal("-20.25")
-    assert amounts[VISA2_ACCOUNT_RESOURCE] == Decimal("-6.35")
+    by_account = {bal.account.name: bal for bal in bals}
+    assert by_account[VISA_ACCOUNT_RESOURCE].amount == Decimal("-20.25")
+    assert by_account[VISA_ACCOUNT_RESOURCE].assertion_date == date(2025, 2, 18)
+    assert by_account[VISA2_ACCOUNT_RESOURCE].amount == Decimal("-6.35")
+    assert by_account[VISA2_ACCOUNT_RESOURCE].assertion_date == date(2025, 3, 12)
 
 
 def test_execute_routes_transactions_per_card(session: Session) -> None:

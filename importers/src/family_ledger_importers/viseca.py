@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import os
 import re
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -27,6 +29,7 @@ _FILENAME_DATE_PATTERN = re.compile(r"visebpp_(\d{8})_")
 _CARD_INFO_RE = re.compile(r"^\d{4}\s")
 _TOTAL_CARTE_RE = re.compile(r"Total carte .+ (\d{4})$")
 _MONTANT_DU_RE = re.compile(r"^[Mm]ontant\s+d[uû]$")
+_VALUE_DATE_FMT = "%d.%m.%y"
 
 
 @dataclass(frozen=True)
@@ -225,6 +228,19 @@ def _parse_pdf_path(filepath: str) -> ParsedVisecaStatement:
     return _parse_statement(all_rows)  # type: ignore[arg-type]
 
 
+def _max_entry_date(entries: Iterable[ParsedVisecaEntry]) -> date | None:
+    result: date | None = None
+    for entry in entries:
+        if entry.value_date:
+            try:
+                d = datetime.strptime(entry.value_date, _VALUE_DATE_FMT).date()
+                if result is None or d > result:
+                    result = d
+            except ValueError:
+                pass
+    return result
+
+
 def _compute_amount(amount_str: str) -> Decimal:
     normalized = amount_str.replace("'", "").strip()
     if "-" in normalized:
@@ -233,7 +249,7 @@ def _compute_amount(amount_str: str) -> Decimal:
 
 
 def _build_transaction(entry: ParsedVisecaEntry, account_name: str) -> TransactionNormalizeData:
-    txn_date = datetime.strptime(entry.value_date, "%d.%m.%y").date()
+    txn_date = datetime.strptime(entry.value_date, _VALUE_DATE_FMT).date()
     amount = _compute_amount(entry.amount_str)
     source_id_hash = hashlib.sha256(
         f"{entry.value_date}:{entry.amount_str}:{entry.details}".encode()
@@ -345,8 +361,11 @@ class VisecaImporter(BaseImporter):
                 ctx.create_transaction(_build_transaction(entry, card_account))
 
         if first_account is not None:
-            balance_date = stmt_date + timedelta(days=1)
             if len(unique_accounts) == 1:
+                all_entries = itertools.chain(
+                    stmt.preamble_entries, *(s.entries for s in stmt.sections)
+                )
+                balance_date = (_max_entry_date(all_entries) or stmt_date) + timedelta(days=1)
                 balance_amount = stmt.total_due_chf
                 if balance_amount is None and stmt.sections:
                     section_totals = [s.total_chf for s in stmt.sections if s.total_chf is not None]
@@ -364,6 +383,9 @@ class VisecaImporter(BaseImporter):
             else:
                 for section in stmt.sections:
                     if section.total_chf is not None:
+                        balance_date = (_max_entry_date(section.entries) or stmt_date) + timedelta(
+                            days=1
+                        )
                         ctx.create_balance_assertion(
                             BalanceAssertionCreate(
                                 assertion_date=balance_date,

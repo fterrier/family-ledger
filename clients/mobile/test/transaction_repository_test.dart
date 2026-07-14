@@ -171,6 +171,67 @@ void main() {
       expect(result.error, isA<AuthError>());
       expect(result.data, isNull);
     });
+
+    test(
+      'passes convert only when provided and parses converted_units',
+      () async {
+        final foreignTx = <String, dynamic>{
+          'name': 'transactions/t2',
+          'transaction_date': '2026-06-01',
+          'postings': [
+            {
+              'account': 'accounts/acc_checking',
+              'account_name': 'Assets:Bank:Checking',
+              'units': {'amount': '40', 'symbol': 'USD'},
+              'converted_units': {'amount': '34', 'symbol': 'CHF'},
+            },
+            {
+              'account': 'accounts/acc_opening',
+              'account_name': 'Equity:Opening',
+              'units': {'amount': '-40', 'symbol': 'USD'},
+              'converted_units': null,
+            },
+          ],
+        };
+        when(
+          () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenAnswer(
+          (_) async => (
+            data: <String, dynamic>{
+              'transactions': [foreignTx],
+              'next_page_token': null,
+            },
+            error: null,
+          ),
+        );
+
+        final result = await repo.listTransactions(convert: 'CHF');
+
+        final postings = result.data!.$1.first.postings;
+        expect(postings[0].convertedUnits?.amount, '34');
+        expect(postings[0].convertedUnits?.symbol, 'CHF');
+        expect(postings[1].convertedUnits, isNull);
+        final call = verify(
+          () => mockClient.get(
+            captureAny(),
+            queryParams: captureAny(named: 'queryParams'),
+          ),
+        );
+        final capturedParams = call.captured[1] as Map<String, String>;
+        expect(capturedParams['convert'], 'CHF');
+
+        // Without the argument the param is omitted entirely.
+        await repo.listTransactions();
+        final second = verify(
+          () => mockClient.get(
+            captureAny(),
+            queryParams: captureAny(named: 'queryParams'),
+          ),
+        );
+        final secondParams = second.captured[1] as Map<String, String>;
+        expect(secondParams.containsKey('convert'), isFalse);
+      },
+    );
   });
 
   group('TransactionRepository.getTransaction', () {

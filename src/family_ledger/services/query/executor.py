@@ -18,18 +18,16 @@ docs/specs/reporting-query.md:
 from __future__ import annotations
 
 import calendar
-from bisect import bisect_right
 from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import or_, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import QueryColumn, QueryLedgerResponse, QueryWarning
-from family_ledger.models import Price
 from family_ledger.services.errors import ValidationError
+from family_ledger.services.prices import PriceLookup
 from family_ledger.services.query.compiler import CompiledQuery, PostPlan, compile_query
 from family_ledger.services.query.parser import parse
 from family_ledger.services.transaction_balancing import decimal_to_string
@@ -99,82 +97,6 @@ def _bucket_end(key: tuple[Any, ...], buckets: tuple[str | None, ...]) -> date |
         month = parts["month"]
         return date(year, month, calendar.monthrange(year, month)[1])
     return date(year, 12, 31)
-
-
-class _PriceLookup:
-    """Latest price on or before a date: direct pair, inverse pair, then a
-    single intermediate hop (base -> X -> target).
-
-    When several intermediates are available, the one with the freshest
-    base-leg price wins (alphabetical order breaks ties). Loads only prices
-    dated on or before ``latest`` (the newest conversion date the query can
-    ask for); inverse rates are computed on hit, not at load time.
-    """
-
-    def __init__(self, session: Session, currencies: set[str], target: str, latest: date) -> None:
-        self._target = target
-        self._series: dict[tuple[str, str], tuple[list[date], list[Decimal]]] = {}
-        self._neighbors: dict[str, set[str]] = {}
-        if not currencies:
-            return
-        rows = session.execute(
-            select(
-                Price.base_symbol,
-                Price.quote_symbol,
-                Price.price_date,
-                Price.price_per_unit,
-            )
-            .where(
-                or_(
-                    Price.base_symbol.in_(currencies),
-                    Price.quote_symbol.in_(currencies),
-                    Price.base_symbol == target,
-                    Price.quote_symbol == target,
-                )
-            )
-            .where(Price.price_date <= latest)
-            .order_by(Price.price_date)
-        ).all()
-        for base, quote, price_date, rate in rows:
-            dates, rates = self._series.setdefault((base, quote), ([], []))
-            dates.append(price_date)
-            rates.append(_to_decimal(rate))
-            self._neighbors.setdefault(base, set()).add(quote)
-            self._neighbors.setdefault(quote, set()).add(base)
-
-    def _pair(self, base: str, quote: str, on: date) -> tuple[Decimal, date] | None:
-        entry = self._series.get((base, quote))
-        if entry is not None:
-            dates, rates = entry
-            index = bisect_right(dates, on)
-            if index:
-                return rates[index - 1], dates[index - 1]
-        entry = self._series.get((quote, base))
-        if entry is not None:
-            dates, rates = entry
-            index = bisect_right(dates, on)
-            if index:
-                return Decimal(1) / rates[index - 1], dates[index - 1]
-        return None
-
-    def rate(self, base: str, on: date) -> Decimal | None:
-        found = self._pair(base, self._target, on)
-        if found is not None:
-            return found[0]
-
-        best: tuple[date, Decimal] | None = None
-        for intermediate in sorted(self._neighbors.get(base, ())):
-            if intermediate in (base, self._target):
-                continue
-            base_leg = self._pair(base, intermediate, on)
-            if base_leg is None:
-                continue
-            target_leg = self._pair(intermediate, self._target, on)
-            if target_leg is None:
-                continue
-            if best is None or base_leg[1] > best[0]:
-                best = (base_leg[1], base_leg[0] * target_leg[0])
-        return None if best is None else best[1]
 
 
 def _execute(session: Session, statement: Any) -> Any:
@@ -292,7 +214,7 @@ def _assemble_aggregate(
             for currency, value in balances.items()
             if currency != target and value != 0
         }
-        lookup = _PriceLookup(
+        lookup = PriceLookup(
             session,
             currencies,
             target,
@@ -322,7 +244,7 @@ def _convert_balances(
     balances: dict[str, Decimal],
     target: str,
     on: date,
-    lookup: _PriceLookup,
+    lookup: PriceLookup,
     warnings: list[QueryWarning],
     warned: set[tuple[str, date]],
 ) -> dict[str, str] | None:

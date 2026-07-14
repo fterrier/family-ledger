@@ -49,6 +49,9 @@ TransactionResource _tx({
   String? narration = 'Groceries',
   String amount = '-42.50',
   String symbol = 'CHF',
+  // Under the default home view's Assets root so the row amount (the sum
+  // of postings under the current view's roots) shows this posting.
+  String accountName = 'Assets:Bank:Checking',
 }) => TransactionResource(
   name: name,
   transactionDate: date,
@@ -57,6 +60,7 @@ TransactionResource _tx({
   postings: [
     PostingResource(
       account: 'accounts/acc_checking',
+      accountName: accountName,
       units: MoneyValue(amount: amount, symbol: symbol),
     ),
   ],
@@ -151,6 +155,276 @@ void main() {
     expect(find.text('Jun 18'), findsOneWidget);
   });
 
+  group('view-aware row amounts', () {
+    TransactionResource multiPostingTx(List<PostingResource> postings) =>
+        TransactionResource(
+          name: 'transactions/tm',
+          transactionDate: '2026-06-18',
+          payee: 'Migros',
+          postings: postings,
+        );
+
+    PostingResource posting(
+      String accountName,
+      String amount,
+      String symbol, {
+      MoneyValue? converted,
+    }) => PostingResource(
+      account: 'accounts/acc-x',
+      accountName: accountName,
+      units: MoneyValue(amount: amount, symbol: symbol),
+      convertedUnits: converted,
+    );
+
+    Future<void> pumpWith(WidgetTester tester, TransactionResource tx) async {
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: any(named: 'convert'),
+        ),
+      ).thenAnswer((_) async => (data: ([tx], null), error: null));
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('selected account: sum of the subtree postings only', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        // Prefix pseudo-accounts persist the account path as their name.
+        'tx_filter_account_name': 'Assets:Bank',
+        'tx_filter_account_display_name': 'Assets:Bank',
+        'tx_filter_account_is_prefix': true,
+      });
+      await pumpWith(
+        tester,
+        multiPostingTx([
+          posting('Assets:Bank:Checking', '-60.00', 'CHF'),
+          posting('Assets:Bank:Savings', '-40.00', 'CHF'),
+          posting('Expenses:Food', '100.00', 'CHF'),
+        ]),
+      );
+
+      expect(find.text('-100.00 CHF'), findsOneWidget);
+      expect(find.text('100.00 CHF'), findsNothing);
+    });
+
+    testWidgets('home balance sheet: nets Assets and Liabilities postings', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        multiPostingTx([
+          posting('Assets:Checking', '-500.00', 'CHF'),
+          posting('Liabilities:Card', '300.00', 'CHF'),
+          posting('Expenses:Rent', '200.00', 'CHF'),
+        ]),
+      );
+
+      // Net-worth change: -500 + 300 (raw signs).
+      expect(find.text('-200.00 CHF'), findsOneWidget);
+    });
+
+    testWidgets('home income statement: sums Income and Expenses raw', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'tx_filter_home_view': 'incomeStatement',
+      });
+      await pumpWith(
+        tester,
+        multiPostingTx([
+          posting('Income:Salary', '-5000.00', 'CHF'),
+          posting('Assets:Checking', '5000.00', 'CHF'),
+        ]),
+      );
+
+      expect(find.text('-5,000.00 CHF'), findsOneWidget);
+    });
+
+    testWidgets('no posting under the view roots shows an em dash', (
+      tester,
+    ) async {
+      await pumpWith(
+        tester,
+        multiPostingTx([
+          posting('Equity:Opening', '-999.00', 'CHF'),
+          posting('Equity:Adjustments', '999.00', 'CHF'),
+        ]),
+      );
+
+      expect(find.text('—'), findsOneWidget);
+    });
+
+    testWidgets(
+      'foreign postings show the converted sum with originals underneath',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+        await pumpWith(
+          tester,
+          multiPostingTx([
+            posting('Assets:Checking', '-10.00', 'CHF'),
+            posting(
+              'Assets:Broker',
+              '40',
+              'USD',
+              converted: const MoneyValue(amount: '34', symbol: 'CHF'),
+            ),
+          ]),
+        );
+
+        expect(find.text('24.00 CHF'), findsOneWidget);
+        expect(find.text('40.00 USD'), findsOneWidget);
+      },
+    );
+
+    testWidgets('unconvertible foreign postings keep their raw sum', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+      await pumpWith(
+        tester,
+        multiPostingTx([posting('Assets:Wallet', '500', 'JPY')]),
+      );
+
+      expect(find.text('500.00 JPY'), findsOneWidget);
+    });
+
+    // Invariant (single currency, no date filter): the sum of the displayed
+    // row amounts equals the chart headline — the income statement's
+    // headline is the sum of its buckets, and the balance sheet's is the
+    // latest net worth of a series that starts from zero.
+    QueryResult yearlyBuckets(List<(int, String)> rows) => QueryResult(
+      columns: const [
+        QueryColumnDef(name: 'y', type: 'int'),
+        QueryColumnDef(name: 'bal', type: 'amount'),
+      ],
+      rows: [
+        for (final (year, number) in rows)
+          [year, QueryAmount(number: number, currency: 'CHF')],
+      ],
+      warnings: const [],
+    );
+
+    testWidgets('invariant: income-statement rows sum to the chart headline', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'default_currency': 'CHF',
+        'tx_filter_home_view': 'incomeStatement',
+      });
+      when(
+        () => mockQueryRepo.run(any(that: contains('sum(position)'))),
+      ).thenAnswer(
+        (_) async => (
+          data: yearlyBuckets([(2025, '-5000'), (2026, '1500')]),
+          error: null,
+        ),
+      );
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: any(named: 'convert'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          data: (
+            [
+              TransactionResource(
+                name: 'transactions/t-salary',
+                transactionDate: '2025-07-05',
+                payee: 'Employer',
+                postings: [
+                  posting('Income:Salary', '-5000.00', 'CHF'),
+                  posting('Assets:Checking', '5000.00', 'CHF'),
+                ],
+              ),
+              TransactionResource(
+                name: 'transactions/t-rent',
+                transactionDate: '2026-01-03',
+                payee: 'Landlord',
+                postings: [
+                  posting('Expenses:Rent', '1500.00', 'CHF'),
+                  posting('Assets:Checking', '-1500.00', 'CHF'),
+                ],
+              ),
+            ],
+            null,
+          ),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      // Rows: -5000 (income) and +1500 (expense); headline: their sum.
+      expect(find.text('-5,000.00 CHF'), findsOneWidget);
+      expect(find.text('1,500.00 CHF'), findsOneWidget);
+      expect(find.text('-3,500.00 CHF'), findsOneWidget);
+    });
+
+    testWidgets('invariant: balance-sheet rows sum to the chart headline', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+      when(
+        () => mockQueryRepo.run(any(that: contains('last(balance)'))),
+      ).thenAnswer(
+        (_) async =>
+            (data: yearlyBuckets([(2025, '1000'), (2026, '800')]), error: null),
+      );
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: any(named: 'convert'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          data: (
+            [
+              TransactionResource(
+                name: 'transactions/t-open',
+                transactionDate: '2025-05-10',
+                payee: 'Opening',
+                postings: [
+                  posting('Assets:Checking', '1000.00', 'CHF'),
+                  posting('Equity:Opening', '-1000.00', 'CHF'),
+                ],
+              ),
+              TransactionResource(
+                name: 'transactions/t-card',
+                transactionDate: '2026-02-01',
+                payee: 'Card payment due',
+                postings: [
+                  posting('Liabilities:Card', '-200.00', 'CHF'),
+                  posting('Expenses:Stuff', '200.00', 'CHF'),
+                ],
+              ),
+            ],
+            null,
+          ),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+
+      // Rows: +1000 and -200 net-worth changes; headline: the latest net
+      // worth, 800 — their sum (the series starts from zero, no OPEN ON).
+      expect(find.text('1,000.00 CHF'), findsOneWidget);
+      expect(find.text('-200.00 CHF'), findsOneWidget);
+      expect(find.text('800.00 CHF'), findsOneWidget);
+    });
+  });
+
   testWidgets('empty list still leads with the home chart card', (
     tester,
   ) async {
@@ -218,12 +492,8 @@ void main() {
     // After dragging to the bottom, extentAfter drops to 0 — below the 800px threshold.
     final firstPage = List.generate(
       30,
-      (i) => _tx(
-        name: 'transactions/t$i',
-        date: '2026-06-01',
-        payee: 'Payee $i',
-        narration: null,
-      ),
+      (i) =>
+          _tx(name: 'transactions/t$i', date: '2026-06-01', payee: 'Payee $i'),
     );
 
     final calls = <String?>[];
@@ -245,7 +515,6 @@ void main() {
                     name: 'transactions/next',
                     date: '2026-05-01',
                     payee: 'Coop',
-                    narration: null,
                   ),
                 ],
                 null,
@@ -313,7 +582,6 @@ void main() {
         name: 'transactions/p1t$i',
         date: '2026-06-01',
         payee: 'Payee $i',
-        narration: null,
       ),
     );
     final page1Refresh = [
@@ -368,14 +636,7 @@ void main() {
     // Stale page 2 resolves first — should be silently discarded
     page2Completer.complete((
       data: (
-        [
-          _tx(
-            name: 'transactions/stale',
-            date: '2026-05-01',
-            payee: 'Stale',
-            narration: null,
-          ),
-        ],
+        [_tx(name: 'transactions/stale', date: '2026-05-01', payee: 'Stale')],
         null,
       ),
       error: null,
@@ -398,7 +659,6 @@ void main() {
           name: 'transactions/p1t$i',
           date: '2026-06-01',
           payee: 'Payee $i',
-          narration: null,
         ),
       );
       final page1Refresh = [
@@ -461,7 +721,6 @@ void main() {
               name: 'transactions/stale2',
               date: '2026-05-01',
               payee: 'Stale2',
-              narration: null,
             ),
           ],
           null,
@@ -484,7 +743,6 @@ void main() {
           name: 'transactions/p1t$i',
           date: '2026-06-01',
           payee: 'Payee $i',
-          narration: null,
         ),
       );
       final calls = <String?>[];
@@ -500,14 +758,7 @@ void main() {
         if (token == null) return (data: (page1, 'tok'), error: null);
         return (
           data: (
-            [
-              _tx(
-                name: 'transactions/p2t0',
-                date: '2026-05-01',
-                payee: 'Old',
-                narration: null,
-              ),
-            ],
+            [_tx(name: 'transactions/p2t0', date: '2026-05-01', payee: 'Old')],
             null,
           ),
           error: null,
@@ -550,7 +801,6 @@ void main() {
           name: 'transactions/p1t$i',
           date: '2026-06-01',
           payee: 'Payee $i',
-          narration: null,
         ),
       );
       final calls = <String?>[];
@@ -574,7 +824,6 @@ void main() {
                 name: 'transactions/p2t0',
                 date: '2026-05-01',
                 payee: 'Recovered',
-                narration: null,
               ),
             ],
             null,
@@ -764,7 +1013,6 @@ void main() {
         name: 'transactions/p1t$i',
         date: '2026-06-01',
         payee: 'Payee $i',
-        narration: null,
       ),
     );
 
@@ -779,14 +1027,7 @@ void main() {
       if (token == null) return (data: (page1, 'page2'), error: null);
       return (
         data: (
-          [
-            _tx(
-              name: 'transactions/p2t0',
-              date: '2026-05-01',
-              payee: 'Coop',
-              narration: null,
-            ),
-          ],
+          [_tx(name: 'transactions/p2t0', date: '2026-05-01', payee: 'Coop')],
           null,
         ),
         error: null,
@@ -970,11 +1211,7 @@ void main() {
       ).thenAnswer((_) async => null);
       when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
         (_) async => (
-          data: _tx(
-            name: 'transactions/merged',
-            payee: 'Merged',
-            narration: null,
-          ),
+          data: _tx(name: 'transactions/merged', payee: 'Merged'),
           error: null,
         ),
       );

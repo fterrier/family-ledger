@@ -33,6 +33,12 @@ class TransactionFilter {
   /// Backs the "more filters" action icon's badge dot.
   bool get hasMoreFilters => currency != null || lastImportOnly;
 
+  /// Account subtree roots of the current view: the selected account, or
+  /// the home pseudo-view's roots — the one place the account-vs-homeView
+  /// mapping lives (rows sum postings under these, the chart nets them).
+  List<String> get viewRoots =>
+      account != null ? [account!.accountName] : homeView.rootAccounts;
+
   static const Object _absent = Object();
 
   TransactionFilter copyWith({

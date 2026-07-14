@@ -11,6 +11,7 @@ import '../../models/account.dart';
 import '../../core/api_error.dart';
 import '../../core/filter_persistence.dart';
 import '../../core/home_view.dart';
+import '../../core/posting_sum.dart';
 import '../../models/doctor_issue.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
@@ -79,12 +80,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
-    _restoreFilter();
+    _restorePrefsAndLoad();
     _prefetchAccounts();
-    _loadDefaultCurrency();
   }
 
-  Future<void> _restoreFilter() async {
+  // Explicitly sequenced: the default currency must be known before the
+  // first fetch so it can ask for converted amounts (and so the chart's
+  // first mount already has its conversion target).
+  Future<void> _restorePrefsAndLoad() async {
+    await _loadDefaultCurrency();
     final saved = await FilterPersistence.load();
     if (!mounted) return;
     _filter = saved;
@@ -269,6 +273,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final result = await widget.transactionRepository.listTransactions(
       pageToken: pageToken,
       filter: _filter,
+      convert: _defaultCurrency,
     );
     if (!mounted) return;
     if (_loadGeneration != generation) return; // superseded by a newer refresh
@@ -550,6 +555,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
           final tx = _transactions[txIndex];
           return _TransactionRow(
             transaction: tx,
+            amountRoots: _filter.viewRoots,
+            convertTarget: _defaultCurrency,
             hasIssue: _transactionsWithIssues.contains(tx.name),
             isSelecting: isSelecting,
             isSelected: _selectedNames.contains(tx.name),
@@ -575,6 +582,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
 class _TransactionRow extends StatelessWidget {
   final TransactionResource transaction;
+
+  /// Subtree roots of the current view — the displayed amount is the sum
+  /// of this transaction's postings under them (raw ledger signs).
+  final List<String> amountRoots;
+
+  /// Currency the server converted foreign postings to (the app's default
+  /// currency), or null when none is configured.
+  final String? convertTarget;
+
   final bool hasIssue;
   final bool isSelecting;
   final bool isSelected;
@@ -583,6 +599,8 @@ class _TransactionRow extends StatelessWidget {
 
   const _TransactionRow({
     required this.transaction,
+    required this.amountRoots,
+    required this.convertTarget,
     required this.hasIssue,
     required this.isSelecting,
     required this.isSelected,
@@ -602,12 +620,22 @@ class _TransactionRow extends StatelessWidget {
     return fmt.format(dt);
   }
 
-  String _formatAmount() {
-    if (transaction.postings.isEmpty) return '—';
-    final posting = transaction.postings.first;
-    final raw = double.tryParse(posting.units.amount);
-    if (raw == null) return '${posting.units.amount} ${posting.units.symbol}';
-    return '${formatFixedAmount(raw)} ${posting.units.symbol}';
+  static String _joinSums(Map<String, double> sums) =>
+      (sums.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))
+          .map((e) => '${formatFixedAmount(e.value)} ${e.key}')
+          .join(' · ');
+
+  /// The view's posting sum: converted total plus any unconvertible raw
+  /// per-currency sums (rare, joined on one line). '—' when no posting of
+  /// this transaction falls under the view's roots (e.g. an Equity-only
+  /// transaction on a home view).
+  String _formatAmount(PostingSums sums) {
+    final parts = <String>[
+      if (sums.converted != null)
+        '${formatFixedAmount(sums.converted!)} $convertTarget',
+      if (sums.unconverted.isNotEmpty) _joinSums(sums.unconverted),
+    ];
+    return parts.isEmpty ? '—' : parts.join(' · ');
   }
 
   @override
@@ -617,6 +645,11 @@ class _TransactionRow extends StatelessWidget {
         (transaction.payee != null && transaction.narration != null)
         ? transaction.narration
         : null;
+    final sums = sumPostings(
+      transaction.postings,
+      amountRoots,
+      target: convertTarget,
+    );
 
     final rowColor = isSelected ? const Color(0xFFE8F0FE) : Colors.white;
     final selectionIcon = isSelected
@@ -696,13 +729,25 @@ class _TransactionRow extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              _formatAmount(),
+                              _formatAmount(sums),
                               style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w500,
                                 color: Color(0xFF1C1C1E),
                               ),
                             ),
+                            if (sums.originals.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              // The pre-conversion original amounts.
+                              Text(
+                                _joinSums(sums.originals),
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w400,
+                                  color: Color(0xFF8E8E93),
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 2),
                             Text(
                               _formatDate(transaction.transactionDate),

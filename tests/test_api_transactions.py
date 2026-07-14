@@ -100,6 +100,89 @@ def test_list_transactions_supports_filters_and_pagination() -> None:
     assert [tx["name"] for tx in filtered.json()["transactions"]] == created_names[1:]
 
 
+def _create_price(client, price_date: str, base: str, amount: str, quote: str) -> None:
+    response = client.post(
+        "/prices",
+        json={
+            "price": {
+                "price_date": price_date,
+                "base_symbol": base,
+                "quote": {"amount": amount, "symbol": quote},
+            }
+        },
+    )
+    assert response.status_code == 201
+
+
+def test_list_transactions_convert_values_postings_at_transaction_date() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking")
+    opening = create_account(client, "Equity:Opening")
+    for symbol in ("CHF", "USD", "GBP", "JPY"):
+        create_commodity(client, symbol)
+
+    # USD has a direct CHF price before the transaction date and a fresher
+    # one after it (which must NOT be used); GBP is only priced in USD
+    # (transitive hop); JPY has no price path at all.
+    _create_price(client, "2026-04-01", "USD", "0.85", "CHF")
+    _create_price(client, "2026-04-20", "USD", "0.80", "CHF")
+    _create_price(client, "2026-04-01", "GBP", "1.25", "USD")
+
+    create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": checking["name"], "units": {"amount": "-100", "symbol": "CHF"}},
+            {"account": opening["name"], "units": {"amount": "100", "symbol": "CHF"}},
+            {"account": checking["name"], "units": {"amount": "40", "symbol": "USD"}},
+            {"account": opening["name"], "units": {"amount": "-40", "symbol": "USD"}},
+            {"account": checking["name"], "units": {"amount": "20", "symbol": "GBP"}},
+            {"account": opening["name"], "units": {"amount": "-20", "symbol": "GBP"}},
+            {"account": checking["name"], "units": {"amount": "500", "symbol": "JPY"}},
+            {"account": opening["name"], "units": {"amount": "-500", "symbol": "JPY"}},
+        ],
+    )
+
+    response = client.get("/transactions?convert=CHF")
+
+    assert response.status_code == 200
+    postings = response.json()["transactions"][0]["postings"]
+    by_symbol = {p["units"]["symbol"]: p for p in postings if p["account"] == checking["name"]}
+    # Same currency: nothing to convert.
+    assert by_symbol["CHF"]["converted_units"] is None
+    # Direct pair at the transaction date's rate (0.85), not the fresher
+    # post-date 0.80.
+    assert by_symbol["USD"]["converted_units"] == {"amount": "34", "symbol": "CHF"}
+    # Transitive hop GBP -> USD -> CHF: 20 x 1.25 x 0.85 (normalized like
+    # the query endpoint: no trailing zeros).
+    assert by_symbol["GBP"]["converted_units"] == {"amount": "21.25", "symbol": "CHF"}
+    # No price path: null, client falls back to the raw amount.
+    assert by_symbol["JPY"]["converted_units"] is None
+
+
+def test_list_transactions_without_convert_has_no_converted_units() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking")
+    opening = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": checking["name"], "units": {"amount": "-10", "symbol": "CHF"}},
+            {"account": opening["name"], "units": {"amount": "10", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.get("/transactions")
+
+    assert response.status_code == 200
+    for posting in response.json()["transactions"][0]["postings"]:
+        assert posting["converted_units"] is None
+
+
 def test_create_transaction_rejects_unknown_commodity() -> None:
     client = make_client()
 

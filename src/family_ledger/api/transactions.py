@@ -40,6 +40,7 @@ def list_transactions(
     currency: str | None = None,
     last_import: bool = False,
     order: Literal["asc", "desc"] = "asc",
+    convert: str | None = None,
 ) -> ListTransactionsResponse:
     return _call_service(
         transactions_service.list_transactions_page,
@@ -53,6 +54,7 @@ def list_transactions(
         currency=currency,
         last_import=last_import,
         order=order,
+        convert=convert,
     )
 
 

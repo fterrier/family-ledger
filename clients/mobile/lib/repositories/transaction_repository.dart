@@ -46,14 +46,19 @@ class TransactionRepository {
     return (data: issues, error: null);
   }
 
+  /// [convert] asks the server to value each foreign-currency posting in
+  /// that currency at the transaction date (`converted_units`) — the app's
+  /// default display currency, not a user filter.
   Future<Result<(List<TransactionResource>, String?)>> listTransactions({
     int pageSize = 100,
     String? pageToken,
     TransactionFilter? filter,
+    String? convert,
   }) async {
     final params = <String, String>{'page_size': '$pageSize', 'order': 'desc'};
     if (pageToken != null) params['page_token'] = pageToken;
     if (filter != null) params.addAll(filter.toQueryParams());
+    if (convert != null) params['convert'] = convert;
 
     final result = await _client.get('/transactions', queryParams: params);
     if (result.error != null) return (data: null, error: result.error);

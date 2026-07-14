@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from decimal import Decimal
 from typing import Any, Literal, cast
 
 from sqlalchemy import func, select, text
@@ -29,14 +30,38 @@ from family_ledger.services.errors import (
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.normalization import normalize_and_validate_transaction_payload
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.prices import PriceLookup
 from family_ledger.services.transaction_balancing import (
+    decimal_to_string,
     derive_normalize_issues,
     persisted_posting_weight,
 )
 from family_ledger.services.validation import resolve_accounts, resource_name
 
 
-def serialize_transaction(transaction: Transaction) -> TransactionResource:
+def _converted_units(
+    posting: Posting, on: date, price_lookup: PriceLookup | None
+) -> MoneyValue | None:
+    """Units valued in the lookup's target currency at the transaction date
+    — same price semantics as the reporting query's convert(). None when no
+    lookup was requested, the units already are the target currency, or no
+    price path exists."""
+    if price_lookup is None or posting.units_symbol == price_lookup.target:
+        return None
+    rate = price_lookup.rate(posting.units_symbol, on)
+    if rate is None:
+        return None
+    # DB numerics carry their full storage scale (20 decimals of trailing
+    # zeros); serialize like the query endpoint does.
+    return MoneyValue(
+        amount=Decimal(decimal_to_string(posting.units_amount * rate)),
+        symbol=price_lookup.target,
+    )
+
+
+def serialize_transaction(
+    transaction: Transaction, *, price_lookup: PriceLookup | None = None
+) -> TransactionResource:
     postings = [
         PostingPayload(
             account=posting.account.name,
@@ -50,6 +75,7 @@ def serialize_transaction(transaction: Transaction) -> TransactionResource:
             if posting.price_per_unit is None
             else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
             weight=persisted_posting_weight(posting),
+            converted_units=_converted_units(posting, transaction.transaction_date, price_lookup),
             entity_metadata=posting.entity_metadata,
         )
         for posting in transaction.postings
@@ -263,6 +289,7 @@ def list_transactions_page(
     currency: str | None = None,
     last_import: bool = False,
     order: Literal["asc", "desc"] = "asc",
+    convert: str | None = None,
 ) -> ListTransactionsResponse:
     if account is not None and account_name is not None:
         raise ValidationError(
@@ -307,8 +334,25 @@ def list_transactions_page(
     transactions, next_page_token = run_list_page(
         session, query, page_size=page_size, page_token=page_token
     )
+    # One price load for the whole page, scoped to the currencies and dates
+    # it actually contains (same pattern as the reporting query executor).
+    price_lookup = None
+    if convert is not None and transactions:
+        foreign = {
+            posting.units_symbol
+            for transaction in transactions
+            for posting in transaction.postings
+            if posting.units_symbol != convert
+        }
+        if foreign:
+            price_lookup = PriceLookup(
+                session,
+                foreign,
+                convert,
+                max(transaction.transaction_date for transaction in transactions),
+            )
     return ListTransactionsResponse(
-        transactions=[serialize_transaction(t) for t in transactions],
+        transactions=[serialize_transaction(t, price_lookup=price_lookup) for t in transactions],
         next_page_token=next_page_token,
     )
 

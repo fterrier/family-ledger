@@ -37,6 +37,12 @@ class PostingPayload(BaseModel):
     cost: MoneyValue | None = None
     price: MoneyValue | None = None
     weight: MoneyValue | None = None
+    # Units valued in the requested `convert` currency at the transaction
+    # date (GET /transactions?convert=SYM). Null without the param, when the
+    # units are already in that currency, or when no price path exists —
+    # clients tell the last two apart by comparing symbols. Response-only;
+    # ignored on input.
+    converted_units: MoneyValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

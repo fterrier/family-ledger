@@ -8,6 +8,11 @@ class PostingResource {
   final MoneyValue? cost;
   final MoneyValue? price;
 
+  /// Units valued in the list request's `convert` currency at the
+  /// transaction date; null when not requested, already that currency, or
+  /// no price path exists (compare symbols to tell the last two apart).
+  final MoneyValue? convertedUnits;
+
   const PostingResource({
     required this.account,
     this.accountName,
@@ -15,6 +20,7 @@ class PostingResource {
     this.narration,
     this.cost,
     this.price,
+    this.convertedUnits,
   });
 
   factory PostingResource.fromJson(Map<String, dynamic> json) =>
@@ -29,6 +35,11 @@ class PostingResource {
         price: json['price'] == null
             ? null
             : MoneyValue.fromJson(json['price'] as Map<String, dynamic>),
+        convertedUnits: json['converted_units'] == null
+            ? null
+            : MoneyValue.fromJson(
+                json['converted_units'] as Map<String, dynamic>,
+              ),
       );
 }
 

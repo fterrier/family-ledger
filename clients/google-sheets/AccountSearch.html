@@ -47,7 +47,7 @@ function buildAccountFilterOptions_(accountNames) {
     const parts = name.split(' - ');
     const marker = parts[0].split(' ')[0];
     const levels = [marker].concat(
-      parts.slice(0, parts.length).map(function(_, i) { return parts.slice(0, i + 1).join(' - '); })
+      parts.map(function(_, i) { return parts.slice(0, i + 1).join(' - '); })
     );
     levels.forEach(function(prefix) {
       if (!optionMap[prefix]) {
@@ -57,6 +57,14 @@ function buildAccountFilterOptions_(accountNames) {
   });
 
   return Object.keys(optionMap).sort().map(function(k) { return optionMap[k]; });
+}
+
+function buildAccountSelectOptions_(names) {
+  return buildAccountFilterOptions_(names)
+    .filter(function(opt) { return opt.value.indexOf(' ') !== -1; })
+    .map(function(opt) {
+      return { value: opt.value, label: opt.label, dataset: opt.isPrefix ? { variant: 'prefix' } : null };
+    });
 }
 
 function filterAccountOptions_(query, options) {

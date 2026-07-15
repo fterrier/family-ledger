@@ -176,8 +176,22 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       note: 'True when any posting in this transaction group has a cost or price annotation. Used to guard inline edits.',
       header_text: 'has cost price',
     },
+    amount_in_default_currency: {
+      width: 85,
+      role: 'system',
+      note: 'Amount converted to the default currency (Sheet Settings). Formula-managed; set default currency and re-sync to populate.',
+      alignment: 'right',
+      numberFormat: '#,##0.00',
+      formulaManaged: true,
+      header_text: 'amount (default ccy)',
+    },
+    dest_level_1: { width: 120, role: 'system', formulaManaged: true, header_text: 'dest level 1' },
+    dest_level_2: { width: 120, role: 'system', header_text: 'dest level 2' },
+    dest_level_3: { width: 120, role: 'system', header_text: 'dest level 3' },
+    dest_level_4: { width: 120, role: 'system', header_text: 'dest level 4' },
+    dest_level_5: { width: 120, role: 'system', header_text: 'dest level 5' },
   }, {
-    hiddenHeaders: ['resource_name', 'narration_source', 'has_cost_price'],
+    hiddenHeaders: ['resource_name', 'narration_source', 'has_cost_price', 'amount_in_default_currency', 'dest_level_1', 'dest_level_2', 'dest_level_3', 'dest_level_4', 'dest_level_5'],
     protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {

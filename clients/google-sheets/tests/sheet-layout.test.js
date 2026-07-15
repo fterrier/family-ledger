@@ -19,7 +19,7 @@ test('writeSheet_ clears and writes without checking sheet capacity', () => {
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
     { type: 'clearContents' },
-    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 14, values: [sheetConfig.headers.map(function(h) { return sheetConfig.columnLayout[h].header_text ?? h; })] },
+    { type: 'setValues', row: 1, column: 1, numRows: 1, numCols: 20, values: [sheetConfig.headers.map(function(h) { return sheetConfig.columnLayout[h].header_text ?? h; })] },
   ]);
 });
 
@@ -106,8 +106,8 @@ test('applyManagedSheetLayout_ expands narrower managed sheets and reapplies con
     {
       sheetName: 'Transactions',
       initialColumns: 8,
-      expectedInsert: { column: 8, howMany: 6 },
-      expectedHide: [2, 6, 14],
+      expectedInsert: { column: 8, howMany: 12 },
+      expectedHide: [2, 6, 14, 15, 16, 17, 18, 19, 20],
     },
     {
       sheetName: 'Accounts',
@@ -176,7 +176,7 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   const { sandbox } = loadCode();
   const fakeSheet = {
     getName() { return 'Transactions'; },
-    getMaxColumns() { return 14; },
+    getMaxColumns() { return 20; },
     getLastRow() { return 5; },
     getMaxRows() { return 5; },
     showColumns(column, count) { operations.push({ type: 'show', column, count }); },
@@ -186,10 +186,16 @@ test('applySheetHiddenColumns_ hides configured technical transaction columns', 
   sandbox.applySheetHiddenColumns_(fakeSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'show', column: 1, count: 14 },
+    { type: 'show', column: 1, count: 20 },
     { type: 'hide', column: 2 },
     { type: 'hide', column: 6 },
     { type: 'hide', column: 14 },
+    { type: 'hide', column: 15 },
+    { type: 'hide', column: 16 },
+    { type: 'hide', column: 17 },
+    { type: 'hide', column: 18 },
+    { type: 'hide', column: 19 },
+    { type: 'hide', column: 20 },
   ]);
 });
 

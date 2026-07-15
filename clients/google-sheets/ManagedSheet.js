@@ -11,8 +11,7 @@ function managedSheet_(sheet, sheetConfig) {
 
     setRows: function(span, rows) {
       if (span.count === 0) return;
-      // issueHeader is formula-managed — never written by setRows.
-      // Assumption: issueHeader is always the last column when present.
+      // Writes only columns before issueHeader; columns at that index and beyond are skipped.
       const issueIdx = sheetConfig.issueHeader != null
         ? sheetConfig.headers.indexOf(sheetConfig.issueHeader)
         : -1;
@@ -138,6 +137,20 @@ function resizeContiguousRows_(sheet, existingSpan, newCount) {
     sheet.deleteRows(existingSpan.start + newCount, existingSpan.count - newCount);
   }
   return { start: existingSpan.start, count: newCount };
+}
+
+function buildDestLevelFormula_(rowNumber, sheetConfig) {
+  const destCol = '$' + getColumnLetter_(sheetConfig, 'destination_account_name');
+  return '=IFERROR(SPLIT(MID(' + destCol + rowNumber + ',FIND(" ",' + destCol + rowNumber + ')+1,LEN(' + destCol + rowNumber + '))," - "),"")';
+}
+
+function buildAmountInDefaultCurrencyFormula_(defaultSymbol, rowNumber, sheetConfig) {
+  const symCol = '$' + getColumnLetter_(sheetConfig, 'symbol');
+  const amtCol = '$' + getColumnLetter_(sheetConfig, 'amount');
+  const dateCol = '$' + getColumnLetter_(sheetConfig, 'transaction_date');
+  const ds = JSON.stringify(defaultSymbol);
+  return '=IF(' + symCol + rowNumber + '=' + ds + ',' + amtCol + rowNumber +
+    ',' + amtCol + rowNumber + '*IFERROR(INDEX(GOOGLEFINANCE("CURRENCY:"&' + symCol + rowNumber + '&' + ds + ',"price",' + dateCol + rowNumber + '),2,2),1))';
 }
 
 function buildIssueLookupFormula_(rowNumber, sheetConfig) {

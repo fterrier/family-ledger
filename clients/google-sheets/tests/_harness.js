@@ -22,6 +22,7 @@ const SOURCE_FILES = [
   'AccountsSheet.js',
   'DoctorIssues.js',
   'Filters.js',
+  'Reports.js',
   'ImporterDialogs.js',
   'App.js',
   'SheetSettings.js',
@@ -289,6 +290,12 @@ function loadCode(overrides = {}) {
         throw new Error('Unexpected HtmlService.createTemplateFromFile() call in unit test');
       },
       ...overrides.HtmlService,
+    },
+    Sheets: {
+      Spreadsheets: {
+        batchUpdate() {},
+      },
+      ...overrides.Sheets,
     },
   };
 

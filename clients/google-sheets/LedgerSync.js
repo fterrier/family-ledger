@@ -114,11 +114,7 @@ function syncLedger() {
         ensureSheetCapacity_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions.headers.length, transactionSyncData.rows.length + 1);
         writeSheet_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, transactionSyncData.rows);
         transactionsSheet.setFrozenRows(1);
-        managedSheet_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions).setColumnFormulas(
-          { start: 2, count: transactionSyncData.rows.length },
-          'issues',
-          buildIssueLookupFormula_
-        );
+        applyFormulaColumns_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, { start: 2, count: transactionSyncData.rows.length });
       }, transactionSyncData.rows.length + ' rows');
 
       perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });

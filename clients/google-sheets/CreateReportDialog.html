@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 13px; color: #202124; background: #fff; padding: 16px; }
+  .section { margin-bottom: 16px; }
+  label { display: block; font-weight: bold; margin-bottom: 4px; }
+  .account-search-input {
+    width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #dadce0;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    font-size: 13px;
+    outline: none;
+  }
+  .account-multi-select {
+    display: block;
+    width: 100%;
+    border: 1px solid #dadce0;
+    border-radius: 0 0 4px 4px;
+    font-size: 13px;
+    min-height: 180px;
+  }
+  .account-hint { font-size: 11px; color: #80868b; margin-top: 4px; }
+  .actions { margin-top: 20px; display: flex; gap: 8px; align-items: center; }
+  .btn-primary {
+    padding: 8px 20px;
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    font-weight: bold;
+  }
+  .btn-primary:hover:not(:disabled) { background: #1557b0; }
+  .btn-primary:disabled { background: #dadce0; color: #80868b; cursor: default; }
+  .btn-secondary {
+    padding: 8px 16px;
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn-secondary:hover { background: #f1f3f4; }
+  #errorBox {
+    display: none;
+    padding: 8px 12px;
+    background: #fce8e6;
+    border: 1px solid #f28b82;
+    border-radius: 4px;
+    color: #c5221f;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+  .loading-message { color: #5f6368; }
+  .result-title { font-size: 15px; font-weight: bold; margin-bottom: 8px; color: #137333; }
+  .result-sheet-name { font-size: 12px; color: #5f6368; margin-bottom: 12px; }
+  .warnings-section { margin-top: 12px; }
+  .warnings-title { font-weight: bold; color: #e37400; margin-bottom: 4px; }
+  .warnings-list { list-style: none; padding: 0; margin: 0; }
+  .warnings-list li { font-size: 12px; color: #e37400; padding: 2px 0; }
+  .warnings-list li::before { content: '• '; }
+</style>
+</head>
+<body>
+
+<div id="phaseLoading">
+  <p class="loading-message">Loading accounts&#8230;</p>
+</div>
+
+<div id="phaseForm" style="display:none">
+  <div id="errorBox"></div>
+
+  <div class="section">
+    <label>Accounts</label>
+    <input type="text" id="accountSearch" class="account-search-input" placeholder="Search&#8230;" autocomplete="off" />
+    <select id="accountSelect" class="account-multi-select" multiple size="9"></select>
+    <p class="account-hint">Hold Ctrl / &#8984; to select multiple accounts.</p>
+  </div>
+
+  <div class="actions">
+    <button class="btn-primary" id="submitBtn" onclick="onSubmit()">Create Report</button>
+    <button class="btn-secondary" onclick="google.script.host.close()">Cancel</button>
+    <span id="submitStatus" style="color:#5f6368;font-size:12px;display:none">Creating&#8230;</span>
+  </div>
+</div>
+
+<div id="phaseResult" style="display:none">
+  <p class="result-title">Report created</p>
+  <p class="result-sheet-name" id="sheetNameDisplay"></p>
+  <div class="warnings-section" id="warningsSection" style="display:none">
+    <p class="warnings-title">Warnings</p>
+    <ul class="warnings-list" id="warningsList"></ul>
+  </div>
+  <div class="actions" style="margin-top:16px">
+    <button class="btn-secondary" onclick="google.script.host.close()">Close</button>
+  </div>
+</div>
+
+<script>
+  <?!= includeHtml_('AccountSearch'); ?>
+
+  var allAccountOptions = [];
+  // Tracks selection state independently of the DOM so that filtering the
+  // list (search box) never drops items selected while they were visible.
+  var _selectedSet = {};
+
+  function renderOptions(opts) {
+    var sel = document.getElementById('accountSelect');
+    sel.innerHTML = '';
+    opts.forEach(function(opt) {
+      var el = document.createElement('option');
+      el.value = opt.value;
+      el.textContent = opt.label;
+      if (opt.dataset && opt.dataset.variant) el.dataset.variant = opt.dataset.variant;
+      if (_selectedSet[opt.value]) el.selected = true;
+      sel.appendChild(el);
+    });
+  }
+
+  document.getElementById('accountSelect').addEventListener('change', function() {
+    Array.prototype.forEach.call(this.options, function(o) {
+      if (o.selected) _selectedSet[o.value] = true;
+      else delete _selectedSet[o.value];
+    });
+  });
+
+  google.script.run
+    .withSuccessHandler(function(data) {
+      allAccountOptions = buildAccountSelectOptions_(data.reportAccountNames || []);
+      renderOptions(allAccountOptions);
+      document.getElementById('phaseLoading').style.display = 'none';
+      document.getElementById('phaseForm').style.display = 'block';
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('phaseLoading').innerHTML =
+        '<p style="color:#c5221f;font-size:12px">' + (err.message || String(err)) + '</p>';
+    })
+    .getReportDialogData();
+
+  document.getElementById('accountSearch').addEventListener('input', function() {
+    renderOptions(filterAccountOptions_(this.value, allAccountOptions));
+  });
+
+  function onSubmit() {
+    var selected = Object.keys(_selectedSet);
+    if (!selected.length) {
+      showError('Please select at least one account.');
+      return;
+    }
+    hideError();
+    document.getElementById('submitBtn').disabled = true;
+    document.getElementById('submitStatus').style.display = 'inline';
+
+    google.script.run
+      .withSuccessHandler(function(result) {
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('submitStatus').style.display = 'none';
+        showResult(result);
+      })
+      .withFailureHandler(function(err) {
+        document.getElementById('submitBtn').disabled = false;
+        document.getElementById('submitStatus').style.display = 'none';
+        showError(err.message || String(err));
+      })
+      .createExpenseReport({ accountNames: selected });
+  }
+
+  function showResult(result) {
+    document.getElementById('phaseForm').style.display = 'none';
+    document.getElementById('phaseResult').style.display = 'block';
+    document.getElementById('sheetNameDisplay').textContent = 'Sheet: ' + (result.sheetName || '');
+
+    var warnings = result.warnings || [];
+    var warnSection = document.getElementById('warningsSection');
+    if (warnings.length > 0) {
+      warnSection.style.display = 'block';
+      var warnList = document.getElementById('warningsList');
+      warnList.innerHTML = '';
+      warnings.forEach(function(w) {
+        var li = document.createElement('li');
+        li.textContent = w;
+        warnList.appendChild(li);
+      });
+    } else {
+      warnSection.style.display = 'none';
+    }
+  }
+
+  function showError(msg) {
+    var box = document.getElementById('errorBox');
+    box.textContent = msg;
+    box.style.display = 'block';
+  }
+
+  function hideError() {
+    document.getElementById('errorBox').style.display = 'none';
+  }
+</script>
+</body>
+</html>

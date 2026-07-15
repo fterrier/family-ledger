@@ -36,11 +36,25 @@ function getDateHeader_(sheetConfig) {
   });
 }
 
+function applyFormulaColumns_(sheet, sheetConfig, span) {
+  const ms = managedSheet_(sheet, sheetConfig);
+  if (sheetConfig.issueHeader) {
+    ms.setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
+  }
+  if (sheetConfig.columnLayout.amount_in_default_currency) {
+    const defaultSymbol = getQuickAddDefaultSymbol_();
+    if (defaultSymbol) {
+      ms.setColumnFormulas(span, 'amount_in_default_currency', buildAmountInDefaultCurrencyFormula_.bind(null, defaultSymbol));
+    }
+  }
+  if (sheetConfig.columnLayout.dest_level_1) {
+    ms.setColumnFormulas(span, 'dest_level_1', buildDestLevelFormula_);
+  }
+}
+
 function applySpanValidation_(sheet, sheetConfig, span) {
   refreshAccountValidation_(sheet, sheetConfig, span);
-  if (sheetConfig.issueHeader) {
-    managedSheet_(sheet, sheetConfig).setColumnFormulas(span, sheetConfig.issueHeader, buildIssueLookupFormula_);
-  }
+  applyFormulaColumns_(sheet, sheetConfig, span);
 }
 
 function buildEntityAnchors_(sheet, sheetConfig) {

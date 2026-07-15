@@ -58,13 +58,23 @@ test('onOpen adds Importer Settings to the Family Ledger menu', () => {
   assert.deepEqual(labels, [
     'Quick Filter',
     'Add Transaction',
+    'Import Data',
+    'Create Report',
+    'Sheet Settings',
+    'Importer Settings',
+  ]);
+
+  const submenus = familyLedgerMenu.entries.filter((e) => e.type === 'submenu');
+  const otherEntityMenu = submenus.find((e) => e.submenu.name === 'Add Other Entity');
+  assert.ok(otherEntityMenu, 'Add Other Entity submenu should exist');
+  const otherEntityLabels = otherEntityMenu.submenu.entries
+    .filter((e) => e.type === 'item')
+    .map((e) => e.label);
+  assert.deepEqual(otherEntityLabels, [
     'Add Balance Assertion',
     'Add Account',
     'Add Commodity',
     'Add Attachment',
     'Add Price',
-    'Sheet Settings',
-    'Importer Settings',
-    'Import data',
   ]);
 });

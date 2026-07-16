@@ -103,8 +103,12 @@ def update_transaction(
 
 
 @router.get("/transactions/{transaction:path}", response_model=TransactionResource)
-def get_transaction(transaction: str, session: DbSession) -> TransactionResource:
-    return _call_service(transactions_service.get_transaction_by_name, session, transaction)
+def get_transaction(
+    transaction: str, session: DbSession, convert: str | None = None
+) -> TransactionResource:
+    return _call_service(
+        transactions_service.get_transaction_by_name, session, transaction, convert=convert
+    )
 
 
 @router.delete("/transactions/{transaction:path}", status_code=status.HTTP_204_NO_CONTENT)

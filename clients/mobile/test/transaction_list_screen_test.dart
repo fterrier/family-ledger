@@ -1173,6 +1173,140 @@ void main() {
     },
   );
 
+  testWidgets(
+    'saving an edit with a default currency configured re-fetches the row '
+    'converted, so it keeps showing a converted amount instead of falling '
+    'back to the raw foreign sum',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+      const convertedPosting = PostingResource(
+        account: 'accounts/acc_checking',
+        accountName: 'Assets:Bank:Checking',
+        units: MoneyValue(amount: '40', symbol: 'USD'),
+        convertedUnits: MoneyValue(amount: '34', symbol: 'CHF'),
+      );
+      const rawPosting = PostingResource(
+        account: 'accounts/acc_checking',
+        accountName: 'Assets:Bank:Checking',
+        units: MoneyValue(amount: '40', symbol: 'USD'),
+      );
+      const original = TransactionResource(
+        name: 'transactions/t1',
+        transactionDate: '2026-06-18',
+        payee: 'Migros',
+        postings: [convertedPosting],
+      );
+      // The edit screen's own re-fetch (getTransaction with no convert)
+      // returns the raw, unconverted resource — correctly, since editing
+      // must show original amounts. The list screen's follow-up converted
+      // re-fetch is a distinct call site.
+      const rawAfterEdit = TransactionResource(
+        name: 'transactions/t1',
+        transactionDate: '2026-06-18',
+        payee: 'Migros',
+        postings: [rawPosting],
+      );
+      const convertedAfterEdit = TransactionResource(
+        name: 'transactions/t1',
+        transactionDate: '2026-06-18',
+        payee: 'Migros',
+        postings: [convertedPosting],
+      );
+
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: any(named: 'convert'),
+        ),
+      ).thenAnswer((_) async => (data: ([original], null), error: null));
+      when(
+        () => mockRepo.updateTransaction(any(), any()),
+      ).thenAnswer((_) async => (data: rawAfterEdit, error: null));
+      // Registered before the no-convert stub: mocktail resolves the first
+      // registered stub whose specified constraints are satisfied, and a
+      // stub that doesn't mention `convert` at all is satisfied regardless
+      // of what the real call passes for it — so the more specific
+      // (convert: 'CHF') stub must come first to actually get exercised.
+      when(
+        () => mockRepo.getTransaction('transactions/t1', convert: 'CHF'),
+      ).thenAnswer((_) async => (data: convertedAfterEdit, error: null));
+      when(
+        () => mockRepo.getTransaction('transactions/t1'),
+      ).thenAnswer((_) async => (data: rawAfterEdit, error: null));
+
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      expect(find.text('34.00 CHF'), findsOneWidget);
+
+      await tester.tap(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      // Converted primary + original secondary, exactly like before the
+      // edit — not '40.00 USD' promoted to the primary line, which is what
+      // the edit screen's own unconverted re-fetch would have produced on
+      // its own without the list screen's follow-up converted re-fetch.
+      expect(find.text('34.00 CHF'), findsOneWidget);
+      expect(find.text('40.00 USD'), findsOneWidget);
+      verify(
+        () => mockRepo.getTransaction('transactions/t1', convert: 'CHF'),
+      ).called(1);
+    },
+  );
+
+  testWidgets(
+    'reloadDefaultCurrencyAndRefresh picks up a currency changed in App '
+    'Settings and re-fetches with it',
+    (tester) async {
+      // Starts with no default currency configured.
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: any(named: 'convert'),
+        ),
+      ).thenAnswer((_) async => (data: ([_tx()], null), error: null));
+      await tester.pumpWidget(buildScreen());
+      await tester.pumpAndSettle();
+      var call = verify(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: captureAny(named: 'convert'),
+        ),
+      );
+      call.called(1);
+      expect(call.captured.single, isNull);
+
+      // Simulate App Settings persisting a new default currency while this
+      // screen's State stayed alive underneath it.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('default_currency', 'CHF');
+
+      final state = tester.state<TransactionListScreenState>(
+        find.byType(TransactionListScreen),
+      );
+      await state.reloadDefaultCurrencyAndRefresh();
+      await tester.pumpAndSettle();
+
+      call = verify(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+          convert: captureAny(named: 'convert'),
+        ),
+      );
+      call.called(1);
+      expect(call.captured.single, 'CHF');
+    },
+  );
+
   // --- Bulk selection tests ---
 
   group('bulk selection', () {

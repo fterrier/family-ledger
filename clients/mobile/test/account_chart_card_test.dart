@@ -78,6 +78,7 @@ void main() {
     DateTime? from,
     DateTime? to,
     void Function(DateTime, DateTime)? onBucketSelected,
+    ValueChanged<ApiError?>? onError,
     bool showsLastImportHint = false,
     List<DoctorIssue> assertionIssues = const [],
     String? defaultCurrency = 'CHF',
@@ -103,6 +104,7 @@ void main() {
             fromDate: fromDate,
             toDate: toDate,
             onBucketSelected: onBucketSelected,
+            onError: onError,
             showsLastImportHint: showsLastImportHint,
             assertionIssues: assertionIssues,
             defaultCurrency: defaultCurrency,
@@ -119,6 +121,7 @@ void main() {
     DateTime? from,
     DateTime? to,
     void Function(DateTime, DateTime)? onBucketSelected,
+    ValueChanged<ApiError?>? onError,
     bool showsLastImportHint = false,
     List<DoctorIssue> assertionIssues = const [],
     String? defaultCurrency = 'CHF',
@@ -129,6 +132,7 @@ void main() {
     from: from,
     to: to,
     onBucketSelected: onBucketSelected,
+    onError: onError,
     showsLastImportHint: showsLastImportHint,
     assertionIssues: assertionIssues,
     defaultCurrency: defaultCurrency,
@@ -540,16 +544,37 @@ void main() {
     verify(() => repo.run(any(that: contains("currency = 'EUR'")))).called(1);
   });
 
-  testWidgets('error state offers retry', (tester) async {
+  testWidgets('a first-load failure reports onError and renders nothing — no '
+      'in-card error UI, since the parent owns the shared banner/retry', (
+    tester,
+  ) async {
     when(
       () => repo.run(any()),
     ).thenAnswer((_) async => (data: null, error: const AuthError()));
+    ApiError? reported;
+    var reportCount = 0;
 
-    await tester.pumpWidget(build(_checking));
+    await tester.pumpWidget(
+      build(
+        _checking,
+        onError: (e) {
+          reported = e;
+          reportCount++;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('Retry'), findsOneWidget);
+    expect(reported, const AuthError());
+    expect(reportCount, 1);
+    expect(find.text('Retry'), findsNothing);
+    expect(find.byType(AccountChartCard), findsOneWidget);
+    // Nothing rendered in the card's place — no message, no spinner.
+    expect(find.byType(Container), findsNothing);
 
+    // A retry is the parent bumping refreshTick, exactly like any other
+    // same-view reload (granularity/currency/refresh) — the card has no
+    // retry affordance of its own.
     when(() => repo.run(any())).thenAnswer(
       (_) async => (
         data: _amountResult([
@@ -558,14 +583,27 @@ void main() {
         error: null,
       ),
     );
-    await tester.tap(find.text('Retry'));
+    await tester.pumpWidget(
+      build(
+        _checking,
+        refreshTick: 1,
+        onError: (e) {
+          reported = e;
+          reportCount++;
+        },
+      ),
+    );
     await tester.pumpAndSettle();
+
     expect(find.text('100.00 CHF'), findsOneWidget);
+    expect(reported, isNull);
+    expect(reportCount, 2);
   });
 
   testWidgets(
     'a same-view reload failure keeps the previous content visible instead '
-    'of collapsing the whole card '
+    'of collapsing the whole card, and reports onError instead of showing '
+    'its own error UI '
     '(regression: header/headline disappeared behind a bare error box)',
     (tester) async {
       when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
@@ -579,23 +617,27 @@ void main() {
           error: null,
         ),
       );
+      ApiError? reported;
 
-      await tester.pumpWidget(build(_checking));
+      await tester.pumpWidget(build(_checking, onError: (e) => reported = e));
       await tester.pumpAndSettle();
       expect(find.text('100.00 CHF'), findsOneWidget);
+      expect(reported, isNull);
 
       // Same-view reload (granularity tap) fails.
       await tester.tap(find.text('Day'));
       await tester.pumpAndSettle();
 
-      // Stale headline/granularity chips survive; only the chart slot
-      // shows the error + retry, not a full-card collapse.
+      // Stale headline/granularity chips survive — no error box or retry
+      // button anywhere in the card; onError carries the failure instead.
       expect(find.text('100.00 CHF'), findsOneWidget);
       expect(find.text('Day'), findsOneWidget);
-      expect(find.text('timed out'), findsOneWidget);
-      expect(find.text('Retry'), findsOneWidget);
+      expect(find.text('timed out'), findsNothing);
+      expect(find.text('Retry'), findsNothing);
+      expect(reported, const NetworkError('timed out'));
 
-      // Retrying recovers the chart.
+      // Retrying (a refreshTick bump, same as any other parent-driven
+      // reload) recovers the chart.
       when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
         (_) async => (
           data: _amountResult([
@@ -604,11 +646,14 @@ void main() {
           error: null,
         ),
       );
-      await tester.tap(find.text('Retry'));
+      await tester.pumpWidget(
+        build(_checking, refreshTick: 1, onError: (e) => reported = e),
+      );
       await tester.pumpAndSettle();
 
       expect(find.text('150.00 CHF'), findsOneWidget);
       expect(find.byType(LineChart), findsOneWidget);
+      expect(reported, isNull);
     },
   );
 

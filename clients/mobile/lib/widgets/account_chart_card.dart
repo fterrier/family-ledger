@@ -66,6 +66,12 @@ class ChartSpec {
 /// specs render per-bucket bars, also raw-signed (income plots negative).
 /// Bucket granularity follows the filter span. Tapping a bucket narrows
 /// the shared filter to that bucket via [onBucketSelected].
+///
+/// The card has no error UI or retry button of its own — a fetch failure
+/// is reported via [onError] and left entirely to the parent's shared
+/// error banner (whose retry already reloads this card too, via
+/// [refreshTick]), so a server outage doesn't show two separate error
+/// boxes. A same-view reload failure keeps showing the previous series.
 class AccountChartCard extends StatefulWidget {
   final QueryRepository queryRepository;
   final ChartSpec spec;
@@ -84,6 +90,11 @@ class AccountChartCard extends StatefulWidget {
   final int refreshTick;
   final void Function(DateTime from, DateTime to)? onBucketSelected;
 
+  /// Reports this load's outcome (null on success) so the parent can show
+  /// a single shared error banner instead of the card owning its own —
+  /// see [AccountChartCard]'s class doc.
+  final ValueChanged<ApiError?>? onError;
+
   /// Failed balance assertions for this account's subtree (from doctor);
   /// rendered as red bands on the chart plus a tappable badge. Home
   /// pseudo-views pass none — no doctor overlay there.
@@ -100,6 +111,7 @@ class AccountChartCard extends StatefulWidget {
     this.showsLastImportHint = false,
     this.refreshTick = 0,
     this.onBucketSelected,
+    this.onError,
     this.assertionIssues = const [],
   });
 
@@ -243,6 +255,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         _loading = false;
         _error = result.error;
       });
+      widget.onError?.call(result.error);
       return;
     }
     setState(() {
@@ -255,6 +268,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
       _loading = false;
       _warnings = result.data!.warnings;
     });
+    widget.onError?.call(null);
   }
 
   // -- projections -----------------------------------------------------------
@@ -389,6 +403,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   @override
   Widget build(BuildContext context) {
+    // A first-load failure has nothing else to show, and the parent's
+    // shared banner (fed by [onError]) already carries the message — see
+    // the class doc — so the whole card just steps aside rather than
+    // duplicating that message in a placeholder of its own. A same-view
+    // reload failure is different: the previous series is still good, so
+    // it keeps showing (handled below, not here).
+    if (_series == null && _error != null) return const SizedBox.shrink();
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 12, 12, 4),
       padding: const EdgeInsets.all(16),
@@ -409,18 +430,17 @@ class _AccountChartCardState extends State<AccountChartCard> {
     final series = _series;
     // A same-view reload (granularity/currency change, refresh) keeps the
     // previous series around — see _load — so it reaches the full content
-    // below even while `_loading` or `_error` is set; only the chart's own
-    // slot reflects those, leaving the header/headline/card height put.
-    // Only the very first load for this view has nothing to fall back on: a
-    // failure there is the whole card's story, so it gets the full-card
-    // error view instead.
+    // below even while `_loading` or `_error` is set; only `_loading` gates
+    // the chart's own slot to a spinner, leaving the header/headline/card
+    // height put. An `_error` here doesn't get its own UI — see the class
+    // doc — the stale series just keeps showing while the parent's shared
+    // banner carries the message. (A first-load failure, with no series to
+    // fall back on, is handled above in build() instead.)
     if (series == null) {
-      return _error != null
-          ? SizedBox(height: 120, child: _errorView(_error!, _load))
-          : const SizedBox(
-              height: 220,
-              child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
-            );
+      return const SizedBox(
+        height: 220,
+        child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+      );
     }
     if (series.isEmpty) {
       return _placeholderCard('No data in range');
@@ -433,9 +453,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         const SizedBox(height: 12),
         SizedBox(
           height: 180,
-          child: _error != null
-              ? _errorView(_error!, _load)
-              : _loading || _values.isEmpty
+          child: _loading || _values.isEmpty
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : LayoutBuilder(
                   builder: (context, constraints) {
@@ -476,22 +494,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
           textAlign: TextAlign.center,
           style: const TextStyle(fontSize: 13, color: _textSecondary),
         ),
-      ),
-    );
-  }
-
-  Widget _errorView(ApiError error, VoidCallback onRetry) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            error.displayMessage,
-            style: const TextStyle(fontSize: 13, color: _textSecondary),
-            textAlign: TextAlign.center,
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
       ),
     );
   }

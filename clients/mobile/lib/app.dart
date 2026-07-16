@@ -131,6 +131,9 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         ),
       ),
     );
+    // The default currency may have changed — every fetch and row amount
+    // depends on it, and the list screen's State survives this navigation.
+    _listKey.currentState?.reloadDefaultCurrencyAndRefresh();
   }
 
   Future<void> _openImport({String? filePath, String? mimeType}) async {

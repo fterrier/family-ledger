@@ -183,6 +183,79 @@ def test_list_transactions_without_convert_has_no_converted_units() -> None:
         assert posting["converted_units"] is None
 
 
+def test_get_transaction_convert_values_postings_at_transaction_date() -> None:
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking")
+    opening = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+    _create_price(client, "2026-04-01", "USD", "0.85", "CHF")
+
+    created = create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": checking["name"], "units": {"amount": "40", "symbol": "USD"}},
+            {"account": opening["name"], "units": {"amount": "-40", "symbol": "USD"}},
+        ],
+    )
+
+    without_convert = client.get(f"/{created['name']}")
+    assert without_convert.status_code == 200
+    assert without_convert.json()["postings"][0]["converted_units"] is None
+
+    with_convert = client.get(f"/{created['name']}?convert=CHF")
+    assert with_convert.status_code == 200
+    assert with_convert.json()["postings"][0]["converted_units"] == {
+        "amount": "34",
+        "symbol": "CHF",
+    }
+
+
+def test_get_transaction_after_edit_still_converts() -> None:
+    # Regression: get_transaction_by_name must build its own price lookup —
+    # a transaction fetched right after a PATCH must convert exactly like a
+    # transaction fetched from the list.
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking")
+    opening = create_account(client, "Equity:Opening")
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+    _create_price(client, "2026-04-01", "USD", "0.85", "CHF")
+
+    created = create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": checking["name"], "units": {"amount": "40", "symbol": "USD"}},
+            {"account": opening["name"], "units": {"amount": "-40", "symbol": "USD"}},
+        ],
+    )
+
+    patch_response = client.patch(
+        f"/{created['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-10",
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "50", "symbol": "USD"}},
+                    {"account": opening["name"], "units": {"amount": "-50", "symbol": "USD"}},
+                ],
+            }
+        },
+    )
+    assert patch_response.status_code == 200
+
+    response = client.get(f"/{created['name']}?convert=CHF")
+    assert response.status_code == 200
+    assert response.json()["postings"][0]["converted_units"] == {
+        "amount": "42.5",
+        "symbol": "CHF",
+    }
+
+
 def test_create_transaction_rejects_unknown_commodity() -> None:
     client = make_client()
 

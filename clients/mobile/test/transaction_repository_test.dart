@@ -284,6 +284,30 @@ void main() {
       expect(result.error, isA<AuthError>());
       expect(result.data, isNull);
     });
+
+    test('passes convert as a query param only when provided', () async {
+      when(
+        () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => (data: txJson, error: null));
+
+      await repo.getTransaction('transactions/t1', convert: 'CHF');
+      final withConvert = verify(
+        () => mockClient.get(
+          captureAny(),
+          queryParams: captureAny(named: 'queryParams'),
+        ),
+      );
+      expect(withConvert.captured[1], {'convert': 'CHF'});
+
+      await repo.getTransaction('transactions/t1');
+      final withoutConvert = verify(
+        () => mockClient.get(
+          captureAny(),
+          queryParams: captureAny(named: 'queryParams'),
+        ),
+      );
+      expect(withoutConvert.captured[1], isNull);
+    });
   });
 
   group('TransactionRepository.updateTransaction', () {

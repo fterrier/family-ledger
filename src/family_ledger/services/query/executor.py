@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import QueryColumn, QueryLedgerResponse, QueryWarning
 from family_ledger.services.errors import ValidationError
-from family_ledger.services.prices import PriceLookup
+from family_ledger.services.prices import PriceLookup, _to_decimal
 from family_ledger.services.query.compiler import CompiledQuery, PostPlan, compile_query
 from family_ledger.services.query.parser import parse
 from family_ledger.services.transaction_balancing import decimal_to_string
@@ -36,12 +36,6 @@ MAX_QUERY_LENGTH = 10_000
 MAX_RESULT_ROWS = 10_000
 
 _FOLDED_TYPES = ("inventory", "amount")
-
-
-def _to_decimal(value: Any) -> Decimal:
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
 
 
 def _serialize_scalar(value: Any, cell_type: str) -> Any:

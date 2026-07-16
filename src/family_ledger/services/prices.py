@@ -22,6 +22,23 @@ def _to_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
 
 
+def _latest_nonzero(
+    dates: list[date], rates: list[Decimal], on: date
+) -> tuple[Decimal, date] | None:
+    """Latest (rate, date) on or before ``on``, skipping zero entries — a
+    stored 0 is degenerate data (a real price is never actually zero) and
+    must never be used as a rate: taken directly it converts everything to
+    0, inverted it raises DivisionByZero. Falls back to an earlier real
+    price when the latest entry is zero, exactly like a missing entry would
+    fall back."""
+    index = bisect_right(dates, on)
+    while index:
+        index -= 1
+        if rates[index] != 0:
+            return rates[index], dates[index]
+    return None
+
+
 class PriceLookup:
     """Latest price on or before a date: direct pair, inverse pair, then a
     single intermediate hop (base -> X -> target).
@@ -72,16 +89,15 @@ class PriceLookup:
     def _pair(self, base: str, quote: str, on: date) -> tuple[Decimal, date] | None:
         entry = self._series.get((base, quote))
         if entry is not None:
-            dates, rates = entry
-            index = bisect_right(dates, on)
-            if index:
-                return rates[index - 1], dates[index - 1]
+            found = _latest_nonzero(*entry, on)
+            if found is not None:
+                return found
         entry = self._series.get((quote, base))
         if entry is not None:
-            dates, rates = entry
-            index = bisect_right(dates, on)
-            if index:
-                return Decimal(1) / rates[index - 1], dates[index - 1]
+            found = _latest_nonzero(*entry, on)
+            if found is not None:
+                rate, found_date = found
+                return Decimal(1) / rate, found_date
         return None
 
     def rate(self, base: str, on: date) -> Decimal | None:

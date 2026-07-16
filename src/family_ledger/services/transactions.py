@@ -334,32 +334,45 @@ def list_transactions_page(
     transactions, next_page_token = run_list_page(
         session, query, page_size=page_size, page_token=page_token
     )
-    # One price load for the whole page, scoped to the currencies and dates
-    # it actually contains (same pattern as the reporting query executor).
-    price_lookup = None
-    if convert is not None and transactions:
-        foreign = {
-            posting.units_symbol
-            for transaction in transactions
-            for posting in transaction.postings
-            if posting.units_symbol != convert
-        }
-        if foreign:
-            price_lookup = PriceLookup(
-                session,
-                foreign,
-                convert,
-                max(transaction.transaction_date for transaction in transactions),
-            )
+    price_lookup = _build_price_lookup(session, transactions, convert)
     return ListTransactionsResponse(
         transactions=[serialize_transaction(t, price_lookup=price_lookup) for t in transactions],
         next_page_token=next_page_token,
     )
 
 
-def get_transaction_by_name(session: Session, transaction: str) -> TransactionResource:
+def _build_price_lookup(
+    session: Session, transactions: list[Transaction], convert: str | None
+) -> PriceLookup | None:
+    """One price load scoped to the currencies and dates the given
+    transactions actually contain (same pattern as the reporting query
+    executor). Shared by the list and single-transaction read paths so a
+    transaction's converted amounts don't disappear depending on which one
+    served it (e.g. right after an edit)."""
+    if convert is None or not transactions:
+        return None
+    foreign = {
+        posting.units_symbol
+        for transaction in transactions
+        for posting in transaction.postings
+        if posting.units_symbol != convert
+    }
+    if not foreign:
+        return None
+    return PriceLookup(
+        session,
+        foreign,
+        convert,
+        max(transaction.transaction_date for transaction in transactions),
+    )
+
+
+def get_transaction_by_name(
+    session: Session, transaction: str, *, convert: str | None = None
+) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
-    return serialize_transaction(transaction_row)
+    price_lookup = _build_price_lookup(session, [transaction_row], convert)
+    return serialize_transaction(transaction_row, price_lookup=price_lookup)
 
 
 def find_transactions_by_source_id_pattern(

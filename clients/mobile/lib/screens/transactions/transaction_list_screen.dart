@@ -56,6 +56,10 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   List<TransactionResource> _transactions = [];
   String? _nextPageToken;
   bool _isLoading = false;
+
+  // Shared by the list fetch and the chart's query (via
+  // AccountChartCard.onError, which has no error UI of its own) — one
+  // error banner regardless of which side failed.
   ApiError? _error;
   bool _paginationError = false;
 
@@ -103,6 +107,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     if (stored != null && stored.isNotEmpty) {
       setState(() => _defaultCurrency = stored);
     }
+  }
+
+  // Called by the app shell after returning from App Settings — this
+  // State survives that navigation (it isn't disposed), so a currency
+  // change there would otherwise keep every fetch and row converting to
+  // the old value until the app restarts.
+  Future<void> reloadDefaultCurrencyAndRefresh() async {
+    await _loadDefaultCurrency();
+    if (mounted) refresh();
   }
 
   Future<void> _prefetchAccounts() async {
@@ -192,16 +205,27 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         ),
       ),
     );
-    if (updated != null && mounted) {
-      setState(() {
-        final idx = _transactions.indexWhere((t) => t.name == updated.name);
-        if (idx >= 0) _transactions[idx] = updated;
-        // The edit may have changed amounts/postings on the charted
-        // account; the chart has no other way to learn that.
-        _chartRefreshTick++;
-      });
-      _refreshDoctorIssues();
-    }
+    if (updated == null || !mounted) return;
+    // The edit screen's own re-fetch always returns raw (unconverted)
+    // units — correctly, since editing must show original amounts, never
+    // converted ones. Re-fetch once more here, converted, so the row keeps
+    // its display currency instead of falling back to raw per-currency
+    // sums until the next full list reload.
+    final refetched = _defaultCurrency == null
+        ? null
+        : await widget.transactionRepository.getTransaction(
+            updated.name,
+            convert: _defaultCurrency,
+          );
+    if (!mounted) return;
+    setState(() {
+      final idx = _transactions.indexWhere((t) => t.name == updated.name);
+      if (idx >= 0) _transactions[idx] = refetched?.data ?? updated;
+      // The edit may have changed amounts/postings on the charted
+      // account; the chart has no other way to learn that.
+      _chartRefreshTick++;
+    });
+    _refreshDoctorIssues();
   }
 
   // User-initiated (pull gesture, post-mutation, app-shell refresh): always
@@ -366,6 +390,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       showsLastImportHint: _filter.lastImportOnly,
       refreshTick: _chartRefreshTick,
       onBucketSelected: _narrowToBucket,
+      onError: (error) => setState(() => _error = error),
       // Doctor assertion overlays are per-account; home views show none.
       assertionIssues: account != null
           ? _selectedAccountAssertionIssues
@@ -482,27 +507,22 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // selected, the home pseudo-view (balance sheet / income statement)
     // otherwise — even when there are no transactions.
 
-    // Bottom spinner only during pagination. During refresh, _nextPageToken is reset
-    // to null before _isLoading = true, so this stays false and only
-    // RefreshIndicator's own top indicator shows — except RefreshIndicator's
-    // spinner only appears for a user pull gesture, not a programmatic
-    // refresh(), so an initial/empty load needs its own cue here. The chart
-    // card often shows its own spinner alongside, but it can't be relied on
-    // for this: with no default currency configured it shows a placeholder,
-    // leaving this footer as the only sign the list is loading.
-    final showBottomSpinner = _isLoading && _nextPageToken != null;
-    final showInitialLoading =
-        _isLoading && _transactions.isEmpty && _nextPageToken == null;
+    // Footer spinner covers two loading cases (mutually exclusive, same
+    // widget either way): mid-pagination, and the very first fetch when
+    // there's no default currency for the chart to show its own spinner
+    // instead (it shows a placeholder then, so the list needs its own cue).
+    // Any other initial load already has the chart's spinner as its cue —
+    // it always leads the list — so this doesn't also fire then.
+    final showLoadingFooter =
+        _isLoading &&
+        (_nextPageToken != null ||
+            (_transactions.isEmpty && _defaultCurrency == null));
     final isSelecting = _selectedNames.isNotEmpty;
     // Never claim the range is empty while a load error is still showing —
     // the fetch didn't actually succeed, so "no transactions" isn't true.
     final showEmptyState =
         _transactions.isEmpty && !_isLoading && _error == null;
-    final hasTrailing =
-        showBottomSpinner ||
-        _paginationError ||
-        showInitialLoading ||
-        showEmptyState;
+    final hasTrailing = showLoadingFooter || _paginationError || showEmptyState;
 
     Widget listContent = RefreshIndicator(
       onRefresh: refresh,
@@ -517,7 +537,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
           if (index == 0) return _buildChartCard();
           final txIndex = index - 1;
           if (txIndex == _transactions.length) {
-            if (showBottomSpinner || showInitialLoading) {
+            if (showLoadingFooter) {
               return const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
                 child: Center(

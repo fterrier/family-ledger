@@ -14,8 +14,14 @@ class TransactionRepository {
     return _client.post('/transactions', tx.toJson());
   }
 
-  Future<Result<TransactionResource>> getTransaction(String name) async {
-    final result = await _client.get('/$name');
+  Future<Result<TransactionResource>> getTransaction(
+    String name, {
+    String? convert,
+  }) async {
+    final result = await _client.get(
+      '/$name',
+      queryParams: convert != null ? {'convert': convert} : null,
+    );
     if (result.error != null) return (data: null, error: result.error);
     return (data: TransactionResource.fromJson(result.data!), error: null);
   }

@@ -215,7 +215,7 @@ void main() {
     });
 
     testWidgets('pops with updated transaction on success', (tester) async {
-      TransactionResource? poppedWith;
+      TransactionEditResult? poppedWith;
       final updated = _balancedTx();
       when(
         () => mockTransactionRepo.updateTransaction(any(), any()),
@@ -229,7 +229,7 @@ void main() {
           home: Builder(
             builder: (context) => ElevatedButton(
               onPressed: () async {
-                final result = await Navigator.push<TransactionResource>(
+                final result = await Navigator.push<TransactionEditResult>(
                   context,
                   MaterialPageRoute(
                     builder: (_) => TransactionEditScreen(
@@ -254,7 +254,8 @@ void main() {
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      expect(poppedWith?.name, 'transactions/t1');
+      expect(poppedWith?.$1.name, 'transactions/t1');
+      expect(poppedWith?.$2, isNull);
     });
   });
 

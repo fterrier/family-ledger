@@ -1185,26 +1185,11 @@ void main() {
         units: MoneyValue(amount: '40', symbol: 'USD'),
         convertedUnits: MoneyValue(amount: '34', symbol: 'CHF'),
       );
-      const rawPosting = PostingResource(
-        account: 'accounts/acc_checking',
-        accountName: 'Assets:Bank:Checking',
-        units: MoneyValue(amount: '40', symbol: 'USD'),
-      );
       const original = TransactionResource(
         name: 'transactions/t1',
         transactionDate: '2026-06-18',
         payee: 'Migros',
         postings: [convertedPosting],
-      );
-      // The edit screen's own re-fetch (getTransaction with no convert)
-      // returns the raw, unconverted resource — correctly, since editing
-      // must show original amounts. The list screen's follow-up converted
-      // re-fetch is a distinct call site.
-      const rawAfterEdit = TransactionResource(
-        name: 'transactions/t1',
-        transactionDate: '2026-06-18',
-        payee: 'Migros',
-        postings: [rawPosting],
       );
       const convertedAfterEdit = TransactionResource(
         name: 'transactions/t1',
@@ -1223,18 +1208,13 @@ void main() {
       ).thenAnswer((_) async => (data: ([original], null), error: null));
       when(
         () => mockRepo.updateTransaction(any(), any()),
-      ).thenAnswer((_) async => (data: rawAfterEdit, error: null));
-      // Registered before the no-convert stub: mocktail resolves the first
-      // registered stub whose specified constraints are satisfied, and a
-      // stub that doesn't mention `convert` at all is satisfied regardless
-      // of what the real call passes for it — so the more specific
-      // (convert: 'CHF') stub must come first to actually get exercised.
+      ).thenAnswer((_) async => (data: convertedAfterEdit, error: null));
+      // The edit screen's own post-save GET is given the list's default
+      // currency (see TransactionListScreen._openTransaction), so it comes
+      // back already converted — there's no second, list-side re-fetch.
       when(
         () => mockRepo.getTransaction('transactions/t1', convert: 'CHF'),
       ).thenAnswer((_) async => (data: convertedAfterEdit, error: null));
-      when(
-        () => mockRepo.getTransaction('transactions/t1'),
-      ).thenAnswer((_) async => (data: rawAfterEdit, error: null));
 
       await tester.pumpWidget(buildScreen());
       await tester.pumpAndSettle();
@@ -1247,8 +1227,7 @@ void main() {
 
       // Converted primary + original secondary, exactly like before the
       // edit — not '40.00 USD' promoted to the primary line, which is what
-      // the edit screen's own unconverted re-fetch would have produced on
-      // its own without the list screen's follow-up converted re-fetch.
+      // an unconverted re-fetch would have produced.
       expect(find.text('34.00 CHF'), findsOneWidget);
       expect(find.text('40.00 USD'), findsOneWidget);
       verify(
@@ -1826,6 +1805,59 @@ void main() {
         expect(find.byType(AccountChartCard), findsOneWidget);
         expect(find.byType(ErrorBanner), findsOneWidget);
         expect(find.text('No transactions in range'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a chart-only reload succeeding does not clobber a still-active list error '
+      '(regression: onError(null) used to overwrite the one shared _error field)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          'default_currency': 'CHF',
+          'tx_filter_account_name': 'accounts/acc-1',
+          'tx_filter_account_display_name': 'Assets:Checking:ZKB',
+          'tx_filter_account_is_prefix': false,
+        });
+        when(
+          () => mockRepo.listTransactions(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+            filter: any(named: 'filter'),
+            convert: any(named: 'convert'),
+          ),
+        ).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('down')),
+        );
+        // Non-empty so the chart renders its granularity chips (an empty
+        // series shows a hint instead) — needed to trigger a chart-only
+        // reload below. Succeeds both on initial load and on that reload.
+        when(() => mockQueryRepo.run(any())).thenAnswer(
+          (_) async => (
+            data: const QueryResult(
+              columns: [
+                QueryColumnDef(name: 'y', type: 'int'),
+                QueryColumnDef(name: 'bal', type: 'amount'),
+              ],
+              rows: [
+                [2025, QueryAmount(number: '100', currency: 'CHF')],
+              ],
+              warnings: [],
+            ),
+            error: null,
+          ),
+        );
+
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+        expect(find.byType(ErrorBanner), findsOneWidget);
+
+        // Purely internal to the chart card — reloads only the chart's own
+        // query, calling onError(null) on success without the list ever
+        // being touched.
+        await tester.tap(find.text('Year'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(ErrorBanner), findsOneWidget);
       },
     );
 

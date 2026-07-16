@@ -50,6 +50,14 @@ class TransactionListScreen extends StatefulWidget {
   TransactionListScreenState createState() => TransactionListScreenState();
 }
 
+// The list fetch and the chart's query (via AccountChartCard.onError,
+// which has no error UI of its own) are two independent, concurrently
+// running network calls. Tracking them under one shared ApiError? field
+// let whichever finished last — even a success — silently clear the
+// other's still-active failure. Keying by source instead means each one
+// only ever touches its own slot.
+enum _ErrorSource { list, chart }
+
 class TransactionListScreenState extends State<TransactionListScreen> {
   final _scrollController = ScrollController();
 
@@ -57,10 +65,13 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   String? _nextPageToken;
   bool _isLoading = false;
 
-  // Shared by the list fetch and the chart's query (via
-  // AccountChartCard.onError, which has no error UI of its own) — one
-  // error banner regardless of which side failed.
-  ApiError? _error;
+  final Map<_ErrorSource, ApiError> _errors = {};
+
+  // The banner shows one message at a time; the list's own failure is the
+  // more actionable one when both are active.
+  ApiError? get _error =>
+      _errors[_ErrorSource.list] ?? _errors[_ErrorSource.chart];
+
   bool _paginationError = false;
 
   // Incremented on each new fetch; _doFetch discards results from older generations.
@@ -194,7 +205,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   }
 
   Future<void> _openTransaction(TransactionResource tx) async {
-    final updated = await Navigator.push<TransactionResource>(
+    final result = await Navigator.push<TransactionEditResult>(
       context,
       MaterialPageRoute(
         builder: (_) => TransactionEditScreen(
@@ -202,25 +213,25 @@ class TransactionListScreenState extends State<TransactionListScreen> {
           transactionRepository: widget.transactionRepository,
           accountRepository: widget.accountRepository,
           commodityRepository: widget.commodityRepository,
+          // The edit form itself always shows/edits raw values regardless —
+          // this only steers the screen's post-save GET, so the row we get
+          // back is already converted and this screen doesn't need its own
+          // second round-trip to get one.
+          defaultCurrency: _defaultCurrency,
         ),
       ),
     );
-    if (updated == null || !mounted) return;
-    // The edit screen's own re-fetch always returns raw (unconverted)
-    // units — correctly, since editing must show original amounts, never
-    // converted ones. Re-fetch once more here, converted, so the row keeps
-    // its display currency instead of falling back to raw per-currency
-    // sums until the next full list reload.
-    final refetched = _defaultCurrency == null
-        ? null
-        : await widget.transactionRepository.getTransaction(
-            updated.name,
-            convert: _defaultCurrency,
-          );
-    if (!mounted) return;
+    if (result == null || !mounted) return;
+    final (updated, refetchError) = result;
     setState(() {
       final idx = _transactions.indexWhere((t) => t.name == updated.name);
-      if (idx >= 0) _transactions[idx] = refetched?.data ?? updated;
+      if (idx >= 0) _transactions[idx] = updated;
+      // The edit itself succeeded — surface a failed post-save re-fetch as
+      // a banner rather than dropping it silently, while still showing the
+      // best data available (the PATCH response) for the row.
+      if (refetchError != null) {
+        _errors[_ErrorSource.list] = refetchError;
+      }
       // The edit may have changed amounts/postings on the charted
       // account; the chart has no other way to learn that.
       _chartRefreshTick++;
@@ -242,10 +253,16 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     setState(() {
       _isLoading = true;
       _nextPageToken = null;
-      _error = null;
+      _errors.remove(_ErrorSource.list);
+      // Only clear the chart's error when the chart is also about to
+      // reload (bumpChartTick) — otherwise its still-active failure would
+      // vanish from the banner while nothing re-queries it.
+      if (bumpChartTick) {
+        _errors.remove(_ErrorSource.chart);
+        _chartRefreshTick++;
+      }
       _paginationError = false;
       _transactionsWithIssues = {};
-      if (bumpChartTick) _chartRefreshTick++;
     });
     if (_scrollController.hasClients) _scrollController.jumpTo(0);
     await _doFetch(generation: generation);
@@ -307,7 +324,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         // - null  → initial load or refresh  → ErrorBanner at top (always visible)
         // - non-null → pagination            → retry footer (user is near bottom)
         if (pageToken == null) {
-          _error = result.error;
+          _errors[_ErrorSource.list] = result.error!;
         } else {
           _paginationError = true;
         }
@@ -390,7 +407,13 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       showsLastImportHint: _filter.lastImportOnly,
       refreshTick: _chartRefreshTick,
       onBucketSelected: _narrowToBucket,
-      onError: (error) => setState(() => _error = error),
+      onError: (error) => setState(() {
+        if (error != null) {
+          _errors[_ErrorSource.chart] = error;
+        } else {
+          _errors.remove(_ErrorSource.chart);
+        }
+      }),
       // Doctor assertion overlays are per-account; home views show none.
       assertionIssues: account != null
           ? _selectedAccountAssertionIssues
@@ -518,10 +541,14 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         (_nextPageToken != null ||
             (_transactions.isEmpty && _defaultCurrency == null));
     final isSelecting = _selectedNames.isNotEmpty;
-    // Never claim the range is empty while a load error is still showing —
-    // the fetch didn't actually succeed, so "no transactions" isn't true.
+    // Never claim the range is empty while the list's OWN fetch errored —
+    // it didn't actually succeed, so "no transactions" isn't true. A
+    // chart-only error doesn't affect this: the list can be genuinely
+    // empty even while the chart's independent query is failing.
     final showEmptyState =
-        _transactions.isEmpty && !_isLoading && _error == null;
+        _transactions.isEmpty &&
+        !_isLoading &&
+        !_errors.containsKey(_ErrorSource.list);
     final hasTrailing = showLoadingFooter || _paginationError || showEmptyState;
 
     Widget listContent = RefreshIndicator(

@@ -69,11 +69,23 @@ class _EditablePosting {
   }
 }
 
+// Popped by TransactionEditScreen on a successful save: the fresh resource
+// (converted, when defaultCurrency was given — see below), plus any error
+// from the follow-up GET that fetched it (the PATCH itself already
+// succeeded by then, so this doesn't block the pop; the caller decides how
+// to surface it).
+typedef TransactionEditResult = (TransactionResource, ApiError?);
+
 class TransactionEditScreen extends StatefulWidget {
   final TransactionResource transaction;
   final TransactionRepository transactionRepository;
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
+  // Only used for the post-save GET (see _save) so the caller gets back an
+  // already-converted resource instead of having to re-fetch it itself.
+  // The edit form always shows/edits raw, unconverted values — this never
+  // reaches form state.
+  final String? defaultCurrency;
 
   const TransactionEditScreen({
     super.key,
@@ -81,6 +93,7 @@ class TransactionEditScreen extends StatefulWidget {
     required this.transactionRepository,
     required this.accountRepository,
     required this.commodityRepository,
+    this.defaultCurrency,
   });
 
   @override
@@ -334,14 +347,21 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       return;
     }
 
-    // Fetch fresh resource so list row reflects any server-side normalisation.
+    // Fetch fresh resource so list row reflects any server-side
+    // normalisation — converted, when a default currency is configured, so
+    // the caller doesn't need a second round-trip just to get that.
     final getResult = await widget.transactionRepository.getTransaction(
       widget.transaction.name,
+      convert: widget.defaultCurrency,
     );
     if (!mounted) return;
 
-    // Use the PATCH response as fallback if the follow-up GET fails.
-    Navigator.pop(context, getResult.data ?? updateResult.data);
+    // Use the PATCH response as fallback if the follow-up GET fails; the
+    // caller still learns about that failure via the second element.
+    Navigator.pop<TransactionEditResult>(context, (
+      getResult.data ?? updateResult.data!,
+      getResult.error,
+    ));
   }
 
   Future<void> _pickDate() async {

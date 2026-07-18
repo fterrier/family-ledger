@@ -40,31 +40,30 @@ from family_ledger.services.validation import resolve_accounts, resource_name
 
 
 def _converted_weight(
-    posting: Posting, on: date, price_lookup: PriceLookup | None
+    weight: MoneyValue, on: date, price_lookup: PriceLookup | None
 ) -> MoneyValue | None:
-    """The posting's weight (cost/price-adjusted value, or raw units when
-    there's no cost/price — see persisted_posting_weight) valued in the
-    lookup's target currency at the transaction date. The weight is always
-    the conversion basis, never the posting's raw units directly — even
-    when those units already happen to be in the target currency: e.g. 100
-    CHF bought at cost {1.2 USD} was really 120 USD spent, and its current
-    CHF value is that 120 USD re-priced at today's rate, not a trivial 100
-    CHF (matches bean-query's convert_position, which always reduces a
-    position to its weight before any currency conversion). None when no
-    lookup was requested, or no price path exists for the weight's
-    currency."""
+    """[weight] (a posting's cost/price-adjusted value, or raw units when
+    there's no cost/price — see persisted_posting_weight, which the caller
+    already computed once) valued in the lookup's target currency at the
+    transaction date. The weight is always the conversion basis, never the
+    posting's raw units directly — even when those units already happen to
+    be in the target currency: e.g. 100 CHF bought at cost {1.2 USD} was
+    really 120 USD spent, and its current CHF value is that 120 USD
+    re-priced at today's rate, not a trivial 100 CHF (matches bean-query's
+    convert_position, which always reduces a position to its weight before
+    any currency conversion). None when no lookup was requested, or no
+    price path exists for the weight's currency."""
     if price_lookup is None:
         return None
-    basis = persisted_posting_weight(posting)
     # DB numerics carry their full storage scale (20 decimals of trailing
     # zeros); serialize like the query endpoint does.
-    if basis.symbol == price_lookup.target:
-        return MoneyValue(amount=Decimal(decimal_to_string(basis.amount)), symbol=basis.symbol)
-    rate = price_lookup.rate(basis.symbol, on)
+    if weight.symbol == price_lookup.target:
+        return MoneyValue(amount=Decimal(decimal_to_string(weight.amount)), symbol=weight.symbol)
+    rate = price_lookup.rate(weight.symbol, on)
     if rate is None:
         return None
     return MoneyValue(
-        amount=Decimal(decimal_to_string(basis.amount * rate)),
+        amount=Decimal(decimal_to_string(weight.amount * rate)),
         symbol=price_lookup.target,
     )
 
@@ -72,26 +71,32 @@ def _converted_weight(
 def serialize_transaction(
     transaction: Transaction, *, price_lookup: PriceLookup | None = None
 ) -> TransactionResource:
-    postings = [
-        PostingPayload(
-            account=posting.account.name,
-            account_name=posting.account.account_name,
-            units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
-            narration=posting.narration,
-            cost=None
-            if posting.cost_per_unit is None
-            else MoneyValue(amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)),
-            price=None
-            if posting.price_per_unit is None
-            else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
-            weight=persisted_posting_weight(posting),
-            converted_weights=_converted_weight(
-                posting, transaction.transaction_date, price_lookup
-            ),
-            entity_metadata=posting.entity_metadata,
+    postings = []
+    for posting in transaction.postings:
+        weight = persisted_posting_weight(posting)
+        postings.append(
+            PostingPayload(
+                account=posting.account.name,
+                account_name=posting.account.account_name,
+                units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
+                narration=posting.narration,
+                cost=None
+                if posting.cost_per_unit is None
+                else MoneyValue(
+                    amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)
+                ),
+                price=None
+                if posting.price_per_unit is None
+                else MoneyValue(
+                    amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)
+                ),
+                weight=weight,
+                converted_weights=_converted_weight(
+                    weight, transaction.transaction_date, price_lookup
+                ),
+                entity_metadata=posting.entity_metadata,
+            )
         )
-        for posting in transaction.postings
-    ]
 
     import_metadata = (
         ImportMetadata(

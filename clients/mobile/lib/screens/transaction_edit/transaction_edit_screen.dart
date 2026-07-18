@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../core/account_category.dart';
 import '../../core/api_error.dart';
+import '../../core/generation_guard.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
 import '../../models/doctor_issue.dart';
@@ -126,10 +127,10 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   // largest.
   List<({String symbol, double amount})> _imbalances = const [];
   Timer? _normalizeDebounce;
-  // Bumped on every check; a response is only applied if it's still the
-  // most recent one requested — otherwise a slow, superseded response
-  // could land after a faster later one and silently show stale results.
-  int _normalizeGeneration = 0;
+  // A response is only applied if it's still the most recent check
+  // requested — otherwise a slow, superseded response could land after a
+  // faster later one and silently show stale results.
+  final _normalizeGuard = GenerationGuard();
 
   @override
   void initState() {
@@ -161,11 +162,15 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     _scheduleNormalizeCheck();
   }
 
-  // Only reschedules on a real value change — wireAmountFocus (see
-  // core/amount_format.dart) also touches these controllers purely to
-  // reformat display text (strip/add commas, pad decimals) on focus
-  // change, which would otherwise reschedule a network round-trip for a
-  // no-op edit.
+  // Compares the parsed numeric value, not raw text, before rescheduling:
+  // TextEditingController notifies on any value change, including ones
+  // that don't change what the field means — wireAmountFocus's own
+  // reformatting (see core/amount_format.dart: strip/add commas, pad
+  // decimals on focus change) and pure cursor/selection moves (e.g. simply
+  // tapping into a field) both fire it with the number itself unchanged. A
+  // flag marking "this notification came from a reformat" was tried and
+  // reverted — it doesn't cover the cursor-move case, so it's a narrower,
+  // less correct filter than comparing the actual value.
   void _wireNormalizeTrigger(_EditablePosting p) {
     _wireValueTrigger(p.amountController);
     if (p.costAmountController != null) {
@@ -265,7 +270,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   }
 
   Future<void> _runNormalizeCheck() async {
-    final generation = ++_normalizeGeneration;
+    final generation = _normalizeGuard.start();
     if (!_allPostingsValid) {
       if (mounted) setState(() => _imbalances = const []);
       return;
@@ -276,7 +281,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     // A newer check has started since this one was sent — e.g. this one was
     // slow and a later edit's check already finished — so this response no
     // longer reflects the current form and must not overwrite it.
-    if (!mounted || generation != _normalizeGeneration) return;
+    if (!mounted || !_normalizeGuard.isCurrent(generation)) return;
     // A failed/offline check must not blank out the last known warning —
     // it's a non-blocking hint, and flashing it away on a transient
     // network hiccup would be more disruptive than a stale value.
@@ -292,7 +297,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   ) {
     final result = <({String symbol, double amount})>[];
     for (final issue in issues) {
-      if (issue.code != 'transaction_unbalanced') continue;
+      if (issue.code != DoctorIssue.transactionUnbalanced) continue;
       final symbol = issue.details['symbol'];
       final amount = double.tryParse(issue.details['residual_amount'] ?? '');
       if (symbol == null || amount == null) continue;

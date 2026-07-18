@@ -1,5 +1,6 @@
 class DoctorIssue {
   static const balanceAssertionFailed = 'balance_assertion_failed';
+  static const transactionUnbalanced = 'transaction_unbalanced';
 
   final String? target;
   final String code;

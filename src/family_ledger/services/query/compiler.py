@@ -436,7 +436,7 @@ def _aggregate_sql(target: _AnalyzedTarget, amount_column: ColumnElement) -> Col
     return func.sum(amount_column).label(target.name)
 
 
-def _conversion_columns(converting: bool) -> tuple[Any, Any]:
+def _conversion_columns(conversion: ConversionSpec | None) -> tuple[Any, Any]:
     # convert() means the query cares about *value*, not share/unit count: a
     # security posting (e.g. 100 VSS at cost) converts via its cost currency
     # (the weight) — always, never a shortcut through raw units just
@@ -444,7 +444,7 @@ def _conversion_columns(converting: bool) -> tuple[Any, Any]:
     # bought at cost {1.2 USD} was really 120 USD spent) — same rule as
     # GET /transactions?convert=. Without convert(), position/balance stay
     # raw-units inventories, unchanged.
-    if not converting:
+    if conversion is None:
         return Posting.units_symbol, Posting.units_amount
     return weight_symbol_column(), weight_amount_column()
 
@@ -455,7 +455,7 @@ def _build_aggregate_select(
     where: list[ColumnElement],
     needs_currency: bool,
 ) -> Select:
-    currency_column, amount_column = _conversion_columns(analysis.conversion is not None)
+    currency_column, amount_column = _conversion_columns(analysis.conversion)
 
     columns: list[Any] = [_sql(t).label(t.name) for t in grouped]
     if needs_currency:
@@ -484,9 +484,9 @@ def _build_journal_select(analysis: _Analysis, where: list[ColumnElement]) -> Se
 
 
 def _build_seed_select(
-    non_date_where: list[ColumnElement], open_on: date, converting: bool
+    non_date_where: list[ColumnElement], open_on: date, conversion: ConversionSpec | None
 ) -> Select:
-    currency_column, amount_column = _conversion_columns(converting)
+    currency_column, amount_column = _conversion_columns(conversion)
     return (
         _base_select(
             [
@@ -551,7 +551,7 @@ def compile_query(query: Query) -> CompiledQuery:
 
     seed_select = None
     if analysis.running_balance and open_on is not None:
-        seed_select = _build_seed_select(non_date_where, open_on, analysis.conversion is not None)
+        seed_select = _build_seed_select(non_date_where, open_on, analysis.conversion)
 
     return CompiledQuery(
         select=stmt,

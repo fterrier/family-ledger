@@ -10,6 +10,7 @@ import '../../core/app_preferences.dart';
 import '../../models/account.dart';
 import '../../core/api_error.dart';
 import '../../core/filter_persistence.dart';
+import '../../core/generation_guard.dart';
 import '../../core/home_view.dart';
 import '../../core/posting_sum.dart';
 import '../../models/doctor_issue.dart';
@@ -74,12 +75,12 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   bool _paginationError = false;
 
-  // Incremented on each new fetch; _doFetch discards results from older generations.
-  int _loadGeneration = 0;
+  // Started on each new fetch; _doFetch discards results from older generations.
+  final _loadGuard = GenerationGuard();
 
   Set<String> _transactionsWithIssues = {};
   List<DoctorIssue> _assertionIssues = const [];
-  int _doctorGeneration = 0;
+  final _doctorGuard = GenerationGuard();
 
   TransactionFilter _filter = const TransactionFilter();
   List<AccountResource> _accounts = const [];
@@ -159,10 +160,9 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   // change" comparison to get subtly wrong (a stale-detail bug lived here
   // before: a same-count assertion whose amounts changed wasn't detected).
   void _refreshDoctorIssues() {
-    _doctorGeneration++;
-    final gen = _doctorGeneration;
+    final gen = _doctorGuard.start();
     widget.transactionRepository.runDoctorIssues().then((result) {
-      if (!mounted || _doctorGeneration != gen) return;
+      if (!mounted || !_doctorGuard.isCurrent(gen)) return;
       final issues = result.data;
       if (issues == null) return;
       setState(() {
@@ -198,8 +198,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   Future<void> _load({String? pageToken}) async {
     if (_isLoading) return;
-    _loadGeneration++;
-    final generation = _loadGeneration;
+    final generation = _loadGuard.start();
     setState(() => _isLoading = true);
     await _doFetch(generation: generation, pageToken: pageToken);
   }
@@ -248,8 +247,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   // _onScroll callback fired by jumpTo sees _isLoading = true and bails.
   Future<void> _reload({required bool bumpChartTick}) async {
     if (_bulkActionBusy) return;
-    _loadGeneration++;
-    final generation = _loadGeneration;
+    final generation = _loadGuard.start();
     setState(() {
       _isLoading = true;
       _nextPageToken = null;
@@ -307,7 +305,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     _reload(bumpChartTick: false);
   }
 
-  // Shared fetch. Caller must have incremented _loadGeneration, set _isLoading = true,
+  // Shared fetch. Caller must have started _loadGuard, set _isLoading = true,
   // and captured the generation value before any await.
   Future<void> _doFetch({required int generation, String? pageToken}) async {
     if (pageToken == null) _refreshDoctorIssues();
@@ -317,7 +315,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       convert: _defaultCurrency,
     );
     if (!mounted) return;
-    if (_loadGeneration != generation) return; // superseded by a newer refresh
+    // superseded by a newer refresh
+    if (!_loadGuard.isCurrent(generation)) return;
     if (result.error != null) {
       setState(() {
         // Distinguish by pageToken:
@@ -522,7 +521,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // restored yet (the first _load comes from _restoreFilter). Building
     // the real UI now would flash the default view — wrong chart, wrong
     // app-bar spec — for the frames until prefs resolve.
-    if (_loadGeneration == 0) {
+    if (!_loadGuard.hasStarted) {
       return const Center(child: CircularProgressIndicator(strokeWidth: 2));
     }
 

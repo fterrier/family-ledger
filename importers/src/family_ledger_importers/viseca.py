@@ -340,10 +340,13 @@ class VisecaImporter(BaseImporter):
 
         first_account = cards_config[stmt.sections[0].card_last4] if stmt.sections else None
 
+        all_entries = itertools.chain(stmt.preamble_entries, *(s.entries for s in stmt.sections))
+        balance_date = (_max_entry_date(all_entries) or stmt_date) + timedelta(days=1)
+
         if first_account is not None:
             ctx.create_and_upload_attachment(
                 account=first_account,
-                attachment_date=stmt_date,
+                attachment_date=balance_date,
                 original_filename=filename,
                 media_type="application/pdf",
                 document_url=None,
@@ -362,10 +365,6 @@ class VisecaImporter(BaseImporter):
 
         if first_account is not None:
             if len(unique_accounts) == 1:
-                all_entries = itertools.chain(
-                    stmt.preamble_entries, *(s.entries for s in stmt.sections)
-                )
-                balance_date = (_max_entry_date(all_entries) or stmt_date) + timedelta(days=1)
                 balance_amount = stmt.total_due_chf
                 if balance_amount is None and stmt.sections:
                     section_totals = [s.total_chf for s in stmt.sections if s.total_chf is not None]

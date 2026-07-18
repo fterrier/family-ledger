@@ -520,7 +520,7 @@ def test_execute_statement_date_parsed_from_filename(session: Session) -> None:
     from family_ledger.models import Attachment
 
     att = session.scalars(select(Attachment)).one()
-    assert att.attachment_date == date(2025, 4, 14)
+    assert att.attachment_date == date(2025, 2, 18)
 
 
 # --- Balance assertion tests ---

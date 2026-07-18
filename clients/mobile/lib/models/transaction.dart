@@ -8,10 +8,15 @@ class PostingResource {
   final MoneyValue? cost;
   final MoneyValue? price;
 
-  /// Units valued in the list request's `convert` currency at the
-  /// transaction date; null when not requested, already that currency, or
-  /// no price path exists (compare symbols to tell the last two apart).
-  final MoneyValue? convertedUnits;
+  /// The posting's weight: its cost/price-adjusted value, or raw units when
+  /// there's no cost/price. Server-computed and always present — never
+  /// re-derived client-side.
+  final MoneyValue weight;
+
+  /// The weight valued in the list request's `convert` currency at the
+  /// transaction date; null when not requested or no price path exists for
+  /// the weight's currency.
+  final MoneyValue? convertedWeights;
 
   const PostingResource({
     required this.account,
@@ -20,7 +25,8 @@ class PostingResource {
     this.narration,
     this.cost,
     this.price,
-    this.convertedUnits,
+    required this.weight,
+    this.convertedWeights,
   });
 
   factory PostingResource.fromJson(Map<String, dynamic> json) =>
@@ -35,10 +41,11 @@ class PostingResource {
         price: json['price'] == null
             ? null
             : MoneyValue.fromJson(json['price'] as Map<String, dynamic>),
-        convertedUnits: json['converted_units'] == null
+        weight: MoneyValue.fromJson(json['weight'] as Map<String, dynamic>),
+        convertedWeights: json['converted_weights'] == null
             ? null
             : MoneyValue.fromJson(
-                json['converted_units'] as Map<String, dynamic>,
+                json['converted_weights'] as Map<String, dynamic>,
               ),
       );
 }

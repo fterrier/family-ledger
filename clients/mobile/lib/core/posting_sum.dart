@@ -44,19 +44,33 @@ PostingSums sumPostings(
     if (!roots.any((root) => isAccountOrDescendant(accountName, root))) {
       continue;
     }
-    final raw = double.tryParse(posting.units.amount);
-    if (raw == null) continue;
-    if (target != null && posting.units.symbol == target) {
-      converted = (converted ?? 0) + raw;
-    } else if (target != null && posting.convertedUnits != null) {
-      final convertedAmount = double.tryParse(posting.convertedUnits!.amount);
+    // The weight (cost/price-adjusted, or raw units when there's neither —
+    // server-computed, never re-derived here) is always the value shown,
+    // converted or not: a security holds its cost value, not a raw share
+    // count, and a plain currency posting's weight is just its units.
+    final weight = posting.weight;
+    final weightAmount = double.tryParse(weight.amount);
+    if (weightAmount == null) continue;
+    // convertedWeights is always the conversion basis, checked first — a
+    // posting can have units already in the target currency yet still need
+    // converting (e.g. 100 CHF bought at cost {1.2 USD} is really 120 USD
+    // spent, converting to more or less than a trivial 100 CHF today).
+    if (target != null && posting.convertedWeights != null) {
+      final convertedAmount = double.tryParse(posting.convertedWeights!.amount);
       if (convertedAmount == null) continue;
       converted = (converted ?? 0) + convertedAmount;
-      originals[posting.units.symbol] =
-          (originals[posting.units.symbol] ?? 0) + raw;
+      if (weight.symbol != target) {
+        originals[weight.symbol] =
+            (originals[weight.symbol] ?? 0) + weightAmount;
+      }
+    } else if (target != null && weight.symbol == target) {
+      // No convertedWeights (server omits it only when convert wasn't
+      // requested, or no price path exists for the weight's currency) but
+      // the weight already matches target — the raw value is still usable.
+      converted = (converted ?? 0) + weightAmount;
     } else {
-      unconverted[posting.units.symbol] =
-          (unconverted[posting.units.symbol] ?? 0) + raw;
+      unconverted[weight.symbol] =
+          (unconverted[weight.symbol] ?? 0) + weightAmount;
     }
   }
   return PostingSums(

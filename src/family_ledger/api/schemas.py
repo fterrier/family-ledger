@@ -36,13 +36,21 @@ class PostingPayload(BaseModel):
     narration: str | None = None
     cost: MoneyValue | None = None
     price: MoneyValue | None = None
+    # Cost/price-adjusted value, or raw units when there's neither.
+    # Computed by the server on every read; not settable — ignored on
+    # create/update input, and absent from normalize's echoed `transaction`.
     weight: MoneyValue | None = None
-    # Units valued in the requested `convert` currency at the transaction
-    # date (GET /transactions?convert=SYM). Null without the param, when the
-    # units are already in that currency, or when no price path exists —
-    # clients tell the last two apart by comparing symbols. Response-only;
-    # ignored on input.
-    converted_units: MoneyValue | None = None
+    # The posting's weight (its cost/price-adjusted value, or raw units when
+    # there's no cost/price — see `weight` above) valued in the requested
+    # `convert` currency at the transaction date (GET
+    # /transactions?convert=SYM). The weight is always the conversion
+    # basis, never a shortcut through raw `units` just because they happen
+    # to already be the target currency — e.g. 100 CHF bought at cost {1.2
+    # USD} was really 120 USD spent, and converts as that 120 USD re-priced
+    # at the transaction date's rate, not as a trivial 100 CHF. Null
+    # without the param, or when no price path exists for the weight's
+    # currency. Response-only; ignored on input.
+    converted_weights: MoneyValue | None = None
     entity_metadata: dict[str, Any] = Field(default_factory=dict)
 
 

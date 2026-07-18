@@ -39,22 +39,32 @@ from family_ledger.services.transaction_balancing import (
 from family_ledger.services.validation import resolve_accounts, resource_name
 
 
-def _converted_units(
+def _converted_weight(
     posting: Posting, on: date, price_lookup: PriceLookup | None
 ) -> MoneyValue | None:
-    """Units valued in the lookup's target currency at the transaction date
-    — same price semantics as the reporting query's convert(). None when no
-    lookup was requested, the units already are the target currency, or no
-    price path exists."""
-    if price_lookup is None or posting.units_symbol == price_lookup.target:
+    """The posting's weight (cost/price-adjusted value, or raw units when
+    there's no cost/price — see persisted_posting_weight) valued in the
+    lookup's target currency at the transaction date. The weight is always
+    the conversion basis, never the posting's raw units directly — even
+    when those units already happen to be in the target currency: e.g. 100
+    CHF bought at cost {1.2 USD} was really 120 USD spent, and its current
+    CHF value is that 120 USD re-priced at today's rate, not a trivial 100
+    CHF (matches bean-query's convert_position, which always reduces a
+    position to its weight before any currency conversion). None when no
+    lookup was requested, or no price path exists for the weight's
+    currency."""
+    if price_lookup is None:
         return None
-    rate = price_lookup.rate(posting.units_symbol, on)
-    if rate is None:
-        return None
+    basis = persisted_posting_weight(posting)
     # DB numerics carry their full storage scale (20 decimals of trailing
     # zeros); serialize like the query endpoint does.
+    if basis.symbol == price_lookup.target:
+        return MoneyValue(amount=Decimal(decimal_to_string(basis.amount)), symbol=basis.symbol)
+    rate = price_lookup.rate(basis.symbol, on)
+    if rate is None:
+        return None
     return MoneyValue(
-        amount=Decimal(decimal_to_string(posting.units_amount * rate)),
+        amount=Decimal(decimal_to_string(basis.amount * rate)),
         symbol=price_lookup.target,
     )
 
@@ -75,7 +85,9 @@ def serialize_transaction(
             if posting.price_per_unit is None
             else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
             weight=persisted_posting_weight(posting),
-            converted_units=_converted_units(posting, transaction.transaction_date, price_lookup),
+            converted_weights=_converted_weight(
+                posting, transaction.transaction_date, price_lookup
+            ),
             entity_metadata=posting.entity_metadata,
         )
         for posting in transaction.postings
@@ -352,13 +364,16 @@ def _build_price_lookup(
     if convert is None or not transactions:
         return None
     foreign = {
-        posting.units_symbol
+        weight.symbol
         for transaction in transactions
         for posting in transaction.postings
-        if posting.units_symbol != convert
+        if (weight := persisted_posting_weight(posting)).symbol != convert
     }
-    if not foreign:
-        return None
+    # Still build a lookup even when nothing needs an actual price row: a
+    # posting whose weight already is `convert` needs the lookup's
+    # `.target` to resolve via _converted_weight's identity path, not a
+    # DB-backed rate. PriceLookup itself skips the query when `currencies`
+    # is empty, so this stays cheap.
     return PriceLookup(
         session,
         foreign,

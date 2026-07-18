@@ -8,11 +8,13 @@ PostingResource _posting(
   String amount,
   String symbol, {
   MoneyValue? converted,
+  MoneyValue? weight,
 }) => PostingResource(
   account: 'accounts/acc-x',
   accountName: accountName,
   units: MoneyValue(amount: amount, symbol: symbol),
-  convertedUnits: converted,
+  weight: weight ?? MoneyValue(amount: amount, symbol: symbol),
+  convertedWeights: converted,
 );
 
 void main() {
@@ -63,7 +65,7 @@ void main() {
   });
 
   group('sumPostings conversion buckets', () {
-    test('foreign postings use converted_units and keep their original', () {
+    test('foreign postings use converted_weights and keep their original', () {
       final sums = sumPostings(
         [
           _posting('Assets:Checking', '-100', 'CHF'),
@@ -102,6 +104,47 @@ void main() {
       );
       expect(sums.converted, isNull);
       expect(sums.unconverted, {'CHF': -100, 'USD': 40});
+    });
+
+    test('a security posting with cost shows its weight (cost value), not the '
+        'raw share count, even with no conversion target configured', () {
+      final sums = sumPostings(
+        [
+          _posting(
+            'Assets:Broker:VSS',
+            '100',
+            'VSS',
+            weight: const MoneyValue(amount: '11779.00', symbol: 'USD'),
+          ),
+        ],
+        ['Assets'],
+      );
+      expect(sums.converted, isNull);
+      // Not {'VSS': 100} — the client never displays raw share counts.
+      expect(sums.unconverted, {'USD': 11779.00});
+    });
+
+    test('a posting already in the target currency still uses convertedWeights '
+        'when the server populates it (e.g. bought at cost in another '
+        'currency, so raw units understate its current value)', () {
+      final sums = sumPostings(
+        [
+          _posting(
+            'Assets:Broker',
+            '200',
+            'CHF',
+            converted: const MoneyValue(amount: '600', symbol: 'CHF'),
+          ),
+        ],
+        ['Assets'],
+        target: 'CHF',
+      );
+      // Not 200 (raw units) — the server already re-priced via the
+      // posting's weight, and that must win over the raw pass-through.
+      expect(sums.converted, 600);
+      // Same symbol as target, so no secondary "original" line — the
+      // primary number already speaks for itself.
+      expect(sums.originals, isEmpty);
     });
 
     test('unparsable amounts are skipped', () {

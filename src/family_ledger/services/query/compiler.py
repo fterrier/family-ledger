@@ -9,16 +9,30 @@ Contract for :class:`CompiledQuery`:
   accounts. Following the doctor pattern, it selects plain column tuples with
   explicit join conditions — no ORM entity hydration. Column order:
 
-  - aggregate queries: group-key expressions in declared order, then
-    ``postings.units_symbol`` (whenever the query aggregates ``position`` or
-    ``balance``), then one column per aggregate target. Rows are ordered by
-    group keys ascending, then currency ascending.
+  - aggregate queries: group-key expressions in declared order, then a
+    currency column (whenever the query aggregates ``position`` or
+    ``balance``) — ``postings.units_symbol`` normally, or, when the query
+    also ``convert()``s that aggregate, the posting's *weight* currency
+    instead (``COALESCE(cost_symbol, price_symbol, units_symbol)``, summing
+    ``COALESCE(cost_per_unit, price_per_unit, 1) * units_amount`` — see
+    ``services.transaction_balancing.weight_symbol_column`` /
+    ``weight_amount_column``, kept in sync with ``_compute_weight`` there).
+    The weight is *always* the conversion basis, never a shortcut through
+    the posting's raw units — e.g. 100 CHF bought at cost {1.2 USD} was
+    really 120 USD spent, and converts as that 120 USD re-priced at the
+    query date's rate, not as a trivial 100 CHF (matches bean-query's
+    convert_position, which always reduces to weight first). Plain
+    currency postings are unaffected either way (weight == units for
+    those, so this degenerates to the identity conversion). Then one
+    column per aggregate target. Rows are ordered by group keys ascending,
+    then currency ascending.
   - journal (non-aggregate) queries: the targets in declared order, rows
     ordered by transaction date ascending.
 
 - ``seed_select`` is only present for running-balance queries
   (``last(balance)``) with ``FROM OPEN ON``: it returns ``(currency, total)``
-  rows summing all matched postings strictly before the open date. For plain
+  rows summing all matched postings strictly before the open date, using the
+  same units-vs-weight currency choice as the main select. For plain
   aggregate queries ``OPEN ON`` acts as a lower date bound only.
 
 - ``account ~ '<regex>'`` uses regex semantics. Anchored-prefix patterns of
@@ -29,8 +43,10 @@ Contract for :class:`CompiledQuery`:
   other pattern compiles to the dialect regex operator (``REGEXP`` on
   SQLite, ``~`` on Postgres).
 
-- ``convert(x, 'SYM' [, date])`` never changes the SQL; it is recorded in
-  ``post.conversion`` (``at=None`` means bucket-end / today semantics).
+- ``convert(x, 'SYM' [, date])`` doesn't change the aggregated SQL shape,
+  but does select weight over raw units as described above; the conversion
+  itself is recorded in ``post.conversion`` (``at=None`` means bucket-end /
+  today semantics) and applied by the executor.
 
 All literals are bound as parameters, never interpolated.
 """
@@ -62,6 +78,10 @@ from family_ledger.services.query.ast import (
     Star,
     StringLiteral,
     Target,
+)
+from family_ledger.services.transaction_balancing import (
+    weight_amount_column,
+    weight_symbol_column,
 )
 
 
@@ -408,12 +428,25 @@ def _sql(target: _AnalyzedTarget) -> ColumnElement:
     return target.sql
 
 
-def _aggregate_sql(target: _AnalyzedTarget) -> ColumnElement:
+def _aggregate_sql(target: _AnalyzedTarget, amount_column: ColumnElement) -> ColumnElement:
     if target.agg == "count":
         return func.count().label(target.name)
     # sum(position) and last(balance) both emit per-group sums; the executor
     # accumulates last(balance) deltas into a running balance.
-    return func.sum(Posting.units_amount).label(target.name)
+    return func.sum(amount_column).label(target.name)
+
+
+def _conversion_columns(converting: bool) -> tuple[Any, Any]:
+    # convert() means the query cares about *value*, not share/unit count: a
+    # security posting (e.g. 100 VSS at cost) converts via its cost currency
+    # (the weight) — always, never a shortcut through raw units just
+    # because they happen to already be the target currency (100 CHF
+    # bought at cost {1.2 USD} was really 120 USD spent) — same rule as
+    # GET /transactions?convert=. Without convert(), position/balance stay
+    # raw-units inventories, unchanged.
+    if not converting:
+        return Posting.units_symbol, Posting.units_amount
+    return weight_symbol_column(), weight_amount_column()
 
 
 def _build_aggregate_select(
@@ -422,16 +455,20 @@ def _build_aggregate_select(
     where: list[ColumnElement],
     needs_currency: bool,
 ) -> Select:
+    currency_column, amount_column = _conversion_columns(analysis.conversion is not None)
+
     columns: list[Any] = [_sql(t).label(t.name) for t in grouped]
     if needs_currency:
-        columns.append(Posting.units_symbol.label("currency"))
-    columns.extend(_aggregate_sql(t) for t in analysis.targets if t.kind == "aggregate")
+        columns.append(currency_column.label("currency"))
+    columns.extend(
+        _aggregate_sql(t, amount_column) for t in analysis.targets if t.kind == "aggregate"
+    )
 
     stmt = _base_select(columns).where(*where)
 
     group_by: list[Any] = [_sql(t) for t in grouped]
     if needs_currency:
-        group_by.append(Posting.units_symbol)
+        group_by.append(currency_column)
     if group_by:
         stmt = stmt.group_by(*group_by).order_by(*group_by)
     return stmt
@@ -446,18 +483,21 @@ def _build_journal_select(analysis: _Analysis, where: list[ColumnElement]) -> Se
     )
 
 
-def _build_seed_select(non_date_where: list[ColumnElement], open_on: date) -> Select:
+def _build_seed_select(
+    non_date_where: list[ColumnElement], open_on: date, converting: bool
+) -> Select:
+    currency_column, amount_column = _conversion_columns(converting)
     return (
         _base_select(
             [
-                Posting.units_symbol.label("currency"),
-                func.sum(Posting.units_amount).label("total"),
+                currency_column.label("currency"),
+                func.sum(amount_column).label("total"),
             ]
         )
         .where(*non_date_where)
         .where(Transaction.transaction_date < open_on)
-        .group_by(Posting.units_symbol)
-        .order_by(Posting.units_symbol)
+        .group_by(currency_column)
+        .order_by(currency_column)
     )
 
 
@@ -511,7 +551,7 @@ def compile_query(query: Query) -> CompiledQuery:
 
     seed_select = None
     if analysis.running_balance and open_on is not None:
-        seed_select = _build_seed_select(non_date_where, open_on)
+        seed_select = _build_seed_select(non_date_where, open_on, analysis.conversion is not None)
 
     return CompiledQuery(
         select=stmt,

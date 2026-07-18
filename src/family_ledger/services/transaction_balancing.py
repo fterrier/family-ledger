@@ -3,6 +3,9 @@ from __future__ import annotations
 from collections.abc import Iterable
 from decimal import Decimal
 
+from sqlalchemy import func
+from sqlalchemy.sql import ColumnElement
+
 from family_ledger.api.schemas import (
     DoctorIssue,
     MoneyValue,
@@ -13,6 +16,22 @@ from family_ledger.api.schemas import (
 from family_ledger.config import get_ledger_config
 from family_ledger.models import Posting, Transaction
 from family_ledger.services.errors import ValidationError
+
+
+def weight_symbol_column() -> ColumnElement:
+    """SQL equivalent of persisted_posting_weight's currency (cost, then
+    price, then raw units) — kept next to _compute_weight so the two
+    definitions of "weight" can't silently drift. Used by the query
+    compiler to make sum(position)/last(balance) convert via a posting's
+    weight instead of its raw units (see services/query/compiler.py)."""
+    return func.coalesce(Posting.cost_symbol, Posting.price_symbol, Posting.units_symbol)
+
+
+def weight_amount_column() -> ColumnElement:
+    """SQL equivalent of persisted_posting_weight's amount: cost_per_unit or
+    price_per_unit as the multiplier, or a no-op 1 for a plain posting —
+    same coalesce priority as weight_symbol_column."""
+    return Posting.units_amount * func.coalesce(Posting.cost_per_unit, Posting.price_per_unit, 1)
 
 
 def _compute_weight(

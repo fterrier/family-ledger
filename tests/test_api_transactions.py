@@ -149,19 +149,20 @@ def test_list_transactions_convert_values_postings_at_transaction_date() -> None
     assert response.status_code == 200
     postings = response.json()["transactions"][0]["postings"]
     by_symbol = {p["units"]["symbol"]: p for p in postings if p["account"] == checking["name"]}
-    # Same currency: nothing to convert.
-    assert by_symbol["CHF"]["converted_units"] is None
+    # Same currency, no cost/price: the weight equals the raw units, so
+    # this is the identity conversion (still populated, not null).
+    assert by_symbol["CHF"]["converted_weights"] == {"amount": "-100", "symbol": "CHF"}
     # Direct pair at the transaction date's rate (0.85), not the fresher
     # post-date 0.80.
-    assert by_symbol["USD"]["converted_units"] == {"amount": "34", "symbol": "CHF"}
+    assert by_symbol["USD"]["converted_weights"] == {"amount": "34", "symbol": "CHF"}
     # Transitive hop GBP -> USD -> CHF: 20 x 1.25 x 0.85 (normalized like
     # the query endpoint: no trailing zeros).
-    assert by_symbol["GBP"]["converted_units"] == {"amount": "21.25", "symbol": "CHF"}
+    assert by_symbol["GBP"]["converted_weights"] == {"amount": "21.25", "symbol": "CHF"}
     # No price path: null, client falls back to the raw amount.
-    assert by_symbol["JPY"]["converted_units"] is None
+    assert by_symbol["JPY"]["converted_weights"] is None
 
 
-def test_list_transactions_without_convert_has_no_converted_units() -> None:
+def test_list_transactions_without_convert_has_no_converted_weights() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking")
@@ -180,7 +181,7 @@ def test_list_transactions_without_convert_has_no_converted_units() -> None:
 
     assert response.status_code == 200
     for posting in response.json()["transactions"][0]["postings"]:
-        assert posting["converted_units"] is None
+        assert posting["converted_weights"] is None
 
 
 def test_get_transaction_convert_values_postings_at_transaction_date() -> None:
@@ -203,14 +204,89 @@ def test_get_transaction_convert_values_postings_at_transaction_date() -> None:
 
     without_convert = client.get(f"/{created['name']}")
     assert without_convert.status_code == 200
-    assert without_convert.json()["postings"][0]["converted_units"] is None
+    assert without_convert.json()["postings"][0]["converted_weights"] is None
 
     with_convert = client.get(f"/{created['name']}?convert=CHF")
     assert with_convert.status_code == 200
-    assert with_convert.json()["postings"][0]["converted_units"] == {
+    assert with_convert.json()["postings"][0]["converted_weights"] == {
         "amount": "34",
         "symbol": "CHF",
     }
+
+
+def test_convert_values_a_cost_bearing_posting_via_its_weight_not_its_own_price() -> None:
+    # A security posting (e.g. buying shares) converts via its cost currency
+    # (the weight), not by pricing the security symbol itself — even if the
+    # ledger happens to have a (here, deliberately wrong) price series for
+    # the security directly.
+    client = make_client()
+
+    broker_usd = create_account(client, "Assets:Broker:USD")
+    broker_vss = create_account(client, "Assets:Broker:VSS")
+    for symbol in ("CHF", "USD", "VSS"):
+        create_commodity(client, symbol)
+
+    _create_price(client, "2026-04-01", "USD", "0.90", "CHF")
+    # Decoy: if this were used directly instead of the weight, 10 x 100 x
+    # 0.90 = 900 CHF, not the correct 950 x 0.90 = 855 CHF via cost.
+    _create_price(client, "2026-04-01", "VSS", "100", "USD")
+
+    create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": broker_usd["name"], "units": {"amount": "-950.00", "symbol": "USD"}},
+            {
+                "account": broker_vss["name"],
+                "units": {"amount": "10", "symbol": "VSS"},
+                "cost": {"amount": "95.00", "symbol": "USD"},
+            },
+        ],
+    )
+
+    response = client.get("/transactions?convert=CHF")
+
+    assert response.status_code == 200
+    postings = response.json()["transactions"][0]["postings"]
+    by_symbol = {p["units"]["symbol"]: p for p in postings}
+    assert by_symbol["USD"]["converted_weights"] == {"amount": "-855", "symbol": "CHF"}
+    assert by_symbol["VSS"]["converted_weights"] == {"amount": "855", "symbol": "CHF"}
+
+
+def test_convert_of_a_cost_bearing_posting_already_in_the_target_currency_needs_no_price() -> None:
+    # The weight is already the target currency (bought at cost in CHF) —
+    # this must not require a price row for the security symbol.
+    client = make_client()
+
+    broker_chf = create_account(client, "Assets:Broker:CHF")
+    broker_vss = create_account(client, "Assets:Broker:VSS")
+    for symbol in ("CHF", "VSS"):
+        create_commodity(client, symbol)
+
+    create_transaction(
+        client,
+        "2026-04-10",
+        [
+            {"account": broker_chf["name"], "units": {"amount": "-950.00", "symbol": "CHF"}},
+            {
+                "account": broker_vss["name"],
+                "units": {"amount": "10", "symbol": "VSS"},
+                "cost": {"amount": "95.00", "symbol": "CHF"},
+            },
+        ],
+    )
+
+    response = client.get("/transactions?convert=CHF")
+
+    assert response.status_code == 200
+    postings = response.json()["transactions"][0]["postings"]
+    by_symbol = {p["units"]["symbol"]: p for p in postings}
+    # Plain CHF posting, no cost/price: weight == units == target, so this
+    # is the identity conversion (still populated, no price row needed).
+    assert by_symbol["CHF"]["converted_weights"] == {"amount": "-950", "symbol": "CHF"}
+    # VSS units aren't CHF, but its weight (cost) already is — no rate
+    # lookup needed, no missing_price fallback to raw units.
+    assert by_symbol["VSS"]["converted_weights"] == {"amount": "950", "symbol": "CHF"}
 
 
 def test_get_transaction_after_edit_still_converts() -> None:
@@ -250,7 +326,7 @@ def test_get_transaction_after_edit_still_converts() -> None:
 
     response = client.get(f"/{created['name']}?convert=CHF")
     assert response.status_code == 200
-    assert response.json()["postings"][0]["converted_units"] == {
+    assert response.json()["postings"][0]["converted_weights"] == {
         "amount": "42.5",
         "symbol": "CHF",
     }
@@ -309,6 +385,52 @@ def test_normalize_transaction_interpolates_one_missing_posting() -> None:
     assert response.status_code == 200
     body = response.json()["transaction"]
     assert body["postings"][1]["units"] == {"amount": "84.25", "symbol": "CHF"}
+
+
+def test_normalize_transaction_populates_weight_on_echoed_postings() -> None:
+    # Regression: normalize's echoed `transaction` is built directly (no DB
+    # round-trip through serialize_transaction, which normally computes
+    # this), so weight must be filled in here too — a client must never
+    # need to re-derive it from cost/price itself, on any endpoint.
+    client = make_client()
+
+    broker_usd = create_account(client, "Assets:Broker:USD")
+    broker_vss = create_account(client, "Assets:Broker:VSS")
+    for symbol in ("USD", "VSS"):
+        create_commodity(client, symbol)
+
+    response = client.post(
+        "/transactions:normalize",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": broker_usd["name"],
+                        "units": {"amount": "-11779.00", "symbol": "USD"},
+                    },
+                    {
+                        "account": broker_vss["name"],
+                        "units": {"amount": "100", "symbol": "VSS"},
+                        "cost": {"amount": "117.79", "symbol": "USD"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    postings = response.json()["transaction"]["postings"]
+    by_account = {p["account"]: p for p in postings}
+    assert by_account[broker_usd["name"]]["weight"] == {
+        "amount": "-11779.00",
+        "symbol": "USD",
+    }
+    # Cost-adjusted, not the raw "100" share count.
+    assert by_account[broker_vss["name"]]["weight"] == {
+        "amount": "11779.00",
+        "symbol": "USD",
+    }
 
 
 def test_normalize_transaction_rejects_multiple_missing_postings() -> None:

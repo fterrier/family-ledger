@@ -336,11 +336,30 @@ BQL signature: `convert(amount_or_inventory, currency [, date])`.
 
 Price lookup: latest `price_date <= target date` for the pair; inverse pair
 (1/rate) as first fallback; then a **single intermediate hop**
-(`base → X → target`, e.g. `ESGV → USD → CHF` for stock commodities priced
-only in USD) — when several intermediates qualify, the one with the freshest
-base-leg price wins. No usable path → `null` cell + `missing_price` warning.
-(bean-query only hops via a position's cost currency; we hop via the price
-graph, which covers that case and cost-less positions too.)
+(`base → X → target`, e.g. `EUR → USD → CHF`) — when several intermediates
+qualify, the one with the freshest base-leg price wins. No usable path →
+`null` cell + `missing_price` warning.
+
+**Weight, not raw units:** when `convert()` wraps `sum(position)` or
+`last(balance)`, each posting's *weight* is what gets converted — always,
+never a shortcut through raw units just because they happen to already be
+the target currency. Weight is the cost/price-adjusted value
+(`COALESCE(cost_per_unit, price_per_unit, 1) * units_amount`, in the
+cost/price currency, or the raw units when there's neither), same rule as
+`GET /transactions?convert=`'s `converted_weights`. A security posting
+(e.g. 100 shares of a stock bought at cost) therefore converts via its cost
+currency, not by pricing the security symbol itself — the price graph
+above resolves from *that* currency (typically a real, liquid currency
+like USD) to the target, not from the security's own ticker. Likewise, 100
+CHF bought at cost `{1.2 USD}` was really 120 USD spent, and converts as
+that 120 USD re-priced at the target date's rate — not as a trivial 100
+CHF — matching bean-query's `convert_position`, which always reduces to
+weight first. The one exception: a security posting with **no cost or
+price recorded** has nothing to fall back to, so it converts via its own
+ticker (the price graph may still resolve it transitively, e.g.
+`ESGV → USD → CHF`, if `ESGV` itself is priced in USD).
+Without `convert()`, `position`/`balance` are still raw per-unit
+inventories (e.g. "100 ESGV"), unaffected.
 
 ### Deviations From bean-query (v1)
 

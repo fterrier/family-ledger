@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -5,6 +7,7 @@ import '../../core/account_category.dart';
 import '../../core/api_error.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
+import '../../models/doctor_issue.dart';
 import '../../models/posting.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
@@ -113,6 +116,21 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   bool _saving = false;
   ApiError? _error;
 
+  // Server-computed preview (POST /transactions:normalize), refreshed on a
+  // debounce after each edit — see _scheduleNormalizeCheck. Never re-derive
+  // "weight" (cost/price-adjusted balance) here: the server already knows
+  // that rule and this keeps the preview identical to what a save would
+  // report. Parsed once when a response lands (not re-parsed on every
+  // read) — a transaction can be unbalanced in more than one currency at
+  // once, so this holds every transaction_unbalanced issue, not just the
+  // largest.
+  List<({String symbol, double amount})> _imbalances = const [];
+  Timer? _normalizeDebounce;
+  // Bumped on every check; a response is only applied if it's still the
+  // most recent one requested — otherwise a slow, superseded response
+  // could land after a faster later one and silently show stale results.
+  int _normalizeGeneration = 0;
+
   @override
   void initState() {
     super.initState();
@@ -126,15 +144,46 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
         accountName: p.accountName ?? p.account,
         effectiveStartDate: '2000-01-01',
       );
-      return _EditablePosting(
+      final posting = _EditablePosting(
         account: fakeAccount,
         initialAmount: p.units.amount,
         currency: p.units.symbol,
         cost: p.cost,
         price: p.price,
       );
+      _wireNormalizeTrigger(posting);
+      return posting;
     }).toList();
     _loadAccountsAndCommodities();
+    // Runs once on open (even with no edits yet) so a transaction that was
+    // ALREADY unbalanced before opening shows that immediately, not only
+    // after the user starts typing.
+    _scheduleNormalizeCheck();
+  }
+
+  // Only reschedules on a real value change — wireAmountFocus (see
+  // core/amount_format.dart) also touches these controllers purely to
+  // reformat display text (strip/add commas, pad decimals) on focus
+  // change, which would otherwise reschedule a network round-trip for a
+  // no-op edit.
+  void _wireNormalizeTrigger(_EditablePosting p) {
+    _wireValueTrigger(p.amountController);
+    if (p.costAmountController != null) {
+      _wireValueTrigger(p.costAmountController!);
+    }
+    if (p.priceAmountController != null) {
+      _wireValueTrigger(p.priceAmountController!);
+    }
+  }
+
+  void _wireValueTrigger(TextEditingController controller) {
+    double? lastValue = double.tryParse(rawEditAmount(controller.text));
+    controller.addListener(() {
+      final value = double.tryParse(rawEditAmount(controller.text));
+      if (value == lastValue) return;
+      lastValue = value;
+      _scheduleNormalizeCheck();
+    });
   }
 
   Future<void> _loadAccountsAndCommodities() async {
@@ -155,6 +204,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
   @override
   void dispose() {
+    _normalizeDebounce?.cancel();
     _payeeController.dispose();
     _narrationController.dispose();
     for (final p in _postings) {
@@ -163,24 +213,92 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     super.dispose();
   }
 
-  Map<String, double> _balancesBySymbol() {
-    final result = <String, double>{};
-    for (final p in _postings) {
-      final amount =
-          double.tryParse(rawEditAmount(p.amountController.text.trim())) ?? 0;
-      result[p.currency] = (result[p.currency] ?? 0) + amount;
-    }
-    return result;
+  bool get _allPostingsValid => _postings.every(
+    (p) =>
+        p.account != null &&
+        double.tryParse(rawEditAmount(p.amountController.text.trim())) != null,
+  );
+
+  PostingPayload _toPostingPayload(_EditablePosting p) {
+    final hasCost = p.costAmountController != null && p.costCurrency != null;
+    final hasPrice = p.priceAmountController != null && p.priceCurrency != null;
+    return PostingPayload(
+      account: p.account!.name,
+      units: MoneyValue(
+        amount: rawEditAmount(p.amountController.text.trim()),
+        symbol: p.currency,
+      ),
+      cost: hasCost
+          ? MoneyValue(
+              amount: rawEditAmount(p.costAmountController!.text.trim()),
+              symbol: p.costCurrency!,
+            )
+          : null,
+      price: hasPrice
+          ? MoneyValue(
+              amount: rawEditAmount(p.priceAmountController!.text.trim()),
+              symbol: p.priceCurrency!,
+            )
+          : null,
+    );
   }
 
-  ({String symbol, double amount})? _largestImbalance() {
-    const tolerance = 0.005;
-    final balances = _balancesBySymbol();
-    final imbalanced =
-        balances.entries.where((e) => e.value.abs() > tolerance).toList()
-          ..sort((a, b) => b.value.abs().compareTo(a.value.abs()));
-    if (imbalanced.isEmpty) return null;
-    return (symbol: imbalanced.first.key, amount: imbalanced.first.value);
+  // Shared by _save and _runNormalizeCheck so the two never build the
+  // transaction payload differently from each other.
+  TransactionUpdate _buildUpdate() {
+    final payeeText = _payeeController.text.trim();
+    final narrationText = _narrationController.text.trim();
+    return TransactionUpdate(
+      transactionDate: DateFormat('yyyy-MM-dd').format(_date),
+      payee: payeeText.isEmpty ? null : payeeText,
+      narration: narrationText.isEmpty ? null : narrationText,
+      postings: _postings.map(_toPostingPayload).toList(),
+    );
+  }
+
+  void _scheduleNormalizeCheck() {
+    _normalizeDebounce?.cancel();
+    _normalizeDebounce = Timer(
+      const Duration(milliseconds: 400),
+      _runNormalizeCheck,
+    );
+  }
+
+  Future<void> _runNormalizeCheck() async {
+    final generation = ++_normalizeGeneration;
+    if (!_allPostingsValid) {
+      if (mounted) setState(() => _imbalances = const []);
+      return;
+    }
+    final result = await widget.transactionRepository.normalizeTransaction(
+      _buildUpdate(),
+    );
+    // A newer check has started since this one was sent — e.g. this one was
+    // slow and a later edit's check already finished — so this response no
+    // longer reflects the current form and must not overwrite it.
+    if (!mounted || generation != _normalizeGeneration) return;
+    // A failed/offline check must not blank out the last known warning —
+    // it's a non-blocking hint, and flashing it away on a transient
+    // network hiccup would be more disruptive than a stale value.
+    if (result.error != null) return;
+    setState(() => _imbalances = _parseImbalances(result.data!));
+  }
+
+  // Every transaction_unbalanced issue from a normalize response — a
+  // transaction can be unbalanced in more than one currency at once, and
+  // hiding all but the largest would hide a real problem.
+  List<({String symbol, double amount})> _parseImbalances(
+    List<DoctorIssue> issues,
+  ) {
+    final result = <({String symbol, double amount})>[];
+    for (final issue in issues) {
+      if (issue.code != 'transaction_unbalanced') continue;
+      final symbol = issue.details['symbol'];
+      final amount = double.tryParse(issue.details['residual_amount'] ?? '');
+      if (symbol == null || amount == null) continue;
+      result.add((symbol: symbol, amount: amount));
+    }
+    return result;
   }
 
   Future<void> _pickAccount(int index) async {
@@ -196,6 +314,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     );
     if (result != null && mounted) {
       setState(() => _postings[index].account = result);
+      _scheduleNormalizeCheck();
     }
   }
 
@@ -216,7 +335,10 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
     );
-    if (v != null && mounted) setState(() => set(_postings[index], v));
+    if (v != null && mounted) {
+      setState(() => set(_postings[index], v));
+      _scheduleNormalizeCheck();
+    }
   }
 
   Future<void> _pickCurrency(int index) => _pickCurrencyFor(
@@ -241,7 +363,16 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
   Future<void> _addPosting() async {
     if (_accounts == null) return;
-    final imbalance = _largestImbalance();
+    // Can only prefill one new row, so pick the largest of possibly several
+    // imbalances as the best single guess. This is a best-effort read of
+    // the last successful check — it can be briefly stale (debounce +
+    // network latency behind the very latest keystroke), which is fine
+    // for a prefill the user can freely edit before saving.
+    final imbalance = _imbalances.isEmpty
+        ? null
+        : _imbalances.reduce(
+            (a, b) => a.amount.abs() >= b.amount.abs() ? a : b,
+          );
     final prefillAmount = imbalance != null
         ? (-imbalance.amount).toStringAsFixed(2)
         : '';
@@ -257,14 +388,15 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     );
     if (result != null && mounted) {
       setState(() {
-        _postings.add(
-          _EditablePosting(
-            account: result,
-            initialAmount: prefillAmount,
-            currency: prefillCurrency,
-          ),
+        final posting = _EditablePosting(
+          account: result,
+          initialAmount: prefillAmount,
+          currency: prefillCurrency,
         );
+        _wireNormalizeTrigger(posting);
+        _postings.add(posting);
       });
+      _scheduleNormalizeCheck();
     }
   }
 
@@ -273,6 +405,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       _postings[index].dispose();
       _postings.removeAt(index);
     });
+    _scheduleNormalizeCheck();
   }
 
   Future<void> _save() async {
@@ -294,39 +427,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       }
     }
 
-    final payeeText = _payeeController.text.trim();
-    final narrationText = _narrationController.text.trim();
-
-    final update = TransactionUpdate(
-      transactionDate: DateFormat('yyyy-MM-dd').format(_date),
-      payee: payeeText.isEmpty ? null : payeeText,
-      narration: narrationText.isEmpty ? null : narrationText,
-      postings: _postings.map((p) {
-        final hasCost =
-            p.costAmountController != null && p.costCurrency != null;
-        final hasPrice =
-            p.priceAmountController != null && p.priceCurrency != null;
-        return PostingPayload(
-          account: p.account!.name,
-          units: MoneyValue(
-            amount: rawEditAmount(p.amountController.text.trim()),
-            symbol: p.currency,
-          ),
-          cost: hasCost
-              ? MoneyValue(
-                  amount: rawEditAmount(p.costAmountController!.text.trim()),
-                  symbol: p.costCurrency!,
-                )
-              : null,
-          price: hasPrice
-              ? MoneyValue(
-                  amount: rawEditAmount(p.priceAmountController!.text.trim()),
-                  symbol: p.priceCurrency!,
-                )
-              : null,
-        );
-      }).toList(),
-    );
+    final update = _buildUpdate();
 
     setState(() {
       _saving = true;
@@ -382,7 +483,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final imbalance = _largestImbalance();
+    final imbalances = _imbalances;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF2F2F7),
@@ -463,11 +564,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
                         : null,
                   ),
                 _AddPostingRow(onTap: _accounts == null ? null : _addPosting),
-                if (imbalance != null)
-                  _ImbalanceWarning(
-                    amount: imbalance.amount,
-                    symbol: imbalance.symbol,
-                  ),
+                if (imbalances.isNotEmpty)
+                  _ImbalanceWarning(imbalances: imbalances),
                 const SizedBox(height: 32),
               ],
             ),
@@ -893,14 +991,15 @@ class _AddPostingRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ImbalanceWarning extends StatelessWidget {
-  final double amount;
-  final String symbol;
+  final List<({String symbol, double amount})> imbalances;
 
-  const _ImbalanceWarning({required this.amount, required this.symbol});
+  const _ImbalanceWarning({required this.imbalances});
 
   @override
   Widget build(BuildContext context) {
-    final formatted = formatFixedAmount(amount.abs());
+    final formatted = imbalances
+        .map((i) => '${formatFixedAmount(i.amount.abs())} ${i.symbol}')
+        .join(', ');
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Container(
@@ -920,7 +1019,7 @@ class _ImbalanceWarning extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                'Unbalanced: $formatted $symbol',
+                'Unbalanced: $formatted',
                 style: const TextStyle(
                   fontSize: 13,
                   color: Color(0xFF6D4C00),

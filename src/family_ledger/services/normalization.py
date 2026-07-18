@@ -11,8 +11,19 @@ from family_ledger.api.schemas import (
     TransactionNormalizeData,
 )
 from family_ledger.services.errors import ValidationError
-from family_ledger.services.transaction_balancing import transaction_balance_totals_by_symbol
+from family_ledger.services.transaction_balancing import (
+    posting_weight,
+    transaction_balance_totals_by_symbol,
+)
 from family_ledger.services.validation import validate_transaction_payload
+
+
+def _with_weight(posting: PostingPayload) -> PostingPayload:
+    # normalize's response echoes postings directly (no DB round-trip
+    # through serialize_transaction, which is what normally computes this),
+    # so it must be filled in here too — weight is always server-computed,
+    # never left for a client to derive from cost/price itself.
+    return posting.model_copy(update={"weight": posting_weight(posting)})
 
 
 def normalize_transaction_payload(
@@ -67,7 +78,10 @@ def normalize_transaction_payload(
                 )
 
     if not missing_units and not missing_symbols and not missing_price_amounts:
-        return TransactionCreate.model_validate(payload.model_dump())
+        validated = TransactionCreate.model_validate(payload.model_dump())
+        return validated.model_copy(
+            update={"postings": [_with_weight(p) for p in validated.postings]}
+        )
 
     weights_by_symbol = transaction_balance_totals_by_symbol(payload.postings)
 
@@ -107,24 +121,28 @@ def normalize_transaction_payload(
         if posting.units is None:
             for symbol, amount in weights_by_symbol.items():
                 normalized_postings.append(
+                    _with_weight(
+                        PostingPayload(
+                            account=posting.account,
+                            units=MoneyValue(amount=-amount, symbol=symbol),
+                            narration=posting.narration,
+                            cost=None,
+                            price=None,
+                            entity_metadata=posting.entity_metadata,
+                        )
+                    )
+                )
+        elif posting.units.symbol is None:
+            normalized_postings.append(
+                _with_weight(
                     PostingPayload(
                         account=posting.account,
-                        units=MoneyValue(amount=-amount, symbol=symbol),
+                        units=MoneyValue(amount=posting.units.amount, symbol=inferred_symbols[0]),
                         narration=posting.narration,
                         cost=None,
                         price=None,
                         entity_metadata=posting.entity_metadata,
                     )
-                )
-        elif posting.units.symbol is None:
-            normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=inferred_symbols[0]),
-                    narration=posting.narration,
-                    cost=None,
-                    price=None,
-                    entity_metadata=posting.entity_metadata,
                 )
             )
         elif posting.price is not None and posting.price.amount is None:
@@ -136,16 +154,18 @@ def normalize_transaction_payload(
                 )
             implied_weight = weights_by_symbol.get(symbol, Decimal("0"))
             normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
-                    narration=posting.narration,
-                    cost=None,
-                    price=MoneyValue(
-                        amount=(-implied_weight / posting.units.amount),
-                        symbol=symbol,
-                    ),
-                    entity_metadata=posting.entity_metadata,
+                _with_weight(
+                    PostingPayload(
+                        account=posting.account,
+                        units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
+                        narration=posting.narration,
+                        cost=None,
+                        price=MoneyValue(
+                            amount=(-implied_weight / posting.units.amount),
+                            symbol=symbol,
+                        ),
+                        entity_metadata=posting.entity_metadata,
+                    )
                 )
             )
         else:
@@ -157,13 +177,15 @@ def normalize_transaction_payload(
                     symbol=posting.price.symbol,
                 )
             normalized_postings.append(
-                PostingPayload(
-                    account=posting.account,
-                    units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
-                    narration=posting.narration,
-                    cost=posting.cost,
-                    price=explicit_price,
-                    entity_metadata=posting.entity_metadata,
+                _with_weight(
+                    PostingPayload(
+                        account=posting.account,
+                        units=MoneyValue(amount=posting.units.amount, symbol=posting.units.symbol),
+                        narration=posting.narration,
+                        cost=posting.cost,
+                        price=explicit_price,
+                        entity_metadata=posting.entity_metadata,
+                    )
                 )
             )
 

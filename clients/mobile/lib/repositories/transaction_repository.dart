@@ -35,26 +35,41 @@ class TransactionRepository {
     return (data: TransactionResource.fromJson(result.data!), error: null);
   }
 
-  Future<Result<List<DoctorIssue>>> runDoctorIssues() async {
-    final result = await _client.post('/ledger:doctor', {});
-    if (result.error != null) return (data: null, error: result.error);
+  // One nonconforming issue (e.g. a future issue type/version skew) must
+  // not blank every red indicator app-wide — skip just that entry.
+  List<DoctorIssue> _parseIssues(Object? issuesJson) {
     final issues = <DoctorIssue>[];
-    for (final entry
-        in (result.data!['issues'] as List).cast<Map<String, dynamic>>()) {
-      // One nonconforming issue (e.g. a future issue type/version skew)
-      // must not blank every red indicator app-wide — skip just that entry.
+    for (final entry in (issuesJson as List).cast<Map<String, dynamic>>()) {
       try {
         issues.add(DoctorIssue.fromJson(entry));
       } catch (_) {
         continue;
       }
     }
-    return (data: issues, error: null);
+    return issues;
   }
 
-  /// [convert] asks the server to value each foreign-currency posting in
-  /// that currency at the transaction date (`converted_units`) — the app's
-  /// default display currency, not a user filter.
+  Future<Result<List<DoctorIssue>>> runDoctorIssues() async {
+    final result = await _client.post('/ledger:doctor', {});
+    if (result.error != null) return (data: null, error: result.error);
+    return (data: _parseIssues(result.data!['issues']), error: null);
+  }
+
+  /// Previews issues (e.g. transaction_unbalanced) for a not-yet-saved
+  /// edit, without persisting anything. The server computes balance via
+  /// each posting's weight (cost/price-adjusted, not raw units) — the
+  /// client never re-derives that rule itself.
+  Future<Result<List<DoctorIssue>>> normalizeTransaction(
+    TransactionUpdate tx,
+  ) async {
+    final result = await _client.post('/transactions:normalize', tx.toJson());
+    if (result.error != null) return (data: null, error: result.error);
+    return (data: _parseIssues(result.data!['issues']), error: null);
+  }
+
+  /// [convert] asks the server to value each foreign-currency posting's
+  /// weight in that currency at the transaction date (`converted_weights`)
+  /// — the app's default display currency, not a user filter.
   Future<Result<(List<TransactionResource>, String?)>> listTransactions({
     int pageSize = 100,
     String? pageToken,

@@ -62,6 +62,7 @@ TransactionResource _tx({
       account: 'accounts/acc_checking',
       accountName: accountName,
       units: MoneyValue(amount: amount, symbol: symbol),
+      weight: MoneyValue(amount: amount, symbol: symbol),
     ),
   ],
 );
@@ -94,6 +95,11 @@ void main() {
     // Default: doctor returns no issues (keeps existing tests unaffected)
     when(
       () => mockRepo.runDoctorIssues(),
+    ).thenAnswer((_) async => (data: <DoctorIssue>[], error: null));
+    // Default: the edit screen's normalize preview reports no issues
+    // (keeps existing tests, which don't exercise it, unaffected)
+    when(
+      () => mockRepo.normalizeTransaction(any()),
     ).thenAnswer((_) async => (data: <DoctorIssue>[], error: null));
     when(
       () => mockRepo.getYearRange(),
@@ -173,7 +179,8 @@ void main() {
       account: 'accounts/acc-x',
       accountName: accountName,
       units: MoneyValue(amount: amount, symbol: symbol),
-      convertedUnits: converted,
+      weight: MoneyValue(amount: amount, symbol: symbol),
+      convertedWeights: converted,
     );
 
     Future<void> pumpWith(WidgetTester tester, TransactionResource tx) async {
@@ -1133,11 +1140,13 @@ void main() {
             account: 'accounts/acc_checking',
             accountName: 'Assets:Bank:Checking',
             units: MoneyValue(amount: '-42.50', symbol: 'CHF'),
+            weight: MoneyValue(amount: '-42.50', symbol: 'CHF'),
           ),
           PostingResource(
             account: 'accounts/acc_food',
             accountName: 'Expenses:Food',
             units: MoneyValue(amount: '42.50', symbol: 'CHF'),
+            weight: MoneyValue(amount: '42.50', symbol: 'CHF'),
           ),
         ],
       );
@@ -1183,7 +1192,8 @@ void main() {
         account: 'accounts/acc_checking',
         accountName: 'Assets:Bank:Checking',
         units: MoneyValue(amount: '40', symbol: 'USD'),
-        convertedUnits: MoneyValue(amount: '34', symbol: 'CHF'),
+        weight: MoneyValue(amount: '40', symbol: 'USD'),
+        convertedWeights: MoneyValue(amount: '34', symbol: 'CHF'),
       );
       const original = TransactionResource(
         name: 'transactions/t1',
@@ -1880,11 +1890,13 @@ void main() {
             account: 'accounts/acc_checking',
             accountName: 'Assets:Bank:Checking',
             units: MoneyValue(amount: '-99.00', symbol: 'CHF'),
+            weight: MoneyValue(amount: '-99.00', symbol: 'CHF'),
           ),
           PostingResource(
             account: 'accounts/acc_food',
             accountName: 'Expenses:Food',
             units: MoneyValue(amount: '99.00', symbol: 'CHF'),
+            weight: MoneyValue(amount: '99.00', symbol: 'CHF'),
           ),
         ],
       );

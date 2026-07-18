@@ -88,11 +88,13 @@ void main() {
           'account': 'accounts/acc_checking',
           'account_name': 'Assets:Bank:Checking',
           'units': {'amount': '-42.50', 'symbol': 'CHF'},
+          'weight': {'amount': '-42.50', 'symbol': 'CHF'},
         },
         {
           'account': 'accounts/acc_food',
           'account_name': 'Expenses:Food',
           'units': {'amount': '42.50', 'symbol': 'CHF'},
+          'weight': {'amount': '42.50', 'symbol': 'CHF'},
         },
       ],
     };
@@ -173,7 +175,7 @@ void main() {
     });
 
     test(
-      'passes convert only when provided and parses converted_units',
+      'passes convert only when provided and parses converted_weights',
       () async {
         final foreignTx = <String, dynamic>{
           'name': 'transactions/t2',
@@ -183,13 +185,15 @@ void main() {
               'account': 'accounts/acc_checking',
               'account_name': 'Assets:Bank:Checking',
               'units': {'amount': '40', 'symbol': 'USD'},
-              'converted_units': {'amount': '34', 'symbol': 'CHF'},
+              'weight': {'amount': '40', 'symbol': 'USD'},
+              'converted_weights': {'amount': '34', 'symbol': 'CHF'},
             },
             {
               'account': 'accounts/acc_opening',
               'account_name': 'Equity:Opening',
               'units': {'amount': '-40', 'symbol': 'USD'},
-              'converted_units': null,
+              'weight': {'amount': '-40', 'symbol': 'USD'},
+              'converted_weights': null,
             },
           ],
         };
@@ -208,9 +212,9 @@ void main() {
         final result = await repo.listTransactions(convert: 'CHF');
 
         final postings = result.data!.$1.first.postings;
-        expect(postings[0].convertedUnits?.amount, '34');
-        expect(postings[0].convertedUnits?.symbol, 'CHF');
-        expect(postings[1].convertedUnits, isNull);
+        expect(postings[0].convertedWeights?.amount, '34');
+        expect(postings[0].convertedWeights?.symbol, 'CHF');
+        expect(postings[1].convertedWeights, isNull);
         final call = verify(
           () => mockClient.get(
             captureAny(),
@@ -245,6 +249,7 @@ void main() {
           'account': 'accounts/acc_checking',
           'account_name': 'Assets:Bank:Checking',
           'units': {'amount': '-42.50', 'symbol': 'CHF'},
+          'weight': {'amount': '-42.50', 'symbol': 'CHF'},
         },
       ],
     };
@@ -321,6 +326,7 @@ void main() {
           'account': 'accounts/acc_checking',
           'account_name': 'Assets:Bank:Checking',
           'units': {'amount': '-50.00', 'symbol': 'CHF'},
+          'weight': {'amount': '-50.00', 'symbol': 'CHF'},
         },
       ],
     };
@@ -571,6 +577,7 @@ void main() {
           'account': 'accounts/acc_checking',
           'account_name': 'Assets:Bank:Checking',
           'units': {'amount': '-42.50', 'symbol': 'CHF'},
+          'weight': {'amount': '-42.50', 'symbol': 'CHF'},
         },
       ],
     };

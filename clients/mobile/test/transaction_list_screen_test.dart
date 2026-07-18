@@ -283,7 +283,10 @@ void main() {
         );
 
         expect(find.text('24.00 CHF'), findsOneWidget);
-        expect(find.text('40.00 USD'), findsOneWidget);
+        // The secondary line shows every currency behind the total,
+        // including CHF's own native contribution, not just the foreign
+        // one — sorted alphabetically, joined on one line.
+        expect(find.text('-10.00 CHF · 40.00 USD'), findsOneWidget);
       },
     );
 

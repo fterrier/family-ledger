@@ -10,8 +10,11 @@ class PostingSums {
   /// price path).
   final double? converted;
 
-  /// Original per-currency sums of the foreign postings folded into
-  /// [converted] — shown as the secondary line under the amount.
+  /// Per-currency weight sums that make up [converted] — shown as the
+  /// secondary line under the amount. Empty unless at least one matched
+  /// posting's weight currency differs from the target: a view where
+  /// everything is already in target has nothing to add beyond the primary
+  /// number.
   final Map<String, double> originals;
 
   /// Per-currency raw sums of matched postings that could not be converted
@@ -36,7 +39,10 @@ PostingSums sumPostings(
   String? target,
 }) {
   double? converted;
-  final originals = <String, double>{};
+  // Per-currency weight sums behind `converted` — every currency, even
+  // target's own, so the secondary line (below) can show the full mix
+  // when there's more than one.
+  final weightsByCurrency = <String, double>{};
   final unconverted = <String, double>{};
   for (final posting in postings) {
     final accountName = posting.accountName;
@@ -55,24 +61,34 @@ PostingSums sumPostings(
     // posting can have units already in the target currency yet still need
     // converting (e.g. 100 CHF bought at cost {1.2 USD} is really 120 USD
     // spent, converting to more or less than a trivial 100 CHF today).
+    double contribution;
     if (target != null && posting.convertedWeights != null) {
       final convertedAmount = double.tryParse(posting.convertedWeights!.amount);
       if (convertedAmount == null) continue;
-      converted = (converted ?? 0) + convertedAmount;
-      if (weight.symbol != target) {
-        originals[weight.symbol] =
-            (originals[weight.symbol] ?? 0) + weightAmount;
-      }
+      contribution = convertedAmount;
     } else if (target != null && weight.symbol == target) {
       // No convertedWeights (server omits it only when convert wasn't
       // requested, or no price path exists for the weight's currency) but
       // the weight already matches target — the raw value is still usable.
-      converted = (converted ?? 0) + weightAmount;
+      contribution = weightAmount;
     } else {
       unconverted[weight.symbol] =
           (unconverted[weight.symbol] ?? 0) + weightAmount;
+      continue;
     }
+    converted = (converted ?? 0) + contribution;
+    weightsByCurrency[weight.symbol] =
+        (weightsByCurrency[weight.symbol] ?? 0) + weightAmount;
   }
+  weightsByCurrency.removeWhere((_, amount) => amount == 0);
+  // Only show the breakdown once at least one (non-zero-net) currency isn't
+  // target's own — a currency that fully cancels out, or a view where every
+  // matched posting is already in target, needs no secondary line: the
+  // primary number already says it all.
+  final hasForeignCurrency = weightsByCurrency.keys.any((c) => c != target);
+  final originals = hasForeignCurrency
+      ? weightsByCurrency
+      : const <String, double>{};
   return PostingSums(
     converted: converted,
     originals: originals,

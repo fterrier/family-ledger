@@ -65,7 +65,8 @@ void main() {
   });
 
   group('sumPostings conversion buckets', () {
-    test('foreign postings use converted_weights and keep their original', () {
+    test('a multi-currency mix shows every currency behind the total, '
+        "including the target's own — not just the foreign one", () {
       final sums = sumPostings(
         [
           _posting('Assets:Checking', '-100', 'CHF'),
@@ -80,7 +81,7 @@ void main() {
         target: 'CHF',
       );
       expect(sums.converted, -66);
-      expect(sums.originals, {'USD': 40});
+      expect(sums.originals, {'CHF': -100, 'USD': 40});
       expect(sums.unconverted, isEmpty);
     });
 
@@ -145,6 +146,58 @@ void main() {
       // Same symbol as target, so no secondary "original" line — the
       // primary number already speaks for itself.
       expect(sums.originals, isEmpty);
+    });
+
+    test('a currency that nets to exactly 0 across the matched postings is '
+        "left out of the secondary line, even though it's part of the mix", () {
+      final sums = sumPostings(
+        [
+          _posting('Assets:Checking', '-100', 'CHF'),
+          _posting(
+            'Assets:Broker',
+            '40',
+            'USD',
+            converted: const MoneyValue(amount: '34', symbol: 'CHF'),
+          ),
+          _posting(
+            'Assets:Broker',
+            '-40',
+            'USD',
+            converted: const MoneyValue(amount: '-34', symbol: 'CHF'),
+          ),
+        ],
+        ['Assets'],
+        target: 'CHF',
+      );
+      expect(sums.converted, -100);
+      // USD nets to 0 (40 + -40) and is dropped; only CHF is left, which
+      // alone needs no secondary line either.
+      expect(sums.originals, isEmpty);
+    });
+
+    test('multiple postings in the same non-target currency are netted into '
+        'one secondary-line entry, not shown per-posting', () {
+      final sums = sumPostings(
+        [
+          _posting('Assets:Checking', '-100', 'CHF'),
+          _posting(
+            'Assets:Broker',
+            '40',
+            'USD',
+            converted: const MoneyValue(amount: '34', symbol: 'CHF'),
+          ),
+          _posting(
+            'Assets:Broker',
+            '10',
+            'USD',
+            converted: const MoneyValue(amount: '8.5', symbol: 'CHF'),
+          ),
+        ],
+        ['Assets'],
+        target: 'CHF',
+      );
+      expect(sums.converted, -57.5);
+      expect(sums.originals, {'CHF': -100, 'USD': 50});
     });
 
     test('unparsable amounts are skipped', () {

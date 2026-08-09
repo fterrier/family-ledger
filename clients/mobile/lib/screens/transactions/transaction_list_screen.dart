@@ -674,11 +674,16 @@ class _TransactionRow extends StatelessWidget {
   /// The view's posting sum: converted total plus any unconvertible raw
   /// per-currency sums (rare, joined on one line). '—' when no posting of
   /// this transaction falls under the view's roots (e.g. an Equity-only
-  /// transaction on a home view).
+  /// transaction on a home view), and likewise when the matched postings
+  /// net to zero (e.g. a transfer entirely within the view's roots) — a
+  /// literal "0.00" reads as a value, not as "nothing to show here".
   String _formatAmount(PostingSums sums) {
+    // Below half a cent rounds to "0.00" at display precision anyway, so
+    // treat it the same as no match rather than printing a zero amount.
+    final hasConverted =
+        sums.converted != null && sums.converted!.abs() >= 0.005;
     final parts = <String>[
-      if (sums.converted != null)
-        '${formatFixedAmount(sums.converted!)} $convertTarget',
+      if (hasConverted) '${formatFixedAmount(sums.converted!)} $convertTarget',
       if (sums.unconverted.isNotEmpty) _joinSums(sums.unconverted),
     ];
     return parts.isEmpty ? '—' : parts.join(' · ');

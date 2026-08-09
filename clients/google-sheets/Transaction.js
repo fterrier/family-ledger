@@ -1,5 +1,5 @@
 // Internal state (_api) mirrors the API entity shape:
-// { name, transaction_date, payee, narration, postings: [{account, units, narration?}] }
+// { name, update_time, transaction_date, payee, narration, postings: [{account, units, narration?}] }
 //
 // Context holds the account lookup maps needed for row conversion:
 // { accountResourceToDisplayName, accountDisplayNameToResource }
@@ -23,8 +23,7 @@ class Transaction extends Entity {
   }
 
   // Sidebar: set fields from either simple-mode keys (source_account, destination_account,
-  // amount, symbol) or a raw postings array. applyEdit('amount') is a different path that
-  // triggers a posting split on inline sheet edits.
+  // amount, symbol) or a raw postings array.
   setFields(fields) {
     if ('transaction_date' in fields)
       this._api.transaction_date = normalizeEntityDate_(fields.transaction_date);
@@ -36,12 +35,22 @@ class Transaction extends Entity {
     if ('postings' in fields) {
       this._api.postings = fields.postings;
     } else if ('source_account' in fields) {
-      const amount = parseFloat(fields.amount);
-      const symbol = fields.symbol;
-      this._api.postings = [{ account: fields.source_account, units: { amount: String(-amount), symbol: symbol } }];
-      if (fields.destination_account) {
-        this._api.postings.push({ account: fields.destination_account, units: { amount: String(amount), symbol: symbol } });
-      }
+      // Every transaction has at least 2 postings, both fully specified — no special
+      // casing for "the source posting". destination_account is either a real account
+      // or left blank (accountless — categorize later); either way the destination gets
+      // the user's amount verbatim, and the source's is derived from that same stored
+      // string via a plain sign flip (no parseFloat — can't lose precision, unlike
+      // summing across several rows, which is why the sheet's multi-row reconstruction
+      // still omits units and leaves that to the server).
+      const destination = {
+        account: fields.destination_account || null,
+        units: { amount: String(fields.amount), symbol: fields.symbol },
+      };
+      const source = {
+        account: fields.source_account,
+        units: { amount: negateAmountString_(destination.units.amount), symbol: fields.symbol },
+      };
+      this._api.postings = [source, destination];
     }
   }
 
@@ -109,26 +118,6 @@ class Transaction extends Entity {
       return;
     }
 
-    if (header === 'amount') {
-      const newAmount = parseFloat(value);
-      const oldAmount = parseFloat(oldValue);
-      if (isNaN(oldAmount)) return;
-      if (isNaN(newAmount)) throw new Error('Invalid amount — enter a valid number.');
-      if (newAmount === oldAmount) return;
-
-      const destOffset = anchorRow - this._span.start;
-      const postingIndex = 1 + destOffset;
-      const posting = this._api.postings[postingIndex];
-      posting.units.amount = String(newAmount);
-      this._api.postings.splice(postingIndex + 1, 0, {
-        account: posting.account,
-        units: { amount: String(oldAmount - newAmount), symbol: posting.units.symbol },
-        narration: null,
-      });
-      this._rebalanceSource_();
-      return;
-    }
-
     if (header === 'split_off_amount') {
       const instruction = String(value ?? '').trim();
       if (!instruction) return;
@@ -137,47 +126,22 @@ class Transaction extends Entity {
       const postingIndex = 1 + destOffset;
 
       if (instruction === 'x' || instruction === 'X' || instruction === '-') {
-        const destinations = this._api.postings.slice(1);
-        if (destinations.length === 0) return;
-        if (destinations.length === 1) {
-          this._api.postings = [this._api.postings[0]];
-          return;
-        }
-        const adjacentIndex = postingIndex > 1 ? postingIndex - 1 : postingIndex + 1;
-        const adjacent = this._api.postings[adjacentIndex];
-        adjacent.units.amount = String(
-          parseFloat(adjacent.units.amount) + parseFloat(this._api.postings[postingIndex].units.amount)
-        );
-        if (destinations.length === 2) {
-          // Going from 2 destinations → 1: promote a posting-specific narration to the
-          // transaction level so the single remaining row shows the right narration.
-          if (adjacent.narration) this._api.narration = adjacent.narration;
-          adjacent.narration = null;
-        }
-        this._api.postings.splice(postingIndex, 1);
+        this._pendingServerOp = {
+          verb: 'unsplit',
+          body: { posting_index: postingIndex, update_time: this._api.update_time },
+        };
         return;
       }
 
-      const splitAmount = parseFloat(instruction);
-      const posting = this._api.postings[postingIndex];
-      const originalAmount = parseFloat(posting.units.amount);
-      if (splitAmount === originalAmount) {
-        throw new Error('Split amount must differ from the row amount.');
+      if (!isDecimalAmountString_(instruction)) {
+        throw new Error('Invalid split amount — enter a valid number.');
       }
-      posting.units.amount = String(originalAmount - splitAmount);
-      this._api.postings.splice(postingIndex + 1, 0, {
-        account: null,
-        units: { amount: String(splitAmount), symbol: posting.units.symbol },
-        narration: null,
-      });
-      this._rebalanceSource_();
+      this._pendingServerOp = {
+        verb: 'split',
+        body: { posting_index: postingIndex, split_off_amount: instruction, update_time: this._api.update_time },
+      };
       return;
     }
-  }
-
-  _rebalanceSource_() {
-    const total = this._api.postings.slice(1).reduce(function(s, p) { return s + parseFloat(p.units.amount); }, 0);
-    this._api.postings[0].units.amount = String(-total);
   }
 
   // — Static config —
@@ -195,7 +159,7 @@ class Transaction extends Entity {
   }
 
   static isEditableHeader(h) {
-    return ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'tags', 'edit'].indexOf(h) !== -1;
+    return ['payee', 'narration', 'destination_account_name', 'split_off_amount', 'tags', 'edit'].indexOf(h) !== -1;
   }
 
   getUpdateMask_() {
@@ -207,36 +171,9 @@ class Transaction extends Entity {
       transaction_date: this._api.transaction_date,
       payee: this._api.payee || null,
       narration: this._api.narration || null,
-      postings: (this._api.postings || []).filter(function(p, i) { return i === 0 || p.account; }),
+      postings: this._api.postings || [],
       tags: this._api.tags || [],
     };
-  }
-
-  // Null-account postings are stripped by toApiPayload_() before the API call; re-attach
-  // them at their original positions so blank-destination rows remain visible in the sheet.
-  updateFromApi_(apiResponse) {
-    const original = this._api.postings || [];
-    const nullsByRank = [];
-    let rank = 0;
-    for (let i = 1; i < original.length; i++) {
-      if (original[i].account) {
-        rank++;
-      } else {
-        nullsByRank.push({ rank: rank, posting: original[i] });
-      }
-    }
-    this._api = apiResponse;
-    if (nullsByRank.length === 0) return;
-    const dests = this._api.postings.slice(1);
-    const postings = [this._api.postings[0]];
-    let nullIdx = 0;
-    for (let i = 0; i <= dests.length; i++) {
-      while (nullIdx < nullsByRank.length && nullsByRank[nullIdx].rank === i) {
-        postings.push(nullsByRank[nullIdx++].posting);
-      }
-      if (i < dests.length) postings.push(dests[i]);
-    }
-    this._api.postings = postings;
   }
 
   static loadContext_() {
@@ -261,8 +198,10 @@ class Transaction extends Entity {
   // Returns { mode, fields } where each field is self-contained with type, label, hint,
   // default, and selection-options. mode: 'simple' | 'advanced'. The server may return
   // 'advanced' even when 'simple' is requested (unclassifiable or multi-destination txn).
-  // currentPostings: postings array passed by the client when toggling modes.
-  static buildSidebarFields_(entityName, mode, currentPostings) {
+  // Reads straight off this._api — Sidebar.js has already hydrated it (via loadFromApi for
+  // a first-load edit, or setFields(fieldValues) for a mode-toggle round trip) before
+  // calling this, so no separate "currentPostings" input or live GET is needed here.
+  buildSidebarFields_(mode) {
     const allRaw = loadAccountOptions_();
     const toOpts = function(list) {
       return list.map(function(o) {
@@ -287,18 +226,13 @@ class Transaction extends Entity {
       { key: 'narration',        label: 'Narration', type: 'textarea',                 hint: 'Optional.' },
     ];
 
-    let postings = currentPostings || null;
-    let transactionDefaults = {};
-    if (entityName) {
-      const transaction = apiFetchJson_('get', '/' + entityName);
-      if (!currentPostings) postings = transaction.postings || [];
-      transactionDefaults = {
-        transaction_date: transaction.transaction_date || '',
-        payee:    transaction.payee    || '',
-        narration: transaction.narration || '',
-        tags: (transaction.tags || []).join(','),
-      };
-    }
+    const postings = this._api.postings || null;
+    const transactionDefaults = {
+      transaction_date: this._api.transaction_date || '',
+      payee:    this._api.payee    || '',
+      narration: this._api.narration || '',
+      tags: (this._api.tags || []).join(','),
+    };
 
     const textFields = baseTextFields.map(function(f) {
       return Object.assign({}, f, { default: transactionDefaults[f.key] || null });
@@ -313,7 +247,7 @@ class Transaction extends Entity {
     const sourceAccountField = { key: 'source_account', label: 'Source account', type: 'account-search', required: true, hint: 'Source account for this transaction.' };
     const destinationAccountField = {
       key: 'destination_account', label: 'Destination account', type: 'account-search',
-      hint: 'Optional. Leave blank for a source-only transaction.',
+      hint: 'Optional. Leave blank to categorize later.',
     };
     const amountField = {
       key: 'amount', label: 'Amount', type: 'number', required: true,
@@ -337,31 +271,19 @@ class Transaction extends Entity {
       allRaw.forEach(function(o) { accountResourceToDisplayName[o.resource_name] = o.display_name; });
       const groups = classifyTransactionGroups_({ postings: postings }, accountResourceToDisplayName);
 
-      // toApiPayload_ strips null-account postings before saving; supplement them here so
-      // partially-categorized split transactions open in advanced mode.
-      if (!currentPostings && entityName && groups) {
-        let hasRemainder = false;
-        groups.forEach(function(group) {
-          if (group.destinationIndexes.length === 0) return; // source-only: no supplement
-          const rem = groupRemainder_(group, postings);
-          if (rem) {
-            hasRemainder = true;
-            postings = postings.concat([{ account: null, units: { amount: String(rem.amount), symbol: rem.symbol } }]);
-          }
-        });
-        if (hasRemainder) return advancedReturn(postings);
-      }
-
-      if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].sourceIndex === null || groups[0].destinationIndexes.length > 1) {
+      // The server always balance-fills any gap, so a real 1-symbol group always has
+      // exactly one destination posting — never zero. A shape other than that falls
+      // back to the advanced editor rather than assuming.
+      if (!groups || groups.length !== 1 || groups[0].hasCostPrice || groups[0].destinationIndexes.length !== 1) {
         return advancedReturn(postings);
       }
 
       const src = postings[groups[0].sourceIndex];
-      const dst = groups[0].destinationIndexes.length > 0 ? postings[groups[0].destinationIndexes[0]] : null;
+      const dst = postings[groups[0].destinationIndexes[0]];
       return simpleReturn([
         Object.assign({}, sourceAccountField, { 'selection-options': allAccountOpts, default: src.account }),
-        Object.assign({}, destinationAccountField, { 'selection-options': allAccountOpts, default: dst ? dst.account : null }),
-        Object.assign({}, amountField, { default: dst ? parseFloat(dst.units.amount) : -parseFloat(src.units.amount) }),
+        Object.assign({}, destinationAccountField, { 'selection-options': allAccountOpts, default: dst.account }),
+        Object.assign({}, amountField, { default: dst.units.amount }),
         Object.assign({}, symbolField, { 'selection-options': allCommodityOpts, default: src.units.symbol }),
         tagsField,
       ]);
@@ -418,15 +340,38 @@ function buildTransactionContext_(accountOptions) {
 }
 
 // Inverse of flattenTransactionForSheet_: sheet rows → internal API representation.
-// Thin wrapper around buildTransactionPatchPayload_ that adds the entity name.
+// Thin wrapper around buildTransactionPatchPayload_ that adds the entity name and
+// update_time (both hidden-column values, identical across every row of the same
+// transaction since they're populated together at render time — read from the first row).
 function parseTransactionRowsToApi_(rows, accountDisplayNameToResource) {
   const payload = buildTransactionPatchPayload_(rows, accountDisplayNameToResource);
   const name = rows.length > 0 ? String(rows[0].resource_name || '').trim() || null : null;
   const tags = Transaction.parseTagsString_(rows.length > 0 ? rows[0].tags : '');
-  return Object.assign({ name: name }, payload, { tags: tags });
+  const updateTime = rows.length > 0 && typeof rows[0].update_time === 'number' ? rows[0].update_time : null;
+  return Object.assign({ name: name, update_time: updateTime }, payload, { tags: tags });
 }
 
 // — Transaction-specific functions (moved from TransactionsSheet.js) —
+
+// A row with no real destination posting to show — used for the "no groups at all" and
+// "source with no destination in this symbol" cases, which only differ in which of
+// source_account_name/symbol/has_cost_price they know.
+function blankDestinationRow_(transaction, transactionNarration, tagsText, fields) {
+  return Object.assign({
+    resource_name: transaction.name,
+    update_time: transaction.update_time,
+    narration_source: 'txn',
+    transaction_date: transaction.transaction_date,
+    payee: transaction.payee || '',
+    narration: transactionNarration,
+    source_account_name: '',
+    destination_account_name: '',
+    amount: '',
+    split_off_amount: '',
+    symbol: '',
+    tags: tagsText,
+  }, fields);
+}
 
 function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) {
   const groups = classifyTransactionGroups_(transaction, accountResourceToDisplayName);
@@ -437,87 +382,51 @@ function flattenTransactionForSheet_(transaction, accountResourceToDisplayName) 
   const lookup = accountResourceToDisplayName || {};
 
   if (groups.length === 0) {
-    return [{
-      resource_name: transaction.name,
-      narration_source: 'txn',
-      transaction_date: transaction.transaction_date,
-      payee: transaction.payee || '',
-      narration: transactionNarration,
-      source_account_name: '',
-      destination_account_name: '',
-      amount: '',
-      split_off_amount: '',
-      symbol: '',
-      tags: tagsText,
-    }];
+    return [blankDestinationRow_(transaction, transactionNarration, tagsText, {})];
   }
 
   const rows = [];
 
   groups.forEach(function(group) {
-    if (group.sourceIndex === null) {
-      rows.push({
-        resource_name: transaction.name,
-        narration_source: 'txn',
-        transaction_date: transaction.transaction_date,
-        payee: transaction.payee || '',
-        narration: transactionNarration,
-        source_account_name: '',
-        destination_account_name: '',
-        amount: '',
-        split_off_amount: '',
+    const sourcePosting = transaction.postings[group.sourceIndex];
+    const sourceAccountName = lookup[sourcePosting.account] || sourcePosting.account;
+
+    // A weight-symbol group can end up with a source and no destination — e.g. a
+    // near-zero residual left within tolerance, in a symbol nothing else in the
+    // transaction shares. There's no destination posting to show an amount from, so
+    // render a blank-destination row rather than fail rendering the whole sheet over it.
+    if (group.destinationIndexes.length === 0) {
+      rows.push(blankDestinationRow_(transaction, transactionNarration, tagsText, {
+        source_account_name: sourceAccountName,
         symbol: group.symbol,
-        tags: tagsText,
         has_cost_price: group.hasCostPrice,
-      });
+      }));
       return;
     }
 
-    const sourcePosting = transaction.postings[group.sourceIndex];
-    const sourceAccountName = lookup[sourcePosting.account] || sourcePosting.account;
-    const sourceWeight = postingWeight_(sourcePosting);
-    const sourceAmount = parseFloat(sourceWeight.amount);
-
-    let destSum = 0;
     group.destinationIndexes.forEach(function(destinationIndex) {
       const posting = transaction.postings[destinationIndex];
       const postingNarration = String(posting.narration || '');
       const weight = postingWeight_(posting);
-      const amount = parseFloat(weight.amount);
-      destSum += amount;
       rows.push({
         resource_name: transaction.name,
+        update_time: transaction.update_time,
         narration_source: postingNarration ? 'post' : 'txn',
         transaction_date: transaction.transaction_date,
         payee: transaction.payee || '',
         narration: effectiveSheetNarration_(transactionNarration, postingNarration),
         source_account_name: sourceAccountName,
         destination_account_name: lookup[posting.account] || posting.account,
-        amount: amount,
+        // Written verbatim as a string — Sheets parses a numeric-looking string into a
+        // real number on write (same as typing it in), respecting the amount column's
+        // own numberFormat. No client-side float conversion needed.
+        amount: weight.amount,
         split_off_amount: '',
         symbol: weight.symbol,
         tags: tagsText,
         has_cost_price: group.hasCostPrice,
       });
     });
-
-    const rem = groupRemainder_(group, transaction.postings);
-    if (rem) {
-      rows.push({
-        resource_name: transaction.name,
-        narration_source: 'txn',
-        transaction_date: transaction.transaction_date,
-        payee: transaction.payee || '',
-        narration: transactionNarration,
-        source_account_name: sourceAccountName,
-        destination_account_name: '',
-        amount: rem.amount,
-        split_off_amount: '',
-        symbol: rem.symbol,
-        tags: tagsText,
-        has_cost_price: group.hasCostPrice,
-      });
-    }
   });
 
   return rows;
@@ -533,24 +442,13 @@ function hasPostingCostOrPrice_(postings) {
   return !!(postings && postings.some(function(p) { return p.cost || p.price; }));
 }
 
-// Returns { amount, symbol } when a group's destinations don't absorb the full source
-// weight (i.e. the transaction is unbalanced), null otherwise.
-function groupRemainder_(group, postings) {
-  if (group.sourceIndex === null) return null;
-  const sourceWeight = postingWeight_(postings[group.sourceIndex]);
-  const sourceAmount = parseFloat(sourceWeight.amount);
-  let destSum = 0;
-  group.destinationIndexes.forEach(function(i) {
-    destSum += parseFloat(postingWeight_(postings[i]).amount);
-  });
-  const amount = -(sourceAmount + destSum);
-  return Math.abs(amount) > 1e-9 ? { amount: amount, symbol: sourceWeight.symbol } : null;
-}
-
 // Classify a transaction into display groups, one per weight symbol.
 // Each group: { symbol, sourceIndex, destinationIndexes, hasCostPrice }
-// sourceIndex is a posting array index (or null when ambiguous).
-// Returns null for malformed input; [] when all postings are zero-weight.
+// sourceIndex is the first-seen posting's array index for that symbol (always a real
+// index — every symbol in the result has at least one posting by construction, so this
+// is never ambiguous). Zero-weight postings are kept and classified like any other (no
+// special-casing for display purposes). Returns null for malformed input; [] when there
+// are no postings at all.
 function classifyTransactionGroups_(transaction, accountResourceToDisplayName) {
   if (!transaction || !Array.isArray(transaction.postings)) {
     return null;
@@ -560,15 +458,9 @@ function classifyTransactionGroups_(transaction, accountResourceToDisplayName) {
   if (postings.length === 0) return [];
   const hasCostPrice = hasPostingCostOrPrice_(postings);
 
-  // Drop zero-weight postings — they carry no economic content.
   const active = postings.map(function(p, i) {
-    const w = postingWeight_(p);
-    return { index: i, posting: p, weight: w, weightAmount: parseFloat(w.amount) };
-  }).filter(function(item) {
-    return item.weightAmount !== 0;
+    return { index: i, posting: p, weight: postingWeight_(p) };
   });
-
-  if (active.length === 0) return [];
 
   // Group by weight symbol, preserving first-seen order.
   const symbolOrder = [];
@@ -581,10 +473,9 @@ function classifyTransactionGroups_(transaction, accountResourceToDisplayName) {
 
   return symbolOrder.map(function(sym) {
     const items = bySymbol[sym];
-    const sourceIndex = items.length > 0 ? items[0].index : null;
     const destinationIndexes = items.slice(1).map(function(item) { return item.index; });
 
-    return { symbol: sym, sourceIndex: sourceIndex, destinationIndexes: destinationIndexes, hasCostPrice: hasCostPrice };
+    return { symbol: sym, sourceIndex: items[0].index, destinationIndexes: destinationIndexes, hasCostPrice: hasCostPrice };
   });
 }
 
@@ -610,7 +501,6 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
   const sourceAccount = accountDisplayNameToResource[sourceAccountName];
   if (!sourceAccount) throw new Error('Unknown account_name: ' + sourceAccountName);
   const destinationRows = [];
-  const amounts = [];
 
   rows.forEach(function(row, index) {
     const displayRow = row.__rowNumber || index + 2;
@@ -633,21 +523,16 @@ function buildTransactionPatchPayload_(rows, accountDisplayNameToResource) {
     } else {
       destinationRows.push({ account: null, amount: amount, narration: null });
     }
-    amounts.push(amount);
   });
 
   if (issues.length > 0) {
     throw new Error(issues.join('\n'));
   }
 
-  const totalAmount = amounts.reduce(function(a, b) { return a + b; }, 0);
-  const postings = [{
-    account: sourceAccount,
-    units: {
-      amount: String(-totalAmount),
-      symbol: symbol,
-    },
-  }];
+  // The source's own amount is never computed client-side — its units are omitted
+  // entirely and the server interpolates it from the (verbatim, unmodified)
+  // destination amounts below (see ADR 0006's normalization boundary).
+  const postings = [{ account: sourceAccount }];
   destinationRows.forEach(function(row) {
     postings.push({
       account: row.account,
@@ -706,6 +591,19 @@ function effectiveSheetNarration_(transactionNarration, postingNarration) {
 function normalizeOptionalSheetText_(value) {
   const normalized = String(value || '').trim();
   return normalized ? normalized : null;
+}
+
+// Flips an amount string's sign by editing the string itself — no parseFloat/toString
+// round-trip, so exact decimal input is preserved verbatim.
+function negateAmountString_(amountStr) {
+  const trimmed = String(amountStr || '').trim();
+  return trimmed.charAt(0) === '-' ? trimmed.slice(1) : '-' + trimmed;
+}
+
+// Validates a user-typed amount is a plain decimal number — no parseFloat, so this
+// never risks silently accepting/parsing something with lost precision.
+function isDecimalAmountString_(amountStr) {
+  return /^-?(\d+\.?\d*|\.\d+)$/.test(String(amountStr || '').trim());
 }
 
 function inferTransactionNarrationFromGroupRows_(rows, issues) {

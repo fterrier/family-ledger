@@ -13,13 +13,16 @@ from family_ledger.api.schemas import (
     ListTransactionsResponse,
     MoneyValue,
     NormalizeTransactionResponse,
+    PostingNormalizePayload,
     PostingPayload,
+    SplitTransactionRequest,
     TransactionCreate,
     TransactionData,
     TransactionNormalizeData,
     TransactionResource,
+    UnsplitTransactionRequest,
 )
-from family_ledger.models import Account, Posting, Transaction
+from family_ledger.models import Account, Posting, Transaction, current_update_time
 from family_ledger.services.account_matching import account_subtree_clause
 from family_ledger.services.errors import (
     ConflictError,
@@ -32,11 +35,11 @@ from family_ledger.services.normalization import normalize_and_validate_transact
 from family_ledger.services.pagination import run_list_page
 from family_ledger.services.prices import PriceLookup
 from family_ledger.services.transaction_balancing import (
+    compute_full_balance_residuals_for_payload,
     decimal_to_string,
-    derive_normalize_issues,
     persisted_posting_weight,
 )
-from family_ledger.services.validation import resolve_accounts, resource_name
+from family_ledger.services.validation import resource_name
 
 
 def _converted_weight(
@@ -76,8 +79,8 @@ def serialize_transaction(
         weight = persisted_posting_weight(posting)
         postings.append(
             PostingPayload(
-                account=posting.account.name,
-                account_name=posting.account.account_name,
+                account=posting.account.name if posting.account else None,
+                account_name=posting.account.account_name if posting.account else None,
                 units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
                 narration=posting.narration,
                 cost=None
@@ -116,6 +119,7 @@ def serialize_transaction(
         entity_metadata=transaction.entity_metadata,
         import_metadata=import_metadata,
         postings=postings,
+        update_time=transaction.updated_at,
     )
 
 
@@ -123,11 +127,14 @@ def normalize_transaction(
     session: Session,
     payload: TransactionNormalizeData,
 ) -> NormalizeTransactionResponse:
-    normalized = normalize_and_validate_transaction_payload(session, payload)
-    return NormalizeTransactionResponse(
-        transaction=normalized,
-        issues=derive_normalize_issues(normalized),
+    normalized, _account_map = normalize_and_validate_transaction_payload(session, payload)
+    # :normalize never persists (draft preview only), so unlike every other
+    # endpoint it can't rely on persist_transaction having already stored a
+    # balancing filler posting — compute and echo a preview-only one here.
+    normalized = normalized.model_copy(
+        update={"postings": _postings_balanced_with_residual_fillers(normalized.postings)}
     )
+    return NormalizeTransactionResponse(transaction=normalized)
 
 
 def _reload_transaction_by_id(session: Session, transaction_id: int) -> Transaction:
@@ -197,18 +204,19 @@ def _check_source_ids_available(
 def persist_transaction(
     session: Session,
     payload: TransactionData,
+    account_map: dict[str, Account],
     transaction: Transaction | None = None,
     update_mask: str | None = None,
 ) -> Transaction:
+    # account_map is always caller-resolved (via resolve_accounts, typically
+    # through normalize_and_validate_transaction_payload) rather than
+    # re-resolved here — every write path already validates accounts before
+    # persisting, so re-querying them a second time would be redundant.
     is_create = transaction is None
     mask = set(update_mask.split(",")) if (update_mask and not is_create) else None
 
     def _masked(field: str) -> bool:
         return mask is None or field in mask
-
-    # Resolve accounts before session.add so the SELECT doesn't autoflush a
-    # partially-initialised transaction and trigger constraint violations.
-    account_map = resolve_accounts(session, payload.postings) if _masked("postings") else {}
 
     if _masked("import_metadata"):
         new_ids = payload.import_metadata.source_native_ids if payload.import_metadata else []
@@ -219,6 +227,10 @@ def persist_transaction(
     if is_create:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
         session.add(transaction)
+
+    # Every persist is a mutation, even a postings-only update_mask — bump
+    # unconditionally (see Transaction.updated_at in models/ledger.py).
+    transaction.updated_at = current_update_time()
 
     if _masked("transaction_date"):
         transaction.transaction_date = payload.transaction_date
@@ -239,8 +251,14 @@ def persist_transaction(
             # Flush orphaned postings before reusing posting_order values on replacement updates.
             session.flush()
 
-        for index, posting in enumerate(payload.postings, start=1):
-            account = account_map[resource_name("accounts", posting.account)]
+        for index, posting in enumerate(
+            _postings_balanced_with_residual_fillers(payload.postings), start=1
+        ):
+            account = (
+                None
+                if posting.account is None
+                else account_map[resource_name("accounts", posting.account)]
+            )
             transaction.postings.append(
                 Posting(
                     account=account,
@@ -259,24 +277,252 @@ def persist_transaction(
     return transaction
 
 
-def get_transaction_row(session: Session, transaction: str) -> Transaction:
+def get_transaction_row(
+    session: Session, transaction: str, *, for_update: bool = False
+) -> Transaction:
     resource = resource_name("transactions", transaction)
-    transaction_row = session.scalar(
+    query = (
         select(Transaction)
         .options(selectinload(Transaction.postings).selectinload(Posting.account))
         .where(Transaction.name == resource)
     )
+    if for_update:
+        # Real row lock on Postgres — a concurrent :split/:unsplit on the
+        # same transaction blocks until this one commits, then re-reads the
+        # now-changed updated_at and correctly fails its own precondition
+        # check. Silently dropped (harmless no-op) by SQLite's dialect,
+        # which doesn't support FOR UPDATE — fine, since SQLite's
+        # single-writer model doesn't need real row locking anyway.
+        query = query.with_for_update()
+    transaction_row = session.scalar(query)
     if transaction_row is None:
         raise NotFoundError(code="transaction_not_found", message="Transaction not found")
     return transaction_row
+
+
+def _check_update_time_precondition(transaction_row: Transaction, client_update_time: int) -> None:
+    if transaction_row.updated_at != client_update_time:
+        raise ConflictError(
+            code="transaction_version_mismatch",
+            message=(
+                f"Transaction was modified since update_time={client_update_time}; "
+                f"current update_time is {transaction_row.updated_at}."
+            ),
+        )
+
+
+def _cost_or_price_key(
+    posting: Posting,
+) -> tuple[Decimal | None, str | None, Decimal | None, str | None]:
+    return (
+        posting.cost_per_unit,
+        posting.cost_symbol,
+        posting.price_per_unit,
+        posting.price_symbol,
+    )
+
+
+def _posting_payload_from_orm(posting: Posting) -> PostingNormalizePayload:
+    return PostingNormalizePayload(
+        account=posting.account.name if posting.account else None,
+        units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
+        narration=posting.narration,
+        cost=None
+        if posting.cost_per_unit is None
+        else MoneyValue(amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)),
+        price=None
+        if posting.price_per_unit is None
+        else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
+        entity_metadata=posting.entity_metadata,
+    )
+
+
+def _synthetic_posting_payload(money: MoneyValue) -> PostingPayload:
+    return PostingPayload(account=None, account_name=None, units=money, weight=money)
+
+
+def _postings_balanced_with_residual_fillers(
+    postings: list[PostingPayload],
+) -> list[PostingPayload]:
+    """Appends one account=None posting per symbol needed to bring
+    [postings] to a full balance (accountless entries included in the sum —
+    see compute_full_balance_residuals_for_payload). Called from
+    persist_transaction so every stored transaction is always already
+    balanced, and from normalize_transaction to preview the same filler
+    without persisting anything."""
+    residuals = compute_full_balance_residuals_for_payload(postings)
+    if not residuals:
+        return postings
+    return postings + [_synthetic_posting_payload(r) for r in residuals]
+
+
+def _find_unsplit_merge_target(
+    postings: list[Posting], posting_index: int, target: Posting
+) -> int | None:
+    """First other posting matching target's symbol, cost/price, and *weight*
+    sign (both >= 0 or both < 0). Sign-matching keeps this from ever
+    selecting the conventional negative "source" posting as the merge
+    target for a positive destination.
+    Compares weight (persisted_posting_weight), not raw units_amount, so
+    this stays correct even for a cost/price-bearing posting whose rate
+    happens to be negative — weight is this codebase's canonical signed
+    value everywhere else (transaction_balancing.py), and using it here too
+    means correctness doesn't depend on readers re-deriving that a matching
+    cost/price rate (required below) makes the two comparisons equivalent.
+    A match can itself be accountless: merging an accounted posting into a
+    filler is a valid way to move it back to "not yet categorized" (the
+    reverse of the ordinary "categorize a filler" direction), just like
+    merging two accountless postings together is fine too."""
+    target_key = _cost_or_price_key(target)
+    target_nonneg = persisted_posting_weight(target).amount >= 0
+    for index, candidate in enumerate(postings):
+        if index == posting_index:
+            continue
+        if candidate.units_symbol != target.units_symbol:
+            continue
+        if _cost_or_price_key(candidate) != target_key:
+            continue
+        if (persisted_posting_weight(candidate).amount >= 0) != target_nonneg:
+            continue
+        return index
+    return None
+
+
+def _transaction_payload_from_row(
+    transaction: Transaction, postings: list[PostingNormalizePayload], narration: str | None
+) -> TransactionNormalizeData:
+    return TransactionNormalizeData(
+        transaction_date=transaction.transaction_date,
+        payee=transaction.payee,
+        narration=narration,
+        tags=transaction.tags,
+        entity_metadata=transaction.entity_metadata,
+        import_metadata=None,
+        postings=postings,
+    )
+
+
+def split_transaction(
+    session: Session, transaction: str, request: SplitTransactionRequest
+) -> TransactionResource:
+    transaction_row = get_transaction_row(session, transaction, for_update=True)
+    _check_update_time_precondition(transaction_row, request.update_time)
+
+    postings = transaction_row.postings
+    if not (0 <= request.posting_index < len(postings)):
+        raise ValidationError(
+            code="posting_index_out_of_range", message="posting_index is out of range."
+        )
+
+    # Read the target's amount/symbol off the ORM row (plainly typed —
+    # Decimal/str, no Optional-union narrowing needed), but source cost/price
+    # for the remainder from the already-built payload entry, so they're
+    # derived exactly once (by _posting_payload_from_orm) rather than
+    # recomputed from ORM fields a second time. Same split as
+    # unsplit_transaction: ORM for reading facts about existing postings,
+    # the payload list for describing the new state to persist.
+    target = postings[request.posting_index]
+    symbol = target.units_symbol
+    remainder_amount = request.split_off_amount
+    new_target_amount = target.units_amount - request.split_off_amount
+
+    payload_postings = [_posting_payload_from_orm(p) for p in postings]
+    target_payload = payload_postings[request.posting_index]
+    payload_postings[request.posting_index] = target_payload.model_copy(
+        update={"units": MoneyValue(amount=new_target_amount, symbol=symbol)}
+    )
+    if remainder_amount != 0:
+        payload_postings.insert(
+            request.posting_index + 1,
+            PostingNormalizePayload(
+                account=None,
+                units=MoneyValue(amount=remainder_amount, symbol=symbol),
+                # Cost/price are per-unit rates, unaffected by how the
+                # quantity is divided — copy the target's verbatim onto the
+                # new remainder posting; the target keeps its own cost/price
+                # unchanged, only its amount changes.
+                cost=target_payload.cost,
+                price=target_payload.price,
+            ),
+        )
+
+    normalized, account_map = normalize_and_validate_transaction_payload(
+        session,
+        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
+    )
+    persist_transaction(
+        session,
+        normalized,
+        transaction=transaction_row,
+        update_mask="postings",
+        account_map=account_map,
+    )
+    commit_or_raise(session)
+    return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
+
+
+def unsplit_transaction(
+    session: Session, transaction: str, request: UnsplitTransactionRequest
+) -> TransactionResource:
+    transaction_row = get_transaction_row(session, transaction, for_update=True)
+    _check_update_time_precondition(transaction_row, request.update_time)
+
+    postings = transaction_row.postings
+    if not (0 <= request.posting_index < len(postings)):
+        raise ValidationError(
+            code="posting_index_out_of_range", message="posting_index is out of range."
+        )
+
+    target = postings[request.posting_index]
+    payload_postings = [_posting_payload_from_orm(p) for p in postings]
+
+    merge_into_index = _find_unsplit_merge_target(postings, request.posting_index, target)
+
+    if merge_into_index is None:
+        # An accounted posting's amount must always be merged somewhere,
+        # never just discarded — only a not-yet-categorized accountless
+        # posting can be deleted outright with no merge target. Removing it
+        # here just reopens the gap it was covering; the persist below will
+        # re-synthesize an equivalent filler posting, so the resulting
+        # postings are unchanged (see persist_transaction) — but this isn't
+        # a no-op in every sense: update_time still bumps, and this specific
+        # posting's entity_metadata (if any) is not carried over to its
+        # replacement.
+        if target.account is not None:
+            raise ValidationError(
+                code="merge_target_not_found",
+                message="No posting matches posting_index's symbol, cost, price, and sign.",
+            )
+    else:
+        survivor = postings[merge_into_index]
+        merged_amount = survivor.units_amount + target.units_amount
+        payload_postings[merge_into_index] = payload_postings[merge_into_index].model_copy(
+            update={"units": MoneyValue(amount=merged_amount, symbol=survivor.units_symbol)}
+        )
+
+    del payload_postings[request.posting_index]
+
+    normalized, account_map = normalize_and_validate_transaction_payload(
+        session,
+        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
+    )
+    persist_transaction(
+        session,
+        normalized,
+        transaction=transaction_row,
+        update_mask="postings",
+        account_map=account_map,
+    )
+    commit_or_raise(session)
+    return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 
 
 def create_transaction(
     session: Session,
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionResource:
-    normalized = normalize_and_validate_transaction_payload(session, payload)
-    transaction = persist_transaction(session, normalized)
+    normalized, account_map = normalize_and_validate_transaction_payload(session, payload)
+    transaction = persist_transaction(session, normalized, account_map=account_map)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction.id))
 
@@ -288,8 +534,14 @@ def update_transaction(
     update_mask: str | None = None,
 ) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
-    normalized = normalize_and_validate_transaction_payload(session, payload)
-    persist_transaction(session, normalized, transaction=transaction_row, update_mask=update_mask)
+    normalized, account_map = normalize_and_validate_transaction_payload(session, payload)
+    persist_transaction(
+        session,
+        normalized,
+        transaction=transaction_row,
+        update_mask=update_mask,
+        account_map=account_map,
+    )
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 
@@ -445,9 +697,17 @@ def merge_transactions(
     primary_key: dict[tuple, Posting] = {}
     result_postings: list[Posting] = []
     for pp in primary.postings:
-        primary_key[_posting_key(pp)] = pp
         result_postings.append(pp)
+        if pp.account_id is not None:
+            primary_key[_posting_key(pp)] = pp
     for sp in secondary.postings:
+        # Accountless postings carry no identity beyond amount/symbol —
+        # deduping them against each other would silently conflate two
+        # unrelated gaps that happen to share an amount, so every
+        # accountless posting from both sides is always kept.
+        if sp.account_id is None:
+            result_postings.append(sp)
+            continue
         key = _posting_key(sp)
         if key in primary_key:
             if not primary_key[key].narration and sp.narration:
@@ -470,6 +730,7 @@ def merge_transactions(
         entity_metadata=primary.entity_metadata,
         source_native_ids=merged_ids,
         import_timestamp=merged_ts,
+        updated_at=current_update_time(),
     )
     session.add(merged)
     session.flush()

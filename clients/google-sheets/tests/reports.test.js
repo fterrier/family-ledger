@@ -168,6 +168,6 @@ test('buildDestLevelFormula_ produces a SPLIT formula referencing destination_ac
   assert.ok(formula.includes('MID'), 'must use MID to strip marker');
   assert.ok(formula.includes('FIND'), 'must use FIND to locate the space after the marker');
   assert.ok(formula.includes('" - "'), 'must split on " - "');
-  // destination_account_name is column H (1-based column 8)
-  assert.ok(formula.includes('$H2'), 'must reference destination_account_name column H at row 2');
+  // destination_account_name is column I (1-based column 9)
+  assert.ok(formula.includes('$I2'), 'must reference destination_account_name column I at row 2');
 });

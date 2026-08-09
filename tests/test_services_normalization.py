@@ -347,3 +347,74 @@ def test_normalize_infers_symbol_when_single_currency_balance() -> None:
     assert normalized.postings[1].units is not None
     assert normalized.postings[1].units.symbol == "CHF"
     assert normalized.postings[1].units.amount == Decimal("100")
+
+
+def test_normalize_allows_accountless_posting_with_explicit_units() -> None:
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account=None,
+                units=MoneyValue(amount=Decimal("100"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].account is None
+    assert normalized.postings[1].units is not None
+    assert normalized.postings[1].units.amount == Decimal("100")
+
+
+def test_normalize_interpolation_ignores_accountless_posting_amount() -> None:
+    # The plug posting must be interpolated from the *accounted* legs only —
+    # an accountless posting's amount is a known, explicit remainder (never
+    # something to balance against), matching its exclusion from balance
+    # totals in transaction_balancing.py.
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(account="accounts/acc_one"),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(
+                account=None,
+                units=MoneyValue(amount=Decimal("30"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[0].units is not None
+    assert normalized.postings[0].units.amount == Decimal("-100")
+
+
+def test_normalize_interpolates_missing_units_on_accountless_posting() -> None:
+    # An accountless posting competing for the single "may omit units" slot
+    # is interpolated exactly like an accounted one — no bespoke validation
+    # needed; multiple_missing_postings/ambiguous_interpolation_symbol
+    # already cover the only failure modes.
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("-100"), symbol="CHF"),
+            ),
+            PostingNormalizePayload(account=None, units=None),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[1].account is None
+    assert normalized.postings[1].units is not None
+    assert normalized.postings[1].units.amount == Decimal("100")

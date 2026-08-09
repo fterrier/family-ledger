@@ -4,10 +4,13 @@ var PostingsEditor = (function() {
   var _accountOptions = [];
   var _commodityOptions = [];
 
-  function init(container, accountOptions, commodityOptions, initialPostings) {
+  // container, field: the generic complex-field widget contract EditSidebar.html expects
+  // (see its COMPLEX_FIELD_TYPES registry) — field carries this widget's own data
+  // (account-options/commodity-options/default) under whatever keys it defines.
+  function init(container, field) {
     _container = container;
-    _accountOptions = accountOptions || [];
-    _commodityOptions = commodityOptions || [];
+    _accountOptions = field['account-options'] || [];
+    _commodityOptions = field['commodity-options'] || [];
     _container.innerHTML = '';
 
     _listEl = document.createElement('div');
@@ -22,7 +25,7 @@ var PostingsEditor = (function() {
     addBtn.onclick = function() { addRow(null); };
     _container.appendChild(addBtn);
 
-    (initialPostings || []).forEach(function(p) { addRow(p); });
+    (field.default || []).forEach(function(p) { addRow(p); });
   }
 
   function makeCommoditySelect_(cls) {
@@ -184,8 +187,8 @@ var PostingsEditor = (function() {
       var acct = row.querySelector('.posting-account').value;
       var amt = row.querySelector('.posting-amount').value;
       var sym = row.querySelector('.posting-symbol').value;
-      if (!acct || amt === '' || !sym) { valid = false; return; }
-      var p = { account: acct, units: { amount: amt, symbol: sym } };
+      if (amt === '' || !sym) { valid = false; return; }
+      var p = { account: acct || null, units: { amount: amt, symbol: sym } };
       var costAmt = row.querySelector('.posting-cost-amount').value;
       var costSym = row.querySelector('.posting-cost-symbol').value;
       if (costAmt && costSym) p.cost = { amount: costAmt, symbol: costSym };
@@ -194,7 +197,7 @@ var PostingsEditor = (function() {
       if (priceAmt && priceSym) p.price = { amount: priceAmt, symbol: priceSym };
       postings.push(p);
     });
-    if (!valid) { showError('All posting fields (account, amount, symbol) are required.'); return null; }
+    if (!valid) { showError('Amount and symbol are required for every posting.'); return null; }
     return postings;
   }
 

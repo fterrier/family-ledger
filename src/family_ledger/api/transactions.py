@@ -15,7 +15,9 @@ from family_ledger.api.schemas import (
     MergeTransactionRequest,
     NormalizeTransactionRequest,
     NormalizeTransactionResponse,
+    SplitTransactionRequest,
     TransactionResource,
+    UnsplitTransactionRequest,
     UpdateTransactionRequest,
 )
 from family_ledger.db import read_only_transaction
@@ -124,3 +126,17 @@ def merge_transactions(body: MergeTransactionRequest, session: DbSession) -> Tra
         body.primary_transaction,
         body.secondary_transaction,
     )
+
+
+@router.post("/transactions/{transaction:path}:split", response_model=TransactionResource)
+def split_transaction(
+    transaction: str, request: SplitTransactionRequest, session: DbSession
+) -> TransactionResource:
+    return _call_service(transactions_service.split_transaction, session, transaction, request)
+
+
+@router.post("/transactions/{transaction:path}:unsplit", response_model=TransactionResource)
+def unsplit_transaction(
+    transaction: str, request: UnsplitTransactionRequest, session: DbSession
+) -> TransactionResource:
+    return _call_service(transactions_service.unsplit_transaction, session, transaction, request)

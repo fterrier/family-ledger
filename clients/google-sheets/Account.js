@@ -31,8 +31,6 @@ class Account extends Entity {
     if (!this._api.account_name) throw new Error('Account name is required.');
   }
 
-  updateFromApi_(apiResponse) { this._api = apiResponse; }
-
   setFields(fields) {
     if ('account_name' in fields) {
       this._api.account_name = String(fields.account_name || '').trim() || null;
@@ -79,16 +77,14 @@ class Account extends Entity {
     return String((rawRows[0] || {}).account_name || '');
   }
 
-  static buildSidebarFields_(entityName, _mode) {
-    let defaults = {};
-    if (entityName) {
-      const entity = Account.loadFromApi(entityName);
-      defaults = {
-        account_name: entity._api.account_name || null,
-        effective_start_date: entity._api.effective_start_date || null,
-        effective_end_date: entity._api.effective_end_date || null,
-      };
-    }
+  // Sidebar.js has already hydrated this._api (loadFromApi for a first-load edit, or
+  // setFields(fieldValues) for a mode-toggle round trip) before calling this.
+  buildSidebarFields_(_mode) {
+    const defaults = {
+      account_name: this._api.account_name || null,
+      effective_start_date: this._api.effective_start_date || null,
+      effective_end_date: this._api.effective_end_date || null,
+    };
     return {
       mode: 'advanced',
       fields: [

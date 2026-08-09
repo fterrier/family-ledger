@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -23,6 +24,16 @@ from family_ledger.models.base import Base
 
 json_type = JSON().with_variant(JSONB, "postgresql")
 id_type = BigInteger().with_variant(Integer, "sqlite")
+
+
+def current_update_time() -> int:
+    # The one place that reads the clock for Transaction.updated_at — every
+    # other call site (services/transactions.py, and this column's own
+    # Python-side default for any insert that doesn't go through
+    # persist_transaction) reuses this instead of touching time/datetime
+    # directly, so there's a single definition of "now" as a
+    # second-precision opaque epoch value.
+    return int(time.time())
 
 
 class Account(Base):
@@ -68,6 +79,15 @@ class Transaction(Base):
     source_native_ids: Mapped[list[str]] = mapped_column(json_type, default=list)
     import_timestamp: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     tags: Mapped[list[str]] = mapped_column(json_type, default=list)
+    # Opaque version token (Unix epoch seconds) — always set explicitly by
+    # services/transactions.py on every create/mutation via
+    # current_update_time() (never relying on the Python-side default below
+    # at runtime; that default only exists as a safety net for any insert
+    # that bypasses persist_transaction). Used as the optimistic-concurrency
+    # precondition for :split/:unsplit: a plain BigInteger, not a DateTime,
+    # specifically so no code anywhere has to reason about timezones or
+    # naive-vs-aware datetimes to compare it for exact equality.
+    updated_at: Mapped[int] = mapped_column(BigInteger, default=current_update_time)
 
     postings: Mapped[list[Posting]] = relationship(
         back_populates="transaction",
@@ -92,7 +112,14 @@ class Posting(Base):
 
     id: Mapped[int] = mapped_column(id_type, primary_key=True, autoincrement=True)
     transaction_id: Mapped[int] = mapped_column(ForeignKey("transactions.id", ondelete="CASCADE"))
-    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="RESTRICT"))
+    # Null represents an unassigned posting — e.g. the not-yet-categorized
+    # remainder of a :split, or a balancing posting persist_transaction
+    # appends automatically when the rest of a transaction doesn't sum to
+    # zero (see services/transactions.py) — deliberately excluded from
+    # doctor's balance computation (see services/transaction_balancing.py).
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="RESTRICT"), nullable=True
+    )
     posting_order: Mapped[int] = mapped_column(Integer)
     units_amount: Mapped[Decimal] = mapped_column(Numeric)
     units_symbol: Mapped[str] = mapped_column(Text)
@@ -104,7 +131,7 @@ class Posting(Base):
     entity_metadata: Mapped[dict[str, Any]] = mapped_column(json_type, default=dict)
 
     transaction: Mapped[Transaction] = relationship(back_populates="postings")
-    account: Mapped[Account] = relationship(back_populates="postings")
+    account: Mapped[Account | None] = relationship(back_populates="postings")
 
 
 class Price(Base):

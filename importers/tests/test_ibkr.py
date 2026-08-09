@@ -15,6 +15,8 @@ from family_ledger.importers.base import ImportContext
 from family_ledger.models import Account, BalanceAssertion, Base, Posting, Transaction
 from family_ledger.services.errors import ValidationError
 
+from .conftest import account_of
+
 # ---------------------------------------------------------------------------
 # Minimal Flex XML templates
 # ---------------------------------------------------------------------------
@@ -147,7 +149,7 @@ def _balance_assertions(session: Session) -> list[BalanceAssertion]:
 def _postings_summary(tx: Transaction) -> list[dict[str, Any]]:
     return [
         {
-            "account": p.account.account_name,
+            "account": account_of(p).account_name,
             "amount": str(p.units_amount),
             "symbol": p.units_symbol,
         }
@@ -263,8 +265,8 @@ def test_dividend_with_withholding(session: Session) -> None:
     assert tx.transaction_date == date(2024, 1, 20)
     assert tx.source_native_ids == ["ibkr:DIV001"]
 
-    posting_accounts = [p.account.account_name for p in tx.postings]
-    posting_amounts = {p.account.account_name: p.units_amount for p in tx.postings}
+    posting_accounts = [account_of(p).account_name for p in tx.postings]
+    posting_amounts = {account_of(p).account_name: p.units_amount for p in tx.postings}
 
     assert "Assets:Liquid:IBKR:Depot:USD" in posting_accounts
     assert "Assets:AccountsReceivable:Taxes:USWithholding" in posting_accounts
@@ -272,7 +274,7 @@ def test_dividend_with_withholding(session: Session) -> None:
 
     # Dividend posting: +50 USD to cash
     usd_postings = [
-        p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in tx.postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     ]
     assert any(p.units_amount == Decimal("50.00") for p in usd_postings)
     # Withholding posting: -7.50 USD from cash
@@ -300,7 +302,7 @@ def test_dividend_without_withholding(session: Session) -> None:
     _run(session, xml, config)
     txs = _transactions(session)
     assert len(txs) == 1
-    posting_accounts = {p.account.account_name for p in txs[0].postings}
+    posting_accounts = {account_of(p).account_name for p in txs[0].postings}
     assert "Assets:AccountsReceivable:Taxes:USWithholding" not in posting_accounts
     assert "Income:Dividends:IBKR:VTI" in posting_accounts
 
@@ -328,7 +330,7 @@ def test_dividend_correction_negative_amounts(session: Session) -> None:
     txs = _transactions(session)
     assert len(txs) == 1
     usd_postings = [
-        p for p in txs[0].postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in txs[0].postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     ]
     assert any(p.units_amount == Decimal("-50.00") for p in usd_postings)
     # Withholding: wh_amount is +7.50, so cash gets +7.50 and withholding account gets -7.50
@@ -377,11 +379,11 @@ def test_multiple_withholding_corrections_same_date_symbol(session: Session) -> 
     tx = txs[0]
     # Total withholding = 1.50 + 2.30 + -0.40 = 3.40
     wh_account = "Assets:AccountsReceivable:Taxes:USWithholding"
-    wh_posting = next(p for p in tx.postings if p.account.account_name == wh_account)
+    wh_posting = next(p for p in tx.postings if account_of(p).account_name == wh_account)
     assert wh_posting.units_amount == Decimal("-3.40")
     # Cash receives the total as well (opposite sign)
     usd_posting = next(
-        p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in tx.postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     )
     assert usd_posting.units_amount == Decimal("3.40")
     assert tx.source_native_ids == ["ibkr:WH101"]
@@ -409,7 +411,7 @@ def test_interest_transaction(session: Session) -> None:
     tx = txs[0]
     assert tx.narration == "USD Credit Interest for Dec-2023"
     assert tx.source_native_ids == ["ibkr:INT001"]
-    postings = {p.account.account_name: p.units_amount for p in tx.postings}
+    postings = {account_of(p).account_name: p.units_amount for p in tx.postings}
     assert postings.get("Assets:Liquid:IBKR:Depot:USD") == Decimal("14.12")
     assert "Income:Interests:IBKR" in postings
 
@@ -433,7 +435,7 @@ def test_fee_transaction(session: Session) -> None:
     _run(session, xml, config)
     txs = _transactions(session)
     assert len(txs) == 1
-    postings = {p.account.account_name: p.units_amount for p in txs[0].postings}
+    postings = {account_of(p).account_name: p.units_amount for p in txs[0].postings}
     assert postings.get("Assets:Liquid:IBKR:Depot:CHF") == Decimal("-8.98")
     assert "Expenses:Financial:Fees:IBKR" in postings
 
@@ -459,9 +461,15 @@ def test_deposit_creates_two_posting_transaction(session: Session) -> None:
     assert len(txs) == 1
     tx = txs[0]
     assert tx.narration == "Transfer of CHF Cash"
-    assert len(tx.postings) == 1
-    assert tx.postings[0].account.account_name == "Assets:Liquid:IBKR:Depot:CHF"
+    # The importer only knows the cash-account leg — persist_transaction now
+    # always stores a real accountless filler posting for the other side
+    # (Phase 4), so the transaction is already balanced from the moment of
+    # import.
+    assert len(tx.postings) == 2
+    assert account_of(tx.postings[0]).account_name == "Assets:Liquid:IBKR:Depot:CHF"
     assert tx.postings[0].units_amount == Decimal("5000.00")
+    assert tx.postings[1].account is None
+    assert tx.postings[1].units_amount == Decimal("-5000.00")
 
 
 def test_withdrawal_transaction(session: Session) -> None:
@@ -478,8 +486,11 @@ def test_withdrawal_transaction(session: Session) -> None:
     _run(session, xml, config)
     txs = _transactions(session)
     assert len(txs) == 1
-    postings = {p.account.account_name: p.units_amount for p in txs[0].postings}
+    assert len(txs[0].postings) == 2
+    postings = {account_of(p).account_name: p.units_amount for p in txs[0].postings if p.account}
     assert postings.get("Assets:Liquid:IBKR:Depot:CHF") == Decimal("-10000.00")
+    filler = next(p for p in txs[0].postings if p.account is None)
+    assert filler.units_amount == Decimal("10000.00")
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +522,7 @@ def test_stock_buy(session: Session) -> None:
     assert tx.source_native_ids == ["ibkr:order:ORD001"]
     assert tx.transaction_date == date(2024, 1, 15)
 
-    posting_map = {p.account.account_name: p for p in tx.postings}
+    posting_map = {account_of(p).account_name: p for p in tx.postings}
     vti_posting = posting_map["Assets:SemiLiquid:Shares:IBKR:VTI"]
     assert vti_posting.units_amount == Decimal("33")
     assert vti_posting.units_symbol == "VTI"
@@ -520,7 +531,7 @@ def test_stock_buy(session: Session) -> None:
 
     # Cash debit
     usd_postings = [
-        p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in tx.postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     ]
     cash_debit = next(p for p in usd_postings if p.units_amount == Decimal("-4819.98"))
     assert cash_debit is not None
@@ -585,7 +596,7 @@ def test_stock_buy_multi_lot_merged(session: Session) -> None:
     assert qtys == [Decimal("14"), Decimal("86")]
 
     usd_postings = [
-        p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in tx.postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     ]
     # One posting is the stock cash debit (sum of tradeMoney), one is the commission debit
     cash_debit = next(p for p in usd_postings if p.units_amount == Decimal("-6803.00"))
@@ -620,14 +631,14 @@ def test_stock_sell_single_lot(session: Session) -> None:
     assert tx.narration == "Selling VTI"
     assert tx.source_native_ids == ["ibkr:order:ORD002"]
 
-    posting_map = {p.account.account_name: p for p in tx.postings}
+    posting_map = {account_of(p).account_name: p for p in tx.postings}
     vti_posting = posting_map["Assets:SemiLiquid:Shares:IBKR:VTI"]
     assert vti_posting.units_amount == Decimal("-33")
     assert vti_posting.cost_per_unit is not None
     assert vti_posting.price_per_unit == Decimal("177.69")
 
     usd_postings = [
-        p for p in tx.postings if p.account.account_name == "Assets:Liquid:IBKR:Depot:USD"
+        p for p in tx.postings if account_of(p).account_name == "Assets:Liquid:IBKR:Depot:USD"
     ]
     assert any(p.units_amount == Decimal("5863.77") for p in usd_postings)
     assert any(p.units_amount == Decimal("-1.13") for p in usd_postings)
@@ -665,7 +676,7 @@ def test_stock_sell_multi_lot_merged(session: Session) -> None:
     assert tx.source_native_ids == ["ibkr:order:ORD003"]
 
     bnd_postings = [
-        p for p in tx.postings if p.account.account_name == "Assets:SemiLiquid:Shares:IBKR:BND"
+        p for p in tx.postings if account_of(p).account_name == "Assets:SemiLiquid:Shares:IBKR:BND"
     ]
     assert len(bnd_postings) == 2
     qtys = sorted(p.units_amount for p in bnd_postings)
@@ -707,7 +718,7 @@ def test_forex_buy_usd_with_chf(session: Session) -> None:
     cash_chf = next(
         p
         for p in chf_postings
-        if p.units_amount < 0 and p.account.account_name == "Assets:Liquid:IBKR:Depot:CHF"
+        if p.units_amount < 0 and account_of(p).account_name == "Assets:Liquid:IBKR:Depot:CHF"
     )
     assert cash_chf.units_amount == Decimal("-5102.80")
 

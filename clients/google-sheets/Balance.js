@@ -41,10 +41,6 @@ class Balance extends Entity {
     if (!this._api.amount || !this._api.amount.symbol) throw new Error('Symbol is required.');
   }
 
-  updateFromApi_(apiResponse) {
-    this._api = apiResponse;
-  }
-
   setFields(fields) {
     if ('assertion_date' in fields) this._api.assertion_date = String(fields.assertion_date || '').trim() || null;
     if ('account' in fields) this._api.account = fields.account || null;
@@ -108,23 +104,20 @@ class Balance extends Entity {
     return [date, account, amount + ' ' + symbol].filter(Boolean).join(' | ');
   }
 
-  // Always returns mode:'advanced'. entityName triggers an API GET for defaults.
-  static buildSidebarFields_(entityName, _mode) {
+  // Always returns mode:'advanced'. Sidebar.js has already hydrated this._api (loadFromApi
+  // for a first-load edit, or setFields(fieldValues) for a mode-toggle round trip).
+  buildSidebarFields_(_mode) {
     const allAccountOpts = loadAccountOptions_().map(function(o) {
       return { value: o.resource_name, label: o.display_name };
     });
     const allSymbolOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
 
-    let defaults = {};
-    if (entityName) {
-      const entity = Balance.loadFromApi(entityName);
-      defaults = {
-        assertion_date: entity._api.assertion_date || null,
-        account: entity._api.account || null,
-        amount: (entity._api.amount && entity._api.amount.amount) || null,
-        symbol: (entity._api.amount && entity._api.amount.symbol) || null,
-      };
-    }
+    const defaults = {
+      assertion_date: this._api.assertion_date || null,
+      account: this._api.account || null,
+      amount: (this._api.amount && this._api.amount.amount) || null,
+      symbol: (this._api.amount && this._api.amount.symbol) || null,
+    };
 
     return {
       mode: 'advanced',

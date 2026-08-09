@@ -107,6 +107,124 @@ def test_doctor_ledger_reports_issues_for_multiple_unbalanced_transactions(
     assert tx_b.name in targets
 
 
+def test_doctor_reports_unbalanced_for_transaction_with_accountless_posting(
+    session: Session,
+) -> None:
+    # An accountless posting (a split's uncategorized remainder) must not
+    # silently drop its transaction from doctor's sweep (regression for the
+    # inner-join blind spot fixed by outerjoin in _load_transactions_for_doctor).
+    seed_doctor_dependencies(session)
+    tx = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account=None,
+                    units=MoneyValue(amount=Decimal("40.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    unbalanced = [i for i in diagnosed.issues if i.code == "transaction_unbalanced"]
+    issue = next(i for i in unbalanced if i.target == tx.name)
+    # -100, not -60: proves the accountless +40 posting is excluded from the
+    # sum (a -60 residual would mean it leaked into the balance instead).
+    assert issue.details["residual_amount"] == "-100"
+
+
+def test_doctor_unknown_commodity_ignores_accountless_posting(
+    session: Session,
+) -> None:
+    # Doctor ignores an accountless posting entirely until it's categorized
+    # (its transaction's inner join to Account excludes that posting's row)
+    # — including for account-agnostic checks like unknown_commodity. Only
+    # the accounted posting's own (valid) symbol is visible here.
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_xyz", symbol="XYZ"),
+            Commodity(name="commodities/cmd_zzz", symbol="ZZZ"),
+        ]
+    )
+    session.commit()
+    tx = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 1, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="XYZ"),
+                ),
+                PostingPayload(
+                    account=None,
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="ZZZ"),
+                ),
+            ],
+        ),
+    )
+    # Both symbols become unknown post-creation, simulating commodities
+    # deleted after the fact.
+    commodities_service.delete_commodity(session, "commodities/cmd_xyz")
+    commodities_service.delete_commodity(session, "commodities/cmd_zzz")
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    issues = [i for i in diagnosed.issues if i.code == "unknown_commodity"]
+    issue = next(i for i in issues if i.target == tx.name)
+    # Only XYZ (the accounted posting) — ZZZ (the accountless posting's
+    # symbol) never reaches doctor at all, even though it's also unknown.
+    assert issue.details["symbols"] == "XYZ"
+
+
+def test_doctor_account_not_effective_skips_accountless_posting(session: Session) -> None:
+    # Accountless postings never reach this check at all (excluded by the
+    # inner join in _load_transactions_for_doctor) — must not flag one.
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+            Commodity(name="commodities/cmd_chf", symbol="CHF"),
+        ]
+    )
+    session.commit()
+    transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 1, 1),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account=None,
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    diagnosed = doctor.doctor_ledger(session, DoctorLedgerRequest())
+
+    assert not any(i.code == "account_not_effective" for i in diagnosed.issues)
+
+
 def test_doctor_reports_balance_assertion_failure(session: Session) -> None:
     seed_doctor_dependencies(session)
     transactions_service.create_transaction(

@@ -80,6 +80,13 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
       alignment: 'left',
       header_text: 'resource name',
     },
+    update_time: {
+      width: 60,
+      role: 'system',
+      note: 'Opaque server version token, refreshed on every write. Used for :split/:unsplit concurrency — do not edit.',
+      alignment: 'left',
+      header_text: 'update time',
+    },
     transaction_date: {
       width: 95,
       role: 'readonly',
@@ -140,8 +147,8 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     },
     amount: {
       width: 85,
-      role: 'editable',
-      note: 'Editable allocation amount. Lowering it creates a split for imported transactions.',
+      role: 'readonly',
+      note: 'Read-only allocation amount. Use split_off_amount to split, or x / - to delete a split row.',
       alignment: 'right',
       numberFormat: '#,##0.00',
       header_text: 'amount',
@@ -191,8 +198,8 @@ const FAMILY_LEDGER_SHEET_REGISTRY = Object.freeze({
     dest_level_4: { width: 120, role: 'system', header_text: 'dest level 4' },
     dest_level_5: { width: 120, role: 'system', header_text: 'dest level 5' },
   }, {
-    hiddenHeaders: ['resource_name', 'narration_source', 'has_cost_price', 'amount_in_default_currency', 'dest_level_1', 'dest_level_2', 'dest_level_3', 'dest_level_4', 'dest_level_5'],
-    protectedHeaders: ['resource_name', 'transaction_date', 'source_account_name', 'symbol'],
+    hiddenHeaders: ['resource_name', 'update_time', 'narration_source', 'has_cost_price', 'amount_in_default_currency', 'dest_level_1', 'dest_level_2', 'dest_level_3', 'dest_level_4', 'dest_level_5'],
+    protectedHeaders: ['resource_name', 'update_time', 'transaction_date', 'source_account_name', 'symbol', 'amount'],
   }),
   balances: buildSheetConfig_('balances', FAMILY_LEDGER_SHEET_NAMES.balances, {
     edit: {

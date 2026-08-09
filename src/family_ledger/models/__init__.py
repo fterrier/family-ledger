@@ -8,6 +8,7 @@ from family_ledger.models.ledger import (
     Posting,
     Price,
     Transaction,
+    current_update_time,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "Posting",
     "Price",
     "Transaction",
+    "current_update_time",
 ]

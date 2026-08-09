@@ -289,6 +289,66 @@ def test_format_transaction_no_posting_narration_no_comment() -> None:
     assert ";" not in out
 
 
+def _mk_accountless_posting(
+    amount: Decimal, symbol: str, *, narration: str | None = None
+) -> Posting:
+    p = Posting(
+        posting_order=0,
+        units_amount=amount,
+        units_symbol=symbol,
+        narration=narration,
+        entity_metadata={},
+    )
+    p.account = None
+    return p
+
+
+def test_format_transaction_omits_accountless_posting_from_posting_lines() -> None:
+    postings = [
+        _mk_posting("Assets:Checking", Decimal("-84.25"), "CHF"),
+        _mk_posting("Expenses:Food", Decimal("50.00"), "CHF"),
+        _mk_accountless_posting(Decimal("34.25"), "CHF"),
+    ]
+    tx = _mk_tx(date(2026, 4, 1), "Migros", "Groceries", postings)
+
+    out = _format_transaction(tx)
+    lines = out.splitlines()
+
+    assert any("Assets:Checking" in ln and "-84.25 CHF" in ln for ln in lines)
+    assert any("Expenses:Food" in ln and "50.00 CHF" in ln for ln in lines)
+    posting_lines = [ln for ln in lines if not ln.strip().startswith(";") and ln.startswith("  ")]
+    assert not any("34.25" in ln for ln in posting_lines)
+
+
+def test_format_transaction_accountless_posting_becomes_comment() -> None:
+    postings = [
+        _mk_posting("Assets:Checking", Decimal("-84.25"), "CHF"),
+        _mk_posting("Expenses:Food", Decimal("50.00"), "CHF"),
+        _mk_accountless_posting(Decimal("34.25"), "CHF", narration="pending split"),
+    ]
+    tx = _mk_tx(date(2026, 4, 1), "Migros", "Groceries", postings)
+
+    out = _format_transaction(tx)
+    lines = out.splitlines()
+
+    comment_lines = [ln for ln in lines if ln.strip().startswith(";")]
+    assert any("unassigned-posting" in ln and "34.25 CHF" in ln for ln in comment_lines)
+    assert any('"pending split"' in ln for ln in comment_lines)
+
+
+def test_format_transaction_accountless_posting_without_narration_no_quotes() -> None:
+    postings = [
+        _mk_posting("Assets:Checking", Decimal("-84.25"), "CHF"),
+        _mk_accountless_posting(Decimal("84.25"), "CHF"),
+    ]
+    tx = _mk_tx(date(2026, 4, 1), None, "Test", postings)
+
+    out = _format_transaction(tx)
+
+    assert "unassigned-posting: 84.25 CHF" in out
+    assert '""' not in out
+
+
 def test_format_transaction_tags_appended_to_header() -> None:
     tx = _mk_tx(date(2026, 4, 1), "Migros", "Groceries", [], tags=["salary2023", "bonus"])
     out = _format_transaction(tx)

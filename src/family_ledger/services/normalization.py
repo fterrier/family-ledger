@@ -10,6 +10,7 @@ from family_ledger.api.schemas import (
     TransactionCreate,
     TransactionNormalizeData,
 )
+from family_ledger.models import Account
 from family_ledger.services.errors import ValidationError
 from family_ledger.services.transaction_balancing import (
     posting_weight,
@@ -194,7 +195,7 @@ def normalize_transaction_payload(
 def normalize_and_validate_transaction_payload(
     session: Session,
     payload: TransactionCreate | TransactionNormalizeData,
-) -> TransactionCreate:
+) -> tuple[TransactionCreate, dict[str, Account]]:
     normalized = normalize_transaction_payload(payload)
-    validate_transaction_payload(session, normalized)
-    return normalized
+    account_map = validate_transaction_payload(session, normalized)
+    return normalized, account_map

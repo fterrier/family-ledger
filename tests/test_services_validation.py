@@ -136,3 +136,44 @@ def test_validate_transaction_payload_checks_accounts_and_symbols(session: Sessi
     )
 
     validation.validate_transaction_payload(session, payload)
+
+
+def test_resolve_accounts_skips_none_account_postings(session: Session) -> None:
+    session.add_all(
+        [
+            Account(
+                name="accounts/acc_one",
+                account_name="Assets:Bank:Checking:Family",
+                effective_start_date=date(2020, 1, 1),
+            ),
+        ]
+    )
+    session.commit()
+
+    postings = [
+        PostingPayload(
+            account="accounts/acc_one",
+            units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+        ),
+        PostingPayload(
+            account=None,
+            units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+        ),
+    ]
+
+    result = validation.resolve_accounts(session, postings)
+
+    assert set(result.keys()) == {"accounts/acc_one"}
+
+
+def test_resolve_accounts_all_none_returns_empty(session: Session) -> None:
+    postings = [
+        PostingPayload(
+            account=None,
+            units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+        ),
+    ]
+
+    result = validation.resolve_accounts(session, postings)
+
+    assert result == {}

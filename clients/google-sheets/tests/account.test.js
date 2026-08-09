@@ -80,9 +80,10 @@ test('Account.fromRows sets _api.name from resource_name and _api.account_name i
 
 // --- Account.buildSidebarFields_ ---
 
-test('Account.buildSidebarFields_ returns mode:advanced and empty default for add mode', () => {
+test('Account.buildSidebarFields_ returns mode:advanced and empty default for a blank instance', () => {
   const { sandbox } = loadCode();
-  const result = getAccount(sandbox).buildSidebarFields_(null, 'simple');
+  const a = getAccount(sandbox).fromApi_({});
+  const result = a.buildSidebarFields_('simple');
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields.length, 3);
@@ -95,16 +96,10 @@ test('Account.buildSidebarFields_ returns mode:advanced and empty default for ad
   assert.equal(result.fields[2].type, 'date');
 });
 
-test('Account.buildSidebarFields_ fetches canonical name from API for edit mode', () => {
+test('Account.buildSidebarFields_ reads defaults straight off the already-hydrated instance', () => {
   const { sandbox } = loadCode();
-  sandbox.apiFetchJson_ = function(method, path) {
-    if (method === 'get' && path === '/accounts/zkb') {
-      return { name: 'accounts/zkb', account_name: 'Assets:Family:ZKB:Checking' };
-    }
-    throw new Error('unexpected: ' + method + ' ' + path);
-  };
-
-  const result = getAccount(sandbox).buildSidebarFields_('accounts/zkb', 'advanced');
+  const a = getAccount(sandbox).fromApi_(makeAccountApi());
+  const result = a.buildSidebarFields_('advanced');
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields[0].default, 'Assets:Family:ZKB:Checking');

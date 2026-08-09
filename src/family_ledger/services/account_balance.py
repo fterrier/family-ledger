@@ -44,6 +44,10 @@ def compute_balance_assertion_diffs(
 
         while current_tx is not None and current_tx.transaction_date < assertion_date:
             for posting in current_tx.postings:
+                if posting.account is None:
+                    # Accountless postings (a split's uncategorized
+                    # remainder) aren't attributed to any account's balance.
+                    continue
                 acc = posting.account.account_name
                 sym = posting.units_symbol
                 if acc not in running_balance:

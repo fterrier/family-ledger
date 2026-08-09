@@ -87,19 +87,25 @@ test('getSidebarData (edit, 2-posting) returns simple mode with classified field
   assert.equal(dstField.default, 'accounts/food');
 
   const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
-  assert.equal(amtField.default, 84.25);
+  assert.equal(amtField.default, '84.25');
 
   const symField = data.fields.find(function(f) { return f.key === 'symbol'; });
   assert.equal(symField.default, 'CHF');
   assert.equal(symField['selection-options'].length, 2);
 });
 
-test('getSidebarData (edit, source-only with negative posting) defaults to positive amount in simple mode', () => {
+test('getSidebarData (edit, unassigned destination, positive residual) shows the destination posting\'s own amount', () => {
+  // Server always balance-fills any gap with a real accountless posting (never a
+  // genuinely single-posting transaction) — simple mode reads the amount straight
+  // off that destination posting, unnegated, matching what the sheet itself shows.
   const { sandbox } = loadCode();
   sandbox.apiFetchJson_ = function() {
     return {
       name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '',
-      postings: [{ account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } }],
+      postings: [
+        { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
+        { account: null, units: { amount: '84.25', symbol: 'CHF' } },
+      ],
     };
   };
   sandbox.loadAccountOptions_ = function() { return [{ resource_name: 'accounts/cash', display_name: 'Cash' }]; };
@@ -108,17 +114,21 @@ test('getSidebarData (edit, source-only with negative posting) defaults to posit
   const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' });
 
   assert.equal(data.mode, 'simple');
+  const dstField = data.fields.find(function(f) { return f.key === 'destination_account'; });
+  assert.equal(dstField.default, null);
   const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
-  assert.equal(amtField.default, 84.25);
+  assert.equal(amtField.default, '84.25');
 });
 
-test('getSidebarData (edit, source-only with positive posting) defaults to negative amount in simple mode', () => {
-  // Income/equity: posting=+5524.65 → sheet shows -5524.65 → simple mode must match the sheet
+test('getSidebarData (edit, unassigned destination, negative residual) shows the destination posting\'s own amount', () => {
   const { sandbox } = loadCode();
   sandbox.apiFetchJson_ = function() {
     return {
       name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '',
-      postings: [{ account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' } }],
+      postings: [
+        { account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' } },
+        { account: null, units: { amount: '-5524.65', symbol: 'CHF' } },
+      ],
     };
   };
   sandbox.loadAccountOptions_ = function() { return [{ resource_name: 'accounts/savings', display_name: 'Savings' }]; };
@@ -128,7 +138,7 @@ test('getSidebarData (edit, source-only with positive posting) defaults to negat
 
   assert.equal(data.mode, 'simple');
   const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
-  assert.equal(amtField.default, -5524.65);
+  assert.equal(amtField.default, '-5524.65');
 });
 
 test('getSidebarData (edit, 3-posting) returns advanced mode with postings field', () => {
@@ -163,8 +173,35 @@ test('getSidebarData for non-Transaction entity does not set allowModeSwitch', (
 });
 
 // --- mode switching (server side of onToggleMode) ---
+//
+// getSidebarData has no concept of "postings" of its own — fieldValues is whatever
+// EntityClass.setFields accepts (the exact same object submitEntity would pass), and is
+// forwarded to it verbatim. For a mode toggle, the client always sends the FULL current
+// form state (every rendered field, via collectFieldValues), so fieldValues carries both
+// the transaction-level text fields and either the simple-mode keys or a `postings` array
+// — there is never a live API re-fetch once fieldValues is present, since it already
+// reflects everything the user has typed, and re-fetching would discard that.
 
-test('getSidebarData (add, simple→advanced) passes currentPostings into postings field and keeps text defaults null', () => {
+test('getSidebarData (add, simple→advanced) derives postings server-side from raw fieldValues', () => {
+  const { sandbox } = loadCode();
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: 'Cash' }, { resource_name: 'accounts/food', display_name: 'Food' }];
+  };
+  sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
+
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'advanced', {
+    source_account: 'accounts/cash', destination_account: 'accounts/food', amount: '50', symbol: 'CHF',
+  });
+
+  assert.equal(data.mode, 'advanced');
+  const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
+  assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), [
+    { account: 'accounts/cash', units: { amount: '-50', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
+  ]);
+});
+
+test('getSidebarData (add, simple→advanced) passes fieldValues.postings straight through and keeps text defaults null', () => {
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() {
     return [{ resource_name: 'accounts/cash', display_name: 'Cash' }];
@@ -175,12 +212,13 @@ test('getSidebarData (add, simple→advanced) passes currentPostings into postin
     { account: 'accounts/cash', units: { amount: '-50', symbol: 'CHF' } },
   ];
 
-  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'advanced', simplePostings);
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'advanced', { postings: simplePostings });
 
   assert.equal(data.mode, 'advanced');
   assert.equal(data.allowModeSwitch, true);
 
-  // Text field defaults are null in add mode (values are preserved client-side)
+  // Text field defaults are null — fieldValues here carries only postings, matching a
+  // real toggle where those fields were never rendered/collected in the first place.
   const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
   assert.equal(dateField.default, null);
   const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
@@ -193,7 +231,7 @@ test('getSidebarData (add, simple→advanced) passes currentPostings into postin
   assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), simplePostings);
 });
 
-test('getSidebarData (add, advanced→simple) classifies currentPostings back to simple form', () => {
+test('getSidebarData (add, advanced→simple) classifies fieldValues.postings back to simple form', () => {
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() {
     return [
@@ -208,7 +246,7 @@ test('getSidebarData (add, advanced→simple) classifies currentPostings back to
     { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
   ];
 
-  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'simple', advancedPostings);
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'simple', { postings: advancedPostings });
 
   assert.equal(data.mode, 'simple');
 
@@ -217,36 +255,37 @@ test('getSidebarData (add, advanced→simple) classifies currentPostings back to
   const dstField = data.fields.find(function(f) { return f.key === 'destination_account'; });
   assert.equal(dstField.default, 'accounts/food');
   const amtField = data.fields.find(function(f) { return f.key === 'amount'; });
-  assert.equal(amtField.default, 84.25);
+  assert.equal(amtField.default, '84.25');
 });
 
-test('getSidebarData (edit, advanced mode) uses currentPostings when provided instead of API postings', () => {
+test('getSidebarData (edit, mode toggle) uses fieldValues throughout and never re-fetches from the API', () => {
   const { sandbox } = loadCode();
-  const apiPostings = [
-    { account: 'accounts/cash', units: { amount: '-100', symbol: 'CHF' } },
-    { account: 'accounts/food', units: { amount: '100', symbol: 'CHF' } },
-  ];
   const clientPostings = [
     { account: 'accounts/cash', units: { amount: '-50', symbol: 'CHF' } },
     { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
   ];
+  let getCalls = 0;
   sandbox.apiFetchJson_ = function() {
-    return { name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: 'Groceries', postings: apiPostings };
+    getCalls += 1;
+    throw new Error('getSidebarData must not re-fetch once fieldValues is provided');
   };
   sandbox.loadAccountOptions_ = function() {
     return [{ resource_name: 'accounts/cash', display_name: 'Cash' }, { resource_name: 'accounts/food', display_name: 'Food' }];
   };
   sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }]; };
 
-  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'advanced', clientPostings);
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'advanced', {
+    transaction_date: '2026-04-19', payee: 'Migros edited', narration: 'Groceries', tags: '',
+    postings: clientPostings,
+  });
 
+  assert.equal(getCalls, 0, 'no live GET should happen once fieldValues is present');
   assert.equal(data.mode, 'advanced');
 
-  // Text field defaults still come from the API (edit mode)
   const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
   assert.equal(dateField.default, '2026-04-19');
   const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
-  assert.equal(payeeField.default, 'Migros');
+  assert.equal(payeeField.default, 'Migros edited');
 
   const postingsField = data.fields.find(function(f) { return f.type === 'postings'; });
   assert.deepEqual(JSON.parse(JSON.stringify(postingsField.default)), clientPostings);
@@ -262,6 +301,9 @@ function makeUnbalancedTxSandbox() {
       postings: [
         { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' }, weight: { amount: '-84.25', symbol: 'CHF' } },
         { account: 'accounts/food', units: { amount: '50',     symbol: 'CHF' }, weight: { amount: '50',     symbol: 'CHF' } },
+        // The server always stores the gap as a real accountless posting
+        // (never something the client has to infer or supplement).
+        { account: null, units: { amount: '34.25', symbol: 'CHF' }, weight: { amount: '34.25', symbol: 'CHF' } },
       ],
     };
   };
@@ -300,15 +342,15 @@ test('getSidebarData (edit, balanced 2-posting) still returns simple mode', () =
   assert.equal(data.mode, 'simple');
 });
 
-test('getSidebarData (mode-switch, unbalanced currentPostings) does not supplement', () => {
-  // When the user is mid-edit and provides currentPostings explicitly (e.g. mode switch),
-  // the supplement must not fire — we trust the sidebar form state, not the API.
+test('getSidebarData (mode-switch, unbalanced fieldValues.postings) does not supplement', () => {
+  // When the user is mid-edit and provides fieldValues.postings explicitly (e.g. mode
+  // switch), the supplement must not fire — we trust the sidebar form state, not the API.
   const sandbox = makeUnbalancedTxSandbox();
   const unbalancedPostings = [
     { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
     { account: 'accounts/food', units: { amount: '50',     symbol: 'CHF' } },
   ];
-  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'simple', unbalancedPostings);
+  const data = sandbox.getSidebarData({ classKey: 'transactions', name: 'transactions/txn_1' }, 'simple', { postings: unbalancedPostings });
   // Classification on 2 postings (1 source, 1 dest) → simple, no extra posting injected.
   assert.equal(data.mode, 'simple');
   assert.ok(!data.fields.find(function(f) { return f.type === 'postings'; }), 'no postings field in simple mode');
@@ -337,7 +379,12 @@ test('submitEntity (add) inserts new row before a later transaction', () => {
         transaction_date: '2026-04-20',
         payee: 'New',
         narration: '',
-        postings: [{ account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } }],
+        // The server always balance-fills a single-leg quick-add with a real
+        // accountless posting — never a genuinely single-posting transaction.
+        postings: [
+          { account: 'accounts/cash', units: { amount: '-12', symbol: 'CHF' } },
+          { account: null, units: { amount: '12', symbol: 'CHF' } },
+        ],
       };
     }
     return {};
@@ -401,7 +448,7 @@ test('submitEntity (edit) throws on PATCH failure', () => {
 test('submitEntity (edit) sends correct 2-posting PATCH payload', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 84.25, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Old', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 84.25, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
   ]);
 
   const apiCalls = [];
@@ -446,8 +493,8 @@ test('submitEntity (edit) sends correct 2-posting PATCH payload', () => {
 test('submitEntity (edit) sends raw postings for 3+ posting transaction', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 60, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
-    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Coffee', symbol: 'CHF', amount: 40, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
+    [2, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 60, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Coffee', symbol: 'CHF', amount: 40, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
   ]);
 
   const apiCalls = [];
@@ -489,9 +536,9 @@ test('submitEntity (edit) sends raw postings for 3+ posting transaction', () => 
 test('submitEntity (edit) removes extra rows when posting count decreases', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 60, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
-    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Coffee', symbol: 'CHF', amount: 40, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
-    [4, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-20', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
+    [2, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 60, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19', payee: 'Split', narration: '', source_account_name: 'Cash', destination_account_name: 'Coffee', symbol: 'CHF', amount: 40, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [4, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-20', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
   ]);
 
   const { sandbox } = loadCode({
@@ -529,8 +576,8 @@ test('submitEntity (edit) removes extra rows when posting count decreases', () =
 test('submitEntity (edit) inserts extra rows when posting count increases', () => {
   const operations = [];
   const rowStore = new Map([
-    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Simple', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 100, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
-    [3, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-20', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', status: '', last_error: '', issues: '', narration_source: 'txn', edit: '' }],
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Simple', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 100, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-20', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
   ]);
 
   const { sandbox } = loadCode({

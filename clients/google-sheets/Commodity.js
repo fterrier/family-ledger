@@ -28,8 +28,6 @@ class Commodity extends Entity {
     if (!this._api.symbol) throw new Error('Symbol is required.');
   }
 
-  updateFromApi_(apiResponse) { this._api = apiResponse; }
-
   setFields(fields) {
     if ('symbol' in fields) {
       this._api.symbol = String(fields.symbol || '').trim() || null;
@@ -73,15 +71,13 @@ class Commodity extends Entity {
     return ticker ? symbol + ' (' + ticker + ')' : symbol;
   }
 
-  static buildSidebarFields_(entityName, _mode) {
-    let defaults = { symbol: null, ticker: null };
-    if (entityName) {
-      const entity = Commodity.loadFromApi(entityName);
-      defaults = {
-        symbol: entity._api.symbol || null,
-        ticker: entity._api.ticker || null,
-      };
-    }
+  // Sidebar.js has already hydrated this._api (loadFromApi for a first-load edit, or
+  // setFields(fieldValues) for a mode-toggle round trip) before calling this.
+  buildSidebarFields_(_mode) {
+    const defaults = {
+      symbol: this._api.symbol || null,
+      ticker: this._api.ticker || null,
+    };
     return {
       mode: 'advanced',
       fields: [

@@ -30,7 +30,11 @@ class NormalizePriceValue(BaseModel):
 
 
 class PostingPayload(BaseModel):
-    account: str
+    # None represents an unassigned posting — no account chosen yet (e.g.
+    # the remainder of a :split). Excluded from balance computation.
+    # account_name is always None alongside it (no placeholder text is ever
+    # substituted in storage or responses).
+    account: str | None = None
     account_name: str | None = None  # Beancount path in responses; ignored on input
     units: MoneyValue
     narration: str | None = None
@@ -193,6 +197,11 @@ class TransactionData(BaseModel):
 
 class TransactionResource(TransactionData):
     name: str
+    # Opaque version token (Unix epoch seconds, UTC) — output-only. Clients
+    # echo it back verbatim as the optimistic-concurrency precondition on
+    # :split/:unsplit; no parsing, formatting, or timezone handling is ever
+    # required on either side.
+    update_time: int
 
 
 class TransactionCreate(TransactionData):
@@ -200,7 +209,7 @@ class TransactionCreate(TransactionData):
 
 
 class PostingNormalizePayload(BaseModel):
-    account: str
+    account: str | None = None
     units: MoneyValue | NormalizeMoneyValue | None = None
     narration: str | None = None
     cost: MoneyValue | None = None
@@ -232,7 +241,6 @@ class NormalizeTransactionRequest(BaseModel):
 
 class NormalizeTransactionResponse(BaseModel):
     transaction: TransactionCreate
-    issues: list[DoctorIssue] = Field(default_factory=list)
 
 
 class CreateAccountRequest(BaseModel):
@@ -350,6 +358,35 @@ class ImportResponse(BaseModel):
 class MergeTransactionRequest(BaseModel):
     primary_transaction: str
     secondary_transaction: str
+
+
+class SplitTransactionRequest(BaseModel):
+    posting_index: int
+    split_off_amount: Decimal
+    # The remainder posting is always unassigned (no account) — no way to
+    # target a different existing account from :split. There is no "set
+    # this posting's amount to X" mode either, only "split this much off".
+    # Both could be added later if needed.
+    # Opaque version token — echoed back verbatim from the TransactionResource
+    # this edit was based on. See TransactionResource.update_time.
+    update_time: int
+
+
+class UnsplitTransactionRequest(BaseModel):
+    posting_index: int
+    # The merge target is auto-detected server-side: the first other posting
+    # matching posting_index's symbol, cost, price, and weight sign (the
+    # match can itself be unassigned). If none matches, an unassigned
+    # posting_index is removed outright; an accounted one is rejected
+    # (merge_target_not_found) rather than silently discarded. Removing an
+    # unassigned posting with no match just reopens the balance gap it was
+    # covering — the next persist re-synthesizes an equivalent balancing
+    # posting, so the *resulting postings* are unchanged (same accounts,
+    # same amounts) — update_time still bumps as usual, and any
+    # entity_metadata on that specific posting is not carried over.
+    # Opaque version token — echoed back verbatim from the TransactionResource
+    # this edit was based on. See TransactionResource.update_time.
+    update_time: int
 
 
 class QueryLedgerRequest(BaseModel):

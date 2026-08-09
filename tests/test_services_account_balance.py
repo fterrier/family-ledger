@@ -153,6 +153,23 @@ def test_positive_diff_when_account_short() -> None:
     assert diffs[0].diff == Decimal("900")
 
 
+def test_accountless_posting_excluded_from_running_balance() -> None:
+    # An accountless posting (a split's uncategorized remainder) must not be
+    # attributed to any account's running balance.
+    tx = Transaction(transaction_date=date(2026, 1, 1), name="tx_1")
+    accounted = Posting(units_amount=Decimal("100"), units_symbol="USD")
+    accounted.account = _mk_account("Assets:Checking")
+    accountless = Posting(units_amount=Decimal("50"), units_symbol="USD")
+    accountless.account = None
+    tx.postings = [accounted, accountless]
+    bas = [_mk_ba(date(2026, 1, 2), "Assets:Checking", Decimal("100"), "USD")]
+
+    diffs = account_balance.compute_balance_assertion_diffs([tx], bas)
+
+    assert diffs[0].actual == Decimal("100")
+    assert diffs[0].diff == Decimal("0")
+
+
 def test_transactions_before_assertion_date_counted() -> None:
     txs = [_mk_tx(date(2026, 1, 1), [("Assets:Checking", Decimal("500"), "USD")])]
     bas = [_mk_ba(date(2026, 1, 2), "Assets:Checking", Decimal("500"), "USD")]

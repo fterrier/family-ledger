@@ -15,7 +15,13 @@ def resource_name(prefix: str, value: str) -> str:
 
 
 def resolve_accounts(session: Session, postings: list[PostingPayload]) -> dict[str, Account]:
-    account_names = {resource_name("accounts", posting.account) for posting in postings}
+    account_names = {
+        resource_name("accounts", posting.account)
+        for posting in postings
+        if posting.account is not None
+    }
+    if not account_names:
+        return {}
     accounts = session.scalars(select(Account).where(Account.name.in_(account_names))).all()
     by_name = {account.name: account for account in accounts}
     missing = sorted(account_names - by_name.keys())
@@ -67,6 +73,7 @@ def validate_transaction_symbols(session: Session, payload: TransactionData) -> 
     validate_symbols_exist(session, symbols)
 
 
-def validate_transaction_payload(session: Session, payload: TransactionData) -> None:
-    resolve_accounts(session, payload.postings)
+def validate_transaction_payload(session: Session, payload: TransactionData) -> dict[str, Account]:
+    account_map = resolve_accounts(session, payload.postings)
     validate_transaction_symbols(session, payload)
+    return account_map

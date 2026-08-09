@@ -15,6 +15,8 @@ from family_ledger.importers.base import ImportContext
 from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Posting, Transaction
 from family_ledger.services.errors import ValidationError
 
+from .conftest import account_of
+
 MT940_FIXTURE = """{1:F01ZKBKCHZZP80A0000000000}{2:I940XXXXXXXXXXXXN}{4:
 :20:F00000001A1A0001
 :25:CH4512300000000200222
@@ -253,7 +255,7 @@ def _normalized_transactions(session: Session) -> list[dict[str, object]]:
                 else None,
                 "entity_metadata": transaction.entity_metadata,
                 "bank_posting": {
-                    "account": bank_posting.account.name,
+                    "account": account_of(bank_posting).name,
                     "amount": str(bank_posting.units_amount),
                     "symbol": bank_posting.units_symbol,
                 },

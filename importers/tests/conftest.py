@@ -5,7 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from family_ledger.models import Account, Posting
+
 os.environ.setdefault("FAMILY_LEDGER_API_TOKEN", "test-token")
+
+
+def account_of(posting: Posting) -> Account:
+    # Importers never produce accountless postings — Posting.account is
+    # statically Account | None only because the ORM relationship itself is
+    # nullable (see models/ledger.py, for the Sheets-client split feature).
+    # This narrows it back for test assertions that read posting.account.*.
+    assert posting.account is not None
+    return posting.account
 
 
 @pytest.fixture(autouse=True)

@@ -44,8 +44,6 @@ class Attachment extends Entity {
     if (!this._api.original_filename) throw new Error('Filename is required.');
   }
 
-  updateFromApi_(apiResponse) { this._api = apiResponse; }
-
   setFields(fields) {
     if ('attachment_date' in fields) this._api.attachment_date = String(fields.attachment_date || '').trim() || null;
     if ('account' in fields) this._api.account = fields.account || null;
@@ -101,20 +99,18 @@ class Attachment extends Entity {
     return [date, filename].filter(Boolean).join(' | ');
   }
 
-  static buildSidebarFields_(entityName, _mode) {
+  // Sidebar.js has already hydrated this._api (loadFromApi for a first-load edit, or
+  // setFields(fieldValues) for a mode-toggle round trip) before calling this.
+  buildSidebarFields_(_mode) {
     const allAccountOpts = loadAccountOptions_().map(function(o) {
       return { value: o.resource_name, label: o.display_name };
     });
-    let defaults = {};
-    if (entityName) {
-      const entity = Attachment.loadFromApi(entityName);
-      defaults = {
-        attachment_date: entity._api.attachment_date || null,
-        account: entity._api.account || null,
-        original_filename: entity._api.original_filename || null,
-        document_url: entity._api.document_url || null,
-      };
-    }
+    const defaults = {
+      attachment_date: this._api.attachment_date || null,
+      account: this._api.account || null,
+      original_filename: this._api.original_filename || null,
+      document_url: this._api.document_url || null,
+    };
     return {
       mode: 'advanced',
       fields: [

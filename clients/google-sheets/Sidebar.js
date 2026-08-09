@@ -41,12 +41,21 @@ function showEditSidebar_(entityClassKey, entityName, span, context) {
   SpreadsheetApp.getUi().showSidebar(template.evaluate().setTitle(title));
 }
 
-function getSidebarData(entity, mode, currentPostings) {
-  return ENTITY_CLASS_REGISTRY[entity.classKey].buildSidebarFields_(
-    entity.name,
-    mode || 'simple',
-    currentPostings || null
-  );
+// fieldValues: the sidebar's current form state, in exactly the shape EntityClass.setFields
+// accepts — the same object submitEntity's fieldValues is (simple-mode keys, or {postings}
+// for the advanced editor). This function has no knowledge of what any of those keys mean;
+// that interpretation is fully delegated to setFields()/buildSidebarFields_().
+function getSidebarData(entity, mode, fieldValues) {
+  const EntityClass = ENTITY_CLASS_REGISTRY[entity.classKey];
+  // First load of an existing entity: hydrate its current server state before editing.
+  // A mode-toggle call already carries that state in fieldValues (the client always sends
+  // every currently-rendered field), so no live re-fetch — which would also be wrong, since
+  // it would discard whatever the user has typed since the initial load.
+  const instance = (entity.name && !fieldValues)
+    ? EntityClass.loadFromApi(entity.name)
+    : EntityClass.fromJson_(entity);
+  if (fieldValues) instance.setFields(fieldValues);
+  return instance.buildSidebarFields_(mode || 'simple');
 }
 
 function submitEntity(entity, fieldValues) {

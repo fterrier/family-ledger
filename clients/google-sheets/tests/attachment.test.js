@@ -146,11 +146,12 @@ test('Attachment.fromRows sets _api.name from resource_name and resolves account
 
 // --- Attachment.buildSidebarFields_ ---
 
-test('Attachment.buildSidebarFields_ returns mode:advanced with 4 fields and null defaults for add mode', () => {
+test('Attachment.buildSidebarFields_ returns mode:advanced with 4 fields and null defaults for a blank instance', () => {
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() { return []; };
+  const a = getAttachment(sandbox).fromApi_({});
 
-  const result = getAttachment(sandbox).buildSidebarFields_(null, 'simple');
+  const result = a.buildSidebarFields_('simple');
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields.length, 4);
@@ -167,17 +168,12 @@ test('Attachment.buildSidebarFields_ returns mode:advanced with 4 fields and nul
   assert.equal(result.fields[3].required, false);
 });
 
-test('Attachment.buildSidebarFields_ fetches fields from API for edit mode', () => {
+test('Attachment.buildSidebarFields_ reads fields straight off the already-hydrated instance', () => {
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() { return []; };
-  sandbox.apiFetchJson_ = function(method, path) {
-    if (method === 'get' && path === '/attachments/att_abc') {
-      return makeAttachmentApi({ document_url: 'https://docs.example.com/file.pdf' });
-    }
-    throw new Error('unexpected: ' + method + ' ' + path);
-  };
+  const a = getAttachment(sandbox).fromApi_(makeAttachmentApi({ document_url: 'https://docs.example.com/file.pdf' }));
 
-  const result = getAttachment(sandbox).buildSidebarFields_('attachments/att_abc', 'advanced');
+  const result = a.buildSidebarFields_('advanced');
 
   assert.equal(result.fields[0].default, '2026-01-15');
   assert.equal(result.fields[1].default, 'accounts/zkb');

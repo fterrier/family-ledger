@@ -57,6 +57,7 @@ def _meta_lines(source_native_ids: list[str], meta: dict[str, Any]) -> list[str]
 
 
 def _format_posting(posting: Posting, account_col_width: int) -> str:
+    assert posting.account is not None, "accountless postings are rendered as comments, not lines"
     account_name = posting.account.account_name
     padding = " " * (account_col_width - len(account_name))
     amount_str = f"{_d(posting.units_amount)} {posting.units_symbol}"
@@ -68,6 +69,18 @@ def _format_posting(posting: Posting, account_col_width: int) -> str:
     if posting.narration:
         line += f" ; {posting.narration}"
     return line
+
+
+def _format_unassigned_posting_comment(posting: Posting) -> str:
+    # Beancount has no representation for an accountless posting — the
+    # transaction still exports (with just its accounted postings), and this
+    # comment documents the omitted amount so it could optionally be
+    # re-imported/reconciled later once a destination account is chosen.
+    amount_str = f"{_d(posting.units_amount)} {posting.units_symbol}"
+    comment = f"  ; unassigned-posting: {amount_str}"
+    if posting.narration:
+        comment += f' "{posting.narration}"'
+    return comment
 
 
 def _format_document(attachment: Attachment, documents_dir: Path | None = None) -> str:
@@ -114,9 +127,19 @@ def _format_transaction(tx: Transaction) -> str:
 
     meta = _meta_lines(tx.source_native_ids, merged)
 
+    # Accountless postings (a split's not-yet-categorized remainder) have no
+    # Beancount representation — omit them from the posting lines and
+    # document each as a comment instead (see _format_unassigned_posting_comment).
     postings = tx.postings
-    account_col_width = max((len(p.account.account_name) for p in postings), default=0)
-    posting_lines = [_format_posting(p, account_col_width) for p in postings]
+    account_col_width = max(
+        (len(p.account.account_name) for p in postings if p.account is not None), default=0
+    )
+    posting_lines = [
+        _format_posting(p, account_col_width) for p in postings if p.account is not None
+    ]
+    posting_lines.extend(
+        _format_unassigned_posting_comment(p) for p in postings if p.account is None
+    )
 
     return "\n".join([header, *meta, *posting_lines])
 

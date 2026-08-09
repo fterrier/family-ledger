@@ -22,6 +22,8 @@ from sqlalchemy.orm import Session, selectinload
 from family_ledger.importers.base import ImportContext
 from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Transaction
 
+from .conftest import account_of
+
 VISA_ACCOUNT_NAME = "Liabilities:Cumulus:Visa"
 VISA_ACCOUNT_RESOURCE = "accounts/visa"
 VISA2_ACCOUNT_NAME = "Liabilities:Cumulus:Visa2"
@@ -407,7 +409,13 @@ def test_execute_raises_on_unknown_card(session: Session) -> None:
     assert "9999" in exc_info.value.message
 
 
-def test_execute_creates_single_posting_transactions(session: Session) -> None:
+def test_execute_creates_single_leg_transactions_with_a_balancing_filler_posting(
+    session: Session,
+) -> None:
+    # The importer only knows the card leg (awaiting categorization) —
+    # persist_transaction now always stores a real accountless filler
+    # posting for the other side, so every imported transaction is already
+    # balanced from the moment of import (Phase 4).
     entries = [
         ParsedVisecaEntry("17.02.25", "20.25", "OPENAI SUBSCR"),
         ParsedVisecaEntry("11.03.25", "6.35", "HEROKU FEB"),
@@ -420,8 +428,12 @@ def test_execute_creates_single_posting_transactions(session: Session) -> None:
     ).all()
     assert len(transactions) == 2
     for txn in transactions:
-        assert len(txn.postings) == 1
+        assert len(txn.postings) == 2
         assert txn.postings[0].units_symbol == "CHF"
+        assert txn.postings[0].account_id is not None
+        assert txn.postings[1].units_symbol == "CHF"
+        assert txn.postings[1].account_id is None
+        assert txn.postings[1].units_amount == -txn.postings[0].units_amount
 
 
 def test_execute_transaction_dates_use_value_date(session: Session) -> None:
@@ -697,5 +709,5 @@ def test_execute_routes_transactions_per_card(session: Session) -> None:
 
     txns = session.scalars(select(Transaction).options(selectinload(Transaction.postings))).all()
     assert len(txns) == 2
-    account_names = {txn.postings[0].account.name for txn in txns}
+    account_names = {account_of(txn.postings[0]).name for txn in txns}
     assert account_names == {VISA_ACCOUNT_RESOURCE, VISA2_ACCOUNT_RESOURCE}

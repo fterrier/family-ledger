@@ -178,6 +178,12 @@
   var ENTITY = <?!= entityJson ?>;
   var IS_EDIT = Boolean(ENTITY.name);
 
+  // Field types whose value the widget itself owns (rendering AND collecting), as opposed
+  // to primitive types (text/date/select/textarea/account-search) which this file renders
+  // and reads directly. This file has no knowledge of what "postings" means — it's just
+  // one registered complex type among any number a future entity could add.
+  var COMPLEX_FIELD_TYPES = { postings: PostingsEditor };
+
   var currentFields = null;
   var currentMode = 'simple';
   var dropdownsByKey = {};
@@ -266,8 +272,9 @@
       var wrapper = document.createElement('div');
       wrapper.className = 'field';
 
-      if (field.type === 'postings') {
-        PostingsEditor.init(wrapper, field['account-options'] || [], field['commodity-options'] || [], field.default || []);
+      var widget = COMPLEX_FIELD_TYPES[field.type];
+      if (widget) {
+        widget.init(wrapper, field);
         container.appendChild(wrapper);
         return;
       }
@@ -353,69 +360,49 @@
     }
   }
 
-  function collectSimpleAsPostings_() {
-    var srcEl = document.getElementById('field_source_account');
-    var dstEl = document.getElementById('field_destination_account');
-    var amtEl = document.getElementById('field_amount');
-    var symEl = document.getElementById('field_symbol');
-    var src = srcEl ? srcEl.value : '';
-    var dst = dstEl ? dstEl.value : '';
-    var amt = amtEl ? parseFloat(amtEl.value) : NaN;
-    var sym = symEl ? symEl.value : '';
-    if (!src || isNaN(amt) || !sym) return [];
-    var postings = [{ account: src, units: { amount: String(-amt), symbol: sym } }];
-    if (dst) postings.push({ account: dst, units: { amount: String(amt), symbol: sym } });
-    return postings;
-  }
-
+  // No entity-specific knowledge lives here — going from one mode to the other just
+  // forwards the form's full current state (every rendered field, complex ones included
+  // via COMPLEX_FIELD_TYPES), and the server derives whatever it needs the same way
+  // submitEntity does (EntityClass.setFields), keeping that domain logic in one place.
   function onToggleMode() {
     var newMode = currentMode === 'simple' ? 'advanced' : 'simple';
-    var currentPostings;
-    if (currentMode === 'advanced') {
-      currentPostings = PostingsEditor.collect();
-      if (currentPostings === null) return;
-    } else {
-      currentPostings = collectSimpleAsPostings_();
-    }
-    var savedValues = collectFieldValues();
+    var fieldValues = collectFieldValues();
+    if (fieldValues === null) return;
     var toggleLink = document.getElementById('toggleModeLink');
     if (toggleLink) toggleLink.textContent = 'Loading…';
     document.getElementById('errorBox').style.display = 'none';
     google.script.run
-      .withSuccessHandler(function(data) {
-        initForm(data);
-        Object.keys(savedValues).forEach(function(key) {
-          var el = document.getElementById('field_' + key);
-          if (el) setFieldValue_(el, savedValues[key]);
-        });
-      })
+      .withSuccessHandler(initForm)
       .withFailureHandler(function(err) {
         showError(err.message || String(err));
         if (toggleLink) toggleLink.textContent = currentMode === 'simple' ? 'Advanced editor →' : '← Simple form';
       })
-      .getSidebarData(ENTITY, newMode, currentPostings);
+      .getSidebarData(ENTITY, newMode, fieldValues);
   }
 
+  // Returns null (after calling showError itself, via the failing widget's own collect())
+  // if any complex-type field's collection failed validation.
   function collectFieldValues() {
     var values = {};
+    var failed = false;
     (currentFields || []).forEach(function(field) {
-      if (field.type === 'postings') return;
+      var widget = COMPLEX_FIELD_TYPES[field.type];
+      if (widget) {
+        var value = widget.collect();
+        if (value === null) { failed = true; return; }
+        values[field.key] = value;
+        return;
+      }
       var el = document.getElementById('field_' + field.key);
       values[field.key] = el ? el.value : '';
     });
-    return values;
+    return failed ? null : values;
   }
 
   function onSubmit() {
     document.getElementById('errorBox').style.display = 'none';
     var fieldValues = collectFieldValues();
-
-    var hasPostings = (currentFields || []).some(function(f) { return f.type === 'postings'; });
-    if (hasPostings) {
-      var postings = PostingsEditor.collect();
-      if (postings === null) return;
-      fieldValues.postings = postings;
-    }
+    if (fieldValues === null) return;
 
     var btnId = IS_EDIT ? 'saveBtn' : 'insertBtn';
     var btn = document.getElementById(btnId);
@@ -441,8 +428,9 @@
     if (!currentFields) return;
     document.getElementById('errorBox').style.display = 'none';
     currentFields.forEach(function(field) {
-      if (field.type === 'postings') {
-        PostingsEditor.clear();
+      var widget = COMPLEX_FIELD_TYPES[field.type];
+      if (widget) {
+        widget.clear();
         return;
       }
       var el = document.getElementById('field_' + field.key);

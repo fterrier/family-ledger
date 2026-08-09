@@ -80,7 +80,7 @@ test('refreshAccountValidation_ applies account dropdown to validation:account c
   sandbox.refreshAccountValidation_(transactionSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'setDataValidation', column: 8, numRows: 4, hasRule: true },
+    { type: 'setDataValidation', column: 9, numRows: 4, hasRule: true },
   ]);
 });
 
@@ -113,7 +113,7 @@ test('refreshAccountValidation_ clears validation when no accounts exist', () =>
   sandbox.refreshAccountValidation_(transactionSheet, sandbox.getSheetConfigByName_('Transactions'));
 
   assert.deepEqual(JSON.parse(JSON.stringify(operations)), [
-    { type: 'rangeListClear', notations: ['H2:H3'] },
+    { type: 'rangeListClear', notations: ['I2:I3'] },
   ]);
 });
 

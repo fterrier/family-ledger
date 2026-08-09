@@ -414,6 +414,10 @@ def _compile_condition(
 
 
 def _base_select(columns: Sequence[Any]) -> Select:
+    # Inner join to Account: an accountless posting (a split's not-yet-
+    # categorized remainder, Posting.account_id IS NULL) has no row to join
+    # and is therefore intentionally invisible to every /query result —
+    # same "ignore entirely until categorized" semantics as Doctor.
     return (
         select(*columns)
         .select_from(Posting)

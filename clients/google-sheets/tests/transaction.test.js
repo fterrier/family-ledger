@@ -125,7 +125,7 @@ test('classifyTransactionGroups_ multiple [X] legs: first posting is source', ()
   });
 });
 
-test('classifyTransactionGroups_ source-only: single negative picked by rule 4', () => {
+test('classifyTransactionGroups_ single posting: negative picked as source by rule 4', () => {
   const { sandbox } = loadCode();
 
   const groups = sandbox.classifyTransactionGroups_({
@@ -164,10 +164,9 @@ test('classifyTransactionGroups_ investment buy with cost: hasCostPrice true, si
   });
 });
 
-test('classifyTransactionGroups_ zero-weight posting is suppressed and not in any group', () => {
+test('classifyTransactionGroups_ keeps a zero-weight posting as an ordinary destination', () => {
   const { sandbox } = loadCode();
 
-  // A posting with weight amount 0 should be excluded
   const groups = sandbox.classifyTransactionGroups_({
     postings: [
       { account: 'accounts/bank', units: { amount: '-100', symbol: 'CHF' }, weight: { amount: '-100', symbol: 'CHF' }, cost: null, price: null },
@@ -181,8 +180,7 @@ test('classifyTransactionGroups_ zero-weight posting is suppressed and not in an
   });
 
   assert.equal(groups.length, 1);
-  assert.equal(groups[0].destinationIndexes.length, 1);
-  assert.equal(groups[0].destinationIndexes[0], 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(groups[0].destinationIndexes)), [1, 2]);
 });
 
 test('classifyTransactionGroups_ FX conversion produces two groups (one per weight symbol)', () => {
@@ -253,24 +251,6 @@ test('flattenTransactionForSheet_ prefers posting narration over transaction nar
   assert.equal(rows[0].narration_source, 'post');
 });
 
-test('flattenTransactionForSheet_ renders source-only transactions as one blank-destination row', () => {
-  const { sandbox } = loadCode();
-
-  const rows = sandbox.flattenTransactionForSheet_({
-    name: 'transactions/txn_1',
-    transaction_date: '2025-12-31',
-    payee: null,
-    narration: 'Guthabenzins: Guthabenzins',
-    postings: [{ account: 'accounts/source', units: { amount: '-1.5', symbol: 'CHF' }, cost: null, price: null }],
-  }, {
-    'accounts/source': 'Assets:Bank:Checking',
-  });
-
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].destination_account_name, '');
-  assert.equal(rows[0].amount, 1.5);
-});
-
 test('flattenTransactionForSheet_ renders zero-posting transactions as a placeholder row', () => {
   const { sandbox } = loadCode();
 
@@ -309,46 +289,8 @@ test('flattenTransactionForSheet_ income: salary [I] is source, bank [A] is dest
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source_account_name, '[I] Salary');
   assert.equal(rows[0].destination_account_name, '[A] Bank');
-  assert.equal(rows[0].amount, 5000);
+  assert.equal(rows[0].amount, '5000');
   assert.equal(rows[0].symbol, 'CHF');
-});
-
-test('flattenTransactionForSheet_ shows abs amount for source-only with positive balance-sheet posting', () => {
-  const { sandbox } = loadCode();
-
-  const rows = sandbox.flattenTransactionForSheet_({
-    name: 'transactions/txn_1',
-    transaction_date: '2025-03-18',
-    payee: '',
-    narration: 'Incomplete transfer',
-    postings: [{ account: 'accounts/savings', units: { amount: '5524.65', symbol: 'CHF' }, cost: null, price: null }],
-  }, {
-    'accounts/savings': '[A] Savings',
-  });
-
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].source_account_name, '[A] Savings');
-  assert.equal(rows[0].destination_account_name, '');
-  assert.equal(rows[0].amount, -5524.65);
-});
-
-test('flattenTransactionForSheet_ keeps positive sheet amount for source-only negative backend posting', () => {
-  const { sandbox } = loadCode();
-
-  const rows = sandbox.flattenTransactionForSheet_({
-    name: 'transactions/txn_1',
-    transaction_date: '2025-03-18',
-    payee: '',
-    narration: 'Card charge',
-    postings: [{ account: 'accounts/checking', units: { amount: '-1', symbol: 'CHF' }, cost: null, price: null }],
-  }, {
-    'accounts/checking': '[A] Checking',
-  });
-
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].source_account_name, '[A] Checking');
-  assert.equal(rows[0].destination_account_name, '');
-  assert.equal(rows[0].amount, 1);
 });
 
 test('flattenTransactionForSheet_ passes transaction_date string through unchanged', () => {
@@ -386,12 +328,16 @@ test('flattenTransactionForSheet_ investment buy: uses weight for amount/symbol,
   assert.equal(rows.length, 1);
   assert.equal(rows[0].source_account_name, '[A] Bank');
   assert.equal(rows[0].destination_account_name, '[A] Investments - VTI');
-  assert.equal(rows[0].amount, 1000);
+  assert.equal(rows[0].amount, '1000');
   assert.equal(rows[0].symbol, 'CHF');
   assert.equal(rows[0].has_cost_price, true);
 });
 
-test('flattenTransactionForSheet_ FX conversion: two rows, one per weight symbol', () => {
+test('flattenTransactionForSheet_ renders a blank-destination placeholder for a weight-symbol group with no destination', () => {
+  // A near-zero (within-tolerance) residual left in its own symbol, with nothing else
+  // sharing that symbol, is a real reachable shape — the server doesn't add a filler
+  // for a residual within tolerance. Rather than crash rendering the whole sheet (which
+  // would abort a sync over one such transaction), show it as a blank-destination row.
   const { sandbox } = loadCode();
 
   const rows = sandbox.flattenTransactionForSheet_({
@@ -415,14 +361,10 @@ test('flattenTransactionForSheet_ FX conversion: two rows, one per weight symbol
   });
 
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].symbol, 'CHF');
-  assert.equal(rows[0].source_account_name, '[A] Bank CHF');
-  assert.equal(rows[0].amount, 900);
-  // USD group has one posting (weight +1000), selected as source by rule 3.
-  // Source-only amount = -(+1000) = -1000 (negative = inflow; sum by USD account gives -1000 net).
-  assert.equal(rows[1].symbol, 'USD');
-  assert.equal(rows[1].source_account_name, '[A] Bank USD');
-  assert.equal(rows[1].amount, -1000);
+  const usdRow = rows.find(function(r) { return r.symbol === 'USD'; });
+  assert.equal(usdRow.source_account_name, '[A] Bank USD');
+  assert.equal(usdRow.destination_account_name, '');
+  assert.equal(usdRow.amount, '');
 });
 
 test('flattenTransactionForSheet_ falls back to units when weight field absent (backward compat)', () => {
@@ -433,7 +375,7 @@ test('flattenTransactionForSheet_ falls back to units when weight field absent (
     'accounts/food': '[X] Food',
   });
 
-  assert.equal(rows[0].amount, 84.25);
+  assert.equal(rows[0].amount, '84.25');
   assert.equal(rows[0].symbol, 'CHF');
 });
 
@@ -446,29 +388,6 @@ test('flattenTransactionForSheet_ hasCostPrice false when no posting has cost or
   });
 
   assert.equal(rows[0].has_cost_price, false);
-});
-
-test('flattenTransactionForSheet_ unbalanced 2-posting: adds blank destination row for remainder', () => {
-  const { sandbox } = loadCode();
-
-  const rows = sandbox.flattenTransactionForSheet_({
-    name: 'transactions/txn_1',
-    transaction_date: '2026-04-19',
-    payee: 'Shop',
-    narration: 'Partial split',
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '60', symbol: 'CHF' } },
-    ],
-  }, { 'accounts/checking': '[A] Checking', 'accounts/food': '[X] Food' });
-
-  assert.equal(rows.length, 2);
-  assert.equal(rows[0].destination_account_name, '[X] Food');
-  assert.equal(rows[0].amount, 60);
-  assert.equal(rows[1].destination_account_name, '');
-  assert.equal(rows[1].amount, 40);
-  assert.equal(rows[1].source_account_name, '[A] Checking');
-  assert.equal(rows[1].symbol, 'CHF');
 });
 
 test('flattenTransactionForSheet_ balanced 2-posting transaction produces exactly 1 row', () => {
@@ -487,30 +406,6 @@ test('flattenTransactionForSheet_ balanced 2-posting transaction produces exactl
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].destination_account_name, '[X] Food');
-});
-
-test('flattenTransactionForSheet_ unbalanced 3-posting: adds blank destination row after the two explicit destinations', () => {
-  const { sandbox } = loadCode();
-
-  const rows = sandbox.flattenTransactionForSheet_({
-    name: 'transactions/txn_1',
-    transaction_date: '2026-04-19',
-    payee: 'Shop',
-    narration: 'Multi split unbalanced',
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-100', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '40', symbol: 'CHF' } },
-      { account: 'accounts/restaurant', units: { amount: '30', symbol: 'CHF' } },
-    ],
-  }, { 'accounts/checking': '[A] Checking', 'accounts/food': '[X] Food', 'accounts/restaurant': '[X] Restaurant' });
-
-  assert.equal(rows.length, 3);
-  assert.equal(rows[0].destination_account_name, '[X] Food');
-  assert.equal(rows[0].amount, 40);
-  assert.equal(rows[1].destination_account_name, '[X] Restaurant');
-  assert.equal(rows[1].amount, 30);
-  assert.equal(rows[2].destination_account_name, '');
-  assert.equal(rows[2].amount, 30);
 });
 
 // --- buildTransactionPatchPayload_ ---
@@ -535,12 +430,14 @@ test('buildTransactionPatchPayload_ rebuilds canonical PATCH payload in sheet ro
     '[X] Household': 'accounts/household',
   });
 
+  // The source's own amount is never computed client-side — its units are
+  // omitted entirely so the server interpolates them (see ADR 0006).
   assert.deepEqual(JSON.parse(JSON.stringify(payload)), {
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries split',
     postings: [
-      { account: 'accounts/source', units: { amount: '-84.25', symbol: 'CHF' } },
+      { account: 'accounts/source' },
       { account: 'accounts/household', narration: null, units: { amount: '34.25', symbol: 'CHF' } },
       { account: 'accounts/food', narration: null, units: { amount: '50', symbol: 'CHF' } },
     ],
@@ -625,7 +522,7 @@ test('buildTransactionPatchPayload_ emits null-account posting for single blank 
 
   assert.equal(payload.postings.length, 2);
   assert.equal(payload.postings[0].account, 'accounts/source');
-  assert.equal(payload.postings[0].units.amount, '-1.5');
+  assert.equal('units' in payload.postings[0], false);
   assert.equal(payload.postings[1].account, null);
   assert.equal(payload.postings[1].units.amount, '1.5');
 });
@@ -643,7 +540,7 @@ test('buildTransactionPatchPayload_ preserves visual row order: blank row before
 
   assert.equal(payload.postings.length, 3);
   assert.equal(payload.postings[0].account, 'accounts/source');
-  assert.equal(parseFloat(payload.postings[0].units.amount), -84.25);
+  assert.equal('units' in payload.postings[0], false);
   // Visual order preserved: blank row 2 is postings[1], categorized row 3 is postings[2]
   assert.equal(payload.postings[1].account, null);
   assert.equal(parseFloat(payload.postings[1].units.amount), 50);
@@ -667,7 +564,7 @@ test('buildTransactionPatchPayload_ accepts negative destination amounts for inc
     payee: null,
     narration: 'Monthly salary',
     postings: [
-      { account: 'accounts/bank', units: { amount: '5000', symbol: 'CHF' } },
+      { account: 'accounts/bank' },
       { account: 'accounts/salary', narration: null, units: { amount: '-5000', symbol: 'CHF' } },
     ],
   });
@@ -715,7 +612,7 @@ test('Transaction.fromRows() single destination row builds correct postings', ()
   assert.equal(payload.transaction_date, '2026-04-19');
   assert.equal(payload.payee, 'Migros');
   assert.deepEqual(JSON.parse(JSON.stringify(payload.postings)), [
-    { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/checking' },
     { account: 'accounts/food', narration: null, units: { amount: '84.25', symbol: 'CHF' } },
   ]);
 });
@@ -754,12 +651,12 @@ test('Transaction.fromRows() split rows (2 destinations) builds source + 2 desti
 
   assert.equal(payload.postings.length, 3);
   assert.equal(payload.postings[0].account, 'accounts/checking');
-  assert.equal(payload.postings[0].units.amount, '-84.25');
+  assert.equal('units' in payload.postings[0], false);
   assert.equal(payload.postings[1].account, 'accounts/food');
   assert.equal(payload.postings[2].account, 'accounts/household');
 });
 
-test('Transaction.fromRows() source-only row builds single source posting', () => {
+test('Transaction.fromRows() a lone blank-destination row builds source (no units) plus an unassigned posting', () => {
   const { Transaction } = loadT_();
   const rows = [{
     resource_name: 'transactions/txn_1',
@@ -777,9 +674,11 @@ test('Transaction.fromRows() source-only row builds single source posting', () =
   const entity = Transaction.fromRows(rows, ACCOUNT_LOOKUP, { start: 2, count: 1 });
   const payload = entity.toApiPayload_();
 
-  assert.equal(payload.postings.length, 1);
+  assert.equal(payload.postings.length, 2);
   assert.equal(payload.postings[0].account, 'accounts/checking');
-  assert.equal(payload.postings[0].units.amount, '-1.5');
+  assert.equal('units' in payload.postings[0], false);
+  assert.equal(payload.postings[1].account, null);
+  assert.equal(payload.postings[1].units.amount, '1.5');
 });
 
 test('Transaction.fromRows() span is stored and getName() returns resource_name', () => {
@@ -933,7 +832,7 @@ test('Transaction.fromRows() with mixed blank and non-blank destinations builds 
 
   assert.equal(tx._api.postings.length, 3);
   assert.equal(tx._api.postings[0].account, 'accounts/checking');
-  assert.equal(parseFloat(tx._api.postings[0].units.amount), -84.25);
+  assert.equal('units' in tx._api.postings[0], false);
   // Visual order preserved: blank row 2 → postings[1], categorized row 3 → postings[2]
   assert.equal(tx._api.postings[1].account, null);
   assert.equal(parseFloat(tx._api.postings[1].units.amount), 50);
@@ -958,7 +857,7 @@ test('Transaction.fromRows() with multiple blank-destination rows builds null-ac
 
   assert.equal(tx._api.postings.length, 3);
   assert.equal(tx._api.postings[0].account, 'accounts/checking');
-  assert.equal(parseFloat(tx._api.postings[0].units.amount), -84.25);
+  assert.equal('units' in tx._api.postings[0], false);
   assert.equal(tx._api.postings[1].account, null);
   assert.equal(parseFloat(tx._api.postings[1].units.amount), 50);
   assert.equal(tx._api.postings[2].account, null);
@@ -1063,7 +962,7 @@ test('Transaction.toApiPayload_() converts null payee/narration correctly', () =
   assert.equal(payload.narration, null);
 });
 
-test('Transaction.save() with all-blank destinations calls API with source only and preserves null postings', () => {
+test('Transaction.save() sends every posting including null-account ones, unfiltered', () => {
   const { sandbox } = loadCode();
   const apiCalls = [];
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -1086,14 +985,14 @@ test('Transaction.save() with all-blank destinations calls API with source only 
 
   tx.save({});
 
-  assert.equal(apiCalls.length, 1, 'API called even when all destinations are blank');
+  assert.equal(apiCalls.length, 1);
   const sentPostings = apiCalls[0].payload.transaction.postings;
-  assert.equal(sentPostings.length, 1, 'only source posting sent');
-  assert.equal(tx._api.postings.length, 3, 'null postings preserved in _api after save');
+  assert.equal(sentPostings.length, 3, 'no client-side filtering — the server accepts null accounts directly');
+  assert.equal(tx._api.postings.length, 3);
   assert.equal(committed.length, 1, '_commitToSheet_ called after API');
 });
 
-test('Transaction.save() with mixed null and non-null destinations calls API and preserves null posting', () => {
+test('Transaction.save() with a mix of null and non-null destinations sends all of them', () => {
   const { sandbox } = loadCode();
   const apiCalls = [];
   sandbox.apiFetchJson_ = function(method, path, payload) {
@@ -1116,118 +1015,15 @@ test('Transaction.save() with mixed null and non-null destinations calls API and
 
   tx.save({});
 
-  assert.equal(apiCalls.length, 1, 'API called when at least one destination is set');
+  assert.equal(apiCalls.length, 1);
   const sentPostings = apiCalls[0].payload.transaction.postings;
-  assert.equal(sentPostings.length, 2, 'null posting filtered before API call');
+  assert.equal(sentPostings.length, 3);
   assert.equal(sentPostings[1].account, 'accounts/food');
-  assert.equal(tx._api.postings.length, 3, 'null posting preserved in _api after save');
-  assert.equal(tx._api.postings[2].account, null);
+  assert.equal(sentPostings[2].account, null);
+  assert.equal(tx._api.postings.length, 3);
   assert.equal(committed.length, 1, '_commitToSheet_ called after API');
 });
 
-test('Transaction.save() with single null-account destination calls API as source-only', () => {
-  const { sandbox } = loadCode();
-  const apiCalls = [];
-  sandbox.apiFetchJson_ = function(method, path, payload) {
-    apiCalls.push({ method, path, payload });
-    const posted = payload.transaction;
-    return { name: 'transactions/txn_1', transaction_date: posted.transaction_date, payee: null, narration: null, postings: posted.postings };
-  };
-  const props = {};
-  sandbox.PropertiesService = { getDocumentProperties() { return { getProperty(k) { return props[k] || null; }, setProperty(k, v) { props[k] = v; } }; } };
-  const tx = makeTx(sandbox, {
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: null, units: { amount: '84.25', symbol: 'CHF' } },
-    ],
-  }, { start: 2, count: 1 });
-  const committed = [];
-  tx._commitToSheet_ = function(sheet) { committed.push(sheet); return this._span; };
-
-  tx.save({});
-
-  assert.equal(apiCalls.length, 1, 'API called for single uncategorized row');
-  const sentPostings = apiCalls[0].payload.transaction.postings;
-  assert.equal(sentPostings.length, 1, 'only source posting sent');
-  assert.equal(sentPostings[0].account, 'accounts/checking');
-  assert.equal(tx._api.postings.length, 2, 'null posting preserved in _api after save');
-  assert.equal(tx._api.postings[1].account, null);
-  assert.equal(committed.length, 1, '_commitToSheet_ called after API');
-});
-
-
-test('Transaction.updateFromApi_() uses API response when no null-account postings', () => {
-  const { Transaction } = loadT_();
-  const entity = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-
-  entity.updateFromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Updated', narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
-    ],
-  });
-
-  assert.equal(entity._api.payee, 'Updated');
-  assert.equal(entity._api.postings.length, 2);
-});
-
-test('Transaction.updateFromApi_() re-attaches null-account postings after API response', () => {
-  const { Transaction } = loadT_();
-  const entity = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
-      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-
-  entity.updateFromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Updated', narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
-    ],
-  });
-
-  assert.equal(entity._api.payee, 'Updated');
-  assert.equal(entity._api.postings.length, 3, 'null posting re-attached');
-  assert.equal(entity._api.postings[2].account, null);
-  assert.equal(entity._api.postings[2].units.amount, '34.25');
-});
-
-test('Transaction.updateFromApi_() preserves original position of null posting between categorized rows', () => {
-  const { Transaction } = loadT_();
-  const entity = Transaction.fromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
-      { account: null, units: { amount: '34.25', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
-    ],
-  }, ACCOUNT_LOOKUP);
-
-  entity.updateFromApi_({
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: null, narration: null,
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-50', symbol: 'CHF' } },
-      { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' } },
-    ],
-  });
-
-  assert.equal(entity._api.postings.length, 3);
-  assert.equal(entity._api.postings[1].account, null, 'null stays between source and food');
-  assert.equal(entity._api.postings[1].units.amount, '34.25');
-  assert.equal(entity._api.postings[2].account, 'accounts/food');
-});
 
 // --- Transaction.setFields() ---
 
@@ -1273,6 +1069,47 @@ test('Transaction.setFields() ignores unknown fields', () => {
   assert.equal(entity._api.payee, 'Migros');
 });
 
+test('Transaction.setFields() simple mode with a destination builds 2 full postings, source negated as a plain string', () => {
+  const { Transaction } = loadT_();
+  const entity = Transaction.fromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [],
+  }, ACCOUNT_LOOKUP);
+
+  entity.setFields({
+    source_account: 'accounts/checking', destination_account: 'accounts/food', amount: '12.5', symbol: 'CHF',
+  });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(entity._api.postings)), [
+    { account: 'accounts/checking', units: { amount: '-12.5', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '12.5', symbol: 'CHF' } },
+  ]);
+});
+
+test('Transaction.setFields() simple mode with no destination still builds 2 full postings: source + an unassigned one', () => {
+  const { Transaction } = loadT_();
+  const entity = Transaction.fromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [],
+  }, ACCOUNT_LOOKUP);
+
+  entity.setFields({ source_account: 'accounts/checking', amount: '0.30000000000000004', symbol: 'CHF' });
+
+  assert.deepEqual(JSON.parse(JSON.stringify(entity._api.postings)), [
+    { account: 'accounts/checking', units: { amount: '-0.30000000000000004', symbol: 'CHF' } },
+    { account: null, units: { amount: '0.30000000000000004', symbol: 'CHF' } },
+  ]);
+});
+
+test('Transaction.setFields() simple mode un-negates an already-negative amount string, no parseFloat', () => {
+  const { Transaction } = loadT_();
+  const entity = Transaction.fromApi_({
+    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: '', postings: [],
+  }, ACCOUNT_LOOKUP);
+
+  entity.setFields({ source_account: 'accounts/checking', destination_account: 'accounts/food', amount: '-5', symbol: 'CHF' });
+
+  assert.equal(entity._api.postings[0].units.amount, '5');
+});
+
 // --- Transaction.validate() ---
 
 test('Transaction.validate() throws when transaction_date is missing', () => {
@@ -1297,7 +1134,7 @@ test('Transaction.validate() passes when transaction_date is present', () => {
 
 test('Transaction.isEditableHeader() returns true for editable headers', () => {
   const { Transaction } = loadT_();
-  const editable = ['payee', 'narration', 'destination_account_name', 'amount', 'split_off_amount', 'tags', 'edit'];
+  const editable = ['payee', 'narration', 'destination_account_name', 'split_off_amount', 'tags', 'edit'];
   editable.forEach(function(h) {
     assert.equal(Transaction.isEditableHeader(h), true, h + ' should be editable');
   });
@@ -1305,7 +1142,7 @@ test('Transaction.isEditableHeader() returns true for editable headers', () => {
 
 test('Transaction.isEditableHeader() returns false for readonly and system headers', () => {
   const { Transaction } = loadT_();
-  const nonEditable = ['resource_name', 'transaction_date', 'source_account_name', 'symbol', 'narration_source', 'issues', 'unknown'];
+  const nonEditable = ['resource_name', 'transaction_date', 'source_account_name', 'symbol', 'narration_source', 'issues', 'amount', 'unknown'];
   nonEditable.forEach(function(h) {
     assert.equal(Transaction.isEditableHeader(h), false, h + ' should not be editable');
   });
@@ -1332,6 +1169,11 @@ test('flattenTransactionForSheet_ date round-trips back to yyyy-MM-dd for API pa
     'accounts/source': '[A] Bank - Checking',
     'accounts/food': '[X] Food',
   });
+  // A real Sheets write+read cycle turns the written numeric string back into a genuine
+  // number (Sheets parses on write, per the amount column's numberFormat) — simulate
+  // that here since this test chains straight into buildTransactionPatchPayload_ with
+  // no real sheet in between.
+  rows.forEach(function(row) { row.amount = Number(row.amount); });
   const payload = sandbox.buildTransactionPatchPayload_(rows, {
     '[A] Bank - Checking': 'accounts/source',
     '[X] Food': 'accounts/food',
@@ -1435,6 +1277,7 @@ function singleDestApi(overrides) {
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',
+    update_time: 1755000000,
     postings: [
       { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
       { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' }, narration: null },
@@ -1448,6 +1291,7 @@ function splitApi() {
     transaction_date: '2026-04-19',
     payee: 'Migros',
     narration: 'Groceries',
+    update_time: 1755000000,
     postings: [
       { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
       { account: 'accounts/food', units: { amount: '50', symbol: 'CHF' }, narration: null },
@@ -1559,53 +1403,6 @@ test("Transaction.applyEdit('destination_account_name') blank value sets account
   assert.equal(tx._api.postings[1].account, null);
 });
 
-// amount
-
-test("Transaction.applyEdit('amount') inserts split posting with leftover amount", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, singleDestApi());
-  tx.applyEdit('amount', '50', '84.25', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].units.amount, '50');
-  assert.equal(tx._api.postings[2].units.amount, '34.25');
-  assert.equal(tx._api.postings[0].units.amount, '-84.25');
-});
-
-test("Transaction.applyEdit('amount') no-op when amounts are equal", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, singleDestApi());
-  tx.applyEdit('amount', '84.25', '84.25', 2);
-  assert.equal(tx._api.postings.length, 2);
-});
-
-test("Transaction.applyEdit('amount') treats numeric 0 as valid new amount", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, singleDestApi());
-  tx.applyEdit('amount', 0, '84.25', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].units.amount, '0');
-  assert.equal(tx._api.postings[2].units.amount, '84.25');
-});
-
-test("Transaction.applyEdit('amount') splits source-only transaction into two null-account postings", () => {
-  const { sandbox } = loadCode();
-
-  const tx = makeTx(sandbox, {
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } },
-      { account: null, units: { amount: '1.5', symbol: 'CHF' } },
-    ],
-  });
-  tx.applyEdit('amount', '1', '1.5', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].account, null);
-  assert.equal(tx._api.postings[1].units.amount, '1');
-  assert.equal(tx._api.postings[2].account, null);
-  assert.equal(tx._api.postings[2].units.amount, '0.5');
-  assert.equal(tx._api.postings[0].units.amount, '-1.5');
-});
-
 test("Transaction.applyEdit('destination_account_name') clearing on single-row transaction with null posting is a no-op", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, {
@@ -1620,143 +1417,76 @@ test("Transaction.applyEdit('destination_account_name') clearing on single-row t
   assert.equal(tx._api.postings[1].account, null);
 });
 
-test("Transaction.applyEdit('amount') throws for invalid (NaN) new amount", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, singleDestApi());
-  assert.throws(
-    () => tx.applyEdit('amount', 'bad', '84.25', 2),
-    /Invalid amount/
-  );
-});
+// split_off_amount — sets _pendingServerOp for a :split/:unsplit call; no client-side arithmetic.
 
-test("Transaction.applyEdit('amount') no-op when old amount is NaN (blank cell)", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, singleDestApi());
-  tx.applyEdit('amount', '50', '', 2);
-  assert.equal(tx._api.postings.length, 2);
-});
-
-// split_off_amount
-
-test("Transaction.applyEdit('split_off_amount') numeric creates split posting", () => {
+test("Transaction.applyEdit('split_off_amount') numeric sets a pending :split op, verbatim amount, no posting mutation", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, singleDestApi());
   tx.applyEdit('split_off_amount', '34.25', '', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].units.amount, '50');
-  assert.equal(tx._api.postings[2].units.amount, '34.25');
-  assert.equal(tx._api.postings[2].narration, null);
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._pendingServerOp)), {
+    verb: 'split',
+    body: { posting_index: 1, split_off_amount: '34.25', update_time: 1755000000 },
+  });
+  assert.equal(tx._api.postings.length, 2, 'postings are not mutated client-side');
 });
 
-test("Transaction.applyEdit('split_off_amount') 0 is a valid split amount", () => {
+test("Transaction.applyEdit('split_off_amount') numeric 0 sends '0' verbatim", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, singleDestApi());
   tx.applyEdit('split_off_amount', 0, '', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].units.amount, '84.25');
-  assert.equal(tx._api.postings[2].units.amount, '0');
+  assert.equal(tx._pendingServerOp.body.split_off_amount, '0');
 });
 
-test("Transaction.applyEdit('split_off_amount') throws when split equals original", () => {
+test("Transaction.applyEdit('split_off_amount') throws for a non-numeric split amount", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, singleDestApi());
   assert.throws(
-    () => tx.applyEdit('split_off_amount', '84.25', '', 2),
-    /Split amount must differ from the row amount/
+    () => tx.applyEdit('split_off_amount', 'abc', '', 2),
+    /Invalid split amount/
   );
 });
 
-test("Transaction.applyEdit('split_off_amount') numeric on source-only creates two null-account postings", () => {
+test("Transaction.applyEdit('split_off_amount') numeric on a split row targets that row's posting_index", () => {
   const { sandbox } = loadCode();
-
-  const tx = makeTx(sandbox, {
-    name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: '', narration: 'Interest',
-    postings: [
-      { account: 'accounts/checking', units: { amount: '-1.5', symbol: 'CHF' } },
-      { account: null, units: { amount: '1.5', symbol: 'CHF' } },
-    ],
-  });
-  tx.applyEdit('split_off_amount', '0.5', '', 2);
-  assert.equal(tx._api.postings.length, 3);
-  assert.equal(tx._api.postings[1].account, null);
-  assert.equal(tx._api.postings[1].units.amount, '1');
-  assert.equal(tx._api.postings[2].account, null);
-  assert.equal(tx._api.postings[2].units.amount, '0.5');
-  // source posting unchanged
-  assert.equal(tx._api.postings[0].units.amount, '-1.5');
+  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
+  tx.applyEdit('split_off_amount', '10', '', 3);
+  assert.equal(tx._pendingServerOp.body.posting_index, 2);
 });
 
 test("Transaction.applyEdit('split_off_amount') empty instruction is a no-op", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, singleDestApi());
   tx.applyEdit('split_off_amount', '', '', 2);
+  assert.equal(tx._pendingServerOp, undefined);
   assert.equal(tx._api.postings.length, 2);
 });
 
-test("Transaction.applyEdit('split_off_amount') x on single destination makes source-only", () => {
+test("Transaction.applyEdit('split_off_amount') x sets a pending :unsplit op with no second index", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, singleDestApi());
   tx.applyEdit('split_off_amount', 'x', '', 2);
-  assert.equal(tx._api.postings.length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._pendingServerOp)), {
+    verb: 'unsplit',
+    body: { posting_index: 1, update_time: 1755000000 },
+  });
+  assert.equal(tx._api.postings.length, 2, 'postings are not mutated client-side');
 });
 
-test("Transaction.applyEdit('split_off_amount') x on lower of two rows merges into upper", () => {
+test("Transaction.applyEdit('split_off_amount') X (uppercase) is treated the same as x", () => {
   const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
-  tx.applyEdit('split_off_amount', 'x', '', 3);
-  assert.equal(tx._api.postings.length, 2);
-  assert.equal(tx._api.postings[1].account, 'accounts/food');
-  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
-});
-
-test("Transaction.applyEdit('split_off_amount') x on upper of two rows merges into lower", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
-  tx.applyEdit('split_off_amount', 'x', '', 2);
-  assert.equal(tx._api.postings.length, 2);
-  assert.equal(tx._api.postings[1].account, 'accounts/household');
-  assert.equal(parseFloat(tx._api.postings[1].units.amount), 84.25);
-});
-
-test("Transaction.applyEdit('split_off_amount') x reduces to 1 and resets surviving posting narration to null", () => {
-  const { sandbox } = loadCode();
-  const api = splitApi();
-  api.postings[2].narration = 'Household goods';
-  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
-  tx.applyEdit('split_off_amount', 'x', '', 3);
-  assert.equal(tx._api.postings.length, 2);
-  assert.equal(tx._api.postings[1].narration, null);
+  const tx = makeTx(sandbox, singleDestApi());
+  tx.applyEdit('split_off_amount', 'X', '', 2);
+  assert.equal(tx._pendingServerOp.verb, 'unsplit');
 });
 
 test("Transaction.applyEdit('split_off_amount') - is treated as delete like x", () => {
   const { sandbox } = loadCode();
   const tx = makeTx(sandbox, splitApi(), { start: 2, count: 2 });
   tx.applyEdit('split_off_amount', '-', '', 3);
-  assert.equal(tx._api.postings.length, 2);
-});
-
-test("Transaction.applyEdit('split_off_amount') x promotes surviving posting narration to txn when reducing to single row", () => {
-  const { sandbox } = loadCode();
-  const api = splitApi();
-  api.narration = null;
-  api.postings[1].narration = 'Coffee';
-  api.postings[2].narration = 'Household goods';
-  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
-  tx.applyEdit('split_off_amount', 'x', '', 3);
-  assert.equal(tx._api.postings.length, 2);
-  assert.equal(tx._api.narration, 'Coffee', 'surviving posting narration promoted to txn narration');
-  assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration cleared after promotion');
-});
-
-test("Transaction.applyEdit('split_off_amount') x keeps txn narration when surviving posting has null narration", () => {
-  const { sandbox } = loadCode();
-  const api = splitApi();
-  api.postings[2].narration = 'Household goods';
-  const tx = makeTx(sandbox, api, { start: 2, count: 2 });
-  tx.applyEdit('split_off_amount', 'x', '', 3);
-  assert.equal(tx._api.postings.length, 2);
-  assert.equal(tx._api.narration, 'Groceries', 'txn narration unchanged');
-  assert.equal(tx._api.postings[1].narration, null, 'surviving posting narration stays null');
+  assert.deepEqual(JSON.parse(JSON.stringify(tx._pendingServerOp)), {
+    verb: 'unsplit',
+    body: { posting_index: 2, update_time: 1755000000 },
+  });
 });
 
 // tags
@@ -1821,15 +1551,6 @@ test("Transaction.applyEdit('destination_account_name') throws for cost/price tr
   const tx = makeTx(sandbox, costPriceApi());
   assert.throws(
     () => tx.applyEdit('destination_account_name', '[X] Food', '', 2),
-    /please use the sidebar/
-  );
-});
-
-test("Transaction.applyEdit('amount') throws for cost/price transaction", () => {
-  const { sandbox } = loadCode();
-  const tx = makeTx(sandbox, costPriceApi());
-  assert.throws(
-    () => tx.applyEdit('amount', '900', '1000', 2),
     /please use the sidebar/
   );
 });
@@ -1922,15 +1643,6 @@ test("Transaction.applyEdit('destination_account_name') on sheet-flagged complex
   const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
   assert.throws(
     () => tx.applyEdit('destination_account_name', '[X] Food', '', 2),
-    /please use the sidebar/
-  );
-});
-
-test("Transaction.applyEdit('amount') on sheet-flagged complex tx throws", () => {
-  const { Transaction } = loadT_();
-  const tx = Transaction.fromRows([complexSheetRow()], ACCOUNT_LOOKUP, { start: 2, count: 1 });
-  assert.throws(
-    () => tx.applyEdit('amount', '900', '1000', 2),
     /please use the sidebar/
   );
 });
@@ -2052,23 +1764,13 @@ test('handleEntitySheetEdit_ restores old cell value and toasts on applyEdit val
   const toasts = [];
   const { sandbox, fakeEntity } = makeHandleEditSandbox(toasts);
   fakeEntity.save = function() { throw new Error('should not be called'); };
-  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1', amount: 99 }]]);
+  const rowStore = new Map([[2, { resource_name: 'transactions/txn_1', split_off_amount: 'notanumber' }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
 
-  const col = sandbox.getSheetConfigByName_('Transactions').headers.indexOf('amount') + 1;
-  sandbox.handleEntitySheetEdit_({
-    range: {
-      getSheet() { return fakeSheet; },
-      getRow() { return 2; },
-      getColumn() { return col; },
-      getValue() { return 'notanumber'; },
-    },
-    value: 'notanumber',
-    oldValue: 84.25,
-  });
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'split_off_amount', 'notanumber', ''));
 
-  assert.equal(rowStore.get(2).amount, 84.25);
-  assert.ok(toasts.some(t => /Invalid amount/.test(t.msg)));
+  assert.equal(rowStore.get(2).split_off_amount, '');
+  assert.ok(toasts.some(t => /Invalid split amount/.test(t.msg)));
 });
 
 test('handleEntitySheetEdit_ ignores edits on non-entity sheets', () => {
@@ -2145,7 +1847,7 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
-      status: '', last_error: '', issues: '', edit: '',
+      issues: '', edit: '',
     }],
     [3, {
       resource_name: 'transactions/txn_1',
@@ -2158,7 +1860,7 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
-      status: '', last_error: '', issues: '', edit: '',
+      issues: '', edit: '',
     }],
   ]);
 
@@ -2182,7 +1884,14 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
         transaction_date: posted.transaction_date,
         payee: posted.payee,
         narration: posted.narration || null,
-        postings: posted.postings,
+        // The real server interpolates the source posting's units from the
+        // (unchanged) destination amounts — 50 + 34.25. Spelled out here since
+        // the mock doesn't run that computation itself.
+        postings: [
+          { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+          posted.postings[1],
+          posted.postings[2],
+        ],
       };
     }
     return {};
@@ -2199,6 +1908,88 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
   assert.equal(rowStore.get(2).narration, 'Coffee time');
   assert.equal(rowStore.get(3).narration_source, 'txn', 'row 3 should keep narration_source=txn');
   assert.equal(rowStore.get(3).narration, 'Groceries');
+});
+
+test('handleEntitySheetEdit_ editing payee on one row of a split transaction does not throw', () => {
+  // GAS already writes the new value into the edited cell before onEdit fires — row 2
+  // (the anchor) shows the NEW payee "Coop", but row 3 hasn't been touched and still
+  // shows the OLD payee "Migros". Without an override, reconstruction sees two
+  // different payee values across the group and throws "Inconsistent payee...".
+  const toasts = [];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); }, getSpreadsheetTimeZone() { return 'UTC'; } };
+      },
+    },
+  });
+
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Coop',
+      narration: 'Groceries',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Food',
+      amount: 50,
+      split_off_amount: '',
+      symbol: 'CHF',
+      issues: '', edit: '',
+    }],
+    [3, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Coffee',
+      amount: 34.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      issues: '', edit: '',
+    }],
+  ]);
+
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/checking', display_name: '[A] Checking' },
+      { resource_name: 'accounts/food', display_name: '[X] Food' },
+      { resource_name: 'accounts/coffee', display_name: '[X] Coffee' },
+    ];
+  };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
+  let patchPayload = null;
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    if (method === 'patch') {
+      patchPayload = payload;
+      const posted = payload.transaction;
+      return {
+        name: 'transactions/txn_1',
+        transaction_date: posted.transaction_date,
+        payee: posted.payee,
+        narration: posted.narration || null,
+        postings: [
+          { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+          posted.postings[1],
+          posted.postings[2],
+        ],
+      };
+    }
+    return {};
+  };
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'payee', 'Coop', 'Migros'));
+
+  assert.ok(!toasts.some(t => /inconsistent/i.test(t.msg)), 'no inconsistent-payee toast: ' + JSON.stringify(toasts));
+  assert.ok(patchPayload, 'expected a PATCH call');
+  assert.equal(patchPayload.transaction.payee, 'Coop');
+  assert.equal(rowStore.get(2).payee, 'Coop');
+  assert.equal(rowStore.get(3).payee, 'Coop');
 });
 
 test('handleEntitySheetEdit_ sets posting narration for split row narration edit', () => {
@@ -2223,7 +2014,7 @@ test('handleEntitySheetEdit_ sets posting narration for split row narration edit
       amount: 50,
       split_off_amount: '',
       symbol: 'CHF',
-      status: '', last_error: '', issues: '', edit: '',
+      issues: '', edit: '',
     }],
     [3, {
       resource_name: 'transactions/txn_1',
@@ -2236,7 +2027,7 @@ test('handleEntitySheetEdit_ sets posting narration for split row narration edit
       amount: 34.25,
       split_off_amount: '',
       symbol: 'CHF',
-      status: '', last_error: '', issues: '', edit: '',
+      issues: '', edit: '',
     }],
   ]);
 

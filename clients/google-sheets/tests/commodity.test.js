@@ -79,9 +79,10 @@ test('Commodity.fromRows sets _api.name from resource_name and _api.symbol is nu
 
 // --- Commodity.buildSidebarFields_ ---
 
-test('Commodity.buildSidebarFields_ returns mode:advanced and null default for add mode', () => {
+test('Commodity.buildSidebarFields_ returns mode:advanced and null default for a blank instance', () => {
   const { sandbox } = loadCode();
-  const result = getCommodity(sandbox).buildSidebarFields_(null, 'simple');
+  const c = getCommodity(sandbox).fromApi_({});
+  const result = c.buildSidebarFields_('simple');
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields.length, 2);
@@ -94,16 +95,10 @@ test('Commodity.buildSidebarFields_ returns mode:advanced and null default for a
   assert.equal(result.fields[1].default, null);
 });
 
-test('Commodity.buildSidebarFields_ fetches symbol from API for edit mode', () => {
+test('Commodity.buildSidebarFields_ reads symbol straight off the already-hydrated instance', () => {
   const { sandbox } = loadCode();
-  sandbox.apiFetchJson_ = function(method, path) {
-    if (method === 'get' && path === '/commodities/cmd_chf') {
-      return makeCommodityApi({ symbol: 'CHF' });
-    }
-    throw new Error('unexpected: ' + method + ' ' + path);
-  };
-
-  const result = getCommodity(sandbox).buildSidebarFields_('commodities/cmd_chf', 'advanced');
+  const c = getCommodity(sandbox).fromApi_(makeCommodityApi({ symbol: 'CHF' }));
+  const result = c.buildSidebarFields_('advanced');
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields[0].default, 'CHF');

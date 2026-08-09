@@ -265,6 +265,22 @@ void main() {
       expect(find.text('—'), findsOneWidget);
     });
 
+    testWidgets('matched postings that net to zero show an em dash, not "0.00" '
+        '(regression: a transfer entirely within the view roots used to '
+        'print a literal zero amount instead)', (tester) async {
+      SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+      await pumpWith(
+        tester,
+        multiPostingTx([
+          posting('Assets:Checking', '-500.00', 'CHF'),
+          posting('Assets:Savings', '500.00', 'CHF'),
+        ]),
+      );
+
+      expect(find.text('—'), findsOneWidget);
+      expect(find.text('0.00 CHF'), findsNothing);
+    });
+
     testWidgets(
       'foreign postings show the converted sum with originals underneath',
       (tester) async {

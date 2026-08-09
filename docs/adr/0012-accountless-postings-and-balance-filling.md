@@ -1,0 +1,53 @@
+# ADR 0012: Accountless Postings, Persist-Time Balance Filling, and Split/Unsplit Concurrency
+
+## Status
+
+Accepted
+
+## Context
+
+The Google Sheets client's transaction-splitting UI computed all split/unsplit amounts client-side, using JavaScript floating-point arithmetic and a hardcoded epsilon for balance tolerance. This produced corrupted amounts (e.g. `79.999999999999995`) and phantom rows whenever the client's tolerance disagreed with the server's real per-symbol tolerance. Unguarded concurrent edit-trigger execution compounded this with spurious negative-amount rows.
+
+The chosen fix is to move all split/unsplit arithmetic to the backend and make the client "dumb": it sends user-typed values verbatim and renders whatever the server returns. This requires the backend to support two things it previously didn't:
+
+1. A posting can represent "not yet categorized" money without picking an account (a split's remainder, or the other side of a single-leg imported transaction).
+2. `:split`/`:unsplit` custom methods that mutate a transaction's postings server-side, with a concurrency precondition so overlapping edits from an unserialized client don't corrupt each other.
+
+A transaction's "gap" (the amount by which its postings don't sum to zero) needs a single, uniform representation that every client already knows how to render — reusing the client's existing "blank-destination row" rendering for `account: null` postings avoids a second, parallel signal (a separate `issues`/imbalance field) that clients would have to keep in sync with the postings list themselves.
+
+## Decision
+
+**Accountless postings.** `Posting.account_id` is nullable. A posting with no account is excluded from doctor's balance check (`build_transaction_unbalanced_issues`, accounted-only sum — this is deliberately a "still needs categorizing" signal, not a data-integrity check) and from `/query`. Storage and every API response represent this as a true `null` — no placeholder text like "(unassigned)" anywhere.
+
+**Persist-time balance filling.** `persist_transaction` is the single chokepoint every postings-replacing write goes through (create, update, `:split`, `:unsplit`, and — since importers call `create_transaction` — every importer). Whenever the postings being written don't sum to zero (beyond the per-symbol tolerance) in some currency, `persist_transaction` appends one additional real `account: null` posting per symbol to close the gap, before building the stored rows. Consequences:
+- A transaction is always already balanced in storage — a genuinely single-leg import or a not-yet-fully-categorized transaction has a real second posting from the moment it's written, not a hidden imbalance only visible via a separate diagnostic.
+- `GET`/`List` need no read-time computation: they reflect exactly what's stored.
+- `:split`/`:unsplit` operate on `transaction_row.postings` directly — a balancing posting is just another real row, addressable by the same `posting_index` as anything else, with no "is this real yet" case to special-case.
+- Removing a balancing posting with no merge target (see below) simply reopens the gap it was covering; the very next persist recomputes and re-appends an equivalent one. This makes "unsplit a balancing posting with nothing to merge into" a no-op **on the resulting postings** (same accounts, same amounts), without any dedicated no-op branch in `unsplit_transaction` — it falls out of the invariant. It is not a no-op in every respect, though: `persist_transaction`'s unconditional `updated_at` bump still applies (same as any other mutation), and the re-synthesized filler is a fresh `_synthetic_posting_payload` — if the removed posting carried `entity_metadata`, that is not carried over to its replacement.
+- `POST /transactions:normalize` is the one exception: it never persists (draft preview only), so it computes and echoes a preview-only balancing posting using the same underlying computation (`compute_full_balance_residuals_for_payload`), without storing anything.
+- This full-balance computation (accountless postings included in the sum) is deliberately distinct from doctor's accounted-only computation. Conflating them would double-count: a transaction with an accounted `-100` and an explicit accountless `+100` is already balanced overall (no filler needed) but still correctly flagged by doctor as "needs categorizing."
+- `merge_transactions` does not go through `persist_transaction` and is out of scope for this filling behavior — a merge result can still be imbalanced, caught by doctor as before. Its posting-dedup step (matching postings already present in both transactions being merged) explicitly never dedupes two accountless postings against each other: `account_id = null` carries no identity, so two unrelated postings from two different transactions' own gaps must never be conflated into one just because their amount/symbol happen to coincide (post-implementation review caught this too).
+
+The previously separate `issues` field on `TransactionResource` and `NormalizeTransactionResponse` is removed — a client that already renders any `account: null` posting as a blank-destination row needs no second field to know one belongs there. `POST /ledger:doctor`'s `DoctorLedgerResponse.issues` is unrelated and unaffected.
+
+**`:split` / `:unsplit` custom methods**, both AIP-136-compliant (`POST /transactions/{transaction}:split`, `POST /transactions/{transaction}:unsplit`):
+- `:split` takes `posting_index` and a required `split_off_amount`; the remainder posting is always accountless (no `remainder_account` option) and there is no "set this posting's amount to X" mode (no `new_amount`) — only "split this much off". Cost/price-bearing postings are splittable; the rate is copied verbatim onto the remainder.
+- `:unsplit` takes only `posting_index` — the merge target is auto-detected: the first other posting matching `posting_index`'s symbol, cost, price, **and weight sign** (weight, not raw `units_amount` — see `_find_unsplit_merge_target`; the two are provably equivalent given the cost/price rate is already required to match exactly, but weight is used explicitly since it's this codebase's canonical signed value elsewhere). The sign requirement is load-bearing: without it, a plain first-match scan would almost always select the conventional negative "source" posting as the merge target for a positive destination in the common no-cost/price case, silently corrupting it. A matching candidate can itself be accountless: merging an accounted posting into a sign/symbol-matching filler is a valid way to move it back to "not yet categorized" — the reverse of the ordinary "categorize a filler" direction, and an intentional owner decision (a post-implementation review initially flagged this as a bug and it was fixed to *exclude* accountless candidates; the owner then corrected that back — being able to merge either direction is the intended design). If no match is found at all, an accountless `posting_index` is removed outright (see the no-op behavior above); an accounted one is rejected (`merge_target_not_found`) — an accounted amount is never silently *discarded* (though it can, by design, be re-merged into "not yet categorized").
+- Both accept `posting_index = 0` uniformly — the backend has no concept of "the source posting"; that's a client-side UI convention, not a backend invariant.
+
+**Optimistic concurrency.** `Transaction.updated_at` is a plain `BigInteger` (Unix epoch seconds, set by one function, `current_update_time()`), exposed as `update_time` on every transaction response. `:split`/`:unsplit` load the row with `SELECT ... FOR UPDATE` (a real row lock on Postgres; a harmless no-op on SQLite) and compare the loaded row's `updated_at` against the client-supplied `update_time` before mutating, raising `transaction_version_mismatch` (409) on a stale value. `.with_for_update()` was chosen over a hand-rolled raw-SQL compare-and-swap because it keeps the existing unconditional `updated_at` bump in `persist_transaction` untouched — no reused-timestamp threading, no second write.
+
+## Consequences
+
+Positive:
+- One posting-shaped representation for "money not yet assigned an account," reused by doctor, `/query`, split remainders, and structural gaps alike — no parallel `issues`-style field for clients to keep in sync.
+- Storage is always internally consistent (postings sum to zero) without every write path having to reason about it individually.
+- `:split`/`:unsplit` need no synthetic/real distinction — the simplest possible implementation, operating on real ORM rows exactly like any other mutation.
+- Removing a balancing posting with no merge target can never leave a transaction's *accounted* money worse off — the amount always reappears as an equivalent filler, rather than a state a caller could accidentally lose money through. (`update_time` and any `entity_metadata` on that specific posting are not preserved across this — see the Negative list.)
+
+Negative:
+- Every importer now attaches a real accountless posting to any transaction it imports unbalanced (e.g. a single-leg bank-statement row awaiting categorization) — a materially bigger behavioral surface than "just the split UX," since it touches every write path, not only `:split`/`:unsplit`.
+- Doctor's `unbalanced_transaction` check will now essentially always fire for a transaction containing a balancing/accountless posting, since that computation is deliberately accounted-only — this is correct ("still needs categorizing") but means the count of doctor issues will typically rise compared to before this change.
+- `merge_transactions` is now the one write path that does *not* guarantee full balance, which is a special case worth remembering if it's ever revisited.
+- Second-precision `update_time` means two mutations within the same wall-clock second are indistinguishable to the concurrency precondition — acceptable for a single-user system; would need microsecond precision if that assumption changes.
+- Unsplitting a balancing posting with no merge target is a no-op *only on the resulting postings* (same accounts, same amounts) — `update_time` still bumps like any other mutation, and if that specific posting carried `entity_metadata`, it is not carried over to the re-synthesized replacement (the replacement is always a fresh, empty-metadata filler). Low practical risk today: `persist_transaction`'s own fillers never carry `entity_metadata` in the first place, so this only matters for an explicitly client-supplied accountless posting that happened to have metadata set.

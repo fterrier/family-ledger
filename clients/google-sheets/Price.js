@@ -33,10 +33,6 @@ class Price extends Entity {
     if (!this._api.quote || !this._api.quote.symbol) throw new Error('Quote symbol is required.');
   }
 
-  updateFromApi_(apiResponse) {
-    this._api = apiResponse;
-  }
-
   setFields(fields) {
     if ('price_date' in fields) this._api.price_date = String(fields.price_date || '').trim() || null;
     if ('base_symbol' in fields) this._api.base_symbol = fields.base_symbol || null;
@@ -90,19 +86,17 @@ class Price extends Entity {
     return [date, base + '/' + quoteSymbol, quoteAmount].filter(Boolean).join(' | ');
   }
 
-  static buildSidebarFields_(entityName, _mode) {
+  // Sidebar.js has already hydrated this._api (loadFromApi for a first-load edit, or
+  // setFields(fieldValues) for a mode-toggle round trip) before calling this.
+  buildSidebarFields_(_mode) {
     const allSymbolOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
 
-    let defaults = {};
-    if (entityName) {
-      const entity = Price.loadFromApi(entityName);
-      defaults = {
-        price_date: entity._api.price_date || null,
-        base_symbol: entity._api.base_symbol || null,
-        quote_amount: (entity._api.quote && entity._api.quote.amount) || null,
-        quote_symbol: (entity._api.quote && entity._api.quote.symbol) || null,
-      };
-    }
+    const defaults = {
+      price_date: this._api.price_date || null,
+      base_symbol: this._api.base_symbol || null,
+      quote_amount: (this._api.quote && this._api.quote.amount) || null,
+      quote_symbol: (this._api.quote && this._api.quote.symbol) || null,
+    };
 
     return {
       mode: 'advanced',

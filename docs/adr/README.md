@@ -14,5 +14,6 @@ Current ADRs:
 - `0009-shared-balance-assertion-diffs.md`
 - `0010-pad-semantics.md`
 - `0011-reporting-query-language.md`
+- `0012-accountless-postings-and-balance-filling.md`
 
 Add an ADR when a decision is structural, non-obvious, expensive to reverse, or likely to be revisited.

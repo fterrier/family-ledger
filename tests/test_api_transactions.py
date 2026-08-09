@@ -528,7 +528,7 @@ def test_create_transaction_matches_normalize_output() -> None:
         assert created_posting["units"]["symbol"] == normalized_posting["units"]["symbol"]
 
 
-def test_normalize_transaction_returns_issues_for_unbalanced_payload() -> None:
+def test_normalize_transaction_returns_synthetic_posting_for_unbalanced_payload() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -555,24 +555,44 @@ def test_normalize_transaction_returns_issues_for_unbalanced_payload() -> None:
     )
 
     assert response.status_code == 200
-    issues = response.json()["issues"]
-    assert len(issues) == 1
-    assert issues[0]["code"] == "transaction_unbalanced"
-    assert issues[0]["details"] == {
-        "symbol": "CHF",
-        "residual_amount": "-4.25",
-        "tolerance_amount": "0.01",
-    }
+    body = response.json()
+    assert "issues" not in body
+    postings = body["transaction"]["postings"]
+    assert len(postings) == 3
+    assert postings[2].get("account") is None
+    assert postings[2]["units"] == {"amount": "4.25", "symbol": "CHF"}
 
 
-def test_create_transaction_returns_canonical_resource_without_issues() -> None:
+def test_create_transaction_persists_filler_posting_for_unbalanced_payload() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
     food = create_account(client, "Expenses:Food")
     create_commodity(client, "CHF")
 
-    response = client.post(
+    balanced = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+    assert balanced.status_code == 201
+    assert "issues" not in balanced.json()
+    assert len(balanced.json()["postings"]) == 2
+
+    unbalanced = client.post(
         "/transactions",
         json={
             "transaction": {
@@ -590,9 +610,67 @@ def test_create_transaction_returns_canonical_resource_without_issues() -> None:
             }
         },
     )
+    assert unbalanced.status_code == 201
+    body = unbalanced.json()
+    assert len(body["postings"]) == 3
+    assert body["postings"][2]["account"] is None
+    assert body["postings"][2]["units"] == {"amount": "4.25", "symbol": "CHF"}
 
-    assert response.status_code == 201
-    assert "issues" not in response.json()
+    # The filler is a genuine stored row, not response-only — a fresh GET
+    # returns exactly the same 3 postings, no duplicate filler on top.
+    fetched = client.get(f"/{body['name']}")
+    assert len(fetched.json()["postings"]) == 3
+
+
+def test_patching_back_a_transaction_with_its_filler_posting_does_not_duplicate_it() -> None:
+    # compute_full_balance_residuals_for_payload sums every posting
+    # including accountless ones — sending back exactly what a prior GET
+    # returned (filler included) is already balanced overall, so
+    # persist_transaction must not append a second filler on top.
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    ).json()
+    assert len(created["postings"]) == 3
+
+    patched = client.patch(
+        f"/{created['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {"account": p["account"], "units": p["units"]} for p in created["postings"]
+                ],
+            }
+        },
+    )
+
+    assert patched.status_code == 200
+    body = patched.json()
+    assert len(body["postings"]) == 3
+
+    fetched = client.get(f"/{created['name']}")
+    assert len(fetched.json()["postings"]) == 3
 
 
 def test_patch_transaction_recategorizes_posting() -> None:
@@ -877,7 +955,7 @@ def test_patch_transaction_allows_total_change_without_lock() -> None:
     assert response.json()["postings"][0]["units"]["amount"] == "-90.00"
 
 
-def test_patch_transaction_returns_canonical_resource_without_issues() -> None:
+def test_patch_transaction_persists_filler_posting_for_unbalanced_result() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -923,10 +1001,14 @@ def test_patch_transaction_returns_canonical_resource_without_issues() -> None:
     )
 
     assert response.status_code == 200
-    assert "issues" not in response.json()
+    body = response.json()
+    assert "issues" not in body
+    assert len(body["postings"]) == 3
+    assert body["postings"][2]["account"] is None
+    assert body["postings"][2]["units"] == {"amount": "4.25", "symbol": "CHF"}
 
 
-def test_get_and_list_transactions_do_not_inline_issues() -> None:
+def test_get_and_list_transactions_reflect_stored_filler_posting() -> None:
     client = make_client()
 
     checking = create_account(client, "Assets:Bank:Checking:Family")
@@ -956,8 +1038,12 @@ def test_get_and_list_transactions_do_not_inline_issues() -> None:
     listed = client.get("/transactions")
     assert fetched.status_code == 200
     assert "issues" not in fetched.json()
+    assert len(fetched.json()["postings"]) == 3
+    assert fetched.json()["postings"][2]["account"] is None
     assert listed.status_code == 200
-    assert "issues" not in listed.json()["transactions"][0]
+    listed_txn = next(t for t in listed.json()["transactions"] if t["name"] == created["name"])
+    assert "issues" not in listed_txn
+    assert len(listed_txn["postings"]) == 3
 
 
 def test_create_transaction_with_tags() -> None:
@@ -2237,3 +2323,183 @@ def test_list_transactions_last_import_combined_with_account() -> None:
     assert resp.status_code == 200
     names = [t["name"] for t in resp.json()["transactions"]]
     assert names == [checking_b2["name"]]
+
+
+# ---------------------------------------------------------------------------
+# Accountless postings + update_time (Phase 1: nullable posting account)
+# ---------------------------------------------------------------------------
+
+
+def test_create_transaction_accepts_null_account_posting() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    create_commodity(client, "CHF")
+
+    response = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-100.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": None,
+                        "units": {"amount": "100.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["postings"][1]["account"] is None
+    assert body["postings"][1]["account_name"] is None
+
+
+def test_patch_transaction_accepts_null_account_posting() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-100.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "100.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    ).json()
+
+    patched = client.patch(
+        f"/{created['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-100.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "60.00", "symbol": "CHF"},
+                    },
+                    {
+                        "account": None,
+                        "units": {"amount": "40.00", "symbol": "CHF"},
+                    },
+                ],
+            },
+            "update_mask": "postings",
+        },
+    )
+
+    assert patched.status_code == 200
+    assert patched.json()["postings"][2]["account"] is None
+
+
+def test_merge_transactions_with_accountless_postings() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    other = create_account(client, "Assets:Bank:Other")
+    create_commodity(client, "CHF")
+
+    first = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": checking["name"], "units": {"amount": "-10.00", "symbol": "CHF"}},
+            {"account": None, "units": {"amount": "10.00", "symbol": "CHF"}},
+        ],
+    )
+    second = create_transaction(
+        client,
+        "2026-01-01",
+        [
+            {"account": other["name"], "units": {"amount": "-5.00", "symbol": "CHF"}},
+            {"account": None, "units": {"amount": "5.00", "symbol": "CHF"}},
+        ],
+    )
+
+    response = client.post(
+        "/transactions:merge",
+        json={
+            "primary_transaction": first["name"],
+            "secondary_transaction": second["name"],
+        },
+    )
+
+    assert response.status_code == 200
+    accountless = [p for p in response.json()["postings"] if p["account"] is None]
+    assert len(accountless) == 2
+
+
+def test_transaction_responses_include_update_time() -> None:
+    client = make_client()
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "84.25", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+    assert created.status_code == 201
+    created_body = created.json()
+    assert created_body["update_time"]
+
+    fetched = client.get(f"/{created_body['name']}")
+    assert fetched.json()["update_time"] == created_body["update_time"]
+
+    listed = client.get("/transactions")
+    assert all("update_time" in t for t in listed.json()["transactions"])
+
+    patched = client.patch(
+        f"/{created_body['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "postings": [
+                    {
+                        "account": checking["name"],
+                        "units": {"amount": "-84.25", "symbol": "CHF"},
+                    },
+                    {
+                        "account": food["name"],
+                        "units": {"amount": "80.00", "symbol": "CHF"},
+                    },
+                ],
+            }
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["update_time"] is not None

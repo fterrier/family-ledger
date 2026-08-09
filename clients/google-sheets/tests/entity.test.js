@@ -251,6 +251,57 @@ test('Entity.save() skips generation check when entity has no name', () => {
   assert.notEqual(result, null);
 });
 
+test('Entity.save() calls the pending server op instead of PATCH/POST when _pendingServerOp is set', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  Transaction.createViaApi_ = function() { throw new Error('createViaApi_ must not be called'); };
+  Transaction.updateViaApi_ = function() { throw new Error('updateViaApi_ must not be called'); };
+  const calls = [];
+  sandbox.apiFetchJson_ = function(method, path, body) {
+    calls.push({ method, path, body });
+    return SAMPLE_API;
+  };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  entity._span = { start: 2, count: 1 };
+  entity._pendingServerOp = { verb: 'split', body: { posting_index: 1, split_off_amount: '10.00', update_time: 5 } };
+  entity.save(fakeSheet);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].method, 'post');
+  assert.equal(calls[0].path, '/transactions/txn_1:split');
+  assert.deepEqual(calls[0].body, { posting_index: 1, split_off_amount: '10.00', update_time: 5 });
+});
+
+test('Entity.save() with _pendingServerOp still updates _api and commits to sheet', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  sandbox.apiFetchJson_ = function() {
+    return { ...SAMPLE_API, payee: 'After split' };
+  };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  entity._span = { start: 2, count: 1 };
+  entity._pendingServerOp = { verb: 'unsplit', body: { posting_index: 1, update_time: 5 } };
+  entity.save(fakeSheet);
+
+  assert.equal(entity._api.payee, 'After split');
+});
+
+test('Entity.save() without _pendingServerOp still uses PATCH/POST as before', () => {
+  const { sandbox, Transaction, fakeSheet } = makeSaveEntitySandbox();
+  const calls = [];
+  Transaction.updateViaApi_ = function(entityName, payload) {
+    calls.push({ entityName, payload });
+    return SAMPLE_API;
+  };
+  sandbox.apiFetchJson_ = function() { throw new Error('apiFetchJson_ must not be called directly'); };
+
+  const entity = Transaction.fromApi_(SAMPLE_API, SAMPLE_CONTEXT);
+  entity._span = { start: 2, count: 1 };
+  entity.save(fakeSheet);
+
+  assert.equal(calls.length, 1);
+});
+
 // --- Entity.loadFromApi() ---
 
 test('Entity.loadFromApi() fetches via apiFetchJson_ and constructs entity via fromApi_', () => {

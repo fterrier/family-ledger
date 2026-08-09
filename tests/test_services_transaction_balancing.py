@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from family_ledger.api.schemas import MoneyValue, PostingPayload, TransactionCreate
+from family_ledger.api.schemas import MoneyValue, PostingPayload
 from family_ledger.models import Account, Posting, Transaction
 from family_ledger.services import transaction_balancing as balancing
 
@@ -16,47 +16,61 @@ def test_resolve_tolerance_uses_default_when_symbol_missing() -> None:
     assert balancing.resolve_tolerance("EUR") == Decimal("0.000001")
 
 
-def test_derive_normalize_issues_allows_small_residual_within_tolerance() -> None:
-    payload = TransactionCreate(
-        transaction_date=date(2026, 4, 19),
-        postings=[
-            PostingPayload(
-                account="accounts/acc_one",
-                units=MoneyValue(amount=Decimal("-10.005"), symbol="CHF"),
-            ),
-            PostingPayload(
-                account="accounts/acc_two",
-                units=MoneyValue(amount=Decimal("10.00"), symbol="CHF"),
-            ),
-        ],
-    )
+def test_compute_full_balance_residuals_for_payload_allows_small_residual_within_tolerance() -> (
+    None
+):
+    postings = [
+        PostingPayload(
+            account="accounts/acc_one",
+            units=MoneyValue(amount=Decimal("-10.005"), symbol="CHF"),
+        ),
+        PostingPayload(
+            account="accounts/acc_two",
+            units=MoneyValue(amount=Decimal("10.00"), symbol="CHF"),
+        ),
+    ]
 
-    assert balancing.derive_normalize_issues(payload) == []
+    assert balancing.compute_full_balance_residuals_for_payload(postings) == []
 
 
-def test_derive_normalize_issues_reports_residual_outside_default_tolerance() -> None:
-    payload = TransactionCreate(
-        transaction_date=date(2026, 4, 19),
-        postings=[
-            PostingPayload(
-                account="accounts/acc_one",
-                units=MoneyValue(amount=Decimal("-10.00001"), symbol="EUR"),
-            ),
-            PostingPayload(
-                account="accounts/acc_two",
-                units=MoneyValue(amount=Decimal("10.00"), symbol="EUR"),
-            ),
-        ],
-    )
+def test_compute_full_balance_residuals_for_payload_reports_residual_outside_tolerance() -> None:
+    postings = [
+        PostingPayload(
+            account="accounts/acc_one",
+            units=MoneyValue(amount=Decimal("-10.00001"), symbol="EUR"),
+        ),
+        PostingPayload(
+            account="accounts/acc_two",
+            units=MoneyValue(amount=Decimal("10.00"), symbol="EUR"),
+        ),
+    ]
 
-    issues = balancing.derive_normalize_issues(payload)
+    residuals = balancing.compute_full_balance_residuals_for_payload(postings)
 
-    assert len(issues) == 1
-    assert issues[0].details == {
-        "symbol": "EUR",
-        "residual_amount": "-0.00001",
-        "tolerance_amount": "0.000001",
-    }
+    assert residuals == [MoneyValue(amount=Decimal("0.00001"), symbol="EUR")]
+
+
+def test_compute_full_balance_residuals_for_payload_includes_accountless_postings_in_the_sum() -> (
+    None
+):
+    # Unlike transaction_balance_totals_by_symbol/build_transaction_unbalanced_issues
+    # (doctor-only, accounted-only), this computation sums every posting —
+    # an accounted -100 fully offset by an explicit accountless +100 is
+    # already balanced overall and reports no residual. This is the
+    # property persist_transaction relies on to avoid double-appending a
+    # filler posting on top of one a caller already supplied.
+    postings = [
+        PostingPayload(
+            account="accounts/acc_one",
+            units=MoneyValue(amount=Decimal("-100.00"), symbol="CHF"),
+        ),
+        PostingPayload(
+            account=None,
+            units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+        ),
+    ]
+
+    assert balancing.compute_full_balance_residuals_for_payload(postings) == []
 
 
 def test_posting_weight_uses_cost_weight_over_price() -> None:
@@ -94,6 +108,44 @@ def test_persisted_posting_weight_uses_cost_weight_over_price() -> None:
     weight = balancing.persisted_posting_weight(posting)
 
     assert weight == MoneyValue(amount=Decimal("500.00"), symbol="USD")
+
+
+def test_build_transaction_unbalanced_issues_excludes_accountless_postings() -> None:
+    transaction = Transaction(
+        name="transactions/txn_one",
+        transaction_date=date(2026, 4, 19),
+        postings=[],
+    )
+    account = Account(
+        name="accounts/acc_one",
+        account_name="Assets:Bank:Checking:Family",
+        effective_start_date=date(2020, 1, 1),
+    )
+    transaction.postings.extend(
+        [
+            Posting(
+                account=account,
+                posting_order=1,
+                units_amount=Decimal("-100.00"),
+                units_symbol="CHF",
+            ),
+            Posting(
+                account=None,
+                posting_order=2,
+                units_amount=Decimal("100.00"),
+                units_symbol="CHF",
+            ),
+        ]
+    )
+
+    issues = balancing.build_transaction_unbalanced_issues(transaction)
+
+    assert len(issues) == 1
+    assert issues[0].details == {
+        "symbol": "CHF",
+        "residual_amount": "-100",
+        "tolerance_amount": "0.01",
+    }
 
 
 def test_build_transaction_unbalanced_issues_for_persisted_transaction() -> None:

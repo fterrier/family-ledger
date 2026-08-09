@@ -17,6 +17,8 @@ from family_ledger.models import Account, BalanceAssertion, Base, Commodity, Pri
 from family_ledger.models import Posting as PostingModel
 from family_ledger.services.errors import ConflictError, UnavailableError
 
+from .conftest import account_of
+
 FIXTURE = """
 option "operating_currency" "CHF"
 option "inferred_tolerance_default" "CHF:0.005"
@@ -393,7 +395,7 @@ def test_beancount_importer_basic_pad(session: Session) -> None:
     postings = session.scalars(
         select(PostingModel).where(PostingModel.transaction_id == pad_tx.id)
     ).all()
-    amounts = {p.account.account_name: p.units_amount for p in postings}
+    amounts = {account_of(p).account_name: p.units_amount for p in postings}
     assert amounts["Assets:Checking"] == Decimal("1000.00")
     assert amounts["Equity:Opening"] == Decimal("-1000.00")
 
@@ -409,7 +411,7 @@ def test_beancount_importer_pad_with_same_date_transaction(session: Session) -> 
     postings = session.scalars(
         select(PostingModel).where(PostingModel.transaction_id == pad_tx.id)
     ).all()
-    checking_posting = next(p for p in postings if p.account.account_name == "Assets:Checking")
+    checking_posting = next(p for p in postings if account_of(p).account_name == "Assets:Checking")
     assert checking_posting.units_amount == Decimal("500.00")
 
 
@@ -425,7 +427,7 @@ def test_beancount_importer_pad_with_next_day_transaction(session: Session) -> N
     postings = session.scalars(
         select(PostingModel).where(PostingModel.transaction_id == pad_tx.id)
     ).all()
-    checking_posting = next(p for p in postings if p.account.account_name == "Assets:Checking")
+    checking_posting = next(p for p in postings if account_of(p).account_name == "Assets:Checking")
     assert checking_posting.units_amount == Decimal("500.00")
 
 
@@ -533,7 +535,7 @@ def test_beancount_importer_pad_out_of_order_in_file(session: Session) -> None:
     jan_postings = session.scalars(
         select(PostingModel).where(PostingModel.transaction_id == jan_pad.id)
     ).all()
-    jan_checking = next(p for p in jan_postings if p.account.account_name == "Assets:Checking")
+    jan_checking = next(p for p in jan_postings if account_of(p).account_name == "Assets:Checking")
     assert jan_checking.units_amount == Decimal("100.00")
 
     # 2026-06-01 pad: correct amount is -3.00 (100.00 opening - 97.00 charge = 3.00 residual).
@@ -543,7 +545,7 @@ def test_beancount_importer_pad_out_of_order_in_file(session: Session) -> None:
     jun_postings = session.scalars(
         select(PostingModel).where(PostingModel.transaction_id == jun_pad.id)
     ).all()
-    jun_checking = next(p for p in jun_postings if p.account.account_name == "Assets:Checking")
+    jun_checking = next(p for p in jun_postings if account_of(p).account_name == "Assets:Checking")
     assert jun_checking.units_amount == Decimal("-3.00")
 
 

@@ -45,7 +45,7 @@ Transaction fields:
 
 Postings belong to transactions in explicit `posting_order` and carry:
 
-- referenced account
+- optional referenced account — `null` represents an unassigned posting (money not yet categorized to any account); stored as a true null, never a placeholder value, and excluded from doctor's balance check and from `/query`
 - units amount and symbol
 - optional narration
 - optional per-unit cost pair (amount + symbol)
@@ -53,6 +53,10 @@ Postings belong to transactions in explicit `posting_order` and carry:
 - `entity_metadata`
 
 `source_native_id` is the minimal import lineage key used for idempotent create-or-skip imports. It may be supplied either directly on the transaction or inside `import_metadata`.
+
+### Balance Filling On Write
+
+Whenever a transaction's postings are (re)written — create, update, `:split`, `:unsplit`, or import — the persistence layer appends one additional unassigned posting per currency if the given postings don't already sum to zero within tolerance. A transaction's stored postings are therefore always fully balanced; an unassigned posting is how a structural gap (a single-leg import, a not-yet-fully-categorized transaction, a split's remainder) is made visible and editable, rather than a separate derived diagnostic. See ADR 0012.
 
 ## Prices
 

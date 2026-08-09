@@ -24,10 +24,11 @@ function formatDisplayDate_(value) {
   return s;
 }
 
+// value is what Sheets hands back for a numeric amount column via getValues() — a
+// real JS number already, never a string to parse. No parseFloat needed.
 function formatDisplayAmount_(value) {
-  const n = parseFloat(value);
-  if (isNaN(n)) return String(value || '');
-  return n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  if (typeof value !== 'number' || isNaN(value)) return String(value || '');
+  return value.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
 function getDateHeader_(sheetConfig) {
@@ -189,7 +190,6 @@ class Entity {
   // Internal — overridden by subclass, called only by save(). Not part of external API.
   toRows_() { throw new Error('Entity.toRows_() not implemented'); }
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
-  updateFromApi_(apiResponse) { throw new Error('Entity.updateFromApi_() not implemented'); }
 
   // _span null → date-ordered new-row insertion via batchInsertEntitiesIntoSheet_.
   // _span non-null → in-place update via applyEntityUpdateToSheet_.
@@ -216,7 +216,9 @@ class Entity {
   }
 
   // Performs the API call and writes result rows to the sheet.
-  // Uses this._span to decide POST (null) vs PATCH (existing span).
+  // Uses this._span to decide POST (null) vs PATCH (existing span) — unless _pendingServerOp
+  // is set (see Transaction.applyEdit_'s split_off_amount handling), in which case a custom
+  // method (POST .../{name}:verb) is called instead of PATCH/POST.
   // After save, this._span is updated to the final span.
   // Returns final span, or null if aborted (stale generation). Throws on error.
   save(sheet) {
@@ -224,13 +226,19 @@ class Entity {
     const existingSpan = this._span;
     const saveGeneration = entityName ? beginSaveGeneration_(entityName) : null;
 
-    const apiResult = existingSpan
-      ? this.constructor.updateViaApi_(entityName, this.toApiPayload_(), this.getUpdateMask_())
-      : this.constructor.createViaApi_(this.toApiPayload_());
+    let apiResult;
+    if (this._pendingServerOp) {
+      const op = this._pendingServerOp;
+      apiResult = apiFetchJson_('post', this.constructor.apiPath_(entityName) + ':' + op.verb, op.body);
+    } else {
+      apiResult = existingSpan
+        ? this.constructor.updateViaApi_(entityName, this.toApiPayload_(), this.getUpdateMask_())
+        : this.constructor.createViaApi_(this.toApiPayload_());
+    }
 
     if (saveGeneration && !isCurrentSaveGeneration_(entityName, saveGeneration)) return null;
 
-    this.updateFromApi_(apiResult);
+    this._api = apiResult;
     return this._commitToSheet_(sheet);
   }
 
@@ -278,9 +286,13 @@ class Entity {
   //   RESOURCE_IDENTITY: { header, multiRow }     — identity column + grouping
   //   RESET_ON_SAVE_FIELDS: string[]              — action columns cleared on save
   //   loadContext_()                              — loads context for fromRows/save
-  //   buildSidebarFields_(entityName, mode, currentPostings?) → { mode, fields }
   //   fromRows(rows, context) → Entity
   //   fromApi_(apiEntity, context) → Entity       — internal; use loadFromApi() externally
+  //
+  // Subclass must define as an instance method:
+  //   buildSidebarFields_(mode) → { mode, fields } — reads defaults off this._api, which
+  //     getSidebarData() (Sidebar.js) has already hydrated (via loadFromApi for a first-load
+  //     edit, or setFields(fieldValues) for a mode-toggle round trip) before calling this.
   //   isEditableHeader(header) → boolean
 
   // Called after any sheet write (save or delete). No-op by default; subclasses override.
@@ -361,16 +373,20 @@ function handleEntitySheetEdit_(e) {
     return;
   }
 
-  const rawValue = header === 'amount' ? (e.range.getValue() ?? '') : (e.value ?? '');
-  const rawOldValue = e.oldValue ?? '';  // preserve original type (number for amount cells)
+  const rawValue = e.value ?? '';
+  const rawOldValue = e.oldValue ?? '';
   const oldRawValue = String(rawOldValue);
 
-  // GAS writes the new cell value before onEdit fires. For narration edits on multi-row
-  // entities, inferTransactionNarrationFromGroupRows_ would pick the already-edited first
-  // row's new value as the transaction narration, causing applyEdit to misclassify it.
-  // Pass the old value as an in-memory override so entity reconstruction sees the pre-edit
-  // state without writing back to the sheet (which would cause a visible flicker).
-  const anchorRowOverrides = header === 'narration' ? { narration: oldRawValue } : null;
+  // GAS writes the new cell value before onEdit fires. For fields that reconstruction
+  // aggregates across a multi-row entity's whole group (narration via
+  // inferTransactionNarrationFromGroupRows_, payee via readOptionalNormalizedValue_'s
+  // "must agree across rows" check), the anchor row's already-edited new value would
+  // otherwise be compared against the other rows' still-stale old value and misclassified
+  // or rejected outright. Pass the old value as an in-memory override so entity
+  // reconstruction sees the pre-edit state without writing back to the sheet (which would
+  // cause a visible flicker).
+  const anchorRowOverrides =
+    header === 'narration' || header === 'payee' ? { [header]: oldRawValue } : null;
 
   let entity;
   try {

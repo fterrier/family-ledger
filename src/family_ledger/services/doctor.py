@@ -42,6 +42,16 @@ class _AccountData:
 
 @dataclass
 class _PostingData:
+    # Doctor's transaction-loading query inner-joins Account (see
+    # _load_transactions_for_doctor) — an accountless posting (a split's
+    # not-yet-categorized remainder) therefore never appears here at all, by
+    # design: doctor ignores it entirely until it's categorized. Its
+    # *transaction* still surfaces normally as long as at least one other
+    # posting has an account (always true — a split's source posting is
+    # always accounted), and the unbalanced check on that transaction still
+    # correctly excludes the missing posting's amount from the sum (see
+    # transaction_balancing.py's own account filter, which independently
+    # applies to every caller, not just doctor).
     account: _AccountData
     units_amount: Decimal
     units_symbol: str
@@ -110,6 +120,12 @@ def _transaction_target_summary(tx: Transaction) -> dict[str, str]:
 def lot_key_for_posting(posting: Posting) -> LotKey | None:
     if posting.cost_per_unit is None or posting.cost_symbol is None:
         return None
+    # Guaranteed by _load_transactions_for_doctor's inner join to Account —
+    # doctor never calls this with an accountless posting. (Posting.account
+    # is statically Account | None because this function is typed against
+    # the real ORM class, even though doctor only ever passes it the
+    # cast-to-Transaction DTO from that inner-joined query.)
+    assert posting.account is not None
     return LotKey(
         account=posting.account.account_name,
         units_symbol=posting.units_symbol,
@@ -147,8 +163,14 @@ def build_account_not_effective_issues(
 ) -> list[DoctorIssue]:
     issues = []
     for transaction in transactions:
+        # `if posting.account is not None` never actually filters anything
+        # here — guaranteed by _load_transactions_for_doctor's inner join to
+        # Account (see lot_key_for_posting's docstring for why the type is
+        # still Account | None regardless).
         accounts_by_id: dict[int, Account] = {
-            posting.account.id: posting.account for posting in transaction.postings
+            posting.account.id: posting.account
+            for posting in transaction.postings
+            if posting.account is not None
         }
         inactive = [
             account.account_name
@@ -249,6 +271,11 @@ def _load_transactions_for_doctor(session: Session) -> list[Transaction]:
         )
         .select_from(Transaction)
         .join(Posting, Posting.transaction_id == Transaction.id)
+        # Inner join: an accountless posting (Posting.account_id IS NULL,
+        # a split's not-yet-categorized remainder) is ignored by doctor
+        # entirely until it's categorized — see _PostingData.account
+        # docstring. Its transaction still surfaces normally as long as
+        # another posting has an account (always true in practice).
         .join(Account, Account.id == Posting.account_id)
         .order_by(Transaction.transaction_date, Transaction.name, Posting.posting_order)
     ).all()
@@ -301,6 +328,8 @@ def _load_balance_assertions_for_doctor(session: Session) -> list[BalanceAsserti
                 assertion_date=row.assertion_date,
                 amount=row.amount,
                 symbol=row.symbol,
+                # BalanceAssertion.account_id is not nullable (unlike
+                # Posting.account_id) — this inner join always matches.
                 account=_make_account_data(row),
             )
             for row in rows

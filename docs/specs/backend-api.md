@@ -83,6 +83,9 @@ Accounts expose stable resource names such as `accounts/...` plus mutable `accou
 - `PATCH /transactions/{transaction}`
 - `DELETE /transactions/{transaction}`
 - `POST /transactions:normalize`
+- `POST /transactions:merge`
+- `POST /transactions/{transaction}:split`
+- `POST /transactions/{transaction}:unsplit`
 
 `GET /transactions` also supports the current ad hoc filters (combined with AND):
 
@@ -106,6 +109,16 @@ rather than silently picking one or requiring them to agree.
 `POST /transactions:normalize` validates and normalizes a candidate transaction payload without persisting it. The persisted create and update routes use the same transaction shape but store canonical rows.
 
 `PATCH /transactions/{transaction}` currently ignores `update_mask` and performs full transaction replacement.
+
+A posting's `account` is optional; `null` represents money not yet assigned to any account. Whenever a transaction's postings are (re)written by any of the routes below, the server appends one additional `account: null` posting per currency if the given postings don't already sum to zero within tolerance — a transaction's stored postings are therefore always fully balanced. There is no separate `issues`/imbalance field on a transaction response; any structural gap is represented directly as an `account: null` posting. See [domain-model.md](domain-model.md) and ADR 0012.
+
+Every transaction response includes an opaque `update_time` (an integer, not a formatted timestamp) that changes on every mutation. `:split` and `:unsplit` require the caller to echo back the `update_time` from the version they last read; a stale value is rejected with `409 transaction_version_mismatch`.
+
+`POST /transactions/{transaction}:split` splits part of a posting's amount off into a new, unassigned posting, leaving the target's own account, cost, and price unchanged. Body: `posting_index` (0-based), `split_off_amount` (required — the remainder is always unassigned; there is no mode to redirect the split amount to an existing account or to set a posting's amount directly), `update_time`. A cost- or price-bearing posting can be split; its rate is copied verbatim onto the new remainder posting.
+
+`POST /transactions/{transaction}:unsplit` removes `posting_index`, merging its amount into an auto-detected destination: the first other posting in the transaction that matches `posting_index`'s symbol, cost, price, **and weight sign**. The match can itself be an unassigned posting. If no such posting exists, an unassigned `posting_index` is simply removed (which, since storage is always balance-filled, immediately reopens and re-fills the same gap — a no-op on the resulting postings, though `update_time` still bumps and the posting's own `entity_metadata`, if any, is not preserved); an accounted `posting_index` is rejected with `400 merge_target_not_found` rather than having its amount silently discarded. Merging never touches `narration` — the surviving posting's own narration is left exactly as it was, and no promotion to the transaction-level `narration` happens. Body: `posting_index`, `update_time`.
+
+`POST /transactions:merge` combines two transactions' postings, deduplicating postings that already match on account/amount/symbol/cost/price and preferring the primary transaction's `payee`/`narration` when set.
 
 ## Prices
 

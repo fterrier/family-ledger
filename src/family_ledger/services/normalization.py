@@ -14,7 +14,7 @@ from family_ledger.models import Account
 from family_ledger.services.errors import ValidationError
 from family_ledger.services.transaction_balancing import (
     posting_weight,
-    transaction_balance_totals_by_symbol,
+    transaction_full_balance_totals_by_symbol,
 )
 from family_ledger.services.validation import validate_transaction_payload
 
@@ -84,7 +84,7 @@ def normalize_transaction_payload(
             update={"postings": [_with_weight(p) for p in validated.postings]}
         )
 
-    weights_by_symbol = transaction_balance_totals_by_symbol(payload.postings)
+    weights_by_symbol = transaction_full_balance_totals_by_symbol(payload.postings)
 
     missing_price_counts: dict[str, int] = {}
     for posting in missing_price_amounts:

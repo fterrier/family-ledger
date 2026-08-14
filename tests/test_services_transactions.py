@@ -24,7 +24,6 @@ from family_ledger.models import Account, Base, Commodity
 from family_ledger.services import doctor as doctor_service
 from family_ledger.services import transactions as transactions_service
 from family_ledger.services.errors import ConflictError, NotFoundError, ValidationError
-from family_ledger.services.validation import resolve_accounts
 
 
 @pytest.fixture
@@ -173,9 +172,7 @@ def test_persist_transaction_sets_generated_name_source_native_ids_and_posting_o
             ]
         }
     )
-    transaction = transactions_service.persist_transaction(
-        session, payload, account_map=resolve_accounts(session, payload.postings)
-    )
+    transaction = transactions_service.persist_transaction(session, payload)
 
     assert transaction.name.startswith("transactions/txn_")
     assert transaction.source_native_ids == ["source-1"]

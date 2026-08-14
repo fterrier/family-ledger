@@ -93,13 +93,20 @@ def _accumulate_totals(weights: Iterable[MoneyValue | None]) -> dict[str, Decima
     return totals
 
 
-def transaction_balance_totals_by_symbol(
+def transaction_full_balance_totals_by_symbol(
     postings: list[PostingPayload] | list[PostingNormalizePayload],
 ) -> dict[str, Decimal]:
-    # Accountless postings (a split's not-yet-categorized remainder) are
-    # deliberately excluded from balance computation — a transaction with an
-    # accounted -100 and an accountless +100 is still unbalanced by 100.
-    return _accumulate_totals(posting_weight(p) for p in postings if p.account is not None)
+    # Sums every posting including accountless ones — unlike
+    # build_transaction_unbalanced_issues below (which deliberately excludes
+    # them for its "still needs categorizing" doctor check), this is pure
+    # Decimal math to make a payload add up to zero and must not care about
+    # categorization status. Used both to interpolate a missing-units
+    # posting's amount (normalization.py — a transaction whose only other
+    # postings are all accountless, e.g. a plain field edit on an imported
+    # single-leg transaction that already carries its balance-filler posting,
+    # would otherwise have nothing to interpolate against) and to decide
+    # whether persist_transaction needs to add a balancing filler posting.
+    return _accumulate_totals(posting_weight(p) for p in postings)
 
 
 def resolve_tolerance(symbol: str) -> Decimal:
@@ -147,8 +154,9 @@ def build_transaction_unbalanced_issues(
         summary["payee"] = transaction.payee
     if transaction.narration:
         summary["narration"] = transaction.narration
-    # Same accountless exclusion as transaction_balance_totals_by_symbol
-    # above, applied to persisted postings.
+    # Accountless postings are deliberately excluded — this is the "still
+    # needs categorizing" doctor check, not raw balance math (see
+    # transaction_full_balance_totals_by_symbol above for that).
     totals = _accumulate_totals(
         persisted_posting_weight(p) for p in transaction.postings if p.account is not None
     )
@@ -171,13 +179,12 @@ def _residuals_from_totals(totals: dict[str, Decimal]) -> list[MoneyValue]:
 def compute_full_balance_residuals_for_payload(
     postings: list[PostingPayload] | list[PostingNormalizePayload],
 ) -> list[MoneyValue]:
-    """Unlike transaction_balance_totals_by_symbol/build_transaction_unbalanced_issues,
-    this sums every posting including accountless ones — "is anything
-    structurally missing", not "still needs categorizing". A postings list
-    already balanced overall (e.g. an accounted posting fully offset by an
-    explicit accountless one) returns no residual here, even though it would
-    still report a doctor issue. Used by persist_transaction to decide
-    whether a balancing filler posting needs to be stored, and by
-    normalize_transaction to preview one without storing anything."""
-    totals = _accumulate_totals(posting_weight(p) for p in postings)
-    return _residuals_from_totals(totals)
+    """Answers "is anything structurally missing?" (full balance), not "still
+    needs categorizing?" (build_transaction_unbalanced_issues's doctor check)
+    — a postings list already balanced overall (e.g. an accounted posting
+    fully offset by an explicit accountless one) returns no residual here,
+    even though it would still report a doctor issue. Used by
+    persist_transaction to decide whether a balancing filler posting needs to
+    be stored, and by normalize_transaction to preview one without storing
+    anything."""
+    return _residuals_from_totals(transaction_full_balance_totals_by_symbol(postings))

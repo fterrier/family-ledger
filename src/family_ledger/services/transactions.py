@@ -17,7 +17,6 @@ from family_ledger.api.schemas import (
     PostingPayload,
     SplitTransactionRequest,
     TransactionCreate,
-    TransactionData,
     TransactionNormalizeData,
     TransactionResource,
     UnsplitTransactionRequest,
@@ -127,14 +126,11 @@ def normalize_transaction(
     session: Session,
     payload: TransactionNormalizeData,
 ) -> NormalizeTransactionResponse:
-    normalized, _account_map = normalize_and_validate_transaction_payload(session, payload)
-    # :normalize never persists (draft preview only), so unlike every other
-    # endpoint it can't rely on persist_transaction having already stored a
-    # balancing filler posting — compute and echo a preview-only one here.
-    normalized = normalized.model_copy(
-        update={"postings": _postings_balanced_with_residual_fillers(normalized.postings)}
-    )
-    return NormalizeTransactionResponse(transaction=normalized)
+    # :normalize never persists (draft preview only) — it computes exactly
+    # what persist_transaction would store, via the same
+    # _prepare_canonical_transaction pipeline, and just doesn't write it.
+    prepared, _account_map = _prepare_canonical_transaction(session, payload)
+    return NormalizeTransactionResponse(transaction=prepared)
 
 
 def _reload_transaction_by_id(session: Session, transaction_id: int) -> Transaction:
@@ -203,15 +199,19 @@ def _check_source_ids_available(
 
 def persist_transaction(
     session: Session,
-    payload: TransactionData,
-    account_map: dict[str, Account],
+    payload: TransactionCreate | TransactionNormalizeData,
     transaction: Transaction | None = None,
     update_mask: str | None = None,
 ) -> Transaction:
-    # account_map is always caller-resolved (via resolve_accounts, typically
-    # through normalize_and_validate_transaction_payload) rather than
-    # re-resolved here — every write path already validates accounts before
-    # persisting, so re-querying them a second time would be redundant.
+    # persist_transaction is the single chokepoint every postings-replacing
+    # write goes through (create, update, :split, :unsplit, and every
+    # importer via create_transaction). It accepts a raw payload — possibly
+    # narrowly incomplete, per normalization's contract — rather than
+    # trusting its caller to have already normalized it: preparing the
+    # canonical (fully explicit, fully balanced) form is this function's own
+    # first step, not a precondition callers have to remember to satisfy.
+    prepared, account_map = _prepare_canonical_transaction(session, payload)
+
     is_create = transaction is None
     mask = set(update_mask.split(",")) if (update_mask and not is_create) else None
 
@@ -219,8 +219,8 @@ def persist_transaction(
         return mask is None or field in mask
 
     if _masked("import_metadata"):
-        new_ids = payload.import_metadata.source_native_ids if payload.import_metadata else []
-        new_ts = payload.import_metadata.import_timestamp if payload.import_metadata else None
+        new_ids = prepared.import_metadata.source_native_ids if prepared.import_metadata else []
+        new_ts = prepared.import_metadata.import_timestamp if prepared.import_metadata else None
         exclude = None if is_create else transaction.name
         _check_source_ids_available(session, new_ids, exclude_name=exclude)
 
@@ -233,27 +233,25 @@ def persist_transaction(
     transaction.updated_at = current_update_time()
 
     if _masked("transaction_date"):
-        transaction.transaction_date = payload.transaction_date
+        transaction.transaction_date = prepared.transaction_date
     if _masked("payee"):
-        transaction.payee = payload.payee
+        transaction.payee = prepared.payee
     if _masked("narration"):
-        transaction.narration = payload.narration
+        transaction.narration = prepared.narration
     if _masked("entity_metadata"):
-        transaction.entity_metadata = payload.entity_metadata
+        transaction.entity_metadata = prepared.entity_metadata
     if _masked("import_metadata"):
         transaction.source_native_ids = new_ids
         transaction.import_timestamp = new_ts
     if _masked("tags"):
-        transaction.tags = payload.tags
+        transaction.tags = prepared.tags
     if _masked("postings"):
         transaction.postings.clear()
         if transaction.id is not None:
             # Flush orphaned postings before reusing posting_order values on replacement updates.
             session.flush()
 
-        for index, posting in enumerate(
-            _postings_balanced_with_residual_fillers(payload.postings), start=1
-        ):
+        for index, posting in enumerate(prepared.postings, start=1):
             account = (
                 None
                 if posting.account is None
@@ -346,14 +344,29 @@ def _postings_balanced_with_residual_fillers(
 ) -> list[PostingPayload]:
     """Appends one account=None posting per symbol needed to bring
     [postings] to a full balance (accountless entries included in the sum —
-    see compute_full_balance_residuals_for_payload). Called from
-    persist_transaction so every stored transaction is always already
-    balanced, and from normalize_transaction to preview the same filler
-    without persisting anything."""
+    see compute_full_balance_residuals_for_payload). Used by
+    _prepare_canonical_transaction as the last step of preparing a payload,
+    whether it's about to be persisted or just previewed by :normalize."""
     residuals = compute_full_balance_residuals_for_payload(postings)
     if not residuals:
         return postings
     return postings + [_synthetic_posting_payload(r) for r in residuals]
+
+
+def _prepare_canonical_transaction(
+    session: Session, payload: TransactionCreate | TransactionNormalizeData
+) -> tuple[TransactionCreate, dict[str, Account]]:
+    """The one invariant every stored (or previewed) transaction must
+    satisfy: fully explicit postings (normalize_and_validate_transaction_payload)
+    that fully balance (_postings_balanced_with_residual_fillers). This is
+    called exactly twice: by persist_transaction, as the first step of
+    actually writing a transaction, and by normalize_transaction, which
+    computes the same canonical result but never writes it anywhere."""
+    normalized, account_map = normalize_and_validate_transaction_payload(session, payload)
+    prepared = normalized.model_copy(
+        update={"postings": _postings_balanced_with_residual_fillers(normalized.postings)}
+    )
+    return prepared, account_map
 
 
 def _find_unsplit_merge_target(
@@ -446,16 +459,11 @@ def split_transaction(
             ),
         )
 
-    normalized, account_map = normalize_and_validate_transaction_payload(
-        session,
-        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
-    )
     persist_transaction(
         session,
-        normalized,
+        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
         transaction=transaction_row,
         update_mask="postings",
-        account_map=account_map,
     )
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
@@ -502,16 +510,11 @@ def unsplit_transaction(
 
     del payload_postings[request.posting_index]
 
-    normalized, account_map = normalize_and_validate_transaction_payload(
-        session,
-        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
-    )
     persist_transaction(
         session,
-        normalized,
+        _transaction_payload_from_row(transaction_row, payload_postings, transaction_row.narration),
         transaction=transaction_row,
         update_mask="postings",
-        account_map=account_map,
     )
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
@@ -521,8 +524,7 @@ def create_transaction(
     session: Session,
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionResource:
-    normalized, account_map = normalize_and_validate_transaction_payload(session, payload)
-    transaction = persist_transaction(session, normalized, account_map=account_map)
+    transaction = persist_transaction(session, payload)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction.id))
 
@@ -534,14 +536,7 @@ def update_transaction(
     update_mask: str | None = None,
 ) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
-    normalized, account_map = normalize_and_validate_transaction_payload(session, payload)
-    persist_transaction(
-        session,
-        normalized,
-        transaction=transaction_row,
-        update_mask=update_mask,
-        account_map=account_map,
-    )
+    persist_transaction(session, payload, transaction=transaction_row, update_mask=update_mask)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 

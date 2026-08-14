@@ -51,6 +51,8 @@ This follows Beancount's own model of posting weight and amount interpolation. R
 - Beancount language syntax: "Amount Interpolation"
 - Beancount "How Prices are Used"
 
+**Interaction with accountless postings (ADR 0012, added later)**: interpolation sums every posting's weight, including accountless ones — it is pure Decimal math to make a payload add up to zero and has no reason to be aware of categorization status. This is deliberately different from the accounted-only exclusion ADR 0012 uses for its "still needs categorizing" checks (doctor's unbalanced check, and the persist-time decision to add a balancing filler posting) — those are categorization questions, not arithmetic ones. Conflating the two (reusing the accounted-only sum for interpolation) was a real bug, in two places that share the same balancing-weight dict: a transaction whose only other postings were all accountless had nothing to interpolate a missing-units posting against (a loud `ambiguous_interpolation_symbol` error); more seriously, the missing-`price.amount` inference case (this ADR's own "missing price.amount may be normalized when unambiguous" bullet above) *silently* fell back to a balancing weight of zero for the same reason — no error, just a wrong inferred price.
+
 ## Consequences
 
 Positive:

@@ -54,9 +54,30 @@ Postings belong to transactions in explicit `posting_order` and carry:
 
 `source_native_id` is the minimal import lineage key used for idempotent create-or-skip imports. It may be supplied either directly on the transaction or inside `import_metadata`.
 
+### Normalization
+
+Canonical stored postings must be fully explicit (real `units.amount`, `units.symbol`, and any `price.amount` present). Normalization is the one server-side place a caller may submit a narrowly incomplete payload and have the gaps filled in — every client shares this instead of reimplementing interpolation itself. See ADR 0006.
+
+What may be left incomplete, each independently, at most one posting per payload (except the last, which is at most one per balancing-symbol group):
+
+- one posting may omit `units` entirely
+- one posting may give `units.amount` but omit `units.symbol`
+- one posting per balancing-symbol group may give `price` but omit `price.amount`
+- `cost` is never inferred — a posting must specify it explicitly or not at all
+
+The computation: sum every posting's *balancing weight* per symbol, across the *whole* payload — unassigned postings included. A posting's weight is its cost-adjusted value if it has a `cost`, else its price-adjusted value if it has a `price`, else its raw `units` amount/symbol (cost wins over price if somehow both are present). This full-payload sum is deliberately the same one used to decide whether a filler posting is needed (below), and deliberately *not* the accounted-only sum used for doctor's "still needs categorizing" check — normalization is arithmetic to make numbers add up, not a categorization question. See ADR 0006's addendum and ADR 0012 for why conflating the two was a real, twice-found bug (a loud one for the missing-`units` case, a *silent* wrong-value one for the missing-`price.amount` case).
+
+Given that sum, each incomplete posting is resolved:
+
+- missing `units` → expands into one new posting *per symbol* present in the sum, each amount the negation of that symbol's total (a multi-currency payload can turn one incomplete posting into several explicit ones)
+- missing `units.symbol` → filled in from the sum's symbol, but only when the sum has exactly one distinct symbol
+- missing `price.amount` → computed as `-(that symbol's total in the sum) / units.amount`
+
+A posting that's already fully explicit passes through unchanged. Ambiguous or contradictory input (more than one posting omits the same thing, an omission combined with `cost`/`price` it can't coexist with, nothing in the payload to balance against, more than one candidate symbol) is rejected rather than guessed.
+
 ### Balance Filling On Write
 
-Whenever a transaction's postings are (re)written — create, update, `:split`, `:unsplit`, or import — the persistence layer appends one additional unassigned posting per currency if the given postings don't already sum to zero within tolerance. A transaction's stored postings are therefore always fully balanced; an unassigned posting is how a structural gap (a single-leg import, a not-yet-fully-categorized transaction, a split's remainder) is made visible and editable, rather than a separate derived diagnostic. See ADR 0012.
+Normalization always runs first and never adds a posting — it only fills in blanks on postings the caller already sent. Balance filling is the separate, later step that runs on normalization's *output*: whenever a transaction's postings are (re)written — create, update, `:split`, `:unsplit`, or import — the persistence layer appends one additional unassigned posting per currency if the now-fully-explicit postings still don't sum to zero within tolerance. A transaction's stored postings are therefore always fully balanced; an unassigned posting is how a structural gap (a single-leg import, a not-yet-fully-categorized transaction, a split's remainder) is made visible and editable, rather than a separate derived diagnostic. `POST /transactions:normalize` runs this same step itself (since it never reaches the persistence layer) to preview the filler without storing it. See ADR 0012.
 
 ## Prices
 

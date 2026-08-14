@@ -53,9 +53,9 @@ def test_compute_full_balance_residuals_for_payload_reports_residual_outside_tol
 def test_compute_full_balance_residuals_for_payload_includes_accountless_postings_in_the_sum() -> (
     None
 ):
-    # Unlike transaction_balance_totals_by_symbol/build_transaction_unbalanced_issues
-    # (doctor-only, accounted-only), this computation sums every posting —
-    # an accounted -100 fully offset by an explicit accountless +100 is
+    # Unlike build_transaction_unbalanced_issues (doctor-only, accounted-only),
+    # this computation sums every posting — an accounted -100 fully offset by
+    # an explicit accountless +100 is
     # already balanced overall and reports no residual. This is the
     # property persist_transaction relies on to avoid double-appending a
     # filler posting on top of one a caller already supplied.

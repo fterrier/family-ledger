@@ -371,11 +371,15 @@ def test_normalize_allows_accountless_posting_with_explicit_units() -> None:
     assert normalized.postings[1].units.amount == Decimal("100")
 
 
-def test_normalize_interpolation_ignores_accountless_posting_amount() -> None:
-    # The plug posting must be interpolated from the *accounted* legs only —
-    # an accountless posting's amount is a known, explicit remainder (never
-    # something to balance against), matching its exclusion from balance
-    # totals in transaction_balancing.py.
+def test_normalize_interpolation_includes_accountless_posting_amount() -> None:
+    # The missing-units posting is interpolated against the FULL balance —
+    # every other posting's weight, accounted or not — so the payload always
+    # ends up summing to zero on its own, with no follow-on filler posting
+    # needed once persist_transaction re-checks it. Interpolation is pure
+    # Decimal math to make the numbers add up; it must not care about
+    # categorization status (that's a doctor/filler-synthesis concern, not
+    # an interpolation one — see compute_full_balance_residuals_for_payload,
+    # which this mirrors).
     payload = TransactionNormalizeData(
         transaction_date=date(2026, 4, 19),
         postings=[
@@ -394,7 +398,66 @@ def test_normalize_interpolation_ignores_accountless_posting_amount() -> None:
     normalized = normalization.normalize_transaction_payload(payload)
 
     assert normalized.postings[0].units is not None
-    assert normalized.postings[0].units.amount == Decimal("-100")
+    assert normalized.postings[0].units.amount == Decimal("-130")
+
+
+def test_normalize_interpolates_missing_units_posting_against_accountless_only_siblings() -> None:
+    # Regression: a transaction whose only other postings are ALL accountless
+    # (e.g. editing a plain field on an imported single-leg transaction that
+    # already carries its balance-filler posting) used to raise
+    # ambiguous_interpolation_symbol, since the accounted-only balance sum
+    # was empty — there was nothing to interpolate the missing posting
+    # against, even though the accountless sibling's amount makes the answer
+    # perfectly unambiguous.
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(account="accounts/acc_one"),
+            PostingNormalizePayload(
+                account=None,
+                units=MoneyValue(amount=Decimal("42.00"), symbol="GBP"),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[0].units is not None
+    assert normalized.postings[0].units.amount == Decimal("-42.00")
+    assert normalized.postings[0].units.symbol == "GBP"
+
+
+def test_normalize_infers_missing_price_amount_against_accountless_only_sibling() -> None:
+    # Sharper variant of the same bug class as the interpolation regression
+    # above: this branch (a posting with units and a missing price.amount)
+    # reads weights_by_symbol.get(symbol, Decimal("0")) — a SILENT fallback
+    # to zero, not an error, when the balancing symbol isn't present. Before
+    # the accounted-only-to-full-balance fix, a posting whose only balancing
+    # sibling was accountless would silently infer a price of 0 (from the
+    # default) instead of raising anything — worse than
+    # ambiguous_interpolation_symbol, since nothing here would have signaled
+    # the wrong value. 10 units purchased for 1000 USD (paid from an
+    # as-yet-uncategorized accountless posting) must infer price=100, not 0.
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        postings=[
+            PostingNormalizePayload(
+                account="accounts/acc_one",
+                units=MoneyValue(amount=Decimal("10"), symbol="VTI"),
+                price=NormalizePriceValue(symbol="USD"),
+            ),
+            PostingNormalizePayload(
+                account=None,
+                units=MoneyValue(amount=Decimal("-1000"), symbol="USD"),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.postings[0].price is not None
+    assert normalized.postings[0].price.amount == Decimal("100")
+    assert normalized.postings[0].price.symbol == "USD"
 
 
 def test_normalize_interpolates_missing_units_on_accountless_posting() -> None:

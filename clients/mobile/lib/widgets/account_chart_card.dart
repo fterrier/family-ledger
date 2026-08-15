@@ -151,6 +151,15 @@ class _AccountChartCardState extends State<AccountChartCard> {
   ConvertedChartSeries? _series;
   List<QueryWarningInfo> _warnings = const [];
 
+  /// The true balance immediately before widget.fromDate, fetched
+  /// independently of the bucketed series (see bql.dart's
+  /// openingBalanceQuery) — used for the headline's percent-delta chip.
+  /// Null when there's no defined range start (an "all time" view has no
+  /// well-defined starting balance to fetch), the fetch failed (the delta
+  /// chip is a non-critical hint, not worth erroring the whole card over),
+  /// or there was no prior activity at all.
+  double? _openingBalance;
+
   int _generation = 0;
 
   /// Bucket granularity. Defaults to the span-derived heuristic
@@ -200,6 +209,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
         _loading = false;
         _error = null;
         _series = null;
+        _openingBalance = null;
       });
     }
   }
@@ -248,7 +258,25 @@ class _AccountChartCardState extends State<AccountChartCard> {
       _warnings = const [];
     });
     final granularity = _granularity;
-    final result = await widget.queryRepository.run(_seriesQuery(granularity));
+    final fromDate = widget.fromDate;
+    // Always fetched alongside the series (started here, not awaited yet,
+    // so the two run in parallel) whenever there's a range start to
+    // measure from — an "all time" view has none. Fetched even for flow
+    // specs, which don't use it; not worth an isFlow check to skip one
+    // cheap query.
+    final seriesFuture = widget.queryRepository.run(_seriesQuery(granularity));
+    final openingFuture = fromDate == null
+        ? null
+        : widget.queryRepository.run(
+            openingBalanceQuery(
+              accountNames: widget.spec.rootAccounts,
+              from: fromDate,
+              currency: widget.currencyFilter,
+              convertTo: widget.defaultCurrency,
+            ),
+          );
+    final result = await seriesFuture;
+    final openingResult = openingFuture == null ? null : await openingFuture;
     if (!mounted || generation != _generation) return;
     if (result.error != null) {
       setState(() {
@@ -265,6 +293,11 @@ class _AccountChartCardState extends State<AccountChartCard> {
         currency: widget.defaultCurrency!,
         cumulative: !_isFlow,
       );
+      // A failed or unrequested opening-balance fetch just means no delta
+      // chip — it's a non-critical hint, not worth failing the card over.
+      _openingBalance = (openingResult != null && openingResult.data != null)
+          ? decodeLatestYearlyBalance(openingResult.data!)
+          : null;
       _loading = false;
       _warnings = result.data!.warnings;
     });
@@ -286,9 +319,6 @@ class _AccountChartCardState extends State<AccountChartCard> {
 
   double? get _lastValue =>
       _values.lastWhere((v) => v != null, orElse: () => null);
-
-  double? get _firstValue =>
-      _values.firstWhere((v) => v != null, orElse: () => null);
 
   // -- interactions ----------------------------------------------------------
 
@@ -537,9 +567,17 @@ class _AccountChartCardState extends State<AccountChartCard> {
     // Percentage change only — the absolute delta is redundant with the
     // headline balance right next to it, and previously made this chip long
     // enough to overflow the header row at narrow widths.
+    //
+    // Compared against _openingBalance (the true balance immediately
+    // before the range starts — a separate, independent query; see
+    // bql.dart's openingBalanceQuery), not the series' own first bucket:
+    // a bucket's value is already that bucket's *end*, so using it as
+    // "first" used to make the percentage silently depend on granularity
+    // (e.g. monthly buckets compared "end of first month" to "end of last
+    // month", not the range's true start to its true end).
     Widget? deltaChip;
-    final first = _firstValue;
-    if (!_isFlow && first != null && first != 0 && _values.length > 1) {
+    final first = _openingBalance;
+    if (!_isFlow && first != null && first != 0) {
       final delta = last - first;
       final positive = delta >= 0;
       final percent = (delta / first.abs() * 100).toStringAsFixed(1);

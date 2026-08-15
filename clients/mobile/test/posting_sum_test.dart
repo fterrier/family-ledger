@@ -62,6 +62,24 @@ void main() {
       );
       expect(sums.isEmpty, isTrue);
     });
+
+    test('a real accountless posting (account and accountName both null, e.g. '
+        'a server-added balancing filler) is excluded, not just skipped by '
+        'accountName alone', () {
+      final sums = sumPostings(
+        [
+          const PostingResource(
+            account: null,
+            units: MoneyValue(amount: '10', symbol: 'CHF'),
+            weight: MoneyValue(amount: '10', symbol: 'CHF'),
+          ),
+          _posting('Assets:Checking', '5', 'CHF'),
+        ],
+        ['Assets'],
+        target: 'CHF',
+      );
+      expect(sums.converted, 5);
+    });
   });
 
   group('sumPostings conversion buckets', () {

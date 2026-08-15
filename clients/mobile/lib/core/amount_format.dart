@@ -1,6 +1,16 @@
 import 'package:flutter/widgets.dart';
 import 'package:intl/intl.dart';
 
+/// Flips an amount string's sign by editing the string itself — no
+/// double round-trip, so exact decimal input (including precision beyond
+/// what a double can exactly represent) is preserved verbatim. This is
+/// the one amount operation that can't just parse-and-discard: the result
+/// becomes the actual value saved for the other posting.
+String negateAmountString(String amount) {
+  final trimmed = amount.trim();
+  return trimmed.startsWith('-') ? trimmed.substring(1) : '-$trimmed';
+}
+
 /// Formats a raw amount string for display: comma thousands-separator,
 /// minimum 2 decimal places, preserves more decimals if present.
 /// Returns [rawValue] unchanged if it cannot be parsed (e.g. partial input).

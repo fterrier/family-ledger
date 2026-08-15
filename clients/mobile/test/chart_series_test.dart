@@ -91,6 +91,39 @@ void main() {
     });
   });
 
+  group('decodeLatestYearlyBalance', () {
+    test(
+      'picks the chronologically latest row, not the last in list order',
+      () {
+        final value = decodeLatestYearlyBalance(
+          _amountResult([
+            [2024, const QueryAmount(number: '1000', currency: 'CHF')],
+            [2022, const QueryAmount(number: '200', currency: 'CHF')],
+            [2023, const QueryAmount(number: '600', currency: 'CHF')],
+          ], keyCount: 1),
+        );
+        expect(value, 1000);
+      },
+    );
+
+    test('no rows at all (no prior activity) is null', () {
+      final value = decodeLatestYearlyBalance(_amountResult([], keyCount: 1));
+      expect(value, isNull);
+    });
+
+    test('a null cell (missing price) on the latest year is skipped in '
+        "favor of the next-latest year that has a value — there's no "
+        'gap-carry-forward at this single-value level', () {
+      final value = decodeLatestYearlyBalance(
+        _amountResult([
+          [2022, const QueryAmount(number: '200', currency: 'CHF')],
+          [2024, null],
+        ], keyCount: 1),
+      );
+      expect(value, 200);
+    });
+  });
+
   group('yearly and daily bucket sequences', () {
     test('yearly rows produce contiguous years', () {
       final series = buildConvertedSeries(

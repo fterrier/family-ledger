@@ -8,7 +8,6 @@ import '../../core/api_error.dart';
 import '../../core/generation_guard.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
-import '../../models/doctor_issue.dart';
 import '../../models/posting.dart';
 import '../../models/transaction.dart';
 import '../../repositories/account_repository.dart';
@@ -123,9 +122,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   // that rule and this keeps the preview identical to what a save would
   // report. Parsed once when a response lands (not re-parsed on every
   // read) — a transaction can be unbalanced in more than one currency at
-  // once, so this holds every transaction_unbalanced issue, not just the
-  // largest.
-  List<({String symbol, double amount})> _imbalances = const [];
+  // once, so this holds every imbalance, not just the largest.
+  List<Imbalance> _imbalances = const [];
   Timer? _normalizeDebounce;
   // A response is only applied if it's still the most recent check
   // requested — otherwise a slow, superseded response could land after a
@@ -140,11 +138,18 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     _payeeController.text = tx.payee ?? '';
     _narrationController.text = tx.narration ?? '';
     _postings = tx.postings.map((p) {
-      final fakeAccount = AccountResource(
-        name: p.account,
-        accountName: p.accountName ?? p.account,
-        effectiveStartDate: '2000-01-01',
-      );
+      // Null when this posting is unassigned (a balancing filler, or a
+      // not-yet-categorized destination) — the account picker's own "Select
+      // account…" empty state already renders this correctly, and Save
+      // already blocks until every posting has one, so no extra handling
+      // is needed here beyond not wrapping a null in a fake resource.
+      final fakeAccount = p.account == null
+          ? null
+          : AccountResource(
+              name: p.account!,
+              accountName: p.accountName ?? p.account!,
+              effectiveStartDate: '2000-01-01',
+            );
       final posting = _EditablePosting(
         account: fakeAccount,
         initialAmount: p.units.amount,
@@ -162,15 +167,12 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     _scheduleNormalizeCheck();
   }
 
-  // Compares the parsed numeric value, not raw text, before rescheduling:
-  // TextEditingController notifies on any value change, including ones
-  // that don't change what the field means — wireAmountFocus's own
-  // reformatting (see core/amount_format.dart: strip/add commas, pad
-  // decimals on focus change) and pure cursor/selection moves (e.g. simply
-  // tapping into a field) both fire it with the number itself unchanged. A
-  // flag marking "this notification came from a reformat" was tried and
-  // reverted — it doesn't cover the cursor-move case, so it's a narrower,
-  // less correct filter than comparing the actual value.
+  // Compares the field's text before rescheduling: TextEditingController
+  // notifies on any value change, including ones that don't change what
+  // the field means — wireAmountFocus's own comma insertion/removal on
+  // focus change, and pure cursor/selection moves (e.g. simply tapping
+  // into a field), both fire it with the number itself unchanged. See
+  // _wireValueTrigger for what this comparison does and doesn't catch.
   void _wireNormalizeTrigger(_EditablePosting p) {
     _wireValueTrigger(p.amountController);
     if (p.costAmountController != null) {
@@ -182,9 +184,19 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   }
 
   void _wireValueTrigger(TextEditingController controller) {
-    double? lastValue = double.tryParse(rawEditAmount(controller.text));
+    // Plain string comparison (post comma-stripping), not a parsed
+    // double — deliberately, so a real edit's exact text always drives
+    // this, never a value reconstructed from a double. This correctly
+    // sees through wireAmountFocus's comma insertion/removal (rawEditAmount
+    // normalizes that away on both sides of the comparison). It does NOT
+    // see through wireAmountFocus's decimal-padding on blur (e.g. typing
+    // "10" then blurring reformats to "10.00", a real text change) — that
+    // case reschedules one redundant (but harmless: same debounce +
+    // GenerationGuard as any other check) normalize call. Accepted
+    // tradeoff for keeping this string-only, no double parse.
+    String lastValue = rawEditAmount(controller.text);
     controller.addListener(() {
-      final value = double.tryParse(rawEditAmount(controller.text));
+      final value = rawEditAmount(controller.text);
       if (value == lastValue) return;
       lastValue = value;
       _scheduleNormalizeCheck();
@@ -286,24 +298,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     // it's a non-blocking hint, and flashing it away on a transient
     // network hiccup would be more disruptive than a stale value.
     if (result.error != null) return;
-    setState(() => _imbalances = _parseImbalances(result.data!));
-  }
-
-  // Every transaction_unbalanced issue from a normalize response — a
-  // transaction can be unbalanced in more than one currency at once, and
-  // hiding all but the largest would hide a real problem.
-  List<({String symbol, double amount})> _parseImbalances(
-    List<DoctorIssue> issues,
-  ) {
-    final result = <({String symbol, double amount})>[];
-    for (final issue in issues) {
-      if (issue.code != DoctorIssue.transactionUnbalanced) continue;
-      final symbol = issue.details['symbol'];
-      final amount = double.tryParse(issue.details['residual_amount'] ?? '');
-      if (symbol == null || amount == null) continue;
-      result.add((symbol: symbol, amount: amount));
-    }
-    return result;
+    setState(() => _imbalances = result.data!);
   }
 
   Future<void> _pickAccount(int index) async {
@@ -368,19 +363,18 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
   Future<void> _addPosting() async {
     if (_accounts == null) return;
-    // Can only prefill one new row, so pick the largest of possibly several
-    // imbalances as the best single guess. This is a best-effort read of
-    // the last successful check — it can be briefly stale (debounce +
-    // network latency behind the very latest keystroke), which is fine
-    // for a prefill the user can freely edit before saving.
-    final imbalance = _imbalances.isEmpty
-        ? null
-        : _imbalances.reduce(
-            (a, b) => a.amount.abs() >= b.amount.abs() ? a : b,
-          );
-    final prefillAmount = imbalance != null
-        ? (-imbalance.amount).toStringAsFixed(2)
-        : '';
+    // Can only prefill one new row, so pick the first of possibly several
+    // imbalances, in the order the server returned them (sorted by symbol
+    // — see compute_full_balance_residuals_for_payload), rather than
+    // ranking by size. This is a best-effort read of the last successful
+    // check — it can be briefly stale (debounce + network latency behind
+    // the very latest keystroke), which is fine for a prefill the user
+    // can freely edit before saving.
+    final imbalance = _imbalances.isEmpty ? null : _imbalances.first;
+    // imbalance.amount is already the amount that would need to be added to
+    // balance that symbol (it's the server's own filler posting's units
+    // amount, not a raw residual to negate) — used verbatim, no reformatting.
+    final prefillAmount = imbalance?.amount ?? '';
     final prefillCurrency =
         imbalance?.symbol ??
         (_postings.isNotEmpty ? _postings.first.currency : 'CHF');
@@ -996,14 +990,19 @@ class _AddPostingRow extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _ImbalanceWarning extends StatelessWidget {
-  final List<({String symbol, double amount})> imbalances;
+  final List<Imbalance> imbalances;
 
   const _ImbalanceWarning({required this.imbalances});
 
   @override
   Widget build(BuildContext context) {
+    // Magnitude only (drop a leading '-' by string check, no parsing) —
+    // "Unbalanced: 30.00 CHF" regardless of which direction it's off by.
     final formatted = imbalances
-        .map((i) => '${formatFixedAmount(i.amount.abs())} ${i.symbol}')
+        .map(
+          (i) =>
+              '${formatDisplayAmount(i.amount.startsWith('-') ? i.amount.substring(1) : i.amount)} ${i.symbol}',
+        )
         .join(', ');
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),

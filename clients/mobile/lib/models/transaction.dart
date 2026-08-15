@@ -1,7 +1,11 @@
 import 'posting.dart';
 
 class PostingResource {
-  final String account;
+  // Null represents an unassigned posting — no account chosen yet (e.g. the
+  // server's balancing filler for a not-yet-categorized transaction, or a
+  // preview residual echoed by :normalize). accountName is always null
+  // alongside it.
+  final String? account;
   final String? accountName;
   final MoneyValue units;
   final String? narration;
@@ -31,7 +35,7 @@ class PostingResource {
 
   factory PostingResource.fromJson(Map<String, dynamic> json) =>
       PostingResource(
-        account: json['account'] as String,
+        account: json['account'] as String?,
         accountName: json['account_name'] as String?,
         units: MoneyValue.fromJson(json['units'] as Map<String, dynamic>),
         narration: json['narration'] as String?,

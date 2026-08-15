@@ -290,6 +290,38 @@ void main() {
       expect(result.data, isNull);
     });
 
+    test(
+      'parses an accountless posting (a balancing filler) without crashing',
+      () async {
+        final txWithFiller = <String, dynamic>{
+          'name': 'transactions/t1',
+          'transaction_date': '2026-06-01',
+          'postings': [
+            {
+              'account': 'accounts/acc_checking',
+              'account_name': 'Assets:Bank:Checking',
+              'units': {'amount': '-42.50', 'symbol': 'CHF'},
+              'weight': {'amount': '-42.50', 'symbol': 'CHF'},
+            },
+            {
+              'units': {'amount': '42.50', 'symbol': 'CHF'},
+              'weight': {'amount': '42.50', 'symbol': 'CHF'},
+            },
+          ],
+        };
+        when(
+          () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenAnswer((_) async => (data: txWithFiller, error: null));
+
+        final result = await repo.getTransaction('transactions/t1');
+
+        expect(result.error, isNull);
+        expect(result.data!.postings[1].account, isNull);
+        expect(result.data!.postings[1].accountName, isNull);
+        expect(result.data!.postings[1].units.amount, '42.50');
+      },
+    );
+
     test('passes convert as a query param only when provided', () async {
       when(
         () => mockClient.get(any(), queryParams: any(named: 'queryParams')),
@@ -618,6 +650,137 @@ void main() {
       expect(result.data, isNull);
     });
   });
+
+  group('TransactionRepository.normalizeTransaction', () {
+    const update = TransactionUpdate(
+      transactionDate: '2026-06-01',
+      postings: [
+        PostingPayload(
+          account: 'accounts/acc_checking',
+          units: MoneyValue(amount: '-42.50', symbol: 'CHF'),
+        ),
+      ],
+    );
+
+    test(
+      'a balanced echoed transaction (no accountless posting) has no imbalances',
+      () async {
+        when(() => mockClient.post(any(), any())).thenAnswer(
+          (_) async => (
+            data: {
+              'transaction': {
+                'transaction_date': '2026-06-01',
+                'postings': [
+                  {
+                    'account': 'accounts/acc_checking',
+                    'units': {'amount': '-42.50', 'symbol': 'CHF'},
+                    'weight': {'amount': '-42.50', 'symbol': 'CHF'},
+                  },
+                  {
+                    'account': 'accounts/acc_food',
+                    'units': {'amount': '42.50', 'symbol': 'CHF'},
+                    'weight': {'amount': '42.50', 'symbol': 'CHF'},
+                  },
+                ],
+              },
+            },
+            error: null,
+          ),
+        );
+
+        final result = await repo.normalizeTransaction(update);
+
+        expect(result.error, isNull);
+        expect(result.data, isEmpty);
+      },
+    );
+
+    test('picks out the accountless filler posting(s) as imbalances, one per '
+        'symbol, using the filler amount verbatim (already the amount that '
+        'would need to be added — not a raw residual to negate)', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (
+          data: {
+            'transaction': {
+              'transaction_date': '2026-06-01',
+              'postings': [
+                {
+                  'account': 'accounts/acc_checking',
+                  'units': {'amount': '-30.00', 'symbol': 'CHF'},
+                  'weight': {'amount': '-30.00', 'symbol': 'CHF'},
+                },
+                // Omitted 'account' key entirely, not an explicit null —
+                // matches the server's exclude_none response shape.
+                {
+                  'units': {'amount': '30.00', 'symbol': 'CHF'},
+                  'weight': {'amount': '30.00', 'symbol': 'CHF'},
+                },
+                {
+                  'account': 'accounts/acc_broker',
+                  'units': {'amount': '-100.00', 'symbol': 'USD'},
+                  'weight': {'amount': '-100.00', 'symbol': 'USD'},
+                },
+                {
+                  'units': {'amount': '100.00', 'symbol': 'USD'},
+                  'weight': {'amount': '100.00', 'symbol': 'USD'},
+                },
+              ],
+            },
+          },
+          error: null,
+        ),
+      );
+
+      final result = await repo.normalizeTransaction(update);
+
+      expect(result.error, isNull);
+      expect(result.data, [
+        (symbol: 'CHF', amount: '30.00'),
+        (symbol: 'USD', amount: '100.00'),
+      ]);
+    });
+
+    test(
+      'one malformed posting entry is skipped, not fatal to the preview',
+      () async {
+        when(() => mockClient.post(any(), any())).thenAnswer(
+          (_) async => (
+            data: {
+              'transaction': {
+                'transaction_date': '2026-06-01',
+                'postings': [
+                  // Missing required 'units' — version-skew / malformed entry.
+                  {'weight': null},
+                  {
+                    'units': {'amount': '30.00', 'symbol': 'CHF'},
+                    'weight': {'amount': '30.00', 'symbol': 'CHF'},
+                  },
+                ],
+              },
+            },
+            error: null,
+          ),
+        );
+
+        final result = await repo.normalizeTransaction(update);
+
+        expect(result.error, isNull);
+        expect(result.data, [(symbol: 'CHF', amount: '30.00')]);
+      },
+    );
+
+    test('propagates network error from client', () async {
+      when(() => mockClient.post(any(), any())).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('timeout')),
+      );
+
+      final result = await repo.normalizeTransaction(update);
+
+      expect(result.error, isA<NetworkError>());
+      expect(result.data, isNull);
+    });
+  });
+
   group('TransactionRepository.runDoctorIssues', () {
     test('parses full issues including details and target summary', () async {
       final mockClient = MockApiClient();

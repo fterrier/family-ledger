@@ -7,7 +7,6 @@ import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/core/result.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
-import 'package:family_ledger_mobile/models/doctor_issue.dart';
 import 'package:family_ledger_mobile/models/posting.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
 import 'package:family_ledger_mobile/repositories/account_repository.dart';
@@ -112,7 +111,7 @@ void main() {
     ).thenAnswer((_) async => (data: [_commodity('CHF')], error: null));
     when(
       () => mockTransactionRepo.normalizeTransaction(any()),
-    ).thenAnswer((_) async => (data: <DoctorIssue>[], error: null));
+    ).thenAnswer((_) async => (data: <Imbalance>[], error: null));
   });
 
   Widget buildScreen(TransactionResource tx) => MaterialApp(
@@ -154,7 +153,7 @@ void main() {
           _,
         ) async {
           callCount++;
-          return (data: <DoctorIssue>[], error: null);
+          return (data: <Imbalance>[], error: null);
         });
         const tx = TransactionResource(
           name: 'transactions/t4',
@@ -200,12 +199,9 @@ void main() {
     ) async {
       when(() => mockTransactionRepo.normalizeTransaction(any())).thenAnswer(
         (_) async => (
-          data: [
-            const DoctorIssue(
-              code: 'transaction_unbalanced',
-              details: {'symbol': 'CHF', 'residual_amount': '-30'},
-            ),
-          ],
+          // A single-posting transaction (-30 CHF) balances against a
+          // filler of +30 CHF — that's what :normalize now echoes verbatim.
+          data: [(symbol: 'CHF', amount: '30.00')],
           error: null,
         ),
       );
@@ -256,11 +252,11 @@ void main() {
       'faster one (regression: no generation guard would let a stale '
       'response silently replace the current imbalance state)',
       (tester) async {
-        final responses = <Completer<Result<List<DoctorIssue>>>>[];
+        final responses = <Completer<Result<List<Imbalance>>>>[];
         when(() => mockTransactionRepo.normalizeTransaction(any())).thenAnswer((
           _,
         ) {
-          final completer = Completer<Result<List<DoctorIssue>>>();
+          final completer = Completer<Result<List<Imbalance>>>();
           responses.add(completer);
           return completer.future;
         });
@@ -269,7 +265,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         // The initial (no-edit) check fired on open.
         expect(responses.length, 1);
-        responses[0].complete((data: <DoctorIssue>[], error: null));
+        responses[0].complete((data: <Imbalance>[], error: null));
         await tester.pumpAndSettle();
 
         // First edit — its debounced check (call #2) is left pending.
@@ -284,19 +280,14 @@ void main() {
         expect(responses.length, 3);
 
         // The later call resolves first (faster network) with no issues.
-        responses[2].complete((data: <DoctorIssue>[], error: null));
+        responses[2].complete((data: <Imbalance>[], error: null));
         await tester.pump();
         expect(find.textContaining('Unbalanced'), findsNothing);
 
         // The earlier, now-superseded call resolves after it, claiming an
         // imbalance — this must be discarded, not applied.
         responses[1].complete((
-          data: [
-            const DoctorIssue(
-              code: 'transaction_unbalanced',
-              details: {'symbol': 'CHF', 'residual_amount': '0.01'},
-            ),
-          ],
+          data: [(symbol: 'CHF', amount: '0.01')],
           error: null,
         ));
         await tester.pump();
@@ -310,6 +301,93 @@ void main() {
 
       expect(find.text('Add posting'), findsOneWidget);
     });
+  });
+
+  group('accountless posting (uncategorized filler)', () {
+    TransactionResource txWithFiller() => const TransactionResource(
+      name: 'transactions/t5',
+      transactionDate: '2026-06-18',
+      payee: 'Bank',
+      postings: [
+        PostingResource(
+          account: 'accounts/acc_checking',
+          accountName: 'Assets:Bank:Checking',
+          units: MoneyValue(amount: '-100.00', symbol: 'CHF'),
+          weight: MoneyValue(amount: '-100.00', symbol: 'CHF'),
+        ),
+        PostingResource(
+          account: null,
+          units: MoneyValue(amount: '100.00', symbol: 'CHF'),
+          weight: MoneyValue(amount: '100.00', symbol: 'CHF'),
+        ),
+      ],
+    );
+
+    testWidgets('renders a "Select account…" row instead of crashing, with the '
+        'filler amount pre-filled', (tester) async {
+      await tester.pumpWidget(buildScreen(txWithFiller()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Select account…'), findsOneWidget);
+      expect(find.textContaining('100.00'), findsWidgets);
+    });
+
+    testWidgets('save is blocked with a validation error until the filler is '
+        'categorized (existing "every posting needs an account" gate, now '
+        'reached via a real accountless posting instead of never)', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildScreen(txWithFiller()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      verifyNever(() => mockTransactionRepo.updateTransaction(any(), any()));
+    });
+
+    testWidgets('the debounced imbalance preview stays off while a posting is '
+        'uncategorized (_allPostingsValid gate) — normalizeTransaction is '
+        'never called', (tester) async {
+      await tester.pumpWidget(buildScreen(txWithFiller()));
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+
+      verifyNever(() => mockTransactionRepo.normalizeTransaction(any()));
+      expect(find.textContaining('Unbalanced'), findsNothing);
+    });
+  });
+
+  group('add posting prefill', () {
+    testWidgets(
+      'prefills from the first imbalance in server order, not the largest '
+      '(regression: this used to rank by magnitude via a parsed double; '
+      'now it just takes _imbalances.first, matching the backend order)',
+      (tester) async {
+        when(() => mockTransactionRepo.normalizeTransaction(any())).thenAnswer(
+          (_) async => (
+            data: [
+              (symbol: 'USD', amount: '5.00'),
+              (symbol: 'CHF', amount: '30.00'),
+            ],
+            error: null,
+          ),
+        );
+
+        await tester.pumpWidget(buildScreen(_unbalancedTx()));
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Add posting'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Expenses · Food'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('5.00'), findsOneWidget);
+        expect(find.text('30.00'), findsNothing);
+      },
+    );
   });
 
   group('delete posting', () {

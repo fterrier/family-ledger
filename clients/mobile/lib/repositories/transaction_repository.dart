@@ -5,6 +5,13 @@ import '../models/doctor_issue.dart';
 import '../models/transaction.dart';
 import '../screens/transactions/transaction_filter.dart';
 
+/// A preview imbalance derived from :normalize's echoed accountless filler
+/// posting(s) — one per still-unbalanced symbol. [amount] is already the
+/// value that would need to be added to balance that symbol (the filler
+/// posting's own units.amount, not the raw unbalanced sum) — passed
+/// through as the server's own string, never parsed to a double.
+typedef Imbalance = ({String symbol, String amount});
+
 class TransactionRepository {
   final ApiClient _client;
 
@@ -55,16 +62,36 @@ class TransactionRepository {
     return (data: _parseIssues(result.data!['issues']), error: null);
   }
 
-  /// Previews issues (e.g. transaction_unbalanced) for a not-yet-saved
-  /// edit, without persisting anything. The server computes balance via
-  /// each posting's weight (cost/price-adjusted, not raw units) — the
-  /// client never re-derives that rule itself.
-  Future<Result<List<DoctorIssue>>> normalizeTransaction(
+  /// Previews imbalances for a not-yet-saved edit, without persisting
+  /// anything: the server echoes back exactly what it would store,
+  /// including an accountless filler posting per still-unbalanced symbol
+  /// (see ADR 0012) — this just picks those out. The server computes
+  /// balance via each posting's weight (cost/price-adjusted, not raw
+  /// units) — the client never re-derives that rule itself.
+  Future<Result<List<Imbalance>>> normalizeTransaction(
     TransactionUpdate tx,
   ) async {
     final result = await _client.post('/transactions:normalize', tx.toJson());
     if (result.error != null) return (data: null, error: result.error);
-    return (data: _parseIssues(result.data!['issues']), error: null);
+    final postings =
+        (result.data!['transaction'] as Map<String, dynamic>)['postings']
+            as List;
+    final imbalances = <Imbalance>[];
+    // One malformed posting (e.g. a future field/version skew) must not
+    // blank the whole preview — skip just that entry, same as _parseIssues.
+    for (final entry in postings.cast<Map<String, dynamic>>()) {
+      try {
+        final posting = PostingResource.fromJson(entry);
+        if (posting.account != null) continue;
+        imbalances.add((
+          symbol: posting.units.symbol,
+          amount: posting.units.amount,
+        ));
+      } catch (_) {
+        continue;
+      }
+    }
+    return (data: imbalances, error: null);
   }
 
   /// [convert] asks the server to value each foreign-currency posting's

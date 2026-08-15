@@ -95,6 +95,43 @@ List<DateTime> _continuousBucketStarts(
   return starts;
 }
 
+double? _decodeAmountCell(Object? cell) {
+  final amount = cell as QueryAmount?;
+  return amount == null ? null : double.parse(amount.number);
+}
+
+/// Decodes an opening-balance query (see bql.dart's openingBalanceQuery):
+/// GROUP BY year, CLOSE ON some date, no lower bound. Buckets with no
+/// activity produce no row at all (see reporting-query.md), so the
+/// chronologically latest present row is the running balance carried
+/// forward to the query's CLOSE ON boundary — i.e. the true balance
+/// immediately before that date. Null when there's no prior activity at
+/// all (no rows).
+double? decodeLatestYearlyBalance(QueryResult result) {
+  int? latestYear;
+  double? latestValue;
+  for (final row in result.rows) {
+    // One malformed/unexpectedly-shaped row (e.g. a caller accidentally
+    // routing a bucketed series result here) must not blow up the whole
+    // decode — skip just that row, same as elsewhere in this codebase
+    // (DoctorIssue._parseIssues).
+    final int year;
+    final double? value;
+    try {
+      year = row[0] as int;
+      value = _decodeAmountCell(row[1]);
+    } catch (_) {
+      continue;
+    }
+    if (value == null) continue;
+    if (latestYear == null || year > latestYear) {
+      latestYear = year;
+      latestValue = value;
+    }
+  }
+  return latestValue;
+}
+
 /// Converted (single-currency) series from amount cells. For [cumulative]
 /// series, activity gaps carry the last value forward; missing-price nulls
 /// stay null (rendered as chart gaps). Bar series zero-fill gaps and keep
@@ -105,10 +142,7 @@ ConvertedChartSeries buildConvertedSeries(
   required String currency,
   required bool cumulative,
 }) {
-  final byBucket = _rowsByBucket(result, granularity, (cell) {
-    final amount = cell as QueryAmount?;
-    return amount == null ? null : double.parse(amount.number);
-  });
+  final byBucket = _rowsByBucket(result, granularity, _decodeAmountCell);
   final starts = _continuousBucketStarts(byBucket.keys, granularity);
 
   final values = <double?>[];

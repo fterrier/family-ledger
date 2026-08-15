@@ -100,7 +100,7 @@ void main() {
     // (keeps existing tests, which don't exercise it, unaffected)
     when(
       () => mockRepo.normalizeTransaction(any()),
-    ).thenAnswer((_) async => (data: <DoctorIssue>[], error: null));
+    ).thenAnswer((_) async => (data: <Imbalance>[], error: null));
     when(
       () => mockRepo.getYearRange(),
     ).thenAnswer((_) async => (data: (2024, 2026), error: null));

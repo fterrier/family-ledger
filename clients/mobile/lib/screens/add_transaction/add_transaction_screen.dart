@@ -150,6 +150,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       );
       return;
     }
+    // Parsed only to validate — the value itself is discarded; the
+    // postings below are built from amountText (and its sign-flipped
+    // string), never from this double.
     final amount = double.tryParse(amountText);
     if (amount == null || amount <= 0) {
       setState(
@@ -157,7 +160,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       );
       return;
     }
-    final amountStr = amount.toStringAsFixed(2);
     final payeeText = _payeeController.text.trim();
     final narrationText = _narrationController.text.trim();
     final tx = TransactionCreate(
@@ -167,11 +169,16 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       postings: [
         PostingPayload(
           account: _fromAccount!.name,
-          units: MoneyValue(amount: '-$amountStr', symbol: _currency),
+          // The user-typed string, sign-flipped by editing the string
+          // itself — never parsed to a double, so no precision is lost.
+          units: MoneyValue(
+            amount: negateAmountString(amountText),
+            symbol: _currency,
+          ),
         ),
         PostingPayload(
           account: _toAccount!.name,
-          units: MoneyValue(amount: amountStr, symbol: _currency),
+          units: MoneyValue(amount: amountText, symbol: _currency),
         ),
       ],
     );

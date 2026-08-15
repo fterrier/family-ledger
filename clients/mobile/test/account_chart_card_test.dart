@@ -143,12 +143,24 @@ void main() {
   testWidgets('asset account renders a line with balance and delta', (
     tester,
   ) async {
-    when(() => repo.run(any())).thenAnswer(
+    when(() => repo.run(any(that: contains('OPEN ON')))).thenAnswer(
       (_) async => (
         data: _amountResult([
           [2025, 7, _amt('5800')],
           [2025, 8, _amt('4000')],
         ]),
+        error: null,
+      ),
+    );
+    // The independent true-opening-balance query (see bql.dart's
+    // openingBalanceQuery — never has OPEN ON) — same value the old
+    // first-bucket approximation happened to use here, so the expected
+    // percentage below is unchanged.
+    when(() => repo.run(any(that: isNot(contains('OPEN ON'))))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, _amt('5800')],
+        ], keyCount: 1),
         error: null,
       ),
     );
@@ -163,7 +175,7 @@ void main() {
     expect(find.textContaining('1,800.00'), findsNothing);
     verify(
       () => repo.run(any()),
-    ).called(1); // a single, already-converted fetch
+    ).called(2); // series + the opening-balance fetch
 
     // Chip is vertically centered against the (much taller) amount text,
     // not bottom-aligned with it.
@@ -172,15 +184,74 @@ void main() {
     expect(chipCenter.dy, closeTo(amountCenter.dy, 2));
   });
 
-  testWidgets('no delta chip when the first value in range is zero', (
-    tester,
-  ) async {
-    when(() => repo.run(any())).thenAnswer(
+  testWidgets('delta chip percentage is independent of bucket granularity '
+      '(regression: it used to be derived from the series\' own first '
+      "bucket — that bucket's *end* value, which differs by granularity — "
+      'instead of the true balance at the range start)', (tester) async {
+    when(() => repo.run(any(that: contains('month(date)')))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          // First bucket's end (5800) is NOT the true opening balance
+          // (5000, mocked below) — under the old bug this alone would
+          // have driven the percentage.
+          [2025, 7, _amt('5800')],
+          [2025, 8, _amt('4000')],
+        ]),
+        error: null,
+      ),
+    );
+    when(() => repo.run(any(that: contains('day(date)')))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          // A different first-bucket-end (5750) than the monthly series
+          // above — under the old bug, switching granularity alone
+          // would have changed the displayed percentage.
+          [2025, 7, 1, _amt('5750')],
+          [2025, 8, 31, _amt('4000')],
+        ], keyCount: 3),
+        error: null,
+      ),
+    );
+    when(() => repo.run(any(that: isNot(contains('OPEN ON'))))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, _amt('5000')],
+        ], keyCount: 1),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+
+    // (4000 - 5000) / 5000 = -20.0%, using the true opening balance —
+    // not -31.0% (vs. the monthly first bucket) or -30.4% (vs. the
+    // daily one), either of which the old code would have shown.
+    expect(find.text('-20.0%'), findsOneWidget);
+
+    await tester.tap(find.text('Day'));
+    await tester.pumpAndSettle();
+
+    // Same true percentage under daily granularity — proves it no
+    // longer depends on which bucket size happens to be selected.
+    expect(find.text('-20.0%'), findsOneWidget);
+  });
+
+  testWidgets('no delta chip when the opening balance is zero', (tester) async {
+    when(() => repo.run(any(that: contains('OPEN ON')))).thenAnswer(
       (_) async => (
         data: _amountResult([
           [2025, 7, _amt('0')],
           [2025, 8, _amt('500')],
         ]),
+        error: null,
+      ),
+    );
+    when(() => repo.run(any(that: isNot(contains('OPEN ON'))))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, _amt('0')],
+        ], keyCount: 1),
         error: null,
       ),
     );
@@ -253,12 +324,20 @@ void main() {
       tester.view.physicalSize = const Size(320, 800);
       tester.view.devicePixelRatio = 1.0;
 
-      when(() => repo.run(any())).thenAnswer(
+      when(() => repo.run(any(that: contains('OPEN ON')))).thenAnswer(
         (_) async => (
           data: _amountResult([
             [2025, 7, _amt('5800')],
             [2025, 8, _amt('4000')],
           ]),
+          error: null,
+        ),
+      );
+      when(() => repo.run(any(that: isNot(contains('OPEN ON'))))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, _amt('5800')],
+          ], keyCount: 1),
           error: null,
         ),
       );
@@ -314,13 +393,41 @@ void main() {
   testWidgets('balance-sheet home view nets Assets and Liabilities into a '
       'net-worth line via one multi-root query', (tester) async {
     when(
-      () => repo.run(any(that: contains("'^(Assets|Liabilities)(:|\$)'"))),
+      () => repo.run(
+        any(
+          that: allOf(
+            contains("'^(Assets|Liabilities)(:|\$)'"),
+            contains('OPEN ON'),
+          ),
+        ),
+      ),
     ).thenAnswer(
       (_) async => (
         data: _amountResult([
           [2025, 7, _amt('1000')],
           [2025, 8, _amt('800')],
         ]),
+        error: null,
+      ),
+    );
+    // The independent true-opening-balance query (see bql.dart's
+    // openingBalanceQuery — never has OPEN ON); same value the old
+    // first-bucket approximation happened to use here, so the expected
+    // percentage below is unchanged.
+    when(
+      () => repo.run(
+        any(
+          that: allOf(
+            contains("'^(Assets|Liabilities)(:|\$)'"),
+            isNot(contains('OPEN ON')),
+          ),
+        ),
+      ),
+    ).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, _amt('1000')],
+        ], keyCount: 1),
         error: null,
       ),
     );
@@ -336,6 +443,7 @@ void main() {
           that: allOf(
             contains('last(balance)'),
             contains("'^(Assets|Liabilities)(:|\$)'"),
+            contains('OPEN ON'),
           ),
         ),
       ),
@@ -413,7 +521,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('4,040.00 CHF'), findsOneWidget);
-      verify(() => repo.run(any())).called(1);
+      // Series + the independent true-opening-balance fetch for the delta
+      // chip (see bql.dart's openingBalanceQuery) — this test doesn't care
+      // about the chip's content, just that a fetch happened.
+      verify(() => repo.run(any())).called(2);
 
       // Warning badge is visible; tapping it lists the warning.
       expect(find.text('1'), findsOneWidget);
@@ -519,7 +630,9 @@ void main() {
     await tester.pumpWidget(build(_checking, currencyFilter: 'USD'));
     await tester.pumpAndSettle();
 
-    verify(() => repo.run(any(that: contains("currency = 'USD'")))).called(1);
+    // Both the series and the independent opening-balance query (see
+    // bql.dart's openingBalanceQuery) are scoped by currencyFilter.
+    verify(() => repo.run(any(that: contains("currency = 'USD'")))).called(2);
   });
 
   testWidgets('changing the currencyFilter re-queries the chart', (
@@ -536,12 +649,14 @@ void main() {
 
     await tester.pumpWidget(build(_checking, currencyFilter: 'USD'));
     await tester.pumpAndSettle();
-    verify(() => repo.run(any())).called(1);
+    // Series + the independent opening-balance query (see bql.dart's
+    // openingBalanceQuery).
+    verify(() => repo.run(any())).called(2);
 
     await tester.pumpWidget(build(_checking, currencyFilter: 'EUR'));
     await tester.pumpAndSettle();
 
-    verify(() => repo.run(any(that: contains("currency = 'EUR'")))).called(1);
+    verify(() => repo.run(any(that: contains("currency = 'EUR'")))).called(2);
   });
 
   testWidgets('a first-load failure reports onError and renders nothing — no '
@@ -970,7 +1085,11 @@ void main() {
     await tester.tap(find.text('Year'));
     await tester.pumpAndSettle();
 
-    verify(() => repo.run(any(that: isNot(contains('month(date)'))))).called(1);
+    // isNot('month(date)') also matches the independent opening-balance
+    // query (see bql.dart's openingBalanceQuery, always year-only) from
+    // both the initial load and the year tap, plus the year tap's own
+    // series call: 3 total, none yet consumed by an earlier verify.
+    verify(() => repo.run(any(that: isNot(contains('month(date)'))))).called(3);
     expect(find.text('999.00 CHF'), findsOneWidget);
   });
 
@@ -1014,9 +1133,13 @@ void main() {
 
       verifyNever(() => repo.run(any(that: contains('day(date)'))));
       // Genuinely re-fetched for the new range (not just silently keeping
-      // the old range's data around) — 1 call for the initial load, 1 more
-      // for this new view.
-      verify(() => repo.run(any(that: isNot(contains('day(date)'))))).called(2);
+      // the old range's data around) — each of the 3 loads so far (initial,
+      // the daily tap, this new view) issues a monthly/yearly series call
+      // plus an independent opening-balance call (see bql.dart's
+      // openingBalanceQuery, never day-bucketed); the daily tap's own
+      // series call is the only one excluded (it has day(date), already
+      // consumed by the verify above) — 5 of the 6 total calls remain.
+      verify(() => repo.run(any(that: isNot(contains('day(date)'))))).called(5);
     },
   );
 

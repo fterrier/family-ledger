@@ -86,6 +86,42 @@ String balanceSeriesQuery({
       ' GROUP BY ${_bucketKeys(granularity)}';
 }
 
+/// The true balance immediately before [from] — i.e. everything strictly
+/// before the display range starts, with no lower bound of its own. Used
+/// for the header's percent-delta chip instead of a balanceSeriesQuery's
+/// first bucket, which is already the balance at that bucket's *end* (it
+/// includes that bucket's own activity — see balanceSeriesQuery's OPEN ON
+/// seeding) and is therefore granularity-dependent: with monthly buckets
+/// "first" silently means "end of the first month", not the range's true
+/// starting balance.
+///
+/// GROUP BY year rather than an OPEN ON-seeded single bucket: a bucket
+/// with no postings at all produces no row (see reporting-query.md), so a
+/// tightly-windowed single-bucket query would often come back empty even
+/// though a real prior balance exists. Grouping by year instead returns
+/// one row per year that had *any* activity before [from] — small and
+/// bounded for any real ledger — and the caller (decodeLatestYearlyBalance
+/// in chart_series.dart) takes the chronologically latest one, which is
+/// exactly the running balance carried forward to [from].
+String openingBalanceQuery({
+  required List<String> accountNames,
+  required DateTime from,
+  String? currency,
+  String? convertTo,
+}) {
+  final value = convertTo != null
+      ? 'convert(last(balance), ${_quote(convertTo)}) AS bal'
+      : 'last(balance) AS bal';
+  final conditions = [
+    'account ~ ${_quote(subtreePattern(accountNames))}',
+    if (currency != null) 'currency = ${_quote(currency)}',
+  ];
+  return 'SELECT ${_bucketColumns(Granularity.yearly)}, $value'
+      ' FROM CLOSE ON ${_date(from)}'
+      ' WHERE ${conditions.join(' AND ')}'
+      ' GROUP BY ${_bucketKeys(Granularity.yearly)}';
+}
+
 /// Per-bucket flow totals over one or more account subtrees (bar chart).
 /// Multiple [accountNames] net per bucket with raw ledger signs.
 String periodTotalsQuery({

@@ -195,6 +195,62 @@ void main() {
     });
   });
 
+  group('openingBalanceQuery', () {
+    test('groups by year with a CLOSE ON bound and no OPEN ON/lower bound', () {
+      expect(
+        openingBalanceQuery(
+          accountNames: ['Assets:Checking:ZKB'],
+          from: DateTime(2026, 3),
+        ),
+        'SELECT year(date) AS y, last(balance) AS bal'
+        ' FROM CLOSE ON 2026-03-01'
+        " WHERE account ~ '^Assets:Checking:ZKB(:|\$)'"
+        ' GROUP BY y',
+      );
+    });
+
+    test('single-currency filter adds a currency condition', () {
+      expect(
+        openingBalanceQuery(
+          accountNames: ['Assets:Checking:ZKB'],
+          from: DateTime(2026, 3),
+          currency: 'USD',
+        ),
+        'SELECT year(date) AS y, last(balance) AS bal'
+        ' FROM CLOSE ON 2026-03-01'
+        " WHERE account ~ '^Assets:Checking:ZKB(:|\$)' AND currency = 'USD'"
+        ' GROUP BY y',
+      );
+    });
+
+    test('converted view wraps last(balance) in convert()', () {
+      expect(
+        openingBalanceQuery(
+          accountNames: ['Assets:Liquid:IBKR'],
+          from: DateTime(2026, 3),
+          convertTo: 'CHF',
+        ),
+        "SELECT year(date) AS y, convert(last(balance), 'CHF') AS bal"
+        ' FROM CLOSE ON 2026-03-01'
+        " WHERE account ~ '^Assets:Liquid:IBKR(:|\$)'"
+        ' GROUP BY y',
+      );
+    });
+
+    test('multiple roots net into one query via the alternation pattern', () {
+      expect(
+        openingBalanceQuery(
+          accountNames: ['Assets', 'Liabilities'],
+          from: DateTime(2026),
+        ),
+        'SELECT year(date) AS y, last(balance) AS bal'
+        ' FROM CLOSE ON 2026-01-01'
+        " WHERE account ~ '^(Assets|Liabilities)(:|\$)'"
+        ' GROUP BY y',
+      );
+    });
+  });
+
   group('periodTotalsQuery', () {
     test('monthly bars use plain date bounds, not OPEN ON', () {
       expect(

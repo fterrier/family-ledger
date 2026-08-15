@@ -283,6 +283,26 @@ void main() {
     });
 
     testWidgets(
+      'preserves precision beyond 2 decimals verbatim (regression: the '
+      'amount used to be forced through double.toStringAsFixed(2), which '
+      'silently truncated anything more precise, e.g. a security quantity)',
+      (tester) async {
+        final result = await pushAddTransactionAndSubmit(
+          tester,
+          amount: '10.12345',
+        );
+
+        expect(result, isTrue);
+        final captured = verify(
+          () => mockTransactionRepo.createTransaction(captureAny()),
+        ).captured;
+        final tx = captured.first as TransactionCreate;
+        expect(tx.postings[0].units.amount, '-10.12345');
+        expect(tx.postings[1].units.amount, '10.12345');
+      },
+    );
+
+    testWidgets(
       'does not overwrite the default From account preference on submit',
       (tester) async {
         SharedPreferences.setMockInitialValues({

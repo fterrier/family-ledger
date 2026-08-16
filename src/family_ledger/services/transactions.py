@@ -71,6 +71,25 @@ def _converted_weight(
     )
 
 
+def _posting_payload_fields_from_orm(posting: Posting) -> dict[str, Any]:
+    """account/units/cost/price/entity_metadata — the fields common to
+    building a full read response (serialize_transaction, which adds
+    account_name/weight/converted_weights on top) and a write payload
+    (merge_transactions) from an ORM Posting. narration is deliberately
+    excluded: merge_transactions needs to override it per-posting."""
+    return {
+        "account": posting.account.name if posting.account else None,
+        "units": MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
+        "cost": None
+        if posting.cost_per_unit is None
+        else MoneyValue(amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)),
+        "price": None
+        if posting.price_per_unit is None
+        else MoneyValue(amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)),
+        "entity_metadata": posting.entity_metadata,
+    }
+
+
 def serialize_transaction(
     transaction: Transaction, *, price_lookup: PriceLookup | None = None
 ) -> TransactionResource:
@@ -79,25 +98,13 @@ def serialize_transaction(
         weight = persisted_posting_weight(posting)
         postings.append(
             PostingPayload(
-                account=posting.account.name if posting.account else None,
+                **_posting_payload_fields_from_orm(posting),
                 account_name=posting.account.account_name if posting.account else None,
-                units=MoneyValue(amount=posting.units_amount, symbol=posting.units_symbol),
                 narration=posting.narration,
-                cost=None
-                if posting.cost_per_unit is None
-                else MoneyValue(
-                    amount=posting.cost_per_unit, symbol=cast(str, posting.cost_symbol)
-                ),
-                price=None
-                if posting.price_per_unit is None
-                else MoneyValue(
-                    amount=posting.price_per_unit, symbol=cast(str, posting.price_symbol)
-                ),
                 weight=weight,
                 converted_weights=_converted_weight(
                     weight, transaction.transaction_date, price_lookup
                 ),
-                entity_metadata=posting.entity_metadata,
             )
         )
 
@@ -207,7 +214,6 @@ def persist_transaction(
     payload: TransactionCreate | TransactionNormalizeData,
     transaction: Transaction | None = None,
     update_mask: str | None = None,
-    ignore_source_id_conflicts_with: Sequence[str] = (),
 ) -> Transaction:
     # persist_transaction is the single chokepoint every postings-replacing
     # write goes through (create, update, :split, :unsplit, and every
@@ -216,6 +222,17 @@ def persist_transaction(
     # trusting its caller to have already normalized it: preparing the
     # canonical (fully explicit, fully balanced) form is this function's own
     # first step, not a precondition callers have to remember to satisfy.
+    #
+    # source_native_id uniqueness is deliberately NOT checked here, unlike
+    # every other invariant above: it's a cross-transaction import-integrity
+    # rule, not a fact about the postings/fields being written, and each
+    # caller's exclusion semantics genuinely differ (create: none; update:
+    # exclude self; merge: exclude both originals it's replacing). Making
+    # persist_transaction itself accept a caller-controlled exclude list
+    # for this one check was tried and reverted — it punched an
+    # unconstrained hole through an otherwise-trusted chokepoint for the
+    # sake of a single caller. Each of create_transaction/update_transaction
+    # /merge_transactions calls _check_source_ids_available itself instead.
     prepared, account_map = _prepare_canonical_transaction(session, payload)
 
     is_create = transaction is None
@@ -227,10 +244,6 @@ def persist_transaction(
     if _masked("import_metadata"):
         new_ids = prepared.import_metadata.source_native_ids if prepared.import_metadata else []
         new_ts = prepared.import_metadata.import_timestamp if prepared.import_metadata else None
-        exclude = list(ignore_source_id_conflicts_with)
-        if not is_create:
-            exclude.append(transaction.name)
-        _check_source_ids_available(session, new_ids, exclude_names=exclude)
 
     if is_create:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
@@ -528,10 +541,15 @@ def unsplit_transaction(
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 
 
+def _import_metadata_ids(payload: TransactionCreate | TransactionNormalizeData) -> list[str]:
+    return payload.import_metadata.source_native_ids if payload.import_metadata else []
+
+
 def create_transaction(
     session: Session,
     payload: TransactionCreate | TransactionNormalizeData,
 ) -> TransactionResource:
+    _check_source_ids_available(session, _import_metadata_ids(payload))
     transaction = persist_transaction(session, payload)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction.id))
@@ -544,6 +562,10 @@ def update_transaction(
     update_mask: str | None = None,
 ) -> TransactionResource:
     transaction_row = get_transaction_row(session, transaction)
+    if update_mask is None or "import_metadata" in update_mask.split(","):
+        _check_source_ids_available(
+            session, _import_metadata_ids(payload), exclude_names=[transaction_row.name]
+        )
     persist_transaction(session, payload, transaction=transaction_row, update_mask=update_mask)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
@@ -740,25 +762,16 @@ def merge_transactions(
         import_metadata=ImportMetadata(source_native_ids=merged_ids, import_timestamp=merged_ts),
         postings=[
             PostingPayload(
-                account=p.account.name if p.account else None,
-                units=MoneyValue(amount=p.units_amount, symbol=p.units_symbol),
+                **_posting_payload_fields_from_orm(p),
                 narration=narration_overrides.get(_posting_key(p), p.narration),
-                cost=None
-                if p.cost_per_unit is None
-                else MoneyValue(amount=p.cost_per_unit, symbol=cast(str, p.cost_symbol)),
-                price=None
-                if p.price_per_unit is None
-                else MoneyValue(amount=p.price_per_unit, symbol=cast(str, p.price_symbol)),
-                entity_metadata=p.entity_metadata,
             )
             for p in result_postings
         ],
     )
     # The merged transaction legitimately claims the same source_native_ids
     # its two (still-existing — merge never deletes them) originals already
-    # hold; that's expected, not a real conflict.
-    merged = persist_transaction(
-        session, payload, ignore_source_id_conflicts_with=[primary.name, secondary.name]
-    )
+    # hold; that's expected, not a real conflict, so both are excluded here.
+    _check_source_ids_available(session, merged_ids, exclude_names=[primary.name, secondary.name])
+    merged = persist_transaction(session, payload)
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, merged.id))

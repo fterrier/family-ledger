@@ -138,6 +138,20 @@ def test_validate_transaction_payload_checks_accounts_and_symbols(session: Sessi
     validation.validate_transaction_payload(session, payload)
 
 
+def test_validate_transaction_payload_rejects_empty_postings(session: Session) -> None:
+    # A transaction with zero postings is meaningless (nothing to balance,
+    # nothing to categorize) and was never supposed to be reachable — but
+    # nothing previously rejected it, and merge_transactions's redesign
+    # (dropping accountless postings from both sides before merging) made
+    # it newly reachable: merging two transactions that are *entirely*
+    # accountless leaves nothing to merge at all.
+    payload = TransactionCreate(transaction_date=date(2026, 4, 19), postings=[])
+
+    with pytest.raises(ValidationError) as exc_info:
+        validation.validate_transaction_payload(session, payload)
+    assert exc_info.value.code == "empty_postings"
+
+
 def test_resolve_accounts_skips_none_account_postings(session: Session) -> None:
     session.add_all(
         [

@@ -74,6 +74,11 @@ def validate_transaction_symbols(session: Session, payload: TransactionData) -> 
 
 
 def validate_transaction_payload(session: Session, payload: TransactionData) -> dict[str, Account]:
+    if not payload.postings:
+        raise ValidationError(
+            code="empty_postings",
+            message="A transaction must have at least one posting.",
+        )
     account_map = resolve_accounts(session, payload.postings)
     validate_transaction_symbols(session, payload)
     return account_map

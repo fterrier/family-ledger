@@ -916,6 +916,52 @@ def test_merge_transactions_drops_a_filler_that_the_other_side_already_categoriz
     assert sum(p.units.amount for p in merged.postings) == Decimal("0")
 
 
+def test_merge_transactions_rejects_when_both_sides_are_fully_accountless(
+    session: Session,
+) -> None:
+    # Regression: dropping accountless postings from both sides (see the
+    # test above) has a degenerate edge case when there are no accounted
+    # postings left on *either* side — result_postings would be empty, and
+    # persist_transaction has nothing to compute a residual from an empty
+    # payload, so it used to silently create a transaction with zero
+    # postings, discarding both sides' money entirely with no error.
+    # validate_transaction_payload now rejects an empty-postings payload
+    # outright (a real, if narrow, pre-existing gap in the whole system —
+    # not merge-specific — that this merge redesign made newly reachable).
+    seed_basic_transaction_dependencies(session)
+
+    primary = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            postings=[
+                PostingPayload(
+                    account=None,
+                    units=MoneyValue(amount=Decimal("100.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    secondary = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            postings=[
+                PostingPayload(
+                    account=None,
+                    units=MoneyValue(amount=Decimal("50.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    assert all(p.account is None for p in primary.postings)
+    assert all(p.account is None for p in secondary.postings)
+
+    with pytest.raises(ValidationError) as exc_info:
+        transactions_service.merge_transactions(session, primary.name, secondary.name)
+    assert exc_info.value.code == "empty_postings"
+
+
 # ---------------------------------------------------------------------------
 # update_time (Phase 1: optimistic-concurrency timestamp)
 # ---------------------------------------------------------------------------

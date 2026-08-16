@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any, Literal, cast
@@ -156,7 +157,7 @@ def _source_id_like_clause(session: Session, pattern: str):
 
 
 def _check_source_ids_available(
-    session: Session, ids: list[str], exclude_name: str | None = None
+    session: Session, ids: list[str], exclude_names: Sequence[str] = ()
 ) -> None:
     if not ids:
         return
@@ -169,23 +170,27 @@ def _check_source_ids_available(
             " jsonb_array_elements_text(CAST(:ids_json AS jsonb)) AS c(v)"
             " WHERE tv = c.v"
         )
-        if exclude_name is not None:
-            pg_sql += " AND t.name != :exclude"
+        params: dict[str, Any] = {"ids_json": json.dumps(ids)}
+        if exclude_names:
+            exclude_placeholders = ", ".join(f":exclude{i}" for i in range(len(exclude_names)))
+            pg_sql += f" AND t.name NOT IN ({exclude_placeholders})"
+            params.update({f"exclude{i}": name for i, name in enumerate(exclude_names)})
         pg_sql += " LIMIT 1"
-        stmt = text(pg_sql).bindparams(ids_json=json.dumps(ids))
-        if exclude_name is not None:
-            stmt = stmt.bindparams(exclude=exclude_name)
-        rows = session.execute(stmt).all()
+        rows = session.execute(text(pg_sql).bindparams(**params)).all()
     else:
-        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
-        params: dict[str, Any] = {f"id{i}": sid for i, sid in enumerate(ids)}
-        params["exclude"] = exclude_name
+        id_placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params = {f"id{i}": sid for i, sid in enumerate(ids)}
+        exclude_sql = "1=1"
+        if exclude_names:
+            exclude_placeholders = ", ".join(f":exclude{i}" for i in range(len(exclude_names)))
+            exclude_sql = f"t.name NOT IN ({exclude_placeholders})"
+            params.update({f"exclude{i}": name for i, name in enumerate(exclude_names)})
         rows = session.execute(
             text(
                 "SELECT t.name, j.value"
                 f" FROM transactions t, json_each(t.source_native_ids) AS j"
-                f" WHERE j.value IN ({placeholders})"
-                " AND (:exclude IS NULL OR t.name != :exclude)"
+                f" WHERE j.value IN ({id_placeholders})"
+                f" AND {exclude_sql}"
                 " LIMIT 1"
             ).bindparams(**params)
         ).all()
@@ -202,6 +207,7 @@ def persist_transaction(
     payload: TransactionCreate | TransactionNormalizeData,
     transaction: Transaction | None = None,
     update_mask: str | None = None,
+    ignore_source_id_conflicts_with: Sequence[str] = (),
 ) -> Transaction:
     # persist_transaction is the single chokepoint every postings-replacing
     # write goes through (create, update, :split, :unsplit, and every
@@ -221,8 +227,10 @@ def persist_transaction(
     if _masked("import_metadata"):
         new_ids = prepared.import_metadata.source_native_ids if prepared.import_metadata else []
         new_ts = prepared.import_metadata.import_timestamp if prepared.import_metadata else None
-        exclude = None if is_create else transaction.name
-        _check_source_ids_available(session, new_ids, exclude_name=exclude)
+        exclude = list(ignore_source_id_conflicts_with)
+        if not is_create:
+            exclude.append(transaction.name)
+        _check_source_ids_available(session, new_ids, exclude_names=exclude)
 
     if is_create:
         transaction = Transaction(name=generate_resource_name("transactions", "txn"))
@@ -687,21 +695,28 @@ def merge_transactions(
     merged_payee = primary.payee or secondary.payee
     merged_narration = primary.narration or secondary.narration
 
-    # narration_overrides avoids mutating session-tracked Posting rows (SQLAlchemy persists them)
+    # Accountless postings are dropped entirely, from both sides — an
+    # accountless posting only ever means "however much this transaction
+    # didn't balance to on its own" (ADR 0012), which stops being a
+    # meaningful fact the moment it's merged with another transaction's
+    # postings: keeping it verbatim can leave the merge genuinely
+    # unbalanced (if the other side already categorizes what it covered)
+    # or just carry two individually-arbitrary amounts where one accurate,
+    # freshly-computed one belongs. persist_transaction (via
+    # _postings_balanced_with_residual_fillers, the same mechanism every
+    # other write path relies on) recomputes whatever gap the *merged*
+    # accounted postings actually have, if any — so there's no dedicated
+    # accountless-merging logic left to get wrong here.
     narration_overrides: dict[tuple, str] = {}
     primary_key: dict[tuple, Posting] = {}
     result_postings: list[Posting] = []
     for pp in primary.postings:
+        if pp.account_id is None:
+            continue
         result_postings.append(pp)
-        if pp.account_id is not None:
-            primary_key[_posting_key(pp)] = pp
+        primary_key[_posting_key(pp)] = pp
     for sp in secondary.postings:
-        # Accountless postings carry no identity beyond amount/symbol —
-        # deduping them against each other would silently conflate two
-        # unrelated gaps that happen to share an amount, so every
-        # accountless posting from both sides is always kept.
         if sp.account_id is None:
-            result_postings.append(sp)
             continue
         key = _posting_key(sp)
         if key in primary_key:
@@ -716,36 +731,34 @@ def merge_transactions(
         default=None,
     )
 
-    merged = Transaction(
-        name=generate_resource_name("transactions", "txn"),
+    payload = TransactionCreate(
         transaction_date=primary.transaction_date,
         payee=merged_payee,
         narration=merged_narration,
         tags=list(dict.fromkeys(primary.tags + secondary.tags)),
         entity_metadata=primary.entity_metadata,
-        source_native_ids=merged_ids,
-        import_timestamp=merged_ts,
-        updated_at=current_update_time(),
-    )
-    session.add(merged)
-    session.flush()
-
-    for idx, p in enumerate(result_postings, start=1):
-        session.add(
-            Posting(
-                transaction_id=merged.id,
-                account_id=p.account_id,
-                posting_order=idx,
-                units_amount=p.units_amount,
-                units_symbol=p.units_symbol,
+        import_metadata=ImportMetadata(source_native_ids=merged_ids, import_timestamp=merged_ts),
+        postings=[
+            PostingPayload(
+                account=p.account.name if p.account else None,
+                units=MoneyValue(amount=p.units_amount, symbol=p.units_symbol),
                 narration=narration_overrides.get(_posting_key(p), p.narration),
-                cost_per_unit=p.cost_per_unit,
-                cost_symbol=p.cost_symbol,
-                price_per_unit=p.price_per_unit,
-                price_symbol=p.price_symbol,
+                cost=None
+                if p.cost_per_unit is None
+                else MoneyValue(amount=p.cost_per_unit, symbol=cast(str, p.cost_symbol)),
+                price=None
+                if p.price_per_unit is None
+                else MoneyValue(amount=p.price_per_unit, symbol=cast(str, p.price_symbol)),
                 entity_metadata=p.entity_metadata,
             )
-        )
-
+            for p in result_postings
+        ],
+    )
+    # The merged transaction legitimately claims the same source_native_ids
+    # its two (still-existing — merge never deletes them) originals already
+    # hold; that's expected, not a real conflict.
+    merged = persist_transaction(
+        session, payload, ignore_source_id_conflicts_with=[primary.name, secondary.name]
+    )
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, merged.id))

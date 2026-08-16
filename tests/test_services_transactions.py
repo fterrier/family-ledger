@@ -765,6 +765,11 @@ def test_update_transaction_can_introduce_accountless_posting(session: Session) 
 
 
 def test_merge_transactions_handles_accountless_postings(session: Session) -> None:
+    # Each side's own filler is dropped, not carried over verbatim — the
+    # merged result gets ONE fresh filler for the combined accounted total
+    # (-100 + -5 = -105), computed by persist_transaction the same way any
+    # other write path would, rather than two individually-stale amounts
+    # (100 and 5) neither of which means anything once merged.
     seed_basic_transaction_dependencies(session)
 
     primary = transactions_service.create_transaction(
@@ -802,17 +807,25 @@ def test_merge_transactions_handles_accountless_postings(session: Session) -> No
 
     merged = transactions_service.merge_transactions(session, primary.name, secondary.name)
 
-    assert sum(1 for p in merged.postings if p.account is None) == 2
+    accountless = [p for p in merged.postings if p.account is None]
+    assert len(accountless) == 1
+    assert accountless[0].units.amount == Decimal("105.00")
+    assert sum(p.units.amount for p in merged.postings) == Decimal("0")
 
 
-def test_merge_transactions_does_not_dedupe_unrelated_accountless_postings(
+def test_merge_transactions_recomputes_one_consolidated_filler_not_two_stale_ones(
     session: Session,
 ) -> None:
-    # _posting_key's dedup tuple includes account_id — for two accountless
-    # postings that's always None, so two *unrelated* accountless postings
-    # (each covering a different transaction's own gap) must never be
-    # treated as "the same posting" just because their amount/symbol happen
-    # to match too. Regression test: both fillers here are 50.00 CHF.
+    # Historically, _posting_key's dedup tuple (which includes account_id,
+    # always None for accountless postings) risked treating two *unrelated*
+    # accountless postings as "the same posting" if their amount/symbol
+    # happened to match too — fixed by excluding accountless postings from
+    # dedup entirely (they're dropped before the dedup map is even built),
+    # so that specific collision is now structurally impossible, not just
+    # correctly handled. This test's amounts (both 50.00) are the same ones
+    # that exercised that old collision, now proving the newer, simpler
+    # invariant: exactly one fresh, consolidated filler for the combined
+    # accounted total, not two leftover per-transaction ones.
     seed_basic_transaction_dependencies(session)
 
     primary = transactions_service.create_transaction(
@@ -844,7 +857,62 @@ def test_merge_transactions_does_not_dedupe_unrelated_accountless_postings(
 
     merged = transactions_service.merge_transactions(session, primary.name, secondary.name)
 
-    assert sum(1 for p in merged.postings if p.account is None) == 2
+    accountless = [p for p in merged.postings if p.account is None]
+    assert len(accountless) == 1
+    assert accountless[0].units.amount == Decimal("100.00")
+    assert sum(p.units.amount for p in merged.postings) == Decimal("0")
+
+
+def test_merge_transactions_drops_a_filler_that_the_other_side_already_categorizes(
+    session: Session,
+) -> None:
+    # The concrete bug this whole redesign fixes: primary is a single-leg
+    # import (auto-filled with a +50 filler); secondary independently
+    # records the SAME checking-account leg (deduped away) plus its real
+    # categorization. Keeping primary's stale filler verbatim alongside
+    # secondary's real posting used to leave the merged transaction
+    # unbalanced (-50 dedup'd + 50 stale filler + 50 real = +50) even
+    # though the two inputs, combined, are already exactly balanced on
+    # their own accounted postings — dropping the stale filler and letting
+    # persist_transaction recompute (nothing needed here) is what makes
+    # this correct.
+    seed_basic_transaction_dependencies(session)
+
+    primary = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-50.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+    assert primary.postings[1].account is None  # auto-filled +50.00
+
+    secondary = transactions_service.create_transaction(
+        session,
+        TransactionCreate(
+            transaction_date=date(2026, 4, 19),
+            postings=[
+                PostingPayload(
+                    account="accounts/acc_one",
+                    units=MoneyValue(amount=Decimal("-50.00"), symbol="CHF"),
+                ),
+                PostingPayload(
+                    account="accounts/acc_two",
+                    units=MoneyValue(amount=Decimal("50.00"), symbol="CHF"),
+                ),
+            ],
+        ),
+    )
+
+    merged = transactions_service.merge_transactions(session, primary.name, secondary.name)
+
+    assert len(merged.postings) == 2
+    assert all(p.account is not None for p in merged.postings)
     assert sum(p.units.amount for p in merged.postings) == Decimal("0")
 
 
@@ -1788,29 +1856,51 @@ class _CapturingFakeSession:
 def test_check_source_ids_available_postgresql_omits_is_null_when_exclude_none() -> None:
     # psycopg3 raises AmbiguousParameter when a NULL value is bound to a parameter
     # that only appears in IS NULL — it cannot infer the PostgreSQL type.
-    # The PostgreSQL SQL must not include "IS NULL" when exclude_name is None;
-    # instead the exclude clause should be omitted entirely.
+    # The PostgreSQL SQL must not include "IS NULL" when there's nothing to
+    # exclude; instead the exclude clause should be omitted entirely.
     fake = _CapturingFakeSession("postgresql")
-    transactions_service._check_source_ids_available(
-        cast(Session, fake), ["ibkr:12345678"], exclude_name=None
-    )
+    transactions_service._check_source_ids_available(cast(Session, fake), ["ibkr:12345678"])
     assert fake.captured_sql, "expected SQL to be executed"
     assert "IS NULL" not in fake.captured_sql[0], (
         "PostgreSQL SQL must not use 'IS NULL' for the exclude parameter when "
-        "exclude_name is None; psycopg3 cannot infer the type and raises "
-        "AmbiguousParameter (see: sqlalche.me/e/20/f405)"
+        "there are no names to exclude; psycopg3 cannot infer the type and "
+        "raises AmbiguousParameter (see: sqlalche.me/e/20/f405)"
     )
 
 
 def test_check_source_ids_available_postgresql_omits_is_null_when_exclude_given() -> None:
-    # When exclude_name is provided the clause must be "t.name != :exclude"
+    # When exclude_names is provided the clause must be "t.name NOT IN (...)"
     # (no IS NULL), so psycopg3 can infer the type from the VARCHAR column comparison.
     fake = _CapturingFakeSession("postgresql")
     transactions_service._check_source_ids_available(
-        cast(Session, fake), ["ibkr:12345678"], exclude_name="transactions/txn_abc"
+        cast(Session, fake), ["ibkr:12345678"], exclude_names=["transactions/txn_abc"]
     )
     assert fake.captured_sql, "expected SQL to be executed"
     assert "IS NULL" not in fake.captured_sql[0], (
         "PostgreSQL SQL must not use 'IS NULL' for the exclude parameter even "
-        "when exclude_name is provided"
+        "when exclude_names is provided"
     )
+    assert "NOT IN" in fake.captured_sql[0]
+
+
+def test_check_source_ids_available_excludes_multiple_names() -> None:
+    # merge_transactions excludes both the primary and secondary transaction
+    # names at once (they legitimately already hold the source ids the
+    # merged transaction is about to claim) — exercised at the API/
+    # integration level by the merge tests, this pins the underlying
+    # multi-name SQL directly for both dialects.
+    pg = _CapturingFakeSession("postgresql")
+    transactions_service._check_source_ids_available(
+        cast(Session, pg),
+        ["ibkr:12345678"],
+        exclude_names=["transactions/txn_a", "transactions/txn_b"],
+    )
+    assert "NOT IN" in pg.captured_sql[0]
+
+    sqlite = _CapturingFakeSession("sqlite")
+    transactions_service._check_source_ids_available(
+        cast(Session, sqlite),
+        ["ibkr:12345678"],
+        exclude_names=["transactions/txn_a", "transactions/txn_b"],
+    )
+    assert "NOT IN" in sqlite.captured_sql[0]

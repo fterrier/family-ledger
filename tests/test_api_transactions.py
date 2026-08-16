@@ -2445,8 +2445,14 @@ def test_merge_transactions_with_accountless_postings() -> None:
     )
 
     assert response.status_code == 200
-    accountless = [p for p in response.json()["postings"] if p["account"] is None]
-    assert len(accountless) == 2
+    postings = response.json()["postings"]
+    accountless = [p for p in postings if p["account"] is None]
+    # One fresh, consolidated filler for the merged accounted total
+    # (-10 + -5 = -15), not the two individually-stale per-transaction
+    # amounts (10 and 5) — see the service-level merge tests for why.
+    assert len(accountless) == 1
+    assert Decimal(accountless[0]["units"]["amount"]) == Decimal("15.00")
+    assert sum(Decimal(p["units"]["amount"]) for p in postings) == 0
 
 
 def test_transaction_responses_include_update_time() -> None:

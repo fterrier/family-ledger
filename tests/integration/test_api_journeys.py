@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import pytest
 from api_helpers import (
     create_account,
@@ -227,6 +229,58 @@ def test_stored_unbalanced_transaction_persists_and_gets_a_balancing_filler_post
     assert len(body["postings"]) == 2
     assert body["postings"][1]["account"] is None
     assert body["postings"][1]["units"] == {"amount": "100.00", "symbol": "CHF"}
+
+
+def test_merging_two_single_posting_transactions_drops_stale_fillers(
+    integration_client: TestClient,
+) -> None:
+    # Each side's auto-filler (from create_transaction's persist_transaction
+    # call) must NOT survive the merge verbatim — the merged result should
+    # get exactly one fresh, consolidated filler for the combined accounted
+    # total, not the two originals' individually-stale amounts carried
+    # along unchanged. Proving this against a real migrated Postgres schema
+    # (not just SQLite-backed unit tests) matters here specifically because
+    # the fix also touches dialect-specific SQL (_check_source_ids_available
+    # has separate Postgres/SQLite branches for the new multi-name exclude).
+    create_commodity(integration_client, "CHF")
+    checking = create_account(integration_client, "Assets:Bank:Checking")
+    other = create_account(integration_client, "Assets:Bank:Other")
+
+    first = create_transaction(
+        integration_client,
+        "2026-01-15",
+        postings=[{"account": checking["name"], "units": {"amount": "-10.00", "symbol": "CHF"}}],
+        source_native_ids=["bank:txn:1"],
+    )
+    second = create_transaction(
+        integration_client,
+        "2026-01-15",
+        postings=[{"account": other["name"], "units": {"amount": "-5.00", "symbol": "CHF"}}],
+        source_native_ids=["bank:txn:2"],
+    )
+    assert len(first["postings"]) == 2
+    assert len(second["postings"]) == 2
+
+    response = integration_client.post(
+        "/transactions:merge",
+        json={"primary_transaction": first["name"], "secondary_transaction": second["name"]},
+    )
+    assert response.status_code == 200
+    merged = response.json()
+
+    assert len(merged["postings"]) == 3
+    accountless = [p for p in merged["postings"] if p["account"] is None]
+    assert len(accountless) == 1
+    assert Decimal(accountless[0]["units"]["amount"]) == Decimal("15.00")
+    assert sum(Decimal(p["units"]["amount"]) for p in merged["postings"]) == 0
+
+    # The merged transaction legitimately claims both originals'
+    # source_native_ids — merge never deletes the originals, so this is
+    # only possible because persist_transaction's uniqueness check is told
+    # to ignore conflicts with primary/secondary specifically (real
+    # conflicts with any *other* transaction must still be rejected — see
+    # test_merge_secondary_source_id_blocks_reimport for that case).
+    assert set(merged["import_metadata"]["source_native_ids"]) == {"bank:txn:1", "bank:txn:2"}
 
 
 def test_unsplitting_an_accountless_posting_with_no_merge_target_is_a_no_op(

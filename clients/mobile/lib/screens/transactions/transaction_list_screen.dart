@@ -550,68 +550,75 @@ class TransactionListScreenState extends State<TransactionListScreen> {
         !_errors.containsKey(_ErrorSource.list);
     final hasTrailing = showLoadingFooter || _paginationError || showEmptyState;
 
+    // The chart is a SliverToBoxAdapter, not a lazy list item: unlike a
+    // ListView.builder item, it's never torn down and reconstructed when
+    // scrolled past the viewport/cache extent, so its State (and the
+    // granularity chip pick it holds) survives scrolling. Only the
+    // transaction rows below it need to be lazily built.
     Widget listContent = RefreshIndicator(
       onRefresh: refresh,
       displacement: 60.0,
-      child: ListView.builder(
+      child: CustomScrollView(
         controller: _scrollController,
         physics: const AlwaysScrollableScrollPhysics(
           parent: ClampingScrollPhysics(),
         ),
-        itemCount: 1 + _transactions.length + (hasTrailing ? 1 : 0),
-        itemBuilder: (context, index) {
-          if (index == 0) return _buildChartCard();
-          final txIndex = index - 1;
-          if (txIndex == _transactions.length) {
-            if (showLoadingFooter) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+        slivers: [
+          SliverToBoxAdapter(child: _buildChartCard()),
+          SliverList(
+            delegate: SliverChildBuilderDelegate((context, txIndex) {
+              if (txIndex == _transactions.length) {
+                if (showLoadingFooter) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(
+                      child: SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  );
+                }
+                if (_paginationError) {
+                  return Center(
+                    child: TextButton(
+                      onPressed: () {
+                        setState(() => _paginationError = false);
+                        _load(
+                          pageToken: _nextPageToken,
+                        ); // reuses preserved token — does not reset to page 1
+                      },
+                      child: const Text('Retry'),
+                    ),
+                  );
+                }
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(
+                    child: Text(
+                      'No transactions in range',
+                      style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
+                    ),
                   ),
-                ),
+                );
+              }
+              final tx = _transactions[txIndex];
+              return _TransactionRow(
+                transaction: tx,
+                amountRoots: _filter.viewRoots,
+                convertTarget: _defaultCurrency,
+                hasIssue: _transactionsWithIssues.contains(tx.name),
+                isSelecting: isSelecting,
+                isSelected: _selectedNames.contains(tx.name),
+                onTap: isSelecting
+                    ? () => _toggleSelection(tx)
+                    : () => _openTransaction(tx),
+                onLongPress: () => _enterSelection(tx),
               );
-            }
-            if (_paginationError) {
-              return Center(
-                child: TextButton(
-                  onPressed: () {
-                    setState(() => _paginationError = false);
-                    _load(
-                      pageToken: _nextPageToken,
-                    ); // reuses preserved token — does not reset to page 1
-                  },
-                  child: const Text('Retry'),
-                ),
-              );
-            }
-            return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Text(
-                  'No transactions in range',
-                  style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
-                ),
-              ),
-            );
-          }
-          final tx = _transactions[txIndex];
-          return _TransactionRow(
-            transaction: tx,
-            amountRoots: _filter.viewRoots,
-            convertTarget: _defaultCurrency,
-            hasIssue: _transactionsWithIssues.contains(tx.name),
-            isSelecting: isSelecting,
-            isSelected: _selectedNames.contains(tx.name),
-            onTap: isSelecting
-                ? () => _toggleSelection(tx)
-                : () => _openTransaction(tx),
-            onLongPress: () => _enterSelection(tx),
-          );
-        },
+            }, childCount: _transactions.length + (hasTrailing ? 1 : 0)),
+          ),
+        ],
       ),
     );
 

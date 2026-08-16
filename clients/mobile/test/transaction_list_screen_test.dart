@@ -554,13 +554,13 @@ void main() {
     expect(calls, [null]);
 
     // Drag up by a large amount to scroll past the load-more threshold.
-    await tester.drag(find.byType(ListView), const Offset(0, -5000));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
     await tester.pumpAndSettle();
 
     // Both pages fetched: second call used the page token from the first response.
     expect(calls, [null, 'page2']);
     // Total item count in the list grew to 21.
-    expect(find.byType(ListView), findsOneWidget);
+    expect(find.byType(CustomScrollView), findsOneWidget);
   });
 
   testWidgets('pull-to-refresh reloads the list', (tester) async {
@@ -651,7 +651,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls, [null]);
 
-    await tester.drag(find.byType(ListView), const Offset(0, -5000));
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
     await tester.pump();
     expect(calls, [null, 'tok']);
 
@@ -727,7 +727,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView), const Offset(0, -5000));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
       await tester.pump();
       expect(calls, [null, 'tok']);
 
@@ -808,7 +808,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls, [null]);
 
-      await tester.drag(find.byType(ListView), const Offset(0, -5000));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
       await tester.pumpAndSettle();
       expect(calls, [null, 'tok']);
 
@@ -872,11 +872,11 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.drag(find.byType(ListView), const Offset(0, -5000));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
       await tester.pumpAndSettle();
       // The Retry footer is appended after the last item. Scroll a bit more
       // so the lazy list builds it into the viewport.
-      await tester.drag(find.byType(ListView), const Offset(0, -200));
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -200));
       await tester.pump();
       expect(find.text('Retry'), findsOneWidget);
 
@@ -2008,6 +2008,98 @@ void main() {
               .details['diff'],
           '-10.00',
         );
+      },
+    );
+
+    testWidgets(
+      'granularity choice survives being scrolled off-screen and back '
+      '(regression: the chart card is a lazy list item and lost its State, '
+      'and thus its granularity pick, once scrolled past the cache extent)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({'default_currency': 'CHF'});
+        when(
+          () => mockRepo.listTransactions(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+            filter: any(named: 'filter'),
+            convert: any(named: 'convert'),
+          ),
+        ).thenAnswer(
+          (_) async => (
+            data: (
+              List.generate(
+                40,
+                (i) => _tx(name: 'transactions/t$i', payee: 'Payee $i'),
+              ),
+              null,
+            ),
+            error: null,
+          ),
+        );
+        // Distinguishable by granularity, same as account_chart_card_test.dart's
+        // own convention: a daily-bucketed query returns a different balance
+        // than any other granularity, so the rendered headline reveals which
+        // one was actually requested.
+        when(
+          () => mockQueryRepo.run(any(that: contains('day(date)'))),
+        ).thenAnswer(
+          (_) async => (
+            data: const QueryResult(
+              columns: [
+                QueryColumnDef(name: 'y', type: 'int'),
+                QueryColumnDef(name: 'm', type: 'int'),
+                QueryColumnDef(name: 'd', type: 'int'),
+                QueryColumnDef(name: 'bal', type: 'amount'),
+              ],
+              rows: [
+                [2026, 6, 18, QueryAmount(number: '150', currency: 'CHF')],
+              ],
+              warnings: [],
+            ),
+            error: null,
+          ),
+        );
+        when(
+          () => mockQueryRepo.run(any(that: isNot(contains('day(date)')))),
+        ).thenAnswer(
+          (_) async => (
+            data: const QueryResult(
+              columns: [
+                QueryColumnDef(name: 'y', type: 'int'),
+                QueryColumnDef(name: 'bal', type: 'amount'),
+              ],
+              rows: [
+                [2025, QueryAmount(number: '100', currency: 'CHF')],
+              ],
+              warnings: [],
+            ),
+            error: null,
+          ),
+        );
+
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+        // Span-derived default for an all-time (no date filter) view is
+        // yearly, so this starts out showing the non-Day balance.
+        expect(find.text('100.00 CHF'), findsOneWidget);
+
+        await tester.tap(find.text('Day'));
+        await tester.pumpAndSettle();
+        expect(find.text('150.00 CHF'), findsOneWidget);
+
+        // Scroll the chart (list index 0) far past the viewport and cache
+        // extent, then back — exactly the gesture the bug report described
+        // ("scroll down a bit and the chart disappears").
+        final scrollable = find.byType(CustomScrollView);
+        await tester.drag(scrollable, const Offset(0, -5000));
+        await tester.pumpAndSettle();
+        await tester.drag(scrollable, const Offset(0, 5000));
+        await tester.pumpAndSettle();
+
+        // The Day pick must still be in effect — not silently reset back to
+        // the span-derived yearly default.
+        expect(find.text('150.00 CHF'), findsOneWidget);
+        expect(find.text('100.00 CHF'), findsNothing);
       },
     );
   });

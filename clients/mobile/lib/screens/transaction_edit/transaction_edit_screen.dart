@@ -226,6 +226,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     _normalizeDebounce?.cancel();
     _payeeController.dispose();
     _narrationController.dispose();
+    widget.errors.dispose();
     for (final p in _postings) {
       p.dispose();
     }

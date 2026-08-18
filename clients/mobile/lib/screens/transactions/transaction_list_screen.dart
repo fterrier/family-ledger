@@ -73,6 +73,17 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   ApiError? get _currentError =>
       widget.listErrors.value ?? widget.chartErrors.value;
 
+  // Computed once rather than inline in build(): Listenable.merge returns a
+  // new object with identity-based == on every call, so passing a fresh one
+  // to ListenableBuilder each build would make it see a "different"
+  // listenable and needlessly unsubscribe/resubscribe on listErrors and
+  // chartErrors every rebuild — this screen's build() runs often (pagination
+  // scroll, doctor-issue refresh, bulk selection, ...).
+  late final Listenable _errorsListenable = Listenable.merge([
+    widget.listErrors,
+    widget.chartErrors,
+  ]);
+
   bool _paginationError = false;
 
   // Started on each new fetch; _doFetch discards results from older generations.
@@ -520,7 +531,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // build() closure would only see whichever values were current the
     // last time something else called setState.
     return ListenableBuilder(
-      listenable: Listenable.merge([widget.listErrors, widget.chartErrors]),
+      listenable: _errorsListenable,
       builder: (context, _) {
         // Footer spinner covers two loading cases (mutually exclusive, same
         // widget either way): mid-pagination, and the very first fetch when

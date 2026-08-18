@@ -199,6 +199,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     _amountFocusNode.dispose();
     _payeeController.dispose();
     _narrationController.dispose();
+    widget.errors.dispose();
     super.dispose();
   }
 

@@ -59,6 +59,7 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
   @override
   void dispose() {
     _yearsScrollController.dispose();
+    widget.errors.dispose();
     super.dispose();
   }
 

@@ -56,6 +56,12 @@ class _ImportScreenState extends State<ImportScreen> {
     _loadImporters();
   }
 
+  @override
+  void dispose() {
+    widget.errors.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadImporters() async {
     final result = await widget.importerRepository.getImporters();
     if (!mounted) return;

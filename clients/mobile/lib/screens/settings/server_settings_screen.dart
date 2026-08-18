@@ -98,6 +98,12 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
   void dispose() {
     _urlController.dispose();
     _tokenController.dispose();
+    // Not widget.errors: this screen is used both for the initial,
+    // long-lived unconfigured-app setup (whose reporter is owned by
+    // _FamilyLedgerAppState and outlives this State) and as a pushed
+    // settings screen (whose reporter *is* ephemeral) — since a single
+    // dispose() can't tell which case it's in, neither disposes it here;
+    // the pushed case's reporter is simply left to the garbage collector.
     super.dispose();
   }
 

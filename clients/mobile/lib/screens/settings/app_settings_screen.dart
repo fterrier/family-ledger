@@ -42,6 +42,12 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     _load();
   }
 
+  @override
+  void dispose() {
+    widget.errors.dispose();
+    super.dispose();
+  }
+
   Future<void> _load() async {
     setState(() => _loading = true);
     final (accountsResult, commoditiesResult, prefs) = await (

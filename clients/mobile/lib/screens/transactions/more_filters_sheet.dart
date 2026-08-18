@@ -55,6 +55,12 @@ class _MoreFiltersSheetState extends State<MoreFiltersSheet> {
     _loadCommodities();
   }
 
+  @override
+  void dispose() {
+    widget.errors.dispose();
+    super.dispose();
+  }
+
   Future<void> _loadCommodities() async {
     final result = await widget.commodityRepository.getAllCommodities();
     if (!mounted) return;

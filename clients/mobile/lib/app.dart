@@ -46,14 +46,21 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
   );
   final _bulkSelectionNotifier = ValueNotifier<Set<String>>({});
 
-  // Long-lived, reused across rebuilds — TransactionListScreen and the
-  // server-settings screen both survive for the app's lifetime (the latter
-  // shown either as the initial setup screen or pushed from the drawer), so
-  // their error state is owned here rather than freshly constructed on
-  // every push like the other, shorter-lived screens below.
+  // Long-lived — TransactionListScreen is the persistent app body and never
+  // gets torn down, so its error state has to be owned here instead of
+  // freshly constructed like the shorter-lived pushed screens below.
   final _listErrors = ErrorReporter();
   final _chartErrors = ErrorReporter();
-  final _serverErrors = ErrorReporter();
+
+  // Only for the unconfigured-app screen below, which build() returns
+  // directly rather than through a MaterialPageRoute — that builder is
+  // cached by the Navigator and only runs once per push, so a fresh
+  // ErrorReporter() there is safe (see _openServerSettings), but this one
+  // reruns on every rebuild of this State. A fresh instance inline here
+  // would get swapped into the still-mounted ServerSettingsScreen via
+  // didUpdateWidget on every such rebuild, silently dropping any error it
+  // was showing.
+  final _initialServerErrors = ErrorReporter();
 
   @override
   void initState() {
@@ -100,7 +107,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     _bulkSelectionNotifier.dispose();
     _listErrors.dispose();
     _chartErrors.dispose();
-    _serverErrors.dispose();
+    _initialServerErrors.dispose();
     super.dispose();
   }
 
@@ -128,7 +135,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           settings: _settings,
           apiClient: _apiClient,
           onServerChanged: _invalidateServerCache,
-          errors: _serverErrors,
+          errors: ErrorReporter(),
         ),
       ),
     );
@@ -350,7 +357,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         apiClient: _apiClient,
         onSaved: _checkConfiguration,
         onServerChanged: _invalidateServerCache,
-        errors: _serverErrors,
+        errors: _initialServerErrors,
       );
     }
     return ListenableBuilder(

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../repositories/transaction_repository.dart';
+import '../../widgets/error_banner.dart';
 import '../../widgets/filter_pill.dart';
 import '../../widgets/filter_sheet_header.dart';
 import 'transaction_filter.dart';
@@ -19,6 +22,7 @@ Future<TransactionFilter?> showDateFilterSheet(
     builder: (_) => DateFilterSheet(
       initial: current,
       transactionRepository: transactionRepository,
+      errors: ErrorReporter(),
     ),
   );
 }
@@ -26,11 +30,13 @@ Future<TransactionFilter?> showDateFilterSheet(
 class DateFilterSheet extends StatefulWidget {
   final TransactionFilter initial;
   final TransactionRepository transactionRepository;
+  final ErrorReporter errors;
 
   const DateFilterSheet({
     super.key,
     required this.initial,
     required this.transactionRepository,
+    required this.errors,
   });
 
   @override
@@ -59,6 +65,7 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
   Future<void> _loadYears() async {
     final result = await widget.transactionRepository.getYearRange();
     if (!mounted) return;
+    widget.errors.report(result.error);
     setState(() {
       _yearsLoading = false;
       if (result.data != null) {
@@ -198,25 +205,30 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
                         ),
                       ),
                     )
-                  : SingleChildScrollView(
-                      controller: _yearsScrollController,
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: _years.map((year) {
-                          final selected =
-                              fromYear != null &&
-                              year >= fromYear &&
-                              year <= (toYear ?? fromYear);
-                          return Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: FilterPill(
-                              label: '$year',
-                              selected: selected,
-                              onTap: () => _onYearTap(year),
+                  : ValueListenableBuilder<ApiError?>(
+                      valueListenable: widget.errors,
+                      builder: (context, error, _) => error != null
+                          ? MaybeErrorBanner(error: error, onRetry: _loadYears)
+                          : SingleChildScrollView(
+                              controller: _yearsScrollController,
+                              scrollDirection: Axis.horizontal,
+                              child: Row(
+                                children: _years.map((year) {
+                                  final selected =
+                                      fromYear != null &&
+                                      year >= fromYear &&
+                                      year <= (toYear ?? fromYear);
+                                  return Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: FilterPill(
+                                      label: '$year',
+                                      selected: selected,
+                                      onTap: () => _onYearTap(year),
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
                             ),
-                          );
-                        }).toList(),
-                      ),
                     ),
             ),
 

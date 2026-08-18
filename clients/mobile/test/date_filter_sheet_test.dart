@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/date_filter_sheet.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
+import 'package:family_ledger_mobile/widgets/error_banner.dart';
+import 'package:family_ledger_mobile/widgets/filter_pill.dart';
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
 
@@ -118,6 +121,21 @@ void main() {
       expect(result.value?.account, _checking);
       expect(result.value?.currency, 'USD');
       expect(result.value?.lastImportOnly, isTrue);
+    },
+  );
+
+  testWidgets(
+    'shows an error banner instead of silently rendering no year pills '
+    '(regression: a failed fetch was indistinguishable from "no years")',
+    (tester) async {
+      when(() => txRepo.getYearRange()).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('down')),
+      );
+
+      await pumpSheet(tester, current: const TransactionFilter());
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      expect(find.byType(FilterPill), findsNothing);
     },
   );
 }

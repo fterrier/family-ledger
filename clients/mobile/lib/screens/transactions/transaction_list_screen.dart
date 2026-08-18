@@ -9,6 +9,7 @@ import '../../core/amount_format.dart';
 import '../../core/app_preferences.dart';
 import '../../models/account.dart';
 import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../core/filter_persistence.dart';
 import '../../core/generation_guard.dart';
 import '../../core/home_view.dart';
@@ -37,12 +38,23 @@ class TransactionListScreen extends StatefulWidget {
   final ValueNotifier<TransactionFilter>? filterNotifier;
   final ValueNotifier<Set<String>>? selectionNotifier;
 
+  // The list fetch and the chart's query (via AccountChartCard.onError,
+  // which has no error UI of its own) are two independent, concurrently
+  // running network calls — separate reporters so whichever finishes last,
+  // even a success, can't silently clear the other's still-active failure.
+  // The banner shows one message at a time; the list's own failure is the
+  // more actionable one when both are active (see _currentError below).
+  final ErrorReporter listErrors;
+  final ErrorReporter chartErrors;
+
   const TransactionListScreen({
     super.key,
     required this.transactionRepository,
     required this.accountRepository,
     required this.commodityRepository,
     required this.queryRepository,
+    required this.listErrors,
+    required this.chartErrors,
     this.filterNotifier,
     this.selectionNotifier,
   });
@@ -51,14 +63,6 @@ class TransactionListScreen extends StatefulWidget {
   TransactionListScreenState createState() => TransactionListScreenState();
 }
 
-// The list fetch and the chart's query (via AccountChartCard.onError,
-// which has no error UI of its own) are two independent, concurrently
-// running network calls. Tracking them under one shared ApiError? field
-// let whichever finished last — even a success — silently clear the
-// other's still-active failure. Keying by source instead means each one
-// only ever touches its own slot.
-enum _ErrorSource { list, chart }
-
 class TransactionListScreenState extends State<TransactionListScreen> {
   final _scrollController = ScrollController();
 
@@ -66,12 +70,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   String? _nextPageToken;
   bool _isLoading = false;
 
-  final Map<_ErrorSource, ApiError> _errors = {};
-
-  // The banner shows one message at a time; the list's own failure is the
-  // more actionable one when both are active.
-  ApiError? get _error =>
-      _errors[_ErrorSource.list] ?? _errors[_ErrorSource.chart];
+  ApiError? get _currentError =>
+      widget.listErrors.value ?? widget.chartErrors.value;
 
   bool _paginationError = false;
 
@@ -212,6 +212,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
           transactionRepository: widget.transactionRepository,
           accountRepository: widget.accountRepository,
           commodityRepository: widget.commodityRepository,
+          errors: ErrorReporter(),
           // The edit form itself always shows/edits raw values regardless —
           // this only steers the screen's post-save GET, so the row we get
           // back is already converted and this screen doesn't need its own
@@ -222,15 +223,13 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     );
     if (result == null || !mounted) return;
     final (updated, refetchError) = result;
+    // The edit itself succeeded — surface a failed post-save re-fetch as a
+    // banner rather than dropping it silently, while still showing the best
+    // data available (the PATCH response) for the row.
+    if (refetchError != null) widget.listErrors.report(refetchError);
     setState(() {
       final idx = _transactions.indexWhere((t) => t.name == updated.name);
       if (idx >= 0) _transactions[idx] = updated;
-      // The edit itself succeeded — surface a failed post-save re-fetch as
-      // a banner rather than dropping it silently, while still showing the
-      // best data available (the PATCH response) for the row.
-      if (refetchError != null) {
-        _errors[_ErrorSource.list] = refetchError;
-      }
       // The edit may have changed amounts/postings on the charted
       // account; the chart has no other way to learn that.
       _chartRefreshTick++;
@@ -248,17 +247,15 @@ class TransactionListScreenState extends State<TransactionListScreen> {
   Future<void> _reload({required bool bumpChartTick}) async {
     if (_bulkActionBusy) return;
     final generation = _loadGuard.start();
+    widget.listErrors.clear();
+    // Only clear the chart's error when the chart is also about to reload
+    // (bumpChartTick) — otherwise its still-active failure would vanish
+    // from the banner while nothing re-queries it.
+    if (bumpChartTick) widget.chartErrors.clear();
     setState(() {
       _isLoading = true;
       _nextPageToken = null;
-      _errors.remove(_ErrorSource.list);
-      // Only clear the chart's error when the chart is also about to
-      // reload (bumpChartTick) — otherwise its still-active failure would
-      // vanish from the banner while nothing re-queries it.
-      if (bumpChartTick) {
-        _errors.remove(_ErrorSource.chart);
-        _chartRefreshTick++;
-      }
+      if (bumpChartTick) _chartRefreshTick++;
       _paginationError = false;
       _transactionsWithIssues = {};
     });
@@ -318,15 +315,14 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // superseded by a newer refresh
     if (!_loadGuard.isCurrent(generation)) return;
     if (result.error != null) {
+      // Distinguish by pageToken:
+      // - null  → initial load or refresh  → ErrorBanner at top (always visible)
+      // - non-null → pagination            → retry footer (user is near bottom)
+      if (pageToken == null) {
+        widget.listErrors.report(result.error);
+      }
       setState(() {
-        // Distinguish by pageToken:
-        // - null  → initial load or refresh  → ErrorBanner at top (always visible)
-        // - non-null → pagination            → retry footer (user is near bottom)
-        if (pageToken == null) {
-          _errors[_ErrorSource.list] = result.error!;
-        } else {
-          _paginationError = true;
-        }
+        if (pageToken != null) _paginationError = true;
         _isLoading = false;
       });
       return;
@@ -406,13 +402,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       showsLastImportHint: _filter.lastImportOnly,
       refreshTick: _chartRefreshTick,
       onBucketSelected: _narrowToBucket,
-      onError: (error) => setState(() {
-        if (error != null) {
-          _errors[_ErrorSource.chart] = error;
-        } else {
-          _errors.remove(_ErrorSource.chart);
-        }
-      }),
+      onError: widget.chartErrors.report,
       // Doctor assertion overlays are per-account; home views show none.
       assertionIssues: account != null
           ? _selectedAccountAssertionIssues
@@ -444,6 +434,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   Future<void> deleteSelected() async {
     if (_bulkActionBusy || _selectedNames.isEmpty) return;
+    widget.listErrors.clear();
     setState(() => _bulkActionBusy = true);
     final toDelete = Set<String>.from(_selectedNames);
     final errors = await Future.wait(
@@ -454,10 +445,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     if (!mounted) return;
     final firstError = errors.firstWhere((e) => e != null, orElse: () => null);
     if (firstError != null) {
+      widget.listErrors.report(firstError);
       setState(() => _bulkActionBusy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(firstError.displayMessage)));
       return;
     }
     setState(() {
@@ -469,6 +458,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
 
   Future<void> mergeSelected() async {
     if (_bulkActionBusy || _selectedNames.length != 2) return;
+    widget.listErrors.clear();
     setState(() => _bulkActionBusy = true);
     final names = _selectedNames.toList();
     final mergeResult = await widget.transactionRepository.mergeTransactions(
@@ -477,10 +467,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     );
     if (!mounted) return;
     if (mergeResult.error != null) {
+      widget.listErrors.report(mergeResult.error);
       setState(() => _bulkActionBusy = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(mergeResult.error!.displayMessage)),
-      );
       return;
     }
     final deleteErrors = await Future.wait(
@@ -492,10 +480,8 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       orElse: () => null,
     );
     if (firstError != null) {
+      widget.listErrors.report(firstError);
       setState(() => _bulkActionBusy = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(firstError.displayMessage)));
       return;
     }
     final mergedTx = mergeResult.data!;
@@ -528,107 +514,121 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     // The chart card always leads the list: an account view when one is
     // selected, the home pseudo-view (balance sheet / income statement)
     // otherwise — even when there are no transactions.
+    //
+    // Wrapped in the merged listErrors/chartErrors listenable because
+    // showEmptyState and the banner both read live error state — a plain
+    // build() closure would only see whichever values were current the
+    // last time something else called setState.
+    return ListenableBuilder(
+      listenable: Listenable.merge([widget.listErrors, widget.chartErrors]),
+      builder: (context, _) {
+        // Footer spinner covers two loading cases (mutually exclusive, same
+        // widget either way): mid-pagination, and the very first fetch when
+        // there's no default currency for the chart to show its own spinner
+        // instead (it shows a placeholder then, so the list needs its own cue).
+        // Any other initial load already has the chart's spinner as its cue —
+        // it always leads the list — so this doesn't also fire then.
+        final showLoadingFooter =
+            _isLoading &&
+            (_nextPageToken != null ||
+                (_transactions.isEmpty && _defaultCurrency == null));
+        final isSelecting = _selectedNames.isNotEmpty;
+        // Never claim the range is empty while the list's OWN fetch errored —
+        // it didn't actually succeed, so "no transactions" isn't true. A
+        // chart-only error doesn't affect this: the list can be genuinely
+        // empty even while the chart's independent query is failing.
+        final showEmptyState =
+            _transactions.isEmpty &&
+            !_isLoading &&
+            widget.listErrors.value == null;
+        final hasTrailing =
+            showLoadingFooter || _paginationError || showEmptyState;
 
-    // Footer spinner covers two loading cases (mutually exclusive, same
-    // widget either way): mid-pagination, and the very first fetch when
-    // there's no default currency for the chart to show its own spinner
-    // instead (it shows a placeholder then, so the list needs its own cue).
-    // Any other initial load already has the chart's spinner as its cue —
-    // it always leads the list — so this doesn't also fire then.
-    final showLoadingFooter =
-        _isLoading &&
-        (_nextPageToken != null ||
-            (_transactions.isEmpty && _defaultCurrency == null));
-    final isSelecting = _selectedNames.isNotEmpty;
-    // Never claim the range is empty while the list's OWN fetch errored —
-    // it didn't actually succeed, so "no transactions" isn't true. A
-    // chart-only error doesn't affect this: the list can be genuinely
-    // empty even while the chart's independent query is failing.
-    final showEmptyState =
-        _transactions.isEmpty &&
-        !_isLoading &&
-        !_errors.containsKey(_ErrorSource.list);
-    final hasTrailing = showLoadingFooter || _paginationError || showEmptyState;
-
-    // The chart is a SliverToBoxAdapter, not a lazy list item: unlike a
-    // ListView.builder item, it's never torn down and reconstructed when
-    // scrolled past the viewport/cache extent, so its State (and the
-    // granularity chip pick it holds) survives scrolling. Only the
-    // transaction rows below it need to be lazily built.
-    Widget listContent = RefreshIndicator(
-      onRefresh: refresh,
-      displacement: 60.0,
-      child: CustomScrollView(
-        controller: _scrollController,
-        physics: const AlwaysScrollableScrollPhysics(
-          parent: ClampingScrollPhysics(),
-        ),
-        slivers: [
-          SliverToBoxAdapter(child: _buildChartCard()),
-          SliverList(
-            delegate: SliverChildBuilderDelegate((context, txIndex) {
-              if (txIndex == _transactions.length) {
-                if (showLoadingFooter) {
-                  return const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+        // The chart is a SliverToBoxAdapter, not a lazy list item: unlike a
+        // ListView.builder item, it's never torn down and reconstructed when
+        // scrolled past the viewport/cache extent, so its State (and the
+        // granularity chip pick it holds) survives scrolling. Only the
+        // transaction rows below it need to be lazily built.
+        Widget listContent = RefreshIndicator(
+          onRefresh: refresh,
+          displacement: 60.0,
+          child: CustomScrollView(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: ClampingScrollPhysics(),
+            ),
+            slivers: [
+              SliverToBoxAdapter(child: _buildChartCard()),
+              SliverList(
+                delegate: SliverChildBuilderDelegate((context, txIndex) {
+                  if (txIndex == _transactions.length) {
+                    if (showLoadingFooter) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        ),
+                      );
+                    }
+                    if (_paginationError) {
+                      return Center(
+                        child: TextButton(
+                          onPressed: () {
+                            setState(() => _paginationError = false);
+                            _load(
+                              pageToken: _nextPageToken,
+                            ); // reuses preserved token — does not reset to page 1
+                          },
+                          child: const Text('Retry'),
+                        ),
+                      );
+                    }
+                    return const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 32),
+                      child: Center(
+                        child: Text(
+                          'No transactions in range',
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: Color(0xFF8E8E93),
+                          ),
+                        ),
                       ),
-                    ),
+                    );
+                  }
+                  final tx = _transactions[txIndex];
+                  return _TransactionRow(
+                    transaction: tx,
+                    amountRoots: _filter.viewRoots,
+                    convertTarget: _defaultCurrency,
+                    hasIssue: _transactionsWithIssues.contains(tx.name),
+                    isSelecting: isSelecting,
+                    isSelected: _selectedNames.contains(tx.name),
+                    onTap: isSelecting
+                        ? () => _toggleSelection(tx)
+                        : () => _openTransaction(tx),
+                    onLongPress: () => _enterSelection(tx),
                   );
-                }
-                if (_paginationError) {
-                  return Center(
-                    child: TextButton(
-                      onPressed: () {
-                        setState(() => _paginationError = false);
-                        _load(
-                          pageToken: _nextPageToken,
-                        ); // reuses preserved token — does not reset to page 1
-                      },
-                      child: const Text('Retry'),
-                    ),
-                  );
-                }
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(
-                    child: Text(
-                      'No transactions in range',
-                      style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
-                    ),
-                  ),
-                );
-              }
-              final tx = _transactions[txIndex];
-              return _TransactionRow(
-                transaction: tx,
-                amountRoots: _filter.viewRoots,
-                convertTarget: _defaultCurrency,
-                hasIssue: _transactionsWithIssues.contains(tx.name),
-                isSelecting: isSelecting,
-                isSelected: _selectedNames.contains(tx.name),
-                onTap: isSelecting
-                    ? () => _toggleSelection(tx)
-                    : () => _openTransaction(tx),
-                onLongPress: () => _enterSelection(tx),
-              );
-            }, childCount: _transactions.length + (hasTrailing ? 1 : 0)),
+                }, childCount: _transactions.length + (hasTrailing ? 1 : 0)),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
+        );
 
-    // Refresh failure with existing data: ErrorBanner at top (always visible after
-    // jumpTo(0)), list below. Footer would be off-screen, so banner is required.
-    return Column(
-      children: [
-        if (_error != null) ErrorBanner(error: _error!, onRetry: refresh),
-        Expanded(child: listContent),
-      ],
+        // Refresh failure with existing data: banner at top (always visible
+        // after jumpTo(0)), list below. Footer would be off-screen, so the
+        // banner is required.
+        return Column(
+          children: [
+            MaybeErrorBanner(error: _currentError, onRetry: refresh),
+            Expanded(child: listContent),
+          ],
+        );
+      },
     );
   }
 }

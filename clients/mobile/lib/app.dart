@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'core/account_category.dart';
 import 'core/api_client.dart';
 import 'core/app_preferences.dart';
+import 'core/error_reporter.dart';
 import 'core/filter_persistence.dart';
 import 'core/secure_settings.dart';
 import 'repositories/account_repository.dart';
@@ -44,6 +45,15 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     const TransactionFilter(),
   );
   final _bulkSelectionNotifier = ValueNotifier<Set<String>>({});
+
+  // Long-lived, reused across rebuilds — TransactionListScreen and the
+  // server-settings screen both survive for the app's lifetime (the latter
+  // shown either as the initial setup screen or pushed from the drawer), so
+  // their error state is owned here rather than freshly constructed on
+  // every push like the other, shorter-lived screens below.
+  final _listErrors = ErrorReporter();
+  final _chartErrors = ErrorReporter();
+  final _serverErrors = ErrorReporter();
 
   @override
   void initState() {
@@ -88,6 +98,9 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
     _shareChannel.setMethodCallHandler(null);
     _filterNotifier.dispose();
     _bulkSelectionNotifier.dispose();
+    _listErrors.dispose();
+    _chartErrors.dispose();
+    _serverErrors.dispose();
     super.dispose();
   }
 
@@ -115,6 +128,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           settings: _settings,
           apiClient: _apiClient,
           onServerChanged: _invalidateServerCache,
+          errors: _serverErrors,
         ),
       ),
     );
@@ -128,6 +142,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         builder: (_) => AppSettingsScreen(
           accountRepository: _accountRepo,
           commodityRepository: _commodityRepo,
+          errors: ErrorReporter(),
         ),
       ),
     );
@@ -145,6 +160,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           onOpenSettings: _openServerSettings,
           initialFilePath: filePath,
           initialMimeType: mimeType,
+          errors: ErrorReporter(),
         ),
       ),
     );
@@ -159,6 +175,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           commodityRepository: _commodityRepo,
           transactionRepository: _transactionRepo,
           onOpenSettings: _openServerSettings,
+          errors: ErrorReporter(),
         ),
       ),
     );
@@ -333,6 +350,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
         apiClient: _apiClient,
         onSaved: _checkConfiguration,
         onServerChanged: _invalidateServerCache,
+        errors: _serverErrors,
       );
     }
     return ListenableBuilder(
@@ -393,6 +411,8 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
             accountRepository: _accountRepo,
             commodityRepository: _commodityRepo,
             queryRepository: _queryRepo,
+            listErrors: _listErrors,
+            chartErrors: _chartErrors,
             filterNotifier: _filterNotifier,
             selectionNotifier: _bulkSelectionNotifier,
           ),

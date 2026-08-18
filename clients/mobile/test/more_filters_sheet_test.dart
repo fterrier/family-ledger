@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/repositories/commodity_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/more_filters_sheet.dart';
 import 'package:family_ledger_mobile/screens/transactions/transaction_filter.dart';
+import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 class MockCommodityRepository extends Mock implements CommodityRepository {}
 
@@ -137,6 +139,22 @@ void main() {
       expect(result.value?.account, _checking);
       expect(result.value?.fromDate, DateTime(2025));
       expect(result.value?.toDate, DateTime(2025, 12, 31));
+    },
+  );
+
+  testWidgets(
+    'shows an error banner instead of silently rendering no commodity chips '
+    '(regression: a failed fetch was indistinguishable from "no commodities")',
+    (tester) async {
+      when(() => commodityRepo.getAllCommodities()).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('down')),
+      );
+
+      await pumpSheet(tester, current: const TransactionFilter());
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      expect(find.text('CHF'), findsNothing);
+      expect(find.text('Any commodity'), findsNothing);
     },
   );
 }

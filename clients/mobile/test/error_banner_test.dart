@@ -111,4 +111,42 @@ void main() {
       expect(settingsCalled, isTrue);
     });
   });
+
+  group('MaybeErrorBanner', () {
+    testWidgets('renders nothing when error is null', (tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(home: Scaffold(body: MaybeErrorBanner(error: null))),
+      );
+
+      expect(find.byType(ErrorBanner), findsNothing);
+    });
+
+    testWidgets('renders ErrorBanner with the given error and callbacks', (
+      tester,
+    ) async {
+      var retryCalled = false;
+      var settingsCalled = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MaybeErrorBanner(
+              error: const AuthError(),
+              onRetry: () => retryCalled = true,
+              onSettings: () => settingsCalled = true,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      expect(
+        find.text('Authentication failed. Check your API token.'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Settings'));
+      expect(settingsCalled, isTrue);
+      expect(retryCalled, isFalse);
+    });
+  });
 }

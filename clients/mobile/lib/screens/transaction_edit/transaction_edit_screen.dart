@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../../core/account_category.dart';
 import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../core/generation_guard.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
@@ -89,6 +90,7 @@ class TransactionEditScreen extends StatefulWidget {
   // The edit form always shows/edits raw, unconverted values — this never
   // reaches form state.
   final String? defaultCurrency;
+  final ErrorReporter errors;
 
   const TransactionEditScreen({
     super.key,
@@ -96,6 +98,7 @@ class TransactionEditScreen extends StatefulWidget {
     required this.transactionRepository,
     required this.accountRepository,
     required this.commodityRepository,
+    required this.errors,
     this.defaultCurrency,
   });
 
@@ -114,7 +117,6 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   List<Commodity> _commodities = [];
 
   bool _saving = false;
-  ApiError? _error;
 
   // Server-computed preview (POST /transactions:normalize), refreshed on a
   // debounce after each edit — see _scheduleNormalizeCheck. Never re-derive
@@ -210,7 +212,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     ).wait;
     if (!mounted) return;
     if (accountsResult.error != null) {
-      setState(() => _error = accountsResult.error);
+      widget.errors.report(accountsResult.error);
       return;
     }
     setState(() {
@@ -410,17 +412,15 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   Future<void> _save() async {
     for (final p in _postings) {
       if (p.account == null) {
-        setState(
-          () => _error = const ValidationError('All postings need an account.'),
+        widget.errors.report(
+          const ValidationError('All postings need an account.'),
         );
         return;
       }
       if (double.tryParse(rawEditAmount(p.amountController.text.trim())) ==
           null) {
-        setState(
-          () => _error = const ValidationError(
-            'All postings need a valid amount.',
-          ),
+        widget.errors.report(
+          const ValidationError('All postings need a valid amount.'),
         );
         return;
       }
@@ -428,10 +428,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
     final update = _buildUpdate();
 
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+    widget.errors.clear();
+    setState(() => _saving = true);
 
     final updateResult = await widget.transactionRepository.updateTransaction(
       widget.transaction.name,
@@ -440,10 +438,8 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     if (!mounted) return;
 
     if (updateResult.error != null) {
-      setState(() {
-        _saving = false;
-        _error = updateResult.error;
-      });
+      widget.errors.report(updateResult.error);
+      setState(() => _saving = false);
       return;
     }
 
@@ -521,13 +517,15 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       ),
       body: Column(
         children: [
-          if (_error != null)
-            ErrorBanner(
-              error: _error!,
-              onRetry: _error is NetworkError
+          ValueListenableBuilder<ApiError?>(
+            valueListenable: widget.errors,
+            builder: (context, error, _) => MaybeErrorBanner(
+              error: error,
+              onRetry: error is NetworkError
                   ? _loadAccountsAndCommodities
                   : null,
             ),
+          ),
           Expanded(
             child: ListView(
               children: [

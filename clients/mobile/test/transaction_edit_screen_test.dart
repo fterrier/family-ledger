@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/core/result.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
@@ -114,14 +115,16 @@ void main() {
     ).thenAnswer((_) async => (data: <Imbalance>[], error: null));
   });
 
-  Widget buildScreen(TransactionResource tx) => MaterialApp(
-    home: TransactionEditScreen(
-      transaction: tx,
-      transactionRepository: mockTransactionRepo,
-      accountRepository: mockAccountRepo,
-      commodityRepository: mockCommodityRepo,
-    ),
-  );
+  Widget buildScreen(TransactionResource tx, {ErrorReporter? errors}) =>
+      MaterialApp(
+        home: TransactionEditScreen(
+          transaction: tx,
+          transactionRepository: mockTransactionRepo,
+          accountRepository: mockAccountRepo,
+          commodityRepository: mockCommodityRepo,
+          errors: errors ?? ErrorReporter(),
+        ),
+      );
 
   group('initial render', () {
     testWidgets('shows header fields pre-filled from transaction', (
@@ -448,20 +451,22 @@ void main() {
       ).called(1);
     });
 
-    testWidgets('shows error banner when save fails', (tester) async {
+    testWidgets('reports and shows the error when save fails', (tester) async {
       when(
         () => mockTransactionRepo.updateTransaction(any(), any()),
       ).thenAnswer(
         (_) async =>
             (data: null, error: const NetworkError('connection refused')),
       );
+      final errors = ErrorReporter();
 
-      await tester.pumpWidget(buildScreen(_balancedTx()));
+      await tester.pumpWidget(buildScreen(_balancedTx(), errors: errors));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
+      expect(errors.value, const NetworkError('connection refused'));
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
 
@@ -488,6 +493,7 @@ void main() {
                       transactionRepository: mockTransactionRepo,
                       accountRepository: mockAccountRepo,
                       commodityRepository: mockCommodityRepo,
+                      errors: ErrorReporter(),
                     ),
                   ),
                 );

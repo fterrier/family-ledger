@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/models/doctor_issue.dart';
@@ -120,6 +121,8 @@ void main() {
         accountRepository: mockAccountRepo,
         commodityRepository: mockCommodityRepo,
         queryRepository: mockQueryRepo,
+        listErrors: ErrorReporter(),
+        chartErrors: ErrorReporter(),
       ),
     ),
   );
@@ -586,6 +589,8 @@ void main() {
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
             queryRepository: mockQueryRepo,
+            listErrors: ErrorReporter(),
+            chartErrors: ErrorReporter(),
           ),
         ),
       ),
@@ -644,6 +649,8 @@ void main() {
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
             queryRepository: mockQueryRepo,
+            listErrors: ErrorReporter(),
+            chartErrors: ErrorReporter(),
           ),
         ),
       ),
@@ -721,6 +728,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
             ),
           ),
         ),
@@ -801,6 +810,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
             ),
           ),
         ),
@@ -866,6 +877,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
             ),
           ),
         ),
@@ -913,6 +926,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
             ),
           ),
         ),
@@ -1016,6 +1031,8 @@ void main() {
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
             queryRepository: mockQueryRepo,
+            listErrors: ErrorReporter(),
+            chartErrors: ErrorReporter(),
           ),
         ),
       ),
@@ -1104,6 +1121,8 @@ void main() {
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
             queryRepository: mockQueryRepo,
+            listErrors: ErrorReporter(),
+            chartErrors: ErrorReporter(),
           ),
         ),
       ),
@@ -1334,6 +1353,8 @@ void main() {
             accountRepository: mockAccountRepo,
             commodityRepository: mockCommodityRepo,
             queryRepository: mockQueryRepo,
+            listErrors: ErrorReporter(),
+            chartErrors: ErrorReporter(),
             selectionNotifier: selectionNotifier,
           ),
         ),
@@ -1416,6 +1437,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1449,6 +1472,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1472,40 +1497,43 @@ void main() {
       expect(selectionNotifier.value, isEmpty);
     });
 
-    testWidgets('deleteSelected on error shows SnackBar and keeps rows', (
-      tester,
-    ) async {
-      when(
-        () => mockRepo.deleteTransaction(any()),
-      ).thenAnswer((_) async => const NetworkError('timeout'));
+    testWidgets(
+      'deleteSelected on error shows the shared error banner and keeps rows',
+      (tester) async {
+        when(
+          () => mockRepo.deleteTransaction(any()),
+        ).thenAnswer((_) async => const NetworkError('timeout'));
 
-      final key = GlobalKey<TransactionListScreenState>();
-      selectionNotifier = ValueNotifier<Set<String>>({});
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TransactionListScreen(
-              key: key,
-              transactionRepository: mockRepo,
-              accountRepository: mockAccountRepo,
-              commodityRepository: mockCommodityRepo,
-              queryRepository: mockQueryRepo,
-              selectionNotifier: selectionNotifier,
+        final key = GlobalKey<TransactionListScreenState>();
+        selectionNotifier = ValueNotifier<Set<String>>({});
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: TransactionListScreen(
+                key: key,
+                transactionRepository: mockRepo,
+                accountRepository: mockAccountRepo,
+                commodityRepository: mockCommodityRepo,
+                queryRepository: mockQueryRepo,
+                listErrors: ErrorReporter(),
+                chartErrors: ErrorReporter(),
+                selectionNotifier: selectionNotifier,
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      await tester.longPress(find.text('Migros'));
-      await tester.pumpAndSettle();
+        await tester.longPress(find.text('Migros'));
+        await tester.pumpAndSettle();
 
-      await key.currentState!.deleteSelected();
-      await tester.pumpAndSettle();
+        await key.currentState!.deleteSelected();
+        await tester.pumpAndSettle();
 
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text('Migros'), findsOneWidget);
-    });
+        expect(find.byType(ErrorBanner), findsOneWidget);
+        expect(find.text('Migros'), findsOneWidget);
+      },
+    );
 
     testWidgets('mergeSelected calls merge + 2 deletes and removes both rows', (
       tester,
@@ -1521,6 +1549,8 @@ void main() {
               accountRepository: mockAccountRepo,
               commodityRepository: mockCommodityRepo,
               queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
               selectionNotifier: selectionNotifier,
             ),
           ),
@@ -1544,43 +1574,46 @@ void main() {
       expect(selectionNotifier.value, isEmpty);
     });
 
-    testWidgets('mergeSelected on error shows SnackBar and keeps rows', (
-      tester,
-    ) async {
-      when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
-        (_) async => (data: null, error: const NetworkError('timeout')),
-      );
+    testWidgets(
+      'mergeSelected on error shows the shared error banner and keeps rows',
+      (tester) async {
+        when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('timeout')),
+        );
 
-      final key = GlobalKey<TransactionListScreenState>();
-      selectionNotifier = ValueNotifier<Set<String>>({});
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: TransactionListScreen(
-              key: key,
-              transactionRepository: mockRepo,
-              accountRepository: mockAccountRepo,
-              commodityRepository: mockCommodityRepo,
-              queryRepository: mockQueryRepo,
-              selectionNotifier: selectionNotifier,
+        final key = GlobalKey<TransactionListScreenState>();
+        selectionNotifier = ValueNotifier<Set<String>>({});
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: TransactionListScreen(
+                key: key,
+                transactionRepository: mockRepo,
+                accountRepository: mockAccountRepo,
+                commodityRepository: mockCommodityRepo,
+                queryRepository: mockQueryRepo,
+                listErrors: ErrorReporter(),
+                chartErrors: ErrorReporter(),
+                selectionNotifier: selectionNotifier,
+              ),
             ),
           ),
-        ),
-      );
-      await tester.pumpAndSettle();
+        );
+        await tester.pumpAndSettle();
 
-      await tester.longPress(find.text('Migros'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Coop'));
-      await tester.pumpAndSettle();
+        await tester.longPress(find.text('Migros'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Coop'));
+        await tester.pumpAndSettle();
 
-      await key.currentState!.mergeSelected();
-      await tester.pumpAndSettle();
+        await key.currentState!.mergeSelected();
+        await tester.pumpAndSettle();
 
-      expect(find.byType(SnackBar), findsOneWidget);
-      expect(find.text('Migros'), findsOneWidget);
-      expect(find.text('Coop'), findsOneWidget);
-    });
+        expect(find.byType(ErrorBanner), findsOneWidget);
+        expect(find.text('Migros'), findsOneWidget);
+        expect(find.text('Coop'), findsOneWidget);
+      },
+    );
   });
   group('account chart card integration', () {
     void stubList() {

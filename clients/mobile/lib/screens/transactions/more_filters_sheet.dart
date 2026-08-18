@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../models/commodity.dart';
 import '../../repositories/commodity_repository.dart';
+import '../../widgets/error_banner.dart';
 import '../../widgets/filter_pill.dart';
 import '../../widgets/filter_sheet_header.dart';
 import 'transaction_filter.dart';
@@ -19,6 +22,7 @@ Future<TransactionFilter?> showMoreFiltersSheet(
     builder: (_) => MoreFiltersSheet(
       initial: current,
       commodityRepository: commodityRepository,
+      errors: ErrorReporter(),
     ),
   );
 }
@@ -26,11 +30,13 @@ Future<TransactionFilter?> showMoreFiltersSheet(
 class MoreFiltersSheet extends StatefulWidget {
   final TransactionFilter initial;
   final CommodityRepository commodityRepository;
+  final ErrorReporter errors;
 
   const MoreFiltersSheet({
     super.key,
     required this.initial,
     required this.commodityRepository,
+    required this.errors,
   });
 
   @override
@@ -52,6 +58,7 @@ class _MoreFiltersSheetState extends State<MoreFiltersSheet> {
   Future<void> _loadCommodities() async {
     final result = await widget.commodityRepository.getAllCommodities();
     if (!mounted) return;
+    widget.errors.report(result.error);
     setState(() {
       _commoditiesLoading = false;
       if (result.data != null) _commodities = result.data!;
@@ -129,28 +136,39 @@ class _MoreFiltersSheetState extends State<MoreFiltersSheet> {
                             ),
                           ),
                         )
-                      : Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            FilterPill(
-                              label: 'Any commodity',
-                              selected: _draft.currency == null,
-                              onTap: () => setState(
-                                () => _draft = _draft.copyWith(currency: null),
-                              ),
-                            ),
-                            for (final commodity in _commodities)
-                              FilterPill(
-                                label: commodity.symbol,
-                                selected: _draft.currency == commodity.symbol,
-                                onTap: () => setState(
-                                  () => _draft = _draft.copyWith(
-                                    currency: commodity.symbol,
-                                  ),
+                      : ValueListenableBuilder<ApiError?>(
+                          valueListenable: widget.errors,
+                          builder: (context, error, _) => error != null
+                              ? MaybeErrorBanner(
+                                  error: error,
+                                  onRetry: _loadCommodities,
+                                )
+                              : Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    FilterPill(
+                                      label: 'Any commodity',
+                                      selected: _draft.currency == null,
+                                      onTap: () => setState(
+                                        () => _draft = _draft.copyWith(
+                                          currency: null,
+                                        ),
+                                      ),
+                                    ),
+                                    for (final commodity in _commodities)
+                                      FilterPill(
+                                        label: commodity.symbol,
+                                        selected:
+                                            _draft.currency == commodity.symbol,
+                                        onTap: () => setState(
+                                          () => _draft = _draft.copyWith(
+                                            currency: commodity.symbol,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                              ),
-                          ],
                         ),
                 ],
               ),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
 import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../core/secure_settings.dart';
+import '../../widgets/error_banner.dart';
 
 class ServerSettingsScreen extends StatefulWidget {
   final SecureSettings settings;
@@ -11,12 +13,14 @@ class ServerSettingsScreen extends StatefulWidget {
   // Always awaited on success — clears all server-specific caches and app prefs.
   // Add new caches to the implementation in app.dart, not here.
   final Future<void> Function() onServerChanged;
+  final ErrorReporter errors;
 
   const ServerSettingsScreen({
     super.key,
     required this.settings,
     required this.apiClient,
     required this.onServerChanged,
+    required this.errors,
     this.onSaved,
   });
 
@@ -30,7 +34,6 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
   final _tokenController = TextEditingController();
   bool _tokenVisible = false;
   bool _connecting = false;
-  String? _errorMessage;
 
   @override
   void initState() {
@@ -52,10 +55,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
 
   Future<void> _connect() async {
     if (!_formKey.currentState!.validate()) return;
-    setState(() {
-      _connecting = true;
-      _errorMessage = null;
-    });
+    widget.errors.clear();
+    setState(() => _connecting = true);
 
     await (
       widget.settings.saveBaseUrl(_urlController.text),
@@ -65,16 +66,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     final healthErr = await widget.apiClient.checkHealth();
     if (healthErr != null) {
       if (mounted) {
-        setState(() {
-          _connecting = false;
-          _errorMessage = switch (healthErr) {
-            NetworkError() => 'Cannot reach server. Check the URL.',
-            AuthError() => 'Authentication failed.',
-            MissingSettingsError() => 'Server not configured.',
-            ValidationError(:final message) ||
-            ServerError(:final message) => 'Server error: $message',
-          };
-        });
+        widget.errors.report(healthErr);
+        setState(() => _connecting = false);
       }
       return;
     }
@@ -85,16 +78,8 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
     );
     if (result.error != null) {
       if (mounted) {
-        setState(() {
-          _connecting = false;
-          _errorMessage = switch (result.error!) {
-            AuthError() => 'Authentication failed. Check your token.',
-            NetworkError() => 'Cannot reach server. Check the URL.',
-            MissingSettingsError() => 'Server not configured.',
-            ValidationError(:final message) ||
-            ServerError(:final message) => 'Server error: $message',
-          };
-        });
+        widget.errors.report(result.error);
+        setState(() => _connecting = false);
       }
       return;
     }
@@ -130,111 +115,106 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
           child: Container(height: 1, color: const Color(0xFFE5E5EA)),
         ),
       ),
-      body: Form(
-        key: _formKey,
-        child: ListView(
-          children: [
-            _sectionHeader('Connection'),
-            _card([
-              _fieldRow(
-                label: 'API URL',
-                child: TextFormField(
-                  controller: _urlController,
-                  keyboardType: TextInputType.url,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    hintText: 'http://100.64.x.x:8000',
-                    hintStyle: TextStyle(color: Color(0xFFC7C7CC)),
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  style: const TextStyle(fontSize: 15),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-              ),
-              const Divider(height: 1, color: Color(0xFFF2F2F7)),
-              _fieldRow(
-                label: 'Token',
-                trailing: TextButton(
-                  onPressed: () =>
-                      setState(() => _tokenVisible = !_tokenVisible),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  child: Text(
-                    _tokenVisible ? 'Hide' : 'Show',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF1A73E8),
-                    ),
-                  ),
-                ),
-                child: TextFormField(
-                  controller: _tokenController,
-                  obscureText: !_tokenVisible,
-                  decoration: const InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                  style: const TextStyle(fontSize: 15),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'Required' : null,
-                ),
-              ),
-            ]),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: ElevatedButton(
-                onPressed: _connecting ? null : _connect,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1A73E8),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  elevation: 0,
-                ),
-                child: _connecting
-                    ? const SizedBox(
-                        height: 18,
-                        width: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+      body: Column(
+        children: [
+          ValueListenableBuilder<ApiError?>(
+            valueListenable: widget.errors,
+            builder: (context, error, _) => MaybeErrorBanner(error: error),
+          ),
+          Expanded(
+            child: Form(
+              key: _formKey,
+              child: ListView(
+                children: [
+                  _sectionHeader('Connection'),
+                  _card([
+                    _fieldRow(
+                      label: 'API URL',
+                      child: TextFormField(
+                        controller: _urlController,
+                        keyboardType: TextInputType.url,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          hintText: 'http://100.64.x.x:8000',
+                          hintStyle: TextStyle(color: Color(0xFFC7C7CC)),
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
                         ),
-                      )
-                    : const Text(
-                        'Connect',
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
+                        style: const TextStyle(fontSize: 15),
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                    ),
+                    const Divider(height: 1, color: Color(0xFFF2F2F7)),
+                    _fieldRow(
+                      label: 'Token',
+                      trailing: TextButton(
+                        onPressed: () =>
+                            setState(() => _tokenVisible = !_tokenVisible),
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text(
+                          _tokenVisible ? 'Hide' : 'Show',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF1A73E8),
+                          ),
                         ),
                       ),
+                      child: TextFormField(
+                        controller: _tokenController,
+                        obscureText: !_tokenVisible,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        style: const TextStyle(fontSize: 15),
+                        validator: (v) =>
+                            (v == null || v.trim().isEmpty) ? 'Required' : null,
+                      ),
+                    ),
+                  ]),
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ElevatedButton(
+                      onPressed: _connecting ? null : _connect,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A73E8),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: _connecting
+                          ? const SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text(
+                              'Connect',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
               ),
             ),
-            if (_errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: Text(
-                  _errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFFD93025),
-                  ),
-                ),
-              ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }

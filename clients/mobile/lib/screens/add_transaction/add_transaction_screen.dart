@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/account_category.dart';
 import '../../core/api_error.dart';
 import '../../core/app_preferences.dart';
+import '../../core/error_reporter.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
 import '../../models/posting.dart';
@@ -24,12 +25,14 @@ class AddTransactionScreen extends StatefulWidget {
   final CommodityRepository commodityRepository;
   final TransactionRepository transactionRepository;
   final VoidCallback? onOpenSettings;
+  final ErrorReporter errors;
 
   const AddTransactionScreen({
     super.key,
     required this.accountRepository,
     required this.commodityRepository,
     required this.transactionRepository,
+    required this.errors,
     this.onOpenSettings,
   });
 
@@ -51,7 +54,6 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   List<AccountResource>? _accounts;
   List<Commodity> _commodities = [];
   bool _saving = false;
-  ApiError? _error;
 
   @override
   void initState() {
@@ -61,9 +63,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   Future<void> _loadAccounts() async {
-    setState(() {
-      _error = null;
-    });
+    widget.errors.clear();
     final (accountsResult, commoditiesResult, prefs) = await (
       widget.accountRepository.getAllAccounts(),
       widget.commodityRepository.getAllCommodities(),
@@ -71,9 +71,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     ).wait;
     if (!mounted) return;
     if (accountsResult.error != null) {
-      setState(() {
-        _error = accountsResult.error;
-      });
+      widget.errors.report(accountsResult.error);
       return;
     }
     final active = accountsResult.data!.where((a) => a.isActive).toList();
@@ -143,10 +141,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   Future<void> _submit() async {
     final amountText = rawEditAmount(_amountController.text.trim());
     if (amountText.isEmpty || _fromAccount == null || _toAccount == null) {
-      setState(
-        () => _error = const ValidationError(
-          'Amount, From, and To are required.',
-        ),
+      widget.errors.report(
+        const ValidationError('Amount, From, and To are required.'),
       );
       return;
     }
@@ -155,8 +151,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     // string), never from this double.
     final amount = double.tryParse(amountText);
     if (amount == null || amount <= 0) {
-      setState(
-        () => _error = const ValidationError('Enter a valid positive amount.'),
+      widget.errors.report(
+        const ValidationError('Enter a valid positive amount.'),
       );
       return;
     }
@@ -183,18 +179,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       ],
     );
 
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
+    widget.errors.clear();
+    setState(() => _saving = true);
     final result = await widget.transactionRepository.createTransaction(tx);
     if (!mounted) return;
 
     if (result.error != null) {
-      setState(() {
-        _saving = false;
-        _error = result.error;
-      });
+      widget.errors.report(result.error);
+      setState(() => _saving = false);
       return;
     }
 
@@ -232,65 +224,67 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                 child: Container(height: 1, color: const Color(0xFFE5E5EA)),
               ),
       ),
-      body: Column(
-        children: [
-          if (_error != null)
-            ErrorBanner(
-              error: _error!,
-              onRetry: _error is NetworkError ? _loadAccounts : null,
+      body: ValueListenableBuilder<ApiError?>(
+        valueListenable: widget.errors,
+        builder: (context, error, _) => Column(
+          children: [
+            MaybeErrorBanner(
+              error: error,
+              onRetry: error is NetworkError ? _loadAccounts : null,
               onSettings: widget.onOpenSettings,
             ),
-          Expanded(
-            child: ListView(
-              children: [
-                _AmountHero(
-                  controller: _amountController,
-                  focusNode: _amountFocusNode,
-                  currency: _currency,
-                  onCurrencyTap: _pickCurrency,
-                ),
-                const SizedBox(height: 16),
-                _FlowCard(
-                  fromAccount: _fromAccount,
-                  toAccount: _toAccount,
-                  loading: _accounts == null && _error == null,
-                  onFromTap: () => _pickAccount(isFrom: true),
-                  onToTap: () => _pickAccount(isFrom: false),
-                  onSwapTap: _saving ? null : _swapAccounts,
-                  date: _date,
-                  onDateTap: _pickDate,
-                  payeeController: _payeeController,
-                  narrationController: _narrationController,
-                ),
-                const SizedBox(height: 20),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: ElevatedButton(
-                    onPressed: _saving ? null : _submit,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1A73E8),
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: const Color(0xFFB0CCEF),
-                      padding: const EdgeInsets.symmetric(vertical: 16),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
+            Expanded(
+              child: ListView(
+                children: [
+                  _AmountHero(
+                    controller: _amountController,
+                    focusNode: _amountFocusNode,
+                    currency: _currency,
+                    onCurrencyTap: _pickCurrency,
+                  ),
+                  const SizedBox(height: 16),
+                  _FlowCard(
+                    fromAccount: _fromAccount,
+                    toAccount: _toAccount,
+                    loading: _accounts == null && error == null,
+                    onFromTap: () => _pickAccount(isFrom: true),
+                    onToTap: () => _pickAccount(isFrom: false),
+                    onSwapTap: _saving ? null : _swapAccounts,
+                    date: _date,
+                    onDateTap: _pickDate,
+                    payeeController: _payeeController,
+                    narrationController: _narrationController,
+                  ),
+                  const SizedBox(height: 20),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: ElevatedButton(
+                      onPressed: _saving ? null : _submit,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF1A73E8),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor: const Color(0xFFB0CCEF),
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
                       ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Add Transaction',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w600,
+                      child: const Text(
+                        'Add Transaction',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 32),
-              ],
+                  const SizedBox(height: 32),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

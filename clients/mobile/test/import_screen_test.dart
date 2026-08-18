@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/models/import_result.dart';
 import 'package:family_ledger_mobile/models/importer.dart';
 import 'package:family_ledger_mobile/repositories/importer_repository.dart';
@@ -65,24 +66,32 @@ void main() {
     registerFallbackValue(Uint8List(0));
   });
 
-  Widget buildScreen({String? filePath, VoidCallback? onOpenSettings}) =>
-      MaterialApp(
-        home: ImportScreen(
-          importerRepository: mockRepo,
-          onOpenSettings: onOpenSettings,
-          initialFilePath: filePath,
-        ),
-      );
+  Widget buildScreen({
+    String? filePath,
+    VoidCallback? onOpenSettings,
+    ErrorReporter? errors,
+  }) => MaterialApp(
+    home: ImportScreen(
+      importerRepository: mockRepo,
+      onOpenSettings: onOpenSettings,
+      initialFilePath: filePath,
+      errors: errors ?? ErrorReporter(),
+    ),
+  );
 
   group('ImportScreen — load error', () {
-    testWidgets('shows error banner when getImporters fails', (tester) async {
+    testWidgets('reports the load failure and shows the error banner for it', (
+      tester,
+    ) async {
       when(() => mockRepo.getImporters()).thenAnswer(
         (_) async => (data: null, error: const NetworkError('unreachable')),
       );
+      final errors = ErrorReporter();
 
-      await tester.pumpWidget(buildScreen());
+      await tester.pumpWidget(buildScreen(errors: errors));
       await tester.pumpAndSettle();
 
+      expect(errors.value, const NetworkError('unreachable'));
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
 
@@ -348,6 +357,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(settingsTapped, isTrue);
+    });
+
+    testWidgets('a local file-read failure is not shown as a network error '
+        '(regression: was wrapped in NetworkError, so the banner falsely '
+        'said "Cannot reach server" for a local file access problem)', (
+      tester,
+    ) async {
+      final missingPath = '${tempDir.path}/missing.sta';
+
+      await tester.pumpWidget(buildScreen(filePath: missingPath));
+      await tester.pumpAndSettle();
+
+      await selectImporter(tester, 'MT940');
+      await submitImport(tester);
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      expect(find.textContaining('Cannot reach server'), findsNothing);
+      expect(find.textContaining('Could not read file'), findsOneWidget);
     });
   });
 }

@@ -8,7 +8,9 @@ import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/repositories/account_repository.dart';
 import 'package:family_ledger_mobile/repositories/commodity_repository.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/screens/settings/app_settings_screen.dart';
+import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 class MockAccountRepository extends Mock implements AccountRepository {}
 
@@ -36,10 +38,11 @@ void main() {
     ).thenAnswer((_) async => (data: <Commodity>[], error: null));
   });
 
-  Widget buildScreen() => MaterialApp(
+  Widget buildScreen({ErrorReporter? errors}) => MaterialApp(
     home: AppSettingsScreen(
       accountRepository: mockRepo,
       commodityRepository: mockCommodityRepo,
+      errors: errors ?? ErrorReporter(),
     ),
   );
 
@@ -135,6 +138,24 @@ void main() {
         expect(find.text('Select Account'), findsNothing);
       },
     );
+
+    testWidgets(
+      'shows an error banner when accounts fail to load '
+      '(regression: the row just went silently disabled with no explanation)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        when(() => mockRepo.getAllAccounts()).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('unreachable')),
+        );
+        final errors = ErrorReporter();
+
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
+
+        expect(errors.value, const NetworkError('unreachable'));
+        expect(find.byType(ErrorBanner), findsOneWidget);
+      },
+    );
   });
 
   group('AppSettingsScreen default Currency', () {
@@ -224,5 +245,26 @@ void main() {
 
       expect(find.text('Default Currency'), findsNothing);
     });
+
+    testWidgets(
+      'shows an error banner when commodities fail to load '
+      '(regression: the row just went silently disabled with no explanation)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        when(
+          () => mockRepo.getAllAccounts(),
+        ).thenAnswer((_) async => (data: <AccountResource>[], error: null));
+        when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('unreachable')),
+        );
+        final errors = ErrorReporter();
+
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
+
+        expect(errors.value, const NetworkError('unreachable'));
+        expect(find.byType(ErrorBanner), findsOneWidget);
+      },
+    );
   });
 }

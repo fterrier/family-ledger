@@ -3,8 +3,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_client.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/core/secure_settings.dart';
 import 'package:family_ledger_mobile/screens/settings/server_settings_screen.dart';
+import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 class MockSecureSettings extends Mock implements SecureSettings {}
 
@@ -36,12 +38,14 @@ void main() {
   Widget buildScreen({
     VoidCallback? onSaved,
     Future<void> Function()? onServerChanged,
+    ErrorReporter? errors,
   }) => MaterialApp(
     home: ServerSettingsScreen(
       settings: mockSettings,
       apiClient: mockApiClient,
       onSaved: onSaved,
       onServerChanged: onServerChanged ?? () async {},
+      errors: errors ?? ErrorReporter(),
     ),
   );
 
@@ -83,6 +87,7 @@ void main() {
                     settings: mockSettings,
                     apiClient: mockApiClient,
                     onServerChanged: () async => serverChangedCalled = true,
+                    errors: ErrorReporter(),
                   ),
                 ),
               ),
@@ -130,14 +135,20 @@ void main() {
       when(
         () => mockApiClient.checkHealth(),
       ).thenAnswer((_) async => const NetworkError('unreachable'));
+      final errors = ErrorReporter();
 
-      await tester.pumpWidget(buildScreen());
+      await tester.pumpWidget(buildScreen(errors: errors));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Connect'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Cannot reach server. Check the URL.'), findsOneWidget);
+      expect(errors.value, const NetworkError('unreachable'));
+      // Routed through the shared ErrorBanner message table instead of this
+      // screen's own copy, so the message includes the underlying
+      // NetworkError text rather than a bespoke "Check the URL." hint.
+      expect(find.text('Cannot reach server. unreachable'), findsOneWidget);
+      expect(find.byType(ErrorBanner), findsOneWidget);
       expect(find.text('Connect'), findsOneWidget);
     });
 
@@ -153,10 +164,12 @@ void main() {
       await tester.tap(find.text('Connect'));
       await tester.pumpAndSettle();
 
+      // Same shared-message-table switch as above.
       expect(
-        find.text('Authentication failed. Check your token.'),
+        find.text('Authentication failed. Check your API token.'),
         findsOneWidget,
       );
+      expect(find.byType(ErrorBanner), findsOneWidget);
       expect(find.text('Connect'), findsOneWidget);
     });
 

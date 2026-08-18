@@ -67,3 +67,30 @@ class ErrorBanner extends StatelessWidget {
     };
   }
 }
+
+/// Renders [ErrorBanner] when [error] is non-null, nothing otherwise — the
+/// "does this screen currently have an error to show" check that would
+/// otherwise be hand-written at every call site. Pair with an
+/// [ErrorReporter] and a `ValueListenableBuilder<ApiError?>` to go from
+/// "an operation reported this" to "the screen shows it" with no
+/// intermediate setState.
+class MaybeErrorBanner extends StatelessWidget {
+  final ApiError? error;
+  final VoidCallback? onRetry;
+  final VoidCallback? onSettings;
+
+  const MaybeErrorBanner({
+    super.key,
+    required this.error,
+    this.onRetry,
+    this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final error = this.error;
+    return error == null
+        ? const SizedBox.shrink()
+        : ErrorBanner(error: error, onRetry: onRetry, onSettings: onSettings);
+  }
+}

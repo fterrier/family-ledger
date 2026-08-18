@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import '../../core/api_error.dart';
+import '../../core/error_reporter.dart';
 import '../../models/import_result.dart';
 import '../../models/importer.dart';
 import '../../repositories/importer_repository.dart';
@@ -22,10 +23,12 @@ class ImportScreen extends StatefulWidget {
   final VoidCallback? onOpenSettings;
   final String? initialFilePath;
   final String? initialMimeType;
+  final ErrorReporter errors;
 
   const ImportScreen({
     super.key,
     required this.importerRepository,
+    required this.errors,
     this.onOpenSettings,
     this.initialFilePath,
     this.initialMimeType,
@@ -42,7 +45,6 @@ class _ImportScreenState extends State<ImportScreen> {
   String? _fileSize;
   String? _selectedImporterPluginName;
   bool _uploading = false;
-  ApiError? _error;
   ImportResult? _result;
 
   @override
@@ -57,10 +59,8 @@ class _ImportScreenState extends State<ImportScreen> {
   Future<void> _loadImporters() async {
     final result = await widget.importerRepository.getImporters();
     if (!mounted) return;
-    setState(() {
-      _error = result.error;
-      _importers = result.data;
-    });
+    widget.errors.report(result.error);
+    setState(() => _importers = result.data);
   }
 
   void _resetState({String? filePath, String? mimeType}) {
@@ -68,7 +68,7 @@ class _ImportScreenState extends State<ImportScreen> {
     _mimeType = mimeType;
     _fileSize = _computeFileSize(filePath);
     _result = null;
-    _error = null;
+    widget.errors.clear();
     _selectedImporterPluginName = null;
   }
 
@@ -95,20 +95,19 @@ class _ImportScreenState extends State<ImportScreen> {
         : 'file';
     final filename = p.basename(_filePath!);
 
-    setState(() {
-      _uploading = true;
-      _error = null;
-    });
+    widget.errors.clear();
+    setState(() => _uploading = true);
 
     Uint8List bytes;
     try {
       bytes = await File(_filePath!).readAsBytes();
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _uploading = false;
-        _error = NetworkError('Could not read file: $e');
-      });
+      // Not a NetworkError: this is a local file access problem, not a
+      // failure to reach the server — ErrorBanner would otherwise show a
+      // misleading "Cannot reach server" prefix for it.
+      widget.errors.report(ValidationError('Could not read file: $e'));
+      setState(() => _uploading = false);
       return;
     }
 
@@ -122,10 +121,8 @@ class _ImportScreenState extends State<ImportScreen> {
     if (!mounted) return;
 
     if (result.error != null) {
-      setState(() {
-        _uploading = false;
-        _error = result.error;
-      });
+      widget.errors.report(result.error);
+      setState(() => _uploading = false);
       return;
     }
 
@@ -171,14 +168,16 @@ class _ImportScreenState extends State<ImportScreen> {
       ),
       body: Column(
         children: [
-          if (_error != null)
-            ErrorBanner(
-              error: _error!,
-              onRetry: _error is NetworkError && _importers == null
+          ValueListenableBuilder<ApiError?>(
+            valueListenable: widget.errors,
+            builder: (context, error, _) => MaybeErrorBanner(
+              error: error,
+              onRetry: error is NetworkError && _importers == null
                   ? _loadImporters
                   : null,
               onSettings: widget.onOpenSettings,
             ),
+          ),
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: 16),

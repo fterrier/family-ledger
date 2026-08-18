@@ -1,22 +1,27 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/api_error.dart';
 import '../../core/app_preferences.dart';
+import '../../core/error_reporter.dart';
 import '../../models/account.dart';
 import '../../models/commodity.dart';
 import '../../repositories/account_repository.dart';
 import '../../repositories/commodity_repository.dart';
 import '../../widgets/currency_picker_sheet.dart';
+import '../../widgets/error_banner.dart';
 import '../add_transaction/account_picker_screen.dart';
 
 class AppSettingsScreen extends StatefulWidget {
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
+  final ErrorReporter errors;
 
   const AppSettingsScreen({
     super.key,
     required this.accountRepository,
     required this.commodityRepository,
+    required this.errors,
   });
 
   @override
@@ -48,6 +53,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     final defaultFromName = prefs.getString(AppPreferences.keyDefaultFrom);
     final defaultCurrency = prefs.getString(AppPreferences.keyDefaultCurrency);
     if (!mounted) return;
+    // Partial failure is deliberately non-fatal: if only one fetch fails,
+    // the other's row still works — the banner just reports whichever
+    // failed (accounts' error wins if both did).
+    widget.errors.report(accountsResult.error ?? commoditiesResult.error);
     setState(() {
       _loading = false;
       if (accountsResult.data != null) {
@@ -118,26 +127,37 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           child: Container(height: 1, color: const Color(0xFFE5E5EA)),
         ),
       ),
-      body: ListView(
+      body: Column(
         children: [
-          _sectionHeader('New Transaction Defaults'),
-          _card([
-            _pickerRow(
-              label: 'From',
-              value: _defaultFromAccount?.displayName,
-              loading: _loading,
-              onTap: _accounts != null ? _pickDefaultFromAccount : null,
+          ValueListenableBuilder<ApiError?>(
+            valueListenable: widget.errors,
+            builder: (context, error, _) =>
+                MaybeErrorBanner(error: error, onRetry: _load),
+          ),
+          Expanded(
+            child: ListView(
+              children: [
+                _sectionHeader('New Transaction Defaults'),
+                _card([
+                  _pickerRow(
+                    label: 'From',
+                    value: _defaultFromAccount?.displayName,
+                    loading: _loading,
+                    onTap: _accounts != null ? _pickDefaultFromAccount : null,
+                  ),
+                  const Divider(height: 1, color: Color(0xFFF2F2F7)),
+                  _pickerRow(
+                    label: 'Currency',
+                    value: _defaultCurrency,
+                    loading: _loading,
+                    onTap: (_commodities?.isNotEmpty ?? false)
+                        ? _pickDefaultCurrency
+                        : null,
+                  ),
+                ]),
+              ],
             ),
-            const Divider(height: 1, color: Color(0xFFF2F2F7)),
-            _pickerRow(
-              label: 'Currency',
-              value: _defaultCurrency,
-              loading: _loading,
-              onTap: (_commodities?.isNotEmpty ?? false)
-                  ? _pickDefaultCurrency
-                  : null,
-            ),
-          ]),
+          ),
         ],
       ),
     );

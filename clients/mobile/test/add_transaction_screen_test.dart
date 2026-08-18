@@ -4,6 +4,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/core/app_preferences.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/models/commodity.dart';
 import 'package:family_ledger_mobile/models/transaction.dart';
@@ -61,21 +62,26 @@ void main() {
     ).thenAnswer((_) async => (data: [_commodity('CHF')], error: null));
   });
 
-  Widget buildScreen({VoidCallback? onOpenSettings}) => MaterialApp(
-    home: AddTransactionScreen(
-      accountRepository: mockAccountRepo,
-      commodityRepository: mockCommodityRepo,
-      transactionRepository: mockTransactionRepo,
-      onOpenSettings: onOpenSettings,
-    ),
-  );
+  Widget buildScreen({VoidCallback? onOpenSettings, ErrorReporter? errors}) =>
+      MaterialApp(
+        home: AddTransactionScreen(
+          accountRepository: mockAccountRepo,
+          commodityRepository: mockCommodityRepo,
+          transactionRepository: mockTransactionRepo,
+          onOpenSettings: onOpenSettings,
+          errors: errors ?? ErrorReporter(),
+        ),
+      );
 
   // AddTransactionScreen is always pushed onto a stack in the real app and
   // pops itself on a successful save — mounting it directly as `home` can't
   // exercise that. This mounts a placeholder "Open" screen underneath,
   // pushes AddTransactionScreen on top, and hands back a box that captures
   // the pop result once the caller finishes its own fill/submit steps.
-  Future<_PendingPop> pushAddTransactionScreen(WidgetTester tester) async {
+  Future<_PendingPop> pushAddTransactionScreen(
+    WidgetTester tester, {
+    ErrorReporter? errors,
+  }) async {
     final pending = _PendingPop();
     await tester.pumpWidget(
       MaterialApp(
@@ -91,6 +97,7 @@ void main() {
                         accountRepository: mockAccountRepo,
                         commodityRepository: mockCommodityRepo,
                         transactionRepository: mockTransactionRepo,
+                        errors: errors ?? ErrorReporter(),
                       ),
                     ),
                   );
@@ -111,8 +118,9 @@ void main() {
     WidgetTester tester, {
     String amount = '42.50',
     String? narration,
+    ErrorReporter? errors,
   }) async {
-    final pending = await pushAddTransactionScreen(tester);
+    final pending = await pushAddTransactionScreen(tester, errors: errors);
 
     await tester.enterText(find.byType(TextField).first, amount);
     await tester.tap(find.text('Select account…').first);
@@ -182,7 +190,7 @@ void main() {
       expect(find.text('CHF'), findsOneWidget);
     });
 
-    testWidgets('shows error banner when accounts fail to load', (
+    testWidgets('reports the load failure and shows the error banner for it', (
       tester,
     ) async {
       when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
@@ -191,10 +199,14 @@ void main() {
       when(
         () => mockCommodityRepo.getAllCommodities(),
       ).thenAnswer((_) async => (data: <Commodity>[], error: null));
+      final errors = ErrorReporter();
 
-      await tester.pumpWidget(buildScreen());
+      await tester.pumpWidget(buildScreen(errors: errors));
       await tester.pumpAndSettle();
 
+      // Decoupled: the reporter got the right value...
+      expect(errors.value, const NetworkError('unreachable'));
+      // ...and separately, the screen actually renders it.
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
 
@@ -346,13 +358,17 @@ void main() {
       },
     );
 
-    testWidgets('shows API error in banner on failed submit', (tester) async {
+    testWidgets('reports and shows the API error on failed submit', (
+      tester,
+    ) async {
       when(
         () => mockTransactionRepo.createTransaction(any()),
       ).thenAnswer((_) async => (data: null, error: const AuthError()));
+      final errors = ErrorReporter();
 
-      await pushAddTransactionAndSubmit(tester);
+      await pushAddTransactionAndSubmit(tester, errors: errors);
 
+      expect(errors.value, const AuthError());
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
   });

@@ -206,6 +206,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
   }
 
   Future<void> _loadAccountsAndCommodities() async {
+    widget.errors.clear();
     final (accountsResult, commoditiesResult) = await (
       widget.accountRepository.getAllAccounts(),
       widget.commodityRepository.getAllCommodities(),

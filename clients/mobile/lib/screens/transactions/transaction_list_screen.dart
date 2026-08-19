@@ -236,8 +236,10 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     final (updated, refetchError) = result;
     // The edit itself succeeded — surface a failed post-save re-fetch as a
     // banner rather than dropping it silently, while still showing the best
-    // data available (the PATCH response) for the row.
-    if (refetchError != null) widget.listErrors.report(refetchError);
+    // data available (the PATCH response) for the row. A successful refetch
+    // clears any stale, unrelated list error (e.g. from a prior failed bulk
+    // action) — this edit round-trip just proved the list works.
+    widget.listErrors.report(refetchError);
     setState(() {
       final idx = _transactions.indexWhere((t) => t.name == updated.name);
       if (idx >= 0) _transactions[idx] = updated;
@@ -338,6 +340,11 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       });
       return;
     }
+    // A successful fetch — regardless of who triggered it — clears any
+    // stale list error left over from an unrelated earlier failure (a bulk
+    // action, a post-edit refetch, ...): this fetch just proved the list
+    // works.
+    widget.listErrors.clear();
     final (txs, nextToken) = result.data!;
     setState(() {
       _transactions = pageToken == null ? txs : [..._transactions, ...txs];

@@ -529,5 +529,31 @@ void main() {
 
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
+
+    testWidgets('retry succeeding clears the error banner '
+        '(regression: _loadAccountsAndCommodities only ever reported a new '
+        'error on failure, never cleared the old one on success, so a '
+        'successful Retry left the banner shown)', (tester) async {
+      when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('no network')),
+      );
+      final errors = ErrorReporter();
+
+      await tester.pumpWidget(buildScreen(_balancedTx(), errors: errors));
+      await tester.pumpAndSettle();
+      expect(errors.value, const NetworkError('no network'));
+
+      when(() => mockAccountRepo.getAllAccounts()).thenAnswer(
+        (_) async => (
+          data: [_acct('Assets:Bank:Checking'), _acct('Expenses:Food')],
+          error: null,
+        ),
+      );
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      expect(errors.value, isNull);
+      expect(find.byType(ErrorBanner), findsNothing);
+    });
   });
 }

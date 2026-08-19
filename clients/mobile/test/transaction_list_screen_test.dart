@@ -114,18 +114,19 @@ void main() {
     ).thenAnswer((_) async => (data: <Commodity>[], error: null));
   });
 
-  Widget buildScreen() => MaterialApp(
-    home: Scaffold(
-      body: TransactionListScreen(
-        transactionRepository: mockRepo,
-        accountRepository: mockAccountRepo,
-        commodityRepository: mockCommodityRepo,
-        queryRepository: mockQueryRepo,
-        listErrors: ErrorReporter(),
-        chartErrors: ErrorReporter(),
-      ),
-    ),
-  );
+  Widget buildScreen({ErrorReporter? listErrors, ErrorReporter? chartErrors}) =>
+      MaterialApp(
+        home: Scaffold(
+          body: TransactionListScreen(
+            transactionRepository: mockRepo,
+            accountRepository: mockAccountRepo,
+            commodityRepository: mockCommodityRepo,
+            queryRepository: mockQueryRepo,
+            listErrors: listErrors ?? ErrorReporter(),
+            chartErrors: chartErrors ?? ErrorReporter(),
+          ),
+        ),
+      );
 
   testWidgets('shows loading indicator while fetching', (tester) async {
     final completer = Completer<_ListResult>();
@@ -565,6 +566,56 @@ void main() {
     // Total item count in the list grew to 21.
     expect(find.byType(CustomScrollView), findsOneWidget);
   });
+
+  testWidgets(
+    'a successful pagination fetch clears a pre-existing, unrelated list '
+    'error (regression: _doFetch only ever reported a new list-load '
+    'failure, never cleared a stale one on success, so an error left over '
+    'from e.g. a failed bulk action or edit refetch kept showing even '
+    'after a later fetch proved the list works fine)',
+    (tester) async {
+      final firstPage = List.generate(
+        30,
+        (i) => _tx(
+          name: 'transactions/t$i',
+          date: '2026-06-01',
+          payee: 'Payee $i',
+        ),
+      );
+      when(
+        () => mockRepo.listTransactions(
+          pageSize: any(named: 'pageSize'),
+          pageToken: any(named: 'pageToken'),
+          filter: any(named: 'filter'),
+        ),
+      ).thenAnswer((invocation) async {
+        final token = invocation.namedArguments[#pageToken] as String?;
+        return token == null
+            ? (data: (firstPage, 'page2'), error: null)
+            : (
+                data: ([_tx(name: 'transactions/next', payee: 'Coop')], null),
+                error: null,
+              );
+      });
+
+      final listErrors = ErrorReporter();
+      await tester.pumpWidget(buildScreen(listErrors: listErrors));
+      await tester.pumpAndSettle();
+
+      // Simulate a leftover error from something unrelated to this fetch
+      // (e.g. a failed bulk delete, or a failed post-edit refetch).
+      listErrors.report(const NetworkError('stale, unrelated failure'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ErrorBanner), findsOneWidget);
+
+      // Scroll to trigger pagination — it succeeds.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -5000));
+      await tester.pumpAndSettle();
+
+      expect(listErrors.value, isNull);
+      expect(find.byType(ErrorBanner), findsNothing);
+    },
+  );
 
   testWidgets('pull-to-refresh reloads the list', (tester) async {
     var callCount = 0;
@@ -1219,6 +1270,67 @@ void main() {
       expect(find.text('Migros'), findsNothing);
     },
   );
+
+  testWidgets('a successful edit clears a pre-existing, unrelated list error '
+      '(regression: _openTransaction only ever reported a new refetch '
+      'failure, never cleared a stale one on refetch success, so a leftover '
+      'error from e.g. a failed bulk action kept showing indefinitely)', (
+    tester,
+  ) async {
+    final original = _tx();
+    const updated = TransactionResource(
+      name: 'transactions/t1',
+      transactionDate: '2026-06-18',
+      payee: 'Updated Migros',
+      narration: 'Groceries',
+      postings: [
+        PostingResource(
+          account: 'accounts/acc_checking',
+          accountName: 'Assets:Bank:Checking',
+          units: MoneyValue(amount: '-42.50', symbol: 'CHF'),
+          weight: MoneyValue(amount: '-42.50', symbol: 'CHF'),
+        ),
+        PostingResource(
+          account: 'accounts/acc_food',
+          accountName: 'Expenses:Food',
+          units: MoneyValue(amount: '42.50', symbol: 'CHF'),
+          weight: MoneyValue(amount: '42.50', symbol: 'CHF'),
+        ),
+      ],
+    );
+
+    when(
+      () => mockRepo.listTransactions(
+        pageSize: any(named: 'pageSize'),
+        pageToken: any(named: 'pageToken'),
+        filter: any(named: 'filter'),
+      ),
+    ).thenAnswer((_) async => (data: ([original], null), error: null));
+    when(
+      () => mockRepo.updateTransaction(any(), any()),
+    ).thenAnswer((_) async => (data: updated, error: null));
+    when(
+      () => mockRepo.getTransaction('transactions/t1'),
+    ).thenAnswer((_) async => (data: updated, error: null));
+
+    final listErrors = ErrorReporter();
+    await tester.pumpWidget(buildScreen(listErrors: listErrors));
+    await tester.pumpAndSettle();
+
+    // Simulate a leftover error from something unrelated (e.g. a failed
+    // bulk delete) still showing when the user opens a row to edit it.
+    listErrors.report(const NetworkError('stale, unrelated failure'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ErrorBanner), findsOneWidget);
+
+    await tester.tap(find.text('Migros'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(listErrors.value, isNull);
+    expect(find.byType(ErrorBanner), findsNothing);
+  });
 
   testWidgets(
     'saving an edit with a default currency configured re-fetches the row '

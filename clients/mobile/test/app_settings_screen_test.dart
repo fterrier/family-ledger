@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -154,6 +156,39 @@ void main() {
 
         expect(errors.value, const NetworkError('unreachable'));
         expect(find.byType(ErrorBanner), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'retrying clears the stale error banner immediately, before the new '
+      'fetch resolves (regression: _load() only reported errors.value after '
+      'the await, so the old banner stayed up alongside the new loading '
+      'spinners for the whole retry, reading as "still failing")',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        when(() => mockRepo.getAllAccounts()).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('unreachable')),
+        );
+        final errors = ErrorReporter();
+
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
+        expect(find.byType(ErrorBanner), findsOneWidget);
+
+        final retry =
+            Completer<({List<AccountResource>? data, ApiError? error})>();
+        when(() => mockRepo.getAllAccounts()).thenAnswer((_) => retry.future);
+
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+
+        // The fetch hasn't resolved yet, but the stale banner must already
+        // be gone.
+        expect(find.byType(ErrorBanner), findsNothing);
+        expect(errors.value, isNull);
+
+        retry.complete((data: <AccountResource>[], error: null));
+        await tester.pumpAndSettle();
       },
     );
   });

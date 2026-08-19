@@ -49,6 +49,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
   }
 
   Future<void> _load() async {
+    widget.errors.clear();
     setState(() => _loading = true);
     final (accountsResult, commoditiesResult, prefs) = await (
       widget.accountRepository.getAllAccounts(),

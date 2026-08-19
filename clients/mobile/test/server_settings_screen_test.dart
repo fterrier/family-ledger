@@ -6,7 +6,6 @@ import 'package:family_ledger_mobile/core/api_error.dart';
 import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/core/secure_settings.dart';
 import 'package:family_ledger_mobile/screens/settings/server_settings_screen.dart';
-import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 class MockSecureSettings extends Mock implements SecureSettings {}
 
@@ -129,49 +128,64 @@ void main() {
   });
 
   group('ServerSettingsScreen Connect — failure', () {
-    testWidgets('shows error and stays when server unreachable', (
-      tester,
-    ) async {
-      when(
-        () => mockApiClient.checkHealth(),
-      ).thenAnswer((_) async => const NetworkError('unreachable'));
-      final errors = ErrorReporter();
+    testWidgets(
+      'server unreachable raises the issue on the URL field, not a banner',
+      (tester) async {
+        when(
+          () => mockApiClient.checkHealth(),
+        ).thenAnswer((_) async => const NetworkError('unreachable'));
+        final errors = ErrorReporter();
 
-      await tester.pumpWidget(buildScreen(errors: errors));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Connect'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Connect'));
+        await tester.pumpAndSettle();
 
-      expect(errors.value, const NetworkError('unreachable'));
-      // Routed through the shared ErrorBanner message table instead of this
-      // screen's own copy, so the message includes the underlying
-      // NetworkError text rather than a bespoke "Check the URL." hint.
-      expect(find.text('Cannot reach server. unreachable'), findsOneWidget);
-      expect(find.byType(ErrorBanner), findsOneWidget);
-      expect(find.text('Connect'), findsOneWidget);
-    });
+        expect(errors.value, const NetworkError('unreachable'));
+        // The hint lands on the field it's actually about, not a top banner.
+        expect(find.text('Check the URL.'), findsOneWidget);
+        expect(find.text('Connect'), findsOneWidget);
+      },
+    );
 
-    testWidgets('shows error and stays on bad token', (tester) async {
-      when(() => mockApiClient.checkHealth()).thenAnswer((_) async => null);
-      when(
-        () => mockApiClient.get(any(), queryParams: any(named: 'queryParams')),
-      ).thenAnswer((_) async => (data: null, error: const AuthError()));
+    testWidgets(
+      'a bad token raises the issue on the Token field, not a banner',
+      (tester) async {
+        when(() => mockApiClient.checkHealth()).thenAnswer((_) async => null);
+        when(
+          () =>
+              mockApiClient.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenAnswer((_) async => (data: null, error: const AuthError()));
 
-      await tester.pumpWidget(buildScreen());
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Connect'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Connect'));
+        await tester.pumpAndSettle();
 
-      // Same shared-message-table switch as above.
-      expect(
-        find.text('Authentication failed. Check your API token.'),
-        findsOneWidget,
-      );
-      expect(find.byType(ErrorBanner), findsOneWidget);
-      expect(find.text('Connect'), findsOneWidget);
-    });
+        expect(find.text('Check your token.'), findsOneWidget);
+        expect(find.text('Connect'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'a server error is shown on the URL field as a fallback, with the '
+      'server message',
+      (tester) async {
+        when(() => mockApiClient.checkHealth()).thenAnswer(
+          (_) async => const ServerError(500, 'internal', 'Something broke'),
+        );
+
+        await tester.pumpWidget(buildScreen());
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Connect'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Server error: Something broke'), findsOneWidget);
+      },
+    );
 
     testWidgets('does not call onServerChanged on failure', (tester) async {
       when(

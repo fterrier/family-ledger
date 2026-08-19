@@ -1,7 +1,6 @@
 import 'package:collection/collection.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../core/api_error.dart';
 import '../../core/app_preferences.dart';
 import '../../core/error_reporter.dart';
 import '../../models/account.dart';
@@ -136,11 +135,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       ),
       body: Column(
         children: [
-          ValueListenableBuilder<ApiError?>(
-            valueListenable: widget.errors,
-            builder: (context, error, _) =>
-                MaybeErrorBanner(error: error, onRetry: _load),
-          ),
+          ErrorReporterBanner(reporter: widget.errors, onRetry: _load),
           Expanded(
             child: ListView(
               children: [

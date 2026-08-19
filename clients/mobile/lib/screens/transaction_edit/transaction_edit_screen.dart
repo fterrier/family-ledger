@@ -519,14 +519,12 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       ),
       body: Column(
         children: [
-          ValueListenableBuilder<ApiError?>(
-            valueListenable: widget.errors,
-            builder: (context, error, _) => MaybeErrorBanner(
-              error: error,
-              onRetry: error is NetworkError
-                  ? _loadAccountsAndCommodities
-                  : null,
-            ),
+          // Not error-type-gated: ErrorBanner only ever reads onRetry for
+          // NetworkError anyway, so passing it unconditionally is
+          // behaviorally identical.
+          ErrorReporterBanner(
+            reporter: widget.errors,
+            onRetry: _loadAccountsAndCommodities,
           ),
           Expanded(
             child: ListView(

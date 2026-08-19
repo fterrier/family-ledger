@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../core/api_error.dart';
+import '../core/error_reporter.dart';
 
 class ErrorBanner extends StatelessWidget {
   final ApiError error;
@@ -93,4 +94,35 @@ class MaybeErrorBanner extends StatelessWidget {
         ? const SizedBox.shrink()
         : ErrorBanner(error: error, onRetry: onRetry, onSettings: onSettings);
   }
+}
+
+/// Listens to an [ErrorReporter] and renders [MaybeErrorBanner] for its
+/// current value — the "own a reporter, show its error above my content"
+/// wiring that was hand-written at every screen that just shows a banner or
+/// nothing (as opposed to a screen that swaps its whole content for the
+/// banner, like the account/commodity pickers in date_filter_sheet.dart and
+/// more_filters_sheet.dart, which still wire their own ValueListenableBuilder
+/// since they need the live error value to choose between two subtrees, not
+/// just to gate a banner).
+class ErrorReporterBanner extends StatelessWidget {
+  final ErrorReporter reporter;
+  final VoidCallback? onRetry;
+  final VoidCallback? onSettings;
+
+  const ErrorReporterBanner({
+    super.key,
+    required this.reporter,
+    this.onRetry,
+    this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<ApiError?>(
+    valueListenable: reporter,
+    builder: (context, error, _) => MaybeErrorBanner(
+      error: error,
+      onRetry: onRetry,
+      onSettings: onSettings,
+    ),
+  );
 }

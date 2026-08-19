@@ -174,15 +174,15 @@ class _ImportScreenState extends State<ImportScreen> {
       ),
       body: Column(
         children: [
-          ValueListenableBuilder<ApiError?>(
-            valueListenable: widget.errors,
-            builder: (context, error, _) => MaybeErrorBanner(
-              error: error,
-              onRetry: error is NetworkError && _importers == null
-                  ? _loadImporters
-                  : null,
-              onSettings: widget.onOpenSettings,
-            ),
+          ErrorReporterBanner(
+            reporter: widget.errors,
+            // Not error-type-gated: ErrorBanner only ever reads onRetry for
+            // NetworkError anyway, so the only real guard needed is
+            // "don't offer to reload the importer list once it's already
+            // loaded" — a submit-time failure shouldn't retry the wrong
+            // operation.
+            onRetry: _importers == null ? _loadImporters : null,
+            onSettings: widget.onOpenSettings,
           ),
           Expanded(
             child: ListView(

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/widgets/error_banner.dart';
 
 Widget _wrap(ErrorBanner banner) => MaterialApp(home: Scaffold(body: banner));
@@ -147,6 +148,49 @@ void main() {
       await tester.tap(find.text('Settings'));
       expect(settingsCalled, isTrue);
       expect(retryCalled, isFalse);
+    });
+  });
+
+  group('ErrorReporterBanner', () {
+    testWidgets('renders nothing while the reporter has no error', (
+      tester,
+    ) async {
+      final reporter = ErrorReporter();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: ErrorReporterBanner(reporter: reporter)),
+        ),
+      );
+
+      expect(find.byType(ErrorBanner), findsNothing);
+    });
+
+    testWidgets('renders and updates as the reporter changes', (tester) async {
+      final reporter = ErrorReporter();
+      var retryCalled = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ErrorReporterBanner(
+              reporter: reporter,
+              onRetry: () => retryCalled = true,
+            ),
+          ),
+        ),
+      );
+      expect(find.byType(ErrorBanner), findsNothing);
+
+      reporter.report(const NetworkError('down'));
+      await tester.pump();
+
+      expect(find.text('Cannot reach server. down'), findsOneWidget);
+      await tester.tap(find.text('Retry'));
+      expect(retryCalled, isTrue);
+
+      reporter.clear();
+      await tester.pump();
+
+      expect(find.byType(ErrorBanner), findsNothing);
     });
   });
 }

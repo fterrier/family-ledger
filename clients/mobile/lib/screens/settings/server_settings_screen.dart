@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import '../../core/api_client.dart';
-import '../../core/api_error.dart';
 import '../../core/error_reporter.dart';
 import '../../core/secure_settings.dart';
 import '../../widgets/error_banner.dart';
@@ -123,10 +122,7 @@ class _ServerSettingsScreenState extends State<ServerSettingsScreen> {
       ),
       body: Column(
         children: [
-          ValueListenableBuilder<ApiError?>(
-            valueListenable: widget.errors,
-            builder: (context, error, _) => MaybeErrorBanner(error: error),
-          ),
+          ErrorReporterBanner(reporter: widget.errors),
           Expanded(
             child: Form(
               key: _formKey,

@@ -55,6 +55,14 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   List<Commodity> _commodities = [];
   bool _saving = false;
 
+  // What Retry on the error banner should do — reload accounts (when the
+  // last failure was the initial load) or resubmit (when it was a failed
+  // submit). Without this, Retry was hardcoded to reload, which resets
+  // _fromAccount/_currency to their stored defaults — tapping it after a
+  // failed submit silently discarded any accounts the user had manually
+  // picked instead of resubmitting them.
+  VoidCallback? _retryAction;
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +80,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
     if (!mounted) return;
     if (accountsResult.error != null) {
       widget.errors.report(accountsResult.error);
+      setState(() => _retryAction = _loadAccounts);
       return;
     }
     final active = accountsResult.data!.where((a) => a.isActive).toList();
@@ -186,7 +195,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     if (result.error != null) {
       widget.errors.report(result.error);
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _retryAction = _submit;
+      });
       return;
     }
 
@@ -231,7 +243,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           children: [
             MaybeErrorBanner(
               error: error,
-              onRetry: error is NetworkError ? _loadAccounts : null,
+              onRetry: _retryAction,
               onSettings: widget.onOpenSettings,
             ),
             Expanded(

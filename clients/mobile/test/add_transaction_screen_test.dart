@@ -233,6 +233,32 @@ void main() {
     });
   });
 
+  group('AddTransactionScreen submit failure retry', () {
+    testWidgets('Retry after a failed submit resubmits, not reload accounts '
+        '(regression: onRetry was hardcoded to _loadAccounts, which resets '
+        '_fromAccount/_currency to stored defaults — tapping Retry after a '
+        'failed submit silently discarded the user\'s manual overrides)', (
+      tester,
+    ) async {
+      when(() => mockTransactionRepo.createTransaction(any())).thenAnswer(
+        (_) async =>
+            (data: null, error: const NetworkError('connection refused')),
+      );
+
+      await pushAddTransactionAndSubmit(tester);
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      verify(() => mockTransactionRepo.createTransaction(any())).called(1);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      // Retry resubmitted (one more call since the verify() above), not
+      // another accounts reload that would have reset the chosen accounts.
+      verify(() => mockTransactionRepo.createTransaction(any())).called(1);
+    });
+  });
+
   group('AddTransactionScreen validation', () {
     testWidgets('submit with no amount/from/to shows validation error', (
       tester,

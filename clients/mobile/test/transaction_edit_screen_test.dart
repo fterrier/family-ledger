@@ -555,5 +555,59 @@ void main() {
       expect(errors.value, isNull);
       expect(find.byType(ErrorBanner), findsNothing);
     });
+
+    testWidgets('a failed commodities fetch is reported, not silently '
+        'dropped (regression: only accountsResult.error was ever checked, '
+        'so a commodities-only failure left currency pickers empty with no '
+        'explanation)', (tester) async {
+      when(() => mockCommodityRepo.getAllCommodities()).thenAnswer(
+        (_) async => (data: null, error: const NetworkError('no network')),
+      );
+      final errors = ErrorReporter();
+
+      await tester.pumpWidget(buildScreen(_balancedTx(), errors: errors));
+      await tester.pumpAndSettle();
+
+      expect(errors.value, const NetworkError('no network'));
+      expect(find.byType(ErrorBanner), findsOneWidget);
+    });
+  });
+
+  group('save failure retry', () {
+    testWidgets('Retry after a failed Save resubmits the save, not a reload '
+        '(regression: onRetry was hardcoded to _loadAccountsAndCommodities, '
+        'so tapping Retry after a failed save silently cleared the banner '
+        'by re-fetching accounts instead of resaving — the edit was never '
+        'actually persisted, but the UI looked like it recovered)', (
+      tester,
+    ) async {
+      when(
+        () => mockTransactionRepo.updateTransaction(any(), any()),
+      ).thenAnswer(
+        (_) async =>
+            (data: null, error: const NetworkError('connection refused')),
+      );
+
+      await tester.pumpWidget(buildScreen(_balancedTx()));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      verify(
+        () => mockTransactionRepo.updateTransaction(any(), any()),
+      ).called(1);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pumpAndSettle();
+
+      // Retry re-attempted the save — one more call since the last verify()
+      // above — not another accounts/commodities reload (still just the
+      // single initState call recorded before either verify() ran).
+      verify(
+        () => mockTransactionRepo.updateTransaction(any(), any()),
+      ).called(1);
+      verify(() => mockAccountRepo.getAllAccounts()).called(1);
+    });
   });
 }

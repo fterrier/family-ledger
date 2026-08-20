@@ -118,6 +118,14 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
   bool _saving = false;
 
+  // What Retry on the error banner should do — reload (when the last
+  // failure was the accounts/commodities fetch) or resave (when it was a
+  // failed Save). Without this, Retry was hardcoded to reload, so tapping
+  // it after a failed Save silently cleared the banner via an unrelated
+  // successful reload instead of resubmitting — looking like the edit
+  // saved when it never did.
+  VoidCallback? _retryAction;
+
   // Server-computed preview (POST /transactions:normalize), refreshed on a
   // debounce after each edit — see _scheduleNormalizeCheck. Never re-derive
   // "weight" (cost/price-adjusted balance) here: the server already knows
@@ -214,11 +222,20 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
     if (!mounted) return;
     if (accountsResult.error != null) {
       widget.errors.report(accountsResult.error);
+      setState(() => _retryAction = _loadAccountsAndCommodities);
       return;
     }
     setState(() {
       _accounts = accountsResult.data!.where((a) => a.isActive).toList();
       _commodities = commoditiesResult.data ?? [];
+      // Partial failure is deliberately non-fatal: accounts loaded fine, so
+      // the form is usable — the banner just reports the commodities
+      // failure (previously silently dropped: only accountsResult.error
+      // was ever checked here).
+      if (commoditiesResult.error != null) {
+        widget.errors.report(commoditiesResult.error);
+        _retryAction = _loadAccountsAndCommodities;
+      }
     });
   }
 
@@ -441,7 +458,10 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
 
     if (updateResult.error != null) {
       widget.errors.report(updateResult.error);
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _retryAction = _save;
+      });
       return;
     }
 
@@ -519,13 +539,7 @@ class _TransactionEditScreenState extends State<TransactionEditScreen> {
       ),
       body: Column(
         children: [
-          // Not error-type-gated: ErrorBanner only ever reads onRetry for
-          // NetworkError anyway, so passing it unconditionally is
-          // behaviorally identical.
-          ErrorReporterBanner(
-            reporter: widget.errors,
-            onRetry: _loadAccountsAndCommodities,
-          ),
+          ErrorReporterBanner(reporter: widget.errors, onRetry: _retryAction),
           Expanded(
             child: ListView(
               children: [

@@ -11,6 +11,16 @@ class MockSecureSettings extends Mock implements SecureSettings {}
 
 class MockApiClient extends Mock implements ApiClient {}
 
+class _SpyErrorReporter extends ErrorReporter {
+  bool disposed = false;
+
+  @override
+  void dispose() {
+    disposed = true;
+    super.dispose();
+  }
+}
+
 void main() {
   late MockSecureSettings mockSettings;
   late MockApiClient mockApiClient;
@@ -184,6 +194,37 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.text('Server error: Something broke'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'disposes its own reporter when pushed as a settings screen (no '
+      'onSaved) — its reporter is constructed fresh for the push and '
+      'nothing else owns it',
+      (tester) async {
+        final errors = _SpyErrorReporter();
+
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+
+        expect(errors.disposed, isTrue);
+      },
+    );
+
+    testWidgets(
+      'does not dispose the reporter during initial setup (onSaved set) — '
+      'that reporter is owned by the app shell and outlives this screen',
+      (tester) async {
+        final errors = _SpyErrorReporter();
+
+        await tester.pumpWidget(buildScreen(onSaved: () {}, errors: errors));
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(const SizedBox());
+        await tester.pumpAndSettle();
+
+        expect(errors.disposed, isFalse);
       },
     );
 

@@ -63,6 +63,7 @@ class _ImportScreenState extends State<ImportScreen> {
   }
 
   Future<void> _loadImporters() async {
+    widget.errors.clear();
     final result = await widget.importerRepository.getImporters();
     if (!mounted) return;
     widget.errors.report(result.error);

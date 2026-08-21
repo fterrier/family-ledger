@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -94,6 +95,37 @@ void main() {
       expect(errors.value, const NetworkError('unreachable'));
       expect(find.byType(ErrorBanner), findsOneWidget);
     });
+
+    testWidgets(
+      'retrying clears the stale error banner immediately, before the new '
+      'fetch resolves (regression: _loadImporters() only reported '
+      'errors.value after the await, so the old banner stayed up '
+      'alongside the retry, reading as "still failing")',
+      (tester) async {
+        when(() => mockRepo.getImporters()).thenAnswer(
+          (_) async => (data: null, error: const NetworkError('down')),
+        );
+        final errors = ErrorReporter();
+
+        await tester.pumpWidget(buildScreen(errors: errors));
+        await tester.pumpAndSettle();
+        expect(find.byType(ErrorBanner), findsOneWidget);
+
+        final retry = Completer<({List<Importer>? data, ApiError? error})>();
+        when(() => mockRepo.getImporters()).thenAnswer((_) => retry.future);
+
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+
+        // The fetch hasn't resolved yet, but the stale banner must already
+        // be gone.
+        expect(find.byType(ErrorBanner), findsNothing);
+        expect(errors.value, isNull);
+
+        retry.complete((data: <Importer>[], error: null));
+        await tester.pumpAndSettle();
+      },
+    );
 
     testWidgets('retry button reloads importers', (tester) async {
       when(() => mockRepo.getImporters()).thenAnswer(

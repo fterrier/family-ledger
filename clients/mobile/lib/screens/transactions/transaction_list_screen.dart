@@ -455,22 +455,40 @@ class TransactionListScreenState extends State<TransactionListScreen> {
     widget.listErrors.clear();
     setState(() => _bulkActionBusy = true);
     final toDelete = Set<String>.from(_selectedNames);
-    final errors = await Future.wait(
+    final results = await Future.wait(
       toDelete.map(
-        (name) => widget.transactionRepository.deleteTransaction(name),
+        (name) async => (
+          name: name,
+          error: await widget.transactionRepository.deleteTransaction(name),
+        ),
       ),
     );
     if (!mounted) return;
-    final firstError = errors.firstWhere((e) => e != null, orElse: () => null);
+    // Each name is removed independently of the others' outcome — a
+    // partial failure must not leave a transaction that was actually
+    // deleted server-side still showing locally (Future.wait previously
+    // discarded every result on any single failure).
+    final deleted = {
+      for (final r in results)
+        if (r.error == null) r.name,
+    };
+    final firstError = results
+        .map((r) => r.error)
+        .firstWhere((e) => e != null, orElse: () => null);
+    setState(() {
+      _transactions.removeWhere((t) => deleted.contains(t.name));
+      if (deleted.isNotEmpty) _chartRefreshTick++;
+      _bulkActionBusy = false;
+    });
     if (firstError != null) {
       widget.listErrors.report(firstError);
-      setState(() => _bulkActionBusy = false);
+      // Narrow the selection down to just the names that still need
+      // deleting, so a retry doesn't re-attempt the ones that already
+      // succeeded.
+      _updateSelection(toDelete.difference(deleted));
       return;
     }
-    setState(() {
-      _transactions.removeWhere((t) => toDelete.contains(t.name));
-      _chartRefreshTick++;
-    });
+    _refreshDoctorIssues();
     exitSelectionMode();
   }
 
@@ -498,8 +516,14 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       orElse: () => null,
     );
     if (firstError != null) {
+      // The merge already succeeded server-side even though a follow-up
+      // delete didn't — local state (which still shows both un-merged
+      // originals) can't be hand-reconciled from here without knowing
+      // exactly which delete failed, so fall back to a full reload instead
+      // of guessing at it.
       widget.listErrors.report(firstError);
-      setState(() => _bulkActionBusy = false);
+      exitSelectionMode();
+      unawaited(refresh());
       return;
     }
     final mergedTx = mergeResult.data!;
@@ -516,6 +540,7 @@ class TransactionListScreenState extends State<TransactionListScreen> {
       _transactions.insert(insertAt, mergedTx);
       _chartRefreshTick++;
     });
+    _refreshDoctorIssues();
     exitSelectionMode();
   }
 

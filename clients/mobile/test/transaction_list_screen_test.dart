@@ -1647,6 +1647,216 @@ void main() {
       },
     );
 
+    testWidgets('deleteSelected on partial failure still removes the ones that '
+        'succeeded, keeps only the failed one selected, and reports the '
+        'error (regression: Future.wait discarded ALL results on any single '
+        'failure, so successfully-deleted rows kept showing until an '
+        'unrelated reload, and retrying would re-delete already-gone rows)', (
+      tester,
+    ) async {
+      when(
+        () => mockRepo.deleteTransaction('transactions/t1'),
+      ).thenAnswer((_) async => const NetworkError('timeout'));
+      when(
+        () => mockRepo.deleteTransaction('transactions/t2'),
+      ).thenAnswer((_) async => null);
+
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.deleteSelected();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorBanner), findsOneWidget);
+      // Coop (t2) succeeded server-side and must be gone locally too.
+      expect(find.text('Coop'), findsNothing);
+      // Migros (t1) failed and must still be shown, and still selected —
+      // so a retry only targets what actually still needs it.
+      expect(find.text('Migros'), findsOneWidget);
+      expect(selectionNotifier.value, {'transactions/t1'});
+    });
+
+    testWidgets('a fully successful deleteSelected refreshes doctor issues', (
+      tester,
+    ) async {
+      var doctorCallCount = 0;
+      when(() => mockRepo.runDoctorIssues()).thenAnswer((_) async {
+        doctorCallCount++;
+        return (data: <DoctorIssue>[], error: null);
+      });
+
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final callsBeforeDelete = doctorCallCount;
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.deleteSelected();
+      await tester.pumpAndSettle();
+
+      expect(doctorCallCount, greaterThan(callsBeforeDelete));
+    });
+
+    testWidgets(
+      'mergeSelected falls back to a full reload when merge succeeds but a '
+      'follow-up delete fails (regression: local state was left showing '
+      'both stale originals — one already deleted server-side, one not — '
+      'with the newly-merged transaction invisible until an unrelated '
+      'reload)',
+      (tester) async {
+        when(() => mockRepo.mergeTransactions(any(), any())).thenAnswer(
+          (_) async => (
+            data: _tx(name: 'transactions/merged', payee: 'Merged'),
+            error: null,
+          ),
+        );
+        when(
+          () => mockRepo.deleteTransaction('transactions/t1'),
+        ).thenAnswer((_) async => null);
+        when(
+          () => mockRepo.deleteTransaction('transactions/t2'),
+        ).thenAnswer((_) async => const NetworkError('timeout'));
+        // The fallback reload re-fetches the list — simulate the merged
+        // transaction now present and one original still lingering.
+        var reloadCount = 0;
+        when(
+          () => mockRepo.listTransactions(
+            pageSize: any(named: 'pageSize'),
+            pageToken: any(named: 'pageToken'),
+            filter: any(named: 'filter'),
+          ),
+        ).thenAnswer((_) async {
+          reloadCount++;
+          if (reloadCount == 1) {
+            return (data: ([_tx(), tx2()], null), error: null);
+          }
+          return (
+            data: (
+              [_tx(name: 'transactions/merged', payee: 'Merged'), tx2()],
+              null,
+            ),
+            error: null,
+          );
+        });
+
+        final key = GlobalKey<TransactionListScreenState>();
+        selectionNotifier = ValueNotifier<Set<String>>({});
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: TransactionListScreen(
+                key: key,
+                transactionRepository: mockRepo,
+                accountRepository: mockAccountRepo,
+                commodityRepository: mockCommodityRepo,
+                queryRepository: mockQueryRepo,
+                listErrors: ErrorReporter(),
+                chartErrors: ErrorReporter(),
+                selectionNotifier: selectionNotifier,
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.longPress(find.text('Migros'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Coop'));
+        await tester.pumpAndSettle();
+
+        await key.currentState!.mergeSelected();
+        await tester.pumpAndSettle();
+
+        // The reload reflects true server state: the merged transaction
+        // plus the one original that failed to delete.
+        expect(find.text('Merged'), findsOneWidget);
+        expect(find.text('Coop'), findsOneWidget);
+        expect(find.text('Migros'), findsNothing);
+        expect(selectionNotifier.value, isEmpty);
+      },
+    );
+
+    testWidgets('a fully successful mergeSelected refreshes doctor issues', (
+      tester,
+    ) async {
+      var doctorCallCount = 0;
+      when(() => mockRepo.runDoctorIssues()).thenAnswer((_) async {
+        doctorCallCount++;
+        return (data: <DoctorIssue>[], error: null);
+      });
+
+      final key = GlobalKey<TransactionListScreenState>();
+      selectionNotifier = ValueNotifier<Set<String>>({});
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TransactionListScreen(
+              key: key,
+              transactionRepository: mockRepo,
+              accountRepository: mockAccountRepo,
+              commodityRepository: mockCommodityRepo,
+              queryRepository: mockQueryRepo,
+              listErrors: ErrorReporter(),
+              chartErrors: ErrorReporter(),
+              selectionNotifier: selectionNotifier,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final callsBeforeMerge = doctorCallCount;
+
+      await tester.longPress(find.text('Migros'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Coop'));
+      await tester.pumpAndSettle();
+
+      await key.currentState!.mergeSelected();
+      await tester.pumpAndSettle();
+
+      expect(doctorCallCount, greaterThan(callsBeforeMerge));
+    });
+
     testWidgets('mergeSelected calls merge + 2 deletes and removes both rows', (
       tester,
     ) async {

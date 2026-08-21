@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../core/api_error.dart';
 import '../../core/error_reporter.dart';
+import '../../core/generation_guard.dart';
 import '../../repositories/transaction_repository.dart';
 import '../../widgets/error_banner.dart';
 import '../../widgets/filter_pill.dart';
@@ -48,6 +49,10 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
   List<int> _years = [];
   bool _yearsLoading = true;
   final ScrollController _yearsScrollController = ScrollController();
+  // A response is only applied if it's still the most recent one requested
+  // — a double-tapped Retry can otherwise let a slow, superseded response
+  // land after a faster later one and silently overwrite it.
+  final _loadYearsGuard = GenerationGuard();
 
   @override
   void initState() {
@@ -64,8 +69,9 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
   }
 
   Future<void> _loadYears() async {
+    final generation = _loadYearsGuard.start();
     final result = await widget.transactionRepository.getYearRange();
-    if (!mounted) return;
+    if (!mounted || !_loadYearsGuard.isCurrent(generation)) return;
     widget.errors.report(result.error);
     setState(() {
       _yearsLoading = false;

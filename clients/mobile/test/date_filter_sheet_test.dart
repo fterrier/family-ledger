@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:family_ledger_mobile/core/api_error.dart';
+import 'package:family_ledger_mobile/core/error_reporter.dart';
 import 'package:family_ledger_mobile/models/account.dart';
 import 'package:family_ledger_mobile/repositories/transaction_repository.dart';
 import 'package:family_ledger_mobile/screens/transactions/date_filter_sheet.dart';
@@ -136,6 +139,60 @@ void main() {
 
       expect(find.byType(ErrorBanner), findsOneWidget);
       expect(find.byType(FilterPill), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a slow, superseded getYearRange response must not overwrite a later, '
+    'faster one (regression: no generation guard on _loadYears meant a '
+    'double-tapped Retry could let a stale response clobber a newer one)',
+    (tester) async {
+      final responses = <Completer<({(int, int)? data, ApiError? error})>>[];
+      when(() => txRepo.getYearRange()).thenAnswer((_) {
+        final completer = Completer<({(int, int)? data, ApiError? error})>();
+        responses.add(completer);
+        return completer.future;
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DateFilterSheet(
+              initial: const TransactionFilter(),
+              transactionRepository: txRepo,
+              errors: ErrorReporter(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(responses.length, 1);
+
+      // First response fails — the banner's Retry starts a second call.
+      responses[0].complete((data: null, error: const NetworkError('down')));
+      await tester.pumpAndSettle();
+      expect(find.byType(ErrorBanner), findsOneWidget);
+
+      await tester.tap(find.text('Retry'));
+      await tester.pump();
+      expect(responses.length, 2);
+
+      // A second, even later Retry tap before the first one resolved.
+      await tester.tap(find.text('Retry'), warnIfMissed: false);
+      await tester.pump();
+      expect(responses.length, 3);
+
+      // The later call wins.
+      responses[2].complete((data: (2024, 2026), error: null));
+      await tester.pump();
+      expect(find.text('2026'), findsOneWidget);
+
+      // The earlier, now-superseded call resolves after it — must be
+      // discarded, not applied.
+      responses[1].complete((data: null, error: const NetworkError('down')));
+      await tester.pump();
+      expect(find.text('2026'), findsOneWidget);
+      expect(find.byType(ErrorBanner), findsNothing);
     },
   );
 }

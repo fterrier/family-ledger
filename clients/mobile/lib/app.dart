@@ -150,6 +150,7 @@ class _FamilyLedgerAppState extends State<FamilyLedgerApp> {
           accountRepository: _accountRepo,
           commodityRepository: _commodityRepo,
           errors: ErrorReporter(),
+          onOpenSettings: _openServerSettings,
         ),
       ),
     );

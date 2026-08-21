@@ -191,6 +191,37 @@ void main() {
         await tester.pumpAndSettle();
       },
     );
+
+    testWidgets(
+      'onOpenSettings callback fires from a MissingSettingsError banner '
+      '(regression: the screen had no onOpenSettings field at all, so an '
+      'AuthError/MissingSettingsError banner here had no action button, '
+      'unlike every sibling screen)',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({});
+        when(() => mockRepo.getAllAccounts()).thenAnswer(
+          (_) async => (data: null, error: const MissingSettingsError()),
+        );
+
+        var settingsTapped = false;
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AppSettingsScreen(
+              accountRepository: mockRepo,
+              commodityRepository: mockCommodityRepo,
+              errors: ErrorReporter(),
+              onOpenSettings: () => settingsTapped = true,
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Settings'));
+        await tester.pumpAndSettle();
+
+        expect(settingsTapped, isTrue);
+      },
+    );
   });
 
   group('AppSettingsScreen default Currency', () {

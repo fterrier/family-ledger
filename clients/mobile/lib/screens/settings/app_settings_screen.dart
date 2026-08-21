@@ -15,12 +15,14 @@ class AppSettingsScreen extends StatefulWidget {
   final AccountRepository accountRepository;
   final CommodityRepository commodityRepository;
   final ErrorReporter errors;
+  final VoidCallback? onOpenSettings;
 
   const AppSettingsScreen({
     super.key,
     required this.accountRepository,
     required this.commodityRepository,
     required this.errors,
+    this.onOpenSettings,
   });
 
   @override
@@ -135,7 +137,11 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
       ),
       body: Column(
         children: [
-          ErrorReporterBanner(reporter: widget.errors, onRetry: _load),
+          ErrorReporterBanner(
+            reporter: widget.errors,
+            onRetry: _load,
+            onSettings: widget.onOpenSettings,
+          ),
           Expanded(
             child: ListView(
               children: [

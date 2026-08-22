@@ -744,7 +744,6 @@
     if (isImportMode_()) {
       pendingFiles = {};
       renderFileInputs(importer);
-      updateSubmitButton();
     }
     renderConfigForm(importer);
   }
@@ -758,14 +757,15 @@
         loadingNote.className = 'config-note';
         loadingNote.textContent = 'Loading accounts...';
         container.appendChild(loadingNote);
+        document.getElementById('submitBtn').disabled = true;
         google.script.run
           .withSuccessHandler(function(accounts) {
             accountsCache = accounts;
-            renderConfigForm(importer);
+            if (currentImporter === importer) renderConfigForm(importer);
           })
-          .withFailureHandler(function() {
-            accountsCache = [];
-            renderConfigForm(importer);
+          .withFailureHandler(function(err) {
+            accountsCache = null;
+            if (currentImporter === importer) showConfigRenderError(container, err, 'Failed to load accounts');
           })
           .getAccountsForDialog();
         return;
@@ -774,6 +774,11 @@
       renderImporterConfigForm_(container, importer, accountsCache || [], getDisplayedImporterConfigValue_, {
         allowUnsetBoolean: allowUnsetImporterValues_(),
       });
+      if (isImportMode_()) {
+        updateSubmitButton();
+      } else {
+        document.getElementById('submitBtn').disabled = false;
+      }
     } catch (err) {
       showConfigRenderError(container, err);
     }
@@ -815,12 +820,18 @@
     return (currentImporter && currentImporter.file_descriptors) || [];
   }
 
+  function configFormIsReady_() {
+    // Mirrors renderConfigForm's own gate: the form isn't actually rendered
+    // (still loading, or stuck on a failed fetch) while this is false.
+    return !importerSchemaNeedsAccounts_((currentImporter && currentImporter.schema) || {}) || accountsCache !== null;
+  }
+
   function updateSubmitButton() {
     var descriptors = getFileDescriptors_();
     var allRequired = descriptors.every(function(d) {
       return !d.required || pendingFiles[d.name];
     });
-    document.getElementById('submitBtn').disabled = !allRequired;
+    document.getElementById('submitBtn').disabled = !allRequired || !configFormIsReady_();
   }
 
   function renderFileInputs(importer) {
@@ -917,8 +928,11 @@
             statusEl.style.display = 'none';
             showResult(importResult);
           })
-          .withFailureHandler(function() {
+          .withFailureHandler(function(err) {
             statusEl.style.display = 'none';
+            var message = 'Sheets refresh failed: ' + (err && err.message ? err.message : String(err || 'Unknown error')) +
+              '. The import itself succeeded, but the sheets may be out of date until you resync.';
+            importResult.warnings = (importResult.warnings || []).concat([message]);
             showResult(importResult);
           })
           .syncLedgerAfterImport(response.result);
@@ -1047,12 +1061,15 @@
     document.getElementById('errorBox').style.display = 'none';
   }
 
-  function showConfigRenderError(container, err) {
+  function showConfigRenderError(container, err, contextLabel) {
     container.innerHTML = '';
     var note = document.createElement('p');
     note.className = 'config-note';
-    note.textContent = 'Failed to render importer configuration: ' + (err && err.message ? err.message : String(err || 'Unknown error'));
+    var prefix = contextLabel || 'Failed to render importer configuration';
+    note.textContent = prefix + ': ' + (err && err.message ? err.message : String(err || 'Unknown error'));
     container.appendChild(note);
+
+    document.getElementById('submitBtn').disabled = true;
   }
   <?!= includeHtml_('AccountSearch'); ?>
   <?!= includeHtml_('SearchDropdown'); ?>

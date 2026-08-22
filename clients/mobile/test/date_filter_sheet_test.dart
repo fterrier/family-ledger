@@ -105,6 +105,54 @@ void main() {
   });
 
   testWidgets(
+    'tapping a year pill works when From is pinned to a specific month, '
+    'resetting it to a clean whole year instead of leaving the month in '
+    'place (regression: _draftFromYear is null for a non-year-aligned '
+    'date, and the from==year branch force-unwrapped a possibly-null "to" '
+    'with `to!`, crashing before setState ran — the pill tap silently did '
+    'nothing)',
+    (tester) async {
+      final result = await pumpSheet(
+        tester,
+        current: TransactionFilter(
+          // A specific month, not Jan 1 — _draftFromYear is null for this.
+          fromDate: DateTime(2025, 3),
+          toDate: DateTime(2026, 12, 31),
+        ),
+      );
+
+      await tester.tap(find.text('2025'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+
+      expect(result.value?.fromDate, DateTime(2025));
+      expect(result.value?.toDate, DateTime(2025, 12, 31));
+    },
+  );
+
+  testWidgets('tapping a year pill works when To is pinned to a specific month '
+      '(regression: same `to!` force-unwrap crash, hit from the other side '
+      'when To — not From — holds a non-year-aligned date)', (tester) async {
+    final result = await pumpSheet(
+      tester,
+      current: TransactionFilter(
+        fromDate: DateTime(2024),
+        // A specific month, not Dec 31 — _draftToYear is null for this.
+        toDate: DateTime(2026, 3, 15),
+      ),
+    );
+
+    await tester.tap(find.text('2026'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Apply'));
+    await tester.pumpAndSettle();
+
+    expect(result.value?.fromDate, DateTime(2026));
+    expect(result.value?.toDate, DateTime(2026, 12, 31));
+  });
+
+  testWidgets(
     'Reset clears the date range but preserves account and currency',
     (tester) async {
       final current = TransactionFilter(

@@ -115,15 +115,29 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
     final from = _draftFromYear;
     final to = _draftToYear;
 
+    // Either edge isn't a clean whole year — unset, or pinned to a
+    // specific month via the picker below (_draftFromYear/_draftToYear are
+    // null in that case) — so there's no year-aligned range to extend or
+    // shrink around. A pill tap always produces a clean whole-year
+    // selection for the tapped year, discarding any finer-grained month,
+    // rather than guessing at one.
+    if (from == null || to == null) {
+      setState(() {
+        _draft = _draft.copyWith(
+          fromDate: DateTime(year),
+          toDate: DateTime(year, 12, 31),
+        );
+      });
+      return;
+    }
+
     int? newFrom, newTo;
-    if (from == null) {
-      newFrom = newTo = year;
-    } else if (year == from && year == to) {
+    if (year == from && year == to) {
       newFrom = newTo = null;
     } else if (year == from) {
       final nextIdx = _years.indexOf(year) + 1;
       final next = nextIdx < _years.length ? _years[nextIdx] : null;
-      if (next != null && next <= to!) {
+      if (next != null && next <= to) {
         newFrom = next;
         newTo = to;
       } else {
@@ -138,9 +152,9 @@ class _DateFilterSheetState extends State<DateFilterSheet> {
       } else {
         newFrom = newTo = null;
       }
-    } else if (year < from || year > to!) {
+    } else if (year < from || year > to) {
       newFrom = year < from ? year : from;
-      newTo = year > to! ? year : to;
+      newTo = year > to ? year : to;
     } else {
       newFrom = newTo = year;
     }

@@ -33,6 +33,37 @@ def test_create_and_get_price() -> None:
     assert get_response.json()["base_symbol"] == "USD"
 
 
+def test_delete_price_removes_it_and_returns_204() -> None:
+    client = make_client()
+    create_commodity(client, "CHF")
+    create_commodity(client, "USD")
+
+    body = client.post(
+        "/prices",
+        json={
+            "price": {
+                "price_date": "2026-04-19",
+                "base_symbol": "USD",
+                "quote": {"amount": "0.92", "symbol": "CHF"},
+            }
+        },
+    ).json()
+    name = body["name"]
+
+    delete_resp = client.delete(f"/{name}")
+    assert delete_resp.status_code == 204
+
+    get_resp = client.get(f"/{name}")
+    assert get_resp.status_code == 404
+
+
+def test_delete_missing_price_returns_404() -> None:
+    client = make_client()
+
+    response = client.delete("/prices/prc_nonexistent")
+    assert response.status_code == 404
+
+
 def test_update_price() -> None:
     client = make_client()
     create_commodity(client, "CHF")

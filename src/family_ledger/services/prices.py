@@ -153,6 +153,15 @@ def get_price_by_name(session: Session, price: str) -> PriceResource:
     return serialize_price(price_row)
 
 
+def delete_price(session: Session, price: str) -> None:
+    resource = resource_name("prices", price)
+    price_row = session.scalar(select(Price).where(Price.name == resource))
+    if price_row is None:
+        raise NotFoundError(code="price_not_found", message="Price not found")
+    session.delete(price_row)
+    commit_or_raise(session)
+
+
 def create_price(session: Session, payload: PriceCreate) -> PriceResource:
     validate_symbols_exist(session, {payload.base_symbol, payload.quote.symbol})
     price = Price(

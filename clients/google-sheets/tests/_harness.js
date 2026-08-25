@@ -331,6 +331,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations, sheetName = 'Transact
     getRange(row, column, numRows = 1, numCols = 1) {
       return {
         getValue() {
+          operations.push({ type: 'getValue', row, column });
           const rowData = rowStore.get(row) || {};
           return rowData[headers[column - 1]] || '';
         },
@@ -342,6 +343,7 @@ function makeRowStoreSheet_(sandbox, rowStore, operations, sheetName = 'Transact
           return this;
         },
         getValues() {
+          operations.push({ type: 'getValues', row, column, numRows, numCols });
           const values = [];
           for (let rowIndex = 0; rowIndex < numRows; rowIndex += 1) {
             const rowData = rowStore.get(row + rowIndex) || {};

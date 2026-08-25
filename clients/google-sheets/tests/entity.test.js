@@ -430,6 +430,192 @@ test('findEntityInsertionRow_ inserts before first greater date and after same-d
   assert.equal(sandbox.findEntityInsertionRow_(fakeSheet, txConfig, '2026-04-22'), 6);
 });
 
+// --- findEntityInsertionRowFast_ ---
+
+function addDays_(isoDate, days) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+// entitySizes: array of row-counts, one per entity, e.g. [1, 3, 1] — 3 entities,
+// the second spanning 3 contiguous rows. Dates increase by 1 day per entity
+// (all rows of one entity share its date, matching real Transaction rows).
+function buildMultiRowFixture_(entitySizes, startDate) {
+  const rowStore = new Map();
+  let row = 2;
+  let date = startDate || '2026-01-01';
+  const boundaries = [];
+  entitySizes.forEach(function(size, idx) {
+    const start = row;
+    for (let k = 0; k < size; k += 1) {
+      rowStore.set(row, { resource_name: 'transactions/txn_' + idx, transaction_date: date });
+      row += 1;
+    }
+    boundaries.push({ start: start, count: size, date: date });
+    date = addDays_(date, 1);
+  });
+  return { rowStore: rowStore, boundaries: boundaries, lastRow: row - 1 };
+}
+
+function assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig, dates) {
+  dates.forEach(function(date) {
+    const expected = sandbox.findEntityInsertionRow_(fakeSheet, txConfig, date);
+    const actual = sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, date);
+    assert.equal(actual, expected, 'mismatch for date ' + date + ': fast=' + actual + ' slow=' + expected);
+  });
+}
+
+test('findEntityInsertionRowFast_ matches findEntityInsertionRow_ on the same before-all/same-date-block/after-all fixture', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19' }],
+    [4, { resource_name: 'transactions/txn_3', transaction_date: '2026-04-19' }],
+    [5, { resource_name: 'transactions/txn_4', transaction_date: '2026-04-21' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig,
+    ['2026-04-17', '2026-04-18', '2026-04-19', '2026-04-20', '2026-04-21', '2026-04-22']);
+});
+
+test('findEntityInsertionRowFast_ returns 2 on an empty sheet', () => {
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, new Map(), []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  assert.equal(sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, '2026-04-19'), 2);
+});
+
+test('findEntityInsertionRowFast_ matches findEntityInsertionRow_ across many multi-row entities of varying sizes', () => {
+  const { rowStore, boundaries, lastRow } = buildMultiRowFixture_([1, 3, 1, 5, 2, 1, 4, 1, 1, 6, 2, 1]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  const probeDates = [addDays_(boundaries[0].date, -1)];
+  boundaries.forEach(function(b) {
+    probeDates.push(b.date);
+    probeDates.push(addDays_(b.date, 1));
+  });
+  assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig, probeDates);
+  assert.ok(lastRow > 20, 'fixture should span enough rows to exercise the binary search');
+});
+
+test('findEntityInsertionRowFast_ correctly locates the boundary when an entity is larger than the initial scan window', () => {
+  // 60-row entity — bigger than the ±25-row default window, forcing window expansion.
+  const { rowStore, boundaries } = buildMultiRowFixture_([1, 1, 60, 1, 1]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+  const bigEntity = boundaries[2];
+
+  assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig, [
+    addDays_(bigEntity.date, -1), bigEntity.date, addDays_(bigEntity.date, 1),
+  ]);
+});
+
+test('findEntityInsertionRowFast_ throws rather than risk a wrong answer when a row has a blank date', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
+    [3, { resource_name: '', transaction_date: '' }],
+    [4, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19' }],
+    [5, { resource_name: 'transactions/txn_3', transaction_date: '2026-04-21' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  // The binary search may or may not probe row 3 depending on the target date —
+  // assert the throw specifically for a target guaranteed to probe it.
+  assert.throws(function() {
+    sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, '2026-04-17');
+  }, /blank date/);
+});
+
+test('findEntityInsertionRowFast_ issues O(log n) reads, not one O(n) full-sheet read, on a large sheet', () => {
+  const { rowStore, boundaries } = buildMultiRowFixture_(new Array(300).fill(1));
+  const { sandbox } = loadCode();
+  const operations = [];
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, operations);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, boundaries[150].date);
+
+  const reads = operations.filter(function(op) { return op.type === 'getValue' || op.type === 'getValues'; });
+  // 300 rows: a full anchor read would be one getValues() covering all 300 rows.
+  // The fast path should stay well under that via small probes + one bounded window read.
+  assert.ok(reads.length < 40, 'expected O(log n) reads, got ' + reads.length);
+  const fullRowReads = operations.filter(function(op) {
+    return op.type === 'getValues' && op.numRows >= 300;
+  });
+  assert.equal(fullRowReads.length, 0, 'must not fall back to a full-sheet read for a well-formed sheet');
+});
+
+function makeGroupsForDates_(dates) {
+  return dates.map(function(date, idx) {
+    return {
+      rows: [{ resource_name: 'transactions/txn_batch_' + idx, transaction_date: date }],
+      entityDate: date,
+    };
+  });
+}
+
+test('findInsertionRowsForGroups_ uses per-group binary search at or below the threshold, one full read above it', () => {
+  const { rowStore: smallRowStore } = buildMultiRowFixture_(new Array(50).fill(1));
+  const { sandbox: sandboxSmall } = loadCode();
+  const smallOps = [];
+  const smallSheet = makeRowStoreSheet_(sandboxSmall, smallRowStore, smallOps);
+  const txConfigSmall = sandboxSmall.getSheetConfigByName_('Transactions');
+  const threshold = sandboxSmall.ANCHOR_BATCH_FAST_THRESHOLD_;
+
+  const atThresholdGroups = makeGroupsForDates_(
+    new Array(threshold).fill(0).map(function(_, i) { return addDays_('2026-01-01', i * 2 + 1); })
+  );
+  sandboxSmall.findInsertionRowsForGroups_(smallSheet, txConfigSmall, atThresholdGroups);
+  const smallFullReads = smallOps.filter(function(op) { return op.type === 'getValues' && op.numRows >= 50; });
+  assert.equal(smallFullReads.length, 0, 'at or below the threshold, must not pay for one full anchor read');
+  const smallProbes = smallOps.filter(function(op) { return op.type === 'getValue'; });
+  assert.ok(smallProbes.length > 0, 'expected per-group binary-search probes below the threshold');
+
+  const { rowStore: bigRowStore } = buildMultiRowFixture_(new Array(50).fill(1));
+  const { sandbox: sandboxBig } = loadCode();
+  const bigOps = [];
+  const bigSheet = makeRowStoreSheet_(sandboxBig, bigRowStore, bigOps);
+  const txConfigBig = sandboxBig.getSheetConfigByName_('Transactions');
+
+  const aboveThresholdGroups = makeGroupsForDates_(
+    new Array(threshold + 1).fill(0).map(function(_, i) { return addDays_('2026-01-01', i * 2 + 1); })
+  );
+  sandboxBig.findInsertionRowsForGroups_(bigSheet, txConfigBig, aboveThresholdGroups);
+  const bigFullReads = bigOps.filter(function(op) { return op.type === 'getValues' && op.numRows >= 50; });
+  assert.equal(bigFullReads.length, 1, 'above the threshold, expected exactly one full anchor read for the whole batch');
+});
+
+test('batchInsertEntitiesIntoSheet_ produces the same insertion rows via the fast path and the anchors fallback', () => {
+  const { rowStore } = buildMultiRowFixture_([1, 2, 1, 3, 1, 2, 1, 1, 4, 1]);
+  const dates = ['2026-01-01', '2026-01-03', '2026-01-05', '2026-01-07', '2026-01-09'];
+
+  const { sandbox: sandboxFast } = loadCode();
+  const fastSheet = makeRowStoreSheet_(sandboxFast, new Map(rowStore), []);
+  const txConfigFast = sandboxFast.getSheetConfigByName_('Transactions');
+  const fastGroups = makeGroupsForDates_(dates);
+  assert.ok(fastGroups.length <= sandboxFast.ANCHOR_BATCH_FAST_THRESHOLD_);
+  const fastRows = sandboxFast.findInsertionRowsForGroups_(fastSheet, txConfigFast, fastGroups);
+
+  const { sandbox: sandboxSlow } = loadCode();
+  const slowSheet = makeRowStoreSheet_(sandboxSlow, new Map(rowStore), []);
+  const txConfigSlow = sandboxSlow.getSheetConfigByName_('Transactions');
+  const anchors = sandboxSlow.buildEntityAnchors_(slowSheet, txConfigSlow);
+  const slowRows = dates.map(function(date) {
+    return sandboxSlow.findInsertionRowFromAnchors_(anchors, date);
+  });
+
+  assert.deepEqual(fastRows, slowRows);
+});
+
 // --- batchInsertEntitiesIntoSheet_ (new insert) / applyEntityUpdateToSheet_ (existing) ---
 
 function makeReplacementRows_(sandbox, overrides) {

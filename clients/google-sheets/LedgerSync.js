@@ -117,7 +117,7 @@ function syncLedger() {
         applyFormulaColumns_(transactionsSheet, FAMILY_LEDGER_SHEET_REGISTRY.transactions, { start: 2, count: transactionSyncData.rows.length });
       }, transactionSyncData.rows.length + ' rows');
 
-      perf.wrap('doctor', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
+      perf.wrap('doctor.refresh', function() { refreshDoctorIssueSheets_(accountSyncData.accountResourceToDisplayName); });
 
       perf.wrap('sheet.restore_filters', function() { restoreAllSheetFilters_(); });
       perf.wrap('sheet.restore_validations', function() { restoreAllAccountValidations_(); });
@@ -188,7 +188,7 @@ function syncLedgerAfterImport(importResult) {
     });
 
     if (insertedCount === 0) return;
-    refreshDoctorIssueSheets_({});
+    perf.wrap('doctor.refresh', function() { refreshDoctorIssueSheets_({}); });
     invalidateAccountOptionsCache_();
     SpreadsheetApp.getActiveSpreadsheet().toast(
       insertedCount + ' entities added to sheet.',

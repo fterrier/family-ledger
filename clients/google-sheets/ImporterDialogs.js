@@ -42,9 +42,7 @@ function getAccountsForDialog() {
 }
 
 function runImportFromDialog(importerName, filesMap, configOverride) {
-  const perf = createPerf_();
-  setActivePerf_(perf);
-  try {
+  return runWithPerf_('Import', function(perf) {
     const parts = {
       config_override: configOverride ? JSON.stringify(configOverride) : '',
     };
@@ -72,10 +70,7 @@ function runImportFromDialog(importerName, filesMap, configOverride) {
 
     SpreadsheetApp.getActiveSpreadsheet().toast(summary, 'Import complete', 15);
     return result;
-  } finally {
-    clearActivePerf_();
-    perf.log('Import');
-  }
+  });
 }
 
 function saveImporterSettingsFromDialog(importerName, config) {

@@ -4,6 +4,14 @@ function setActivePerf_(perf) { activePerf_ = perf; }
 function clearActivePerf_()   { activePerf_ = null; }
 function getActivePerf_()     { return activePerf_; }
 
+// Lets deeply-nested functions record a labeled span without threading `perf`
+// through every signature — a no-op when no perf is active (e.g. called
+// outside runWithPerf_).
+function perfWrap_(label, fn, meta) {
+  const perf = getActivePerf_();
+  return perf ? perf.wrap(label, fn, meta) : fn();
+}
+
 function createPerf_() {
   const startedAt_ = Date.now();
   const spans_ = [];

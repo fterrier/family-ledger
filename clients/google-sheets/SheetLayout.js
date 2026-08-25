@@ -1,13 +1,8 @@
 function resetSheetLayouts() {
   runUserAction_('Reset Sheet Layouts', function() {
-    const perf = createPerf_();
-    setActivePerf_(perf);
-    try {
+    runWithPerf_('Reset Layouts', function() {
       refreshManagedLedgerSheetLayouts_();
-    } finally {
-      clearActivePerf_();
-      perf.log('Reset Layouts');
-    }
+    });
     SpreadsheetApp.getUi().alert(
       'Reset Sheet Layouts',
       'Layouts have been reset to their default configurations.',
@@ -49,15 +44,14 @@ function restoreAllAccountValidations_() {
 }
 
 function refreshManagedLedgerSheetLayouts_() {
-  const perf = getActivePerf_();
   const accountRule = buildAccountValidationRule_();
   forEachRegisteredSheet_(function(sheet, sheetConfig, key) {
-    if (perf) perf.start('sheet.layout_' + key);
-    applyManagedSheetLayout_(sheet, sheetConfig);
-    refreshAccountValidation_(sheet, sheetConfig, undefined, accountRule);
-    applyActionColumnCheckboxes_(sheet, sheetConfig);
-    ensureSheetFilter_(sheet, sheetConfig);
-    if (perf) perf.end('sheet.layout_' + key);
+    perfWrap_('sheet.layout_' + key, function() {
+      applyManagedSheetLayout_(sheet, sheetConfig);
+      refreshAccountValidation_(sheet, sheetConfig, undefined, accountRule);
+      applyActionColumnCheckboxes_(sheet, sheetConfig);
+      ensureSheetFilter_(sheet, sheetConfig);
+    });
   });
   reapplyPersistedQuickFilters_();
 }

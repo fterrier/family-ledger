@@ -79,7 +79,9 @@ function submitEntity(entity, fieldValues) {
     if (!finalSpan) return {};
 
     try {
-      refreshDoctorIssueSheets_((entityObj._context || {}).accountResourceToDisplayName || {});
+      perf.wrap('doctor.refresh', function() {
+        refreshDoctorIssueSheets_((entityObj._context || {}).accountResourceToDisplayName || {});
+      });
     } catch (e) {
       ss.toast(EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (e.message || String(e)), 'Family Ledger', 5);
       return {};

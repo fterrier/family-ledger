@@ -54,8 +54,8 @@ function applyFormulaColumns_(sheet, sheetConfig, span) {
 }
 
 function applySpanValidation_(sheet, sheetConfig, span) {
-  refreshAccountValidation_(sheet, sheetConfig, span);
-  applyFormulaColumns_(sheet, sheetConfig, span);
+  perfWrap_('validation.write', function() { refreshAccountValidation_(sheet, sheetConfig, span); });
+  perfWrap_('formulas.write', function() { applyFormulaColumns_(sheet, sheetConfig, span); });
 }
 
 function buildEntityAnchors_(sheet, sheetConfig) {
@@ -64,19 +64,23 @@ function buildEntityAnchors_(sheet, sheetConfig) {
   if (lastRow <= 1) return anchors;
   const dateHeader = getDateHeader_(sheetConfig);
   if (!dateHeader) return anchors;
-  const rows = managedSheet_(sheet, sheetConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', dateHeader]);
+  const rows = perfWrap_('anchor.read', function() {
+    return managedSheet_(sheet, sheetConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name', dateHeader]);
+  });
   let current = null;
-  rows.forEach(function(row, index) {
-    const entityName = String(row.resource_name || '').trim();
-    if (!entityName) return;
-    const rowNumber = index + 2;
-    const entityDate = normalizeEntityDate_(row[dateHeader]);
-    if (!current || current.entityName !== entityName) {
-      if (current) anchors.push(current);
-      current = { entityName: entityName, span: { start: rowNumber, count: 1 }, entityDate: entityDate };
-      return;
-    }
-    current.span.count = rowNumber - current.span.start + 1;
+  perfWrap_('anchor.build', function() {
+    rows.forEach(function(row, index) {
+      const entityName = String(row.resource_name || '').trim();
+      if (!entityName) return;
+      const rowNumber = index + 2;
+      const entityDate = normalizeEntityDate_(row[dateHeader]);
+      if (!current || current.entityName !== entityName) {
+        if (current) anchors.push(current);
+        current = { entityName: entityName, span: { start: rowNumber, count: 1 }, entityDate: entityDate };
+        return;
+      }
+      current.span.count = rowNumber - current.span.start + 1;
+    });
   });
   if (current) anchors.push(current);
   return anchors;
@@ -93,6 +97,93 @@ function findInsertionRowFromAnchors_(anchors, date) {
 
 function findEntityInsertionRow_(sheet, sheetConfig, date) {
   return findInsertionRowFromAnchors_(buildEntityAnchors_(sheet, sheetConfig), date);
+}
+
+// Binary search over raw date cells for the first row whose date exceeds
+// normalizedTarget, searching only rows [lo, hi). Every posting row of one
+// entity carries the same transaction_date (Transaction.js's toRows_ always
+// writes transaction.transaction_date, never a per-posting date), and the
+// sheet is kept globally sorted by date by construction — so the date column
+// is a non-decreasing step function, one flat plateau per entity, and a
+// binary search over it always lands exactly on a plateau (entity) boundary,
+// never mid-entity, regardless of how many rows any single entity spans.
+//
+// A row's date should never be blank — throw rather than silently risk
+// landing on the wrong boundary (a blank date breaks the monotonicity this
+// search relies on: it never compares greater than any target, so it can
+// look like a "before target" row even sitting after one that's genuinely
+// past the target).
+function binaryFindDateBoundary_(sheet, dateCol, lo, hi, normalizedTarget) {
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    const midDate = normalizeEntityDate_(sheet.getRange(mid, dateCol, 1, 1).getValue());
+    if (!midDate) {
+      throw new Error('findEntityInsertionRowFast_: blank date at row ' + mid + '; the sheet should never contain a row with no date.');
+    }
+    if (midDate > normalizedTarget) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  return lo;
+}
+
+// Bounded-cost equivalent of findEntityInsertionRow_ — same "insert before the
+// first strictly-later date" semantics (see findInsertionRowFromAnchors_), but
+// without reading every existing row: O(log n) single-cell reads instead of
+// one O(n) full-column read. Safe for a single new entity; batch inserts of
+// many entities should keep using buildEntityAnchors_'s one-shot read instead
+// (see batchInsertEntitiesIntoSheet_) once the per-group binary-search cost
+// would exceed that of a single full read.
+function findEntityInsertionRowFast_(sheet, sheetConfig, date) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return 2;
+  const dateHeader = getDateHeader_(sheetConfig);
+  if (!dateHeader) return 2;
+  const dateCol = getColumnIndex_(sheetConfig, dateHeader);
+  const target = normalizeEntityDate_(date);
+  return perfWrap_('anchor.binarySearch', function() {
+    return binaryFindDateBoundary_(sheet, dateCol, 2, lastRow + 1, target);
+  });
+}
+
+// Above this many groups in one batch, per-group binary search (each ~log2(n)
+// single-cell reads) costs more in aggregate — Apps Script's getRange() has
+// real fixed overhead per call — than one full buildEntityAnchors_ read paid
+// once for the whole batch. Below it, per-group search wins; this is the
+// common single "Add Transaction" case (always 1 group).
+var ANCHOR_BATCH_FAST_THRESHOLD_ = 5;
+
+// Computes each group's insertion row without necessarily paying for a full
+// buildEntityAnchors_ read: for small batches, binary-searches each group
+// independently, using the previous group's result as the next search's lower
+// bound (valid because entityGroups is already sorted ascending by date, so
+// later groups can only insert at or after earlier ones). Falls back to one
+// shared buildEntityAnchors_ read — still just once, not per group — above
+// the threshold.
+function findInsertionRowsForGroups_(sheet, sheetConfig, entityGroups) {
+  if (entityGroups.length <= ANCHOR_BATCH_FAST_THRESHOLD_) {
+    const lastRow = sheet.getLastRow();
+    const dateHeader = getDateHeader_(sheetConfig);
+    if (lastRow <= 1 || !dateHeader) {
+      return entityGroups.map(function() { return 2; });
+    }
+    const dateCol = getColumnIndex_(sheetConfig, dateHeader);
+    let lo = 2;
+    return entityGroups.map(function(g) {
+      const target = normalizeEntityDate_(g.entityDate);
+      const found = perfWrap_('anchor.binarySearch', function() {
+        return binaryFindDateBoundary_(sheet, dateCol, lo, lastRow + 1, target);
+      });
+      lo = found;
+      return found;
+    });
+  }
+  const anchors = buildEntityAnchors_(sheet, sheetConfig);
+  return entityGroups.map(function(g) {
+    return findInsertionRowFromAnchors_(anchors, g.entityDate);
+  });
 }
 
 function entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, newDate) {
@@ -115,8 +206,10 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
     const allRows = [];
     entityGroups.forEach(function(g) { g.rows.forEach(function(r) { allRows.push(r); }); });
     const insertRow = Math.max(sheet.getLastRow(), 1) + 1;
-    const span = resizeContiguousRows_(sheet, { start: insertRow, count: 0 }, allRows.length);
-    managedSheet_(sheet, sheetConfig).setRows(span, allRows);
+    const span = perfWrap_('rows.resize', function() {
+      return resizeContiguousRows_(sheet, { start: insertRow, count: 0 }, allRows.length);
+    });
+    perfWrap_('rows.write', function() { managedSheet_(sheet, sheetConfig).setRows(span, allRows); });
     applySpanValidation_(sheet, sheetConfig, span);
     return [span];
   }
@@ -126,11 +219,7 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
     return (a.entityDate || '') < (b.entityDate || '') ? -1 : 1;
   });
 
-  // ONE anchor read for the entire batch.
-  const anchors = buildEntityAnchors_(sheet, sheetConfig);
-  const insertionRows = entityGroups.map(function(g) {
-    return findInsertionRowFromAnchors_(anchors, g.entityDate);
-  });
+  const insertionRows = findInsertionRowsForGroups_(sheet, sheetConfig, entityGroups);
 
   // Process clusters sharing the same insertion row; track cumulative offset from prior inserts.
   let offset = 0;
@@ -142,8 +231,10 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
     for (let k = i; k < j; k++) {
       entityGroups[k].rows.forEach(function(r) { allRows.push(r); });
     }
-    const span = resizeContiguousRows_(sheet, { start: insertionRows[i] + offset, count: 0 }, allRows.length);
-    managedSheet_(sheet, sheetConfig).setRows(span, allRows);
+    const span = perfWrap_('rows.resize', function() {
+      return resizeContiguousRows_(sheet, { start: insertionRows[i] + offset, count: 0 }, allRows.length);
+    });
+    perfWrap_('rows.write', function() { managedSheet_(sheet, sheetConfig).setRows(span, allRows); });
     applySpanValidation_(sheet, sheetConfig, span);
     spans.push(span);
     offset += allRows.length;
@@ -155,7 +246,7 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
 // Updates an existing entity in the sheet: resize, reposition if date changed, or write in-place.
 function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
   if (!rows || rows.length === 0) {
-    resizeContiguousRows_(sheet, existingSpan, 0);
+    perfWrap_('rows.resize', function() { resizeContiguousRows_(sheet, existingSpan, 0); });
     return null;
   }
   const dateHeader = getDateHeader_(sheetConfig);
@@ -163,15 +254,19 @@ function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
     entityNeedsReposition_(sheet, sheetConfig, existingSpan, dateHeader, rows[0][dateHeader]);
   let targetSpan;
   if (needsReposition) {
-    resizeContiguousRows_(sheet, existingSpan, 0);
-    const insertionRow = findEntityInsertionRow_(sheet, sheetConfig, rows[0][dateHeader]);
-    targetSpan = resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
+    perfWrap_('rows.resize', function() { resizeContiguousRows_(sheet, existingSpan, 0); });
+    const insertionRow = findEntityInsertionRowFast_(sheet, sheetConfig, rows[0][dateHeader]);
+    targetSpan = perfWrap_('rows.resize', function() {
+      return resizeContiguousRows_(sheet, { start: insertionRow, count: 0 }, rows.length);
+    });
   } else if (existingSpan.count === rows.length) {
     targetSpan = existingSpan;
   } else {
-    targetSpan = resizeContiguousRows_(sheet, existingSpan, rows.length);
+    targetSpan = perfWrap_('rows.resize', function() {
+      return resizeContiguousRows_(sheet, existingSpan, rows.length);
+    });
   }
-  managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows);
+  perfWrap_('rows.write', function() { managedSheet_(sheet, sheetConfig).setRows(targetSpan, rows); });
   // Skip when row count is unchanged — existing rows already carry the correct
   // VLOOKUP formula and validation from the prior write. Only re-apply when rows
   // were added, removed, or repositioned.
@@ -388,37 +483,43 @@ function handleEntitySheetEdit_(e) {
   const anchorRowOverrides =
     header === 'narration' || header === 'payee' ? { [header]: oldRawValue } : null;
 
-  let entity;
-  try {
-    entity = findEntityRowsFromAnchor_(EntityClass, sheet, row, anchorRowOverrides);
-    entity.applyEdit(header, rawValue, oldRawValue, row);
-  } catch (error) {
-    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY])
-      .setFields({ start: row, count: 1 }, { [header]: rawOldValue });
-    SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
-    return;
-  }
+  runWithPerf_('Edit ' + EntityClass.ENTITY_LABEL, function(perf) {
+    let entity;
+    try {
+      entity = perf.wrap('entity.load', function() {
+        return findEntityRowsFromAnchor_(EntityClass, sheet, row, anchorRowOverrides);
+      });
+      entity.applyEdit(header, rawValue, oldRawValue, row);
+    } catch (error) {
+      managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY])
+        .setFields({ start: row, count: 1 }, { [header]: rawOldValue });
+      SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
+      return;
+    }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast('Saving ' + EntityClass.ENTITY_LABEL + '…', 'Family Ledger', 60);
+    SpreadsheetApp.getActiveSpreadsheet().toast('Saving ' + EntityClass.ENTITY_LABEL + '…', 'Family Ledger', 60);
 
-  try {
-    entity.save(sheet);
-  } catch (error) {
-    SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
-    return;
-  }
+    try {
+      perf.wrap('entity.save', function() { entity.save(sheet); });
+    } catch (error) {
+      SpreadsheetApp.getActiveSpreadsheet().toast(error.message || String(error), 'Family Ledger', 5);
+      return;
+    }
 
-  try {
-    refreshDoctorIssueSheets_(entity._context.accountResourceToDisplayName || {});
-  } catch (error) {
-    SpreadsheetApp.getActiveSpreadsheet().toast(
-      EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (error.message || String(error)),
-      'Family Ledger', 5
-    );
-    return;
-  }
+    try {
+      perf.wrap('doctor.refresh', function() {
+        refreshDoctorIssueSheets_(entity._context.accountResourceToDisplayName || {});
+      });
+    } catch (error) {
+      SpreadsheetApp.getActiveSpreadsheet().toast(
+        EntityClass.ENTITY_LABEL + ' saved. Failed to refresh issues: ' + (error.message || String(error)),
+        'Family Ledger', 5
+      );
+      return;
+    }
 
-  SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
+    SpreadsheetApp.getActiveSpreadsheet().toast(EntityClass.ENTITY_LABEL + ' saved.', 'Family Ledger', 3);
+  });
 }
 
 // Raw row scan — ±25-row window, returns { span, entityName, rows } with __rowNumber annotations.

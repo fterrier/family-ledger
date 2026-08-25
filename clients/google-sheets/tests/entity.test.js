@@ -517,7 +517,7 @@ test('findEntityInsertionRowFast_ correctly locates the boundary when an entity 
   ]);
 });
 
-test('findEntityInsertionRowFast_ throws rather than risk a wrong answer when a row has a blank date', () => {
+test('findEntityInsertionRowFast_ treats a blank row between entities as always-greater, never colliding with real data', () => {
   const rowStore = new Map([
     [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
     [3, { resource_name: '', transaction_date: '' }],
@@ -528,11 +528,32 @@ test('findEntityInsertionRowFast_ throws rather than risk a wrong answer when a 
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   const txConfig = sandbox.getSheetConfigByName_('Transactions');
 
-  // The binary search may or may not probe row 3 depending on the target date —
-  // assert the throw specifically for a target guaranteed to probe it.
-  assert.throws(function() {
-    sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, '2026-04-17');
-  }, /blank date/);
+  // Exact match with the anchors-based result for every target except one:
+  // a target matching txn_1's own date can land exactly on the blank row
+  // (row 3) instead of txn_2's start (row 4) — both are safe (neither splits
+  // a real entity's block), so that one is checked separately below.
+  assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig,
+    ['2026-04-17', '2026-04-19', '2026-04-20', '2026-04-21', '2026-04-22']);
+
+  const result = sandbox.findEntityInsertionRowFast_(fakeSheet, txConfig, '2026-04-18');
+  assert.ok(result === 3 || result === 4, 'expected the safe gap between txn_1 and txn_2, got ' + result);
+});
+
+test('findEntityInsertionRowFast_ handles trailing blank rows that inflate getLastRow() past the real data', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-18' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-19' }],
+    [4, { resource_name: 'transactions/txn_3', transaction_date: '2026-04-21' }],
+    // Stray content (leftover formatting, a cleared-but-not-deleted cell, ...)
+    // can make getLastRow() report a row well past the real data.
+    [10, { resource_name: '', transaction_date: '' }],
+  ]);
+  const { sandbox } = loadCode();
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  const txConfig = sandbox.getSheetConfigByName_('Transactions');
+
+  assertFastMatchesSlowForDates_(sandbox, fakeSheet, txConfig,
+    ['2026-04-17', '2026-04-18', '2026-04-19', '2026-04-20', '2026-04-21', '2026-04-22']);
 });
 
 test('findEntityInsertionRowFast_ issues O(log n) reads, not one O(n) full-sheet read, on a large sheet', () => {

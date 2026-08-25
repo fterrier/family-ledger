@@ -108,19 +108,22 @@ function findEntityInsertionRow_(sheet, sheetConfig, date) {
 // binary search over it always lands exactly on a plateau (entity) boundary,
 // never mid-entity, regardless of how many rows any single entity spans.
 //
-// A row's date should never be blank — throw rather than silently risk
-// landing on the wrong boundary (a blank date breaks the monotonicity this
-// search relies on: it never compares greater than any target, so it can
-// look like a "before target" row even sitting after one that's genuinely
-// past the target).
+// A blank cell (no entity there — a gap row, or sheet.getLastRow() counting
+// a trailing row past the real data, which it's prone to via leftover
+// formatting or a cleared-but-not-deleted cell) is treated as "greater than
+// any target": it's not a real entity that could be "before" the new one, so
+// the search always steps left past it, the same way it would step left past
+// a real entity that's genuinely later than the target. That's always safe —
+// it can only insert the new entity immediately adjacent to a blank run
+// rather than exactly where a fully-populated sheet would have, never inside
+// a real entity's row block — and it means a blank row anywhere (mid-sheet
+// gap or an overcounted tail) resolves correctly without a separate pass to
+// find the sheet's true last row first.
 function binaryFindDateBoundary_(sheet, dateCol, lo, hi, normalizedTarget) {
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     const midDate = normalizeEntityDate_(sheet.getRange(mid, dateCol, 1, 1).getValue());
-    if (!midDate) {
-      throw new Error('findEntityInsertionRowFast_: blank date at row ' + mid + '; the sheet should never contain a row with no date.');
-    }
-    if (midDate > normalizedTarget) {
+    if (!midDate || midDate > normalizedTarget) {
       hi = mid;
     } else {
       lo = mid + 1;

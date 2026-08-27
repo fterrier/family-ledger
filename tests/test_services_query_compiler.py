@@ -43,6 +43,10 @@ LAST_BALANCE = Target(LAST_BALANCE_CALL, "bal")
 COUNT_STAR = Target(FunctionCall("count", (Star(),)), "n")
 
 
+def valued(inner: FunctionCall, alias: str = "v") -> Target:
+    return Target(FunctionCall("value", (inner,)), alias)
+
+
 def converted(
     inner: FunctionCall, currency: str, at: date | None = None, alias: str = "bal"
 ) -> Target:
@@ -527,6 +531,172 @@ def test_output_columns_for_unconverted_balance() -> None:
         OutputColumn("m", "int"),
         OutputColumn("bal", "inventory"),
     )
+
+
+# ---------------------------------------------------------------------------
+# value(): standalone market-value revaluation (no target currency — see
+# services/prices.py's ValuePriceLookup and executor._apply_value).
+# ---------------------------------------------------------------------------
+
+
+def test_value_standalone_sets_valuation_and_leaves_conversion_unset() -> None:
+    compiled = compile_query(q((valued(SUM_POSITION_CALL),), where=(subtree("Assets:Broker"),)))
+    assert compiled.post.valuation is True
+    assert compiled.post.conversion is None
+
+
+def test_value_standalone_output_column_is_inventory_typed() -> None:
+    compiled = compile_query(
+        q((valued(SUM_POSITION_CALL, alias="v"),), where=(subtree("Assets:Broker"),))
+    )
+    assert compiled.post.columns == (OutputColumn("v", "inventory"),)
+
+
+def test_value_of_last_balance_requires_date_bucket_group_key() -> None:
+    # Same running-balance constraint as bare last(balance)/convert(last(
+    # balance), ...) — value() doesn't relax it.
+    with pytest.raises(ValidationError):
+        compile_query(q((valued(LAST_BALANCE_CALL),), where=(subtree("Assets:Broker"),)))
+
+
+def test_value_selects_raw_units_and_value_currency_columns(session: Session) -> None:
+    # Distinct from weight-based convert(): value() needs the *raw* share
+    # count plus a second (value_currency) column, not the cost-weight
+    # amount — see _basis_columns.
+    compiled = compile_query(
+        q((valued(SUM_POSITION_CALL, alias="v"),), where=(subtree("Assets:Checking:ZKB"),))
+    )
+    unconverted = compile_query(
+        q((Target(SUM_POSITION_CALL, "v"),), where=(subtree("Assets:Checking:ZKB"),))
+    )
+    # Same raw-units currency/amount columns as no conversion at all, plus
+    # a value_currency column in the middle (null here — none of the
+    # standard fixture postings carry a cost/price annotation).
+    value_rows = [
+        (currency, amount)
+        for currency, value_currency, amount in run_select(session, compiled.select)
+    ]
+    assert value_rows == run_select(session, unconverted.select)
+    assert all(
+        value_currency is None for _, value_currency, _ in run_select(session, compiled.select)
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "reason"),
+    [
+        pytest.param(
+            q((Target(FunctionCall("value", (SUM_POSITION_CALL, StringLiteral("CHF"))), None),)),
+            "value() takes exactly one aggregate argument",
+            id="value-with-currency-arg",
+        ),
+        pytest.param(
+            q((Target(FunctionCall("value", (Column("number"),)), None),)),
+            "value() requires an aggregate as its argument",
+            id="value-of-non-aggregate",
+        ),
+        pytest.param(
+            q((Target(FunctionCall("value", (FunctionCall("count", (Star(),)),)), None),)),
+            "value() requires sum() or last() as its argument",
+            id="value-of-count",
+        ),
+        pytest.param(
+            q(
+                (
+                    Target(
+                        FunctionCall("value", (FunctionCall("value", (SUM_POSITION_CALL,)),)),
+                        None,
+                    ),
+                )
+            ),
+            "value() cannot wrap value()",
+            id="value-of-value",
+        ),
+        pytest.param(
+            q((valued(SUM_POSITION_CALL, alias="a"), valued(LAST_BALANCE_CALL, alias="b"))),
+            "only one value() per query is supported",
+            id="multiple-value-targets",
+        ),
+        pytest.param(
+            q(
+                (
+                    Target(
+                        FunctionCall(
+                            "convert",
+                            (
+                                FunctionCall(
+                                    "value", (FunctionCall("value", (SUM_POSITION_CALL,)),)
+                                ),
+                                StringLiteral("CHF"),
+                            ),
+                        ),
+                        None,
+                    ),
+                )
+            ),
+            "value() cannot wrap value(), even under convert()",
+            id="convert-of-value-of-value",
+        ),
+        pytest.param(
+            q(
+                (
+                    Target(
+                        FunctionCall(
+                            "convert",
+                            (
+                                FunctionCall("value", (FunctionCall("count", (Star(),)),)),
+                                StringLiteral("CHF"),
+                            ),
+                        ),
+                        None,
+                    ),
+                )
+            ),
+            "convert(value(count(*)), ...) is rejected same as value(count(*))",
+            id="convert-of-value-of-count",
+        ),
+    ],
+)
+def test_value_validation_errors(query: Query, reason: str) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        compile_query(query)
+    assert exc_info.value.code == "query_validation_error", reason
+
+
+# ---------------------------------------------------------------------------
+# convert(value(...)): market value revalued at market price, then
+# FX-converted to a single target currency — see compiler.py's module
+# docstring and _basis_columns.
+# ---------------------------------------------------------------------------
+
+
+def test_convert_of_value_sets_both_valuation_and_conversion() -> None:
+    compiled = compile_query(
+        q(
+            (converted(FunctionCall("value", (SUM_POSITION_CALL,)), "CHF"),),
+            where=(subtree("Assets:Broker"),),
+        )
+    )
+    assert compiled.post.valuation is True
+    assert compiled.post.conversion == ConversionSpec("CHF", at=None)
+
+
+def test_convert_of_value_selects_raw_units_and_value_currency_columns(
+    session: Session,
+) -> None:
+    # Same SQL shape as standalone value() — the FX leg is entirely an
+    # executor-side concern applied after revaluation, not a different SQL
+    # column choice.
+    composed = compile_query(
+        q(
+            (converted(FunctionCall("value", (SUM_POSITION_CALL,)), "CHF"),),
+            where=(subtree("Assets:Checking:ZKB"),),
+        )
+    )
+    standalone = compile_query(
+        q((valued(SUM_POSITION_CALL),), where=(subtree("Assets:Checking:ZKB"),))
+    )
+    assert run_select(session, composed.select) == run_select(session, standalone.select)
 
 
 # ---------------------------------------------------------------------------

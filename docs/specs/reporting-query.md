@@ -114,11 +114,10 @@ Each cell in a row is encoded according to its column's `type`:
    if given; else the bucket's end date (`y` → Dec 31, `y, m` → last day of
    month, `y, m, d` → that day); else today for ungrouped queries. Prices
    are loaded in one bulk query; per bucket the latest price on or before
-   the conversion date wins, with the inverse pair (1/rate) and then a
-   single intermediate hop (`base → X → target`) as fallbacks. Amounts
-   already in the target currency pass through at rate 1. A currency with
-   no usable path makes the cell `null` and appends a `missing_price`
-   warning.
+   the conversion date wins (direct pair only, then a single intermediate
+   hop `base → X → target` as a fallback). Amounts already in the target
+   currency pass through at rate 1. A currency with no usable path makes
+   the cell `null` and appends a `missing_price` warning.
 8. **Serialize** per the cell-encoding table.
 
 ### Worked examples
@@ -292,6 +291,7 @@ columns ↔ string literal) — mismatches are `query_validation_error`.
 | `count(*)` | aggregate | row count |
 | `last(expr)` | aggregate | last value in date order (used with `balance`) |
 | `convert(expr, 'SYM' [, date])` | scalar | currency conversion via the prices table |
+| `value(expr)` | scalar/inventory | market revaluation via the prices table (see below) |
 
 ### Operators
 
@@ -334,11 +334,12 @@ BQL signature: `convert(amount_or_inventory, currency [, date])`.
   bucket-end is what a value-over-time series needs)
 - omitted, ungrouped → today
 
-Price lookup: latest `price_date <= target date` for the pair; inverse pair
-(1/rate) as first fallback; then a **single intermediate hop**
-(`base → X → target`, e.g. `EUR → USD → CHF`) — when several intermediates
-qualify, the one with the freshest base-leg price wins. No usable path →
-`null` cell + `missing_price` warning.
+Price lookup: latest `price_date <= target date` for the pair — direct only,
+no inversion (a price must be recorded in the direction it's needed); then
+a **single intermediate hop** (`base → X → target`, e.g. `EUR → USD → CHF`,
+each leg direct too) — when several intermediates qualify, the one with the
+freshest base-leg price wins. A stored `0` is used literally, not treated
+as degenerate data. No usable path → `null` cell + `missing_price` warning.
 
 **Weight, not raw units:** when `convert()` wraps `sum(position)` or
 `last(balance)`, each posting's *weight* is what gets converted — always,
@@ -353,13 +354,65 @@ above resolves from *that* currency (typically a real, liquid currency
 like USD) to the target, not from the security's own ticker. Likewise, 100
 CHF bought at cost `{1.2 USD}` was really 120 USD spent, and converts as
 that 120 USD re-priced at the target date's rate — not as a trivial 100
-CHF — matching bean-query's `convert_position`, which always reduces to
-weight first. The one exception: a security posting with **no cost or
+CHF. This is a **deliberate, local historical-cost convention** — real
+bean-query's own `convert()` does not reduce to weight; applied directly to
+a held-at-cost position it defaults to market value instead (a direct price
+for the position's own symbol, else a hop through its cost/price currency),
+never the recorded cost amount. See `value()` below for this subset's own
+market-value function, which does match bean-query. The one exception: a
+security posting with **no cost or
 price recorded** has nothing to fall back to, so it converts via its own
 ticker (the price graph may still resolve it transitively, e.g.
 `ESGV → USD → CHF`, if `ESGV` itself is priced in USD).
 Without `convert()`, `position`/`balance` are still raw per-unit
 inventories (e.g. "100 ESGV"), unaffected.
+
+### `value()`: Market Revaluation
+
+BQL signature: `value(sum(position))` / `value(last(balance))` — no target
+currency (unlike `convert()`). Added 2026-08 for the mobile chart's Cost/
+Market toggle (see the "Mobile App" section below); matches real
+bean-query's `value()`/`get_value()` exactly, including its fallback rule.
+
+For each currency in the aggregated result, `value()` looks up a *direct*,
+non-chained price for `(that currency, its own cost-or-price currency)` —
+never the target of an outer `convert()`, and never any other currency a
+price happens to exist for. When there's no cost/price annotation at all,
+or no price recorded for that exact pair, the amount passes through
+unchanged under its own currency. This differs from `convert()`'s FX
+lookup in two ways: no inverse-pair or intermediate-hop fallback (a single
+direct hop only), and a *pair* must match exactly — a price recorded
+against the wrong currency is never substituted, even if it's the only
+price on file for that symbol. See
+`family_ledger.services.prices.ValuePriceLookup` and the executor's
+`_apply_value`.
+
+`convert(value(x), 'CUR')` composes the two: revalue at market price first,
+then FX-convert the result to a single target currency — implemented (see
+`_analyze_convert`'s `value(...)`-wrapped-aggregate case and the executor's
+`_apply_conversion`). This is the query shape the mobile chart's Market
+mode will use once Phase 3 wires it up (not yet — the backend supports it,
+nothing calls it yet).
+
+**Stored zero prices**: a stored `0` price is used literally, everywhere —
+`value()`'s `ValuePriceLookup` and `convert()`'s `PriceLookup` agree. A
+security (or a currency) legitimately can devalue to nothing (total loss,
+delisting), and that's real information a holding's value should reflect.
+`Commodity`/`Price` have no field distinguishing a currency from a
+security, so there's no principled basis for the two lookups to disagree
+here; `PriceLookup` has no inverse-pair fallback to make a literal `0`
+unsafe (`1/0`) in the first place. Confirmed against a real ledger — see
+"Findings" below.
+
+Having used the `0` literally, the resulting zero-valued entry is then
+dropped, same as any other zero balance in an inventory cell (see
+`_serialize_inventory`) — a devalued-to-zero holding disappears from a
+`value()` result rather than showing an explicit `0`, matching bean-query.
+A client that carries the last bucket's value forward across a gap (as the
+mobile chart does — see "The Queries The Mobile App Sends" below) would
+therefore show a devalued holding's last known nonzero value rather than
+its current 0 until the chart is updated to distinguish the two; tracked
+as a follow-up, not solved by the query layer itself.
 
 ### Deviations From bean-query (v1)
 
@@ -367,6 +420,8 @@ inventories (e.g. "100 ESGV"), unaffected.
 |---|---|---|
 | `balance` in aggregates | journal-only column | `last(balance)` allowed with GROUP BY — running balance at bucket end |
 | `convert()` default date | latest price in DB | bucket end date in bucketed queries |
+| `convert()` on a raw (unwrapped) aggregate | defaults to market value (direct price, else a hop through cost/price currency) | defaults to weight/cost instead — a deliberate, local historical-cost convention; see `value()` for real bean-query semantics |
+| `PriceLookup`'s inverse-pair fallback | supported (`build_price_map` auto-synthesizes it) | not supported — a price must be recorded in the direction it's needed |
 | `FROM` expressions | full boolean transaction filters, `CLEAR` | only `OPEN ON` / `CLOSE ON` |
 | `ORDER BY`, `LIMIT`, `DISTINCT`, `HAVING`, `PIVOT` | supported (except HAVING) | not in v1; grammar reserved |
 | Everything else implemented | — | matches BQL semantics |
@@ -543,7 +598,7 @@ Backend (pytest, run with `uv run`):
   bucket, malformed regex)
 - executor tests against seeded SQLite: subtree regex matching, `OPEN ON`
   seeding with a windowed range, inventory sums across currencies,
-  bucket-end vs explicit-date conversion, inverse price fallback,
+  bucket-end vs explicit-date conversion, transitive price hops,
   `missing_price` warning
 - API route tests: auth, error envelope, response shape
 
@@ -592,6 +647,45 @@ re-imported from `scukas.beancount`, with beanquery running on the same file:
   `missing_price` warning stays, on the condition that frontends visibly
   display the warning; a fallback to another display currency for
   unconvertible entries is tracked on the roadmap.
+
+## Findings From The `value()` Real-Ledger Run (2026-08-26)
+
+Verified `value()` against the real personal ledger via the running
+`compose-api-1` container, cross-checked against `beancount`/`beanquery` by
+exporting with `export-beancount` and loading with `beancount.loader`:
+
+- Exact match against real beancount for ordinary holdings (VTI, VXUS,
+  GOOG — single and multi-lot), to the last decimal digit.
+- The user's real FARMY holding has a genuine total-loss `0` CHF price on
+  file — proof that, unlike an FX rate, a security's own price legitimately
+  can be exactly 0. `ValuePriceLookup` uses a stored `0` literally for this
+  reason; `PriceLookup` agrees (see the next Findings section).
+- A devalued-to-zero position disappears from a `value()` result entirely,
+  same as beancount (confirmed directly against
+  `beancount.core.convert.get_value` and `Inventory.reduce`, which drops a
+  zero-valued entry) — see "Stored zero prices" above for the consequence
+  this has for a client that carries the last value forward across a gap.
+
+## Findings From The `convert(value(...))` And `PriceLookup` Unification Run (2026-08-27)
+
+Composition (`convert(value(x), 'CUR')`) needed no SQL-layer changes —
+`_basis_columns` already produced the right shape for `valuation=True,
+conversion=Some`. Only the analyzer (`_analyze_convert` accepts a bare
+aggregate or one wrapped in `value()`, via a shared `_unwrap_aggregate`
+helper also used by `_analyze_value`) and the executor (`_apply_conversion`,
+factored out of the weight-basis path so it and the `value()`-then-FX path
+share the same FX-application logic) needed work. Cross-checked against
+real bean-query's own `convert(value(x), 'CUR')` composition (an authentic
+bean-query pattern, not a local invention) — exact match, including on the
+real ledger (VTI market value: 22818.19 USD → 17442.45 CHF at the 2026-08
+rate, no warnings).
+
+`PriceLookup`'s inverse-pair fallback is removed, and its zero-rate
+handling matches `ValuePriceLookup`'s (both use a stored `0` literally),
+per the "Stored zero prices" rationale above. Verified against the real
+ledger before and after: identical numbers for every existing holding
+(VTI, VXUS, VSS, VSGX, ESGV, IB01, GOOG), no new `missing_price` warnings
+on a broad net-worth query spanning every currency in use.
 
 ## Risks / Notes
 

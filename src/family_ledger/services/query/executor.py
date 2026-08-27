@@ -4,14 +4,21 @@ Runs the compiled selects and assembles the client-facing
 :class:`family_ledger.api.schemas.QueryLedgerResponse` per
 docs/specs/reporting-query.md:
 
-- SQL rows are per (group keys..., currency); the response has one row per
-  group-key combination, with currencies folded into inventory/amount cells
+- SQL rows are per (group keys..., currency[, value_currency]); the response
+  has one row per group-key combination, with currencies folded into
+  inventory/amount cells
 - ``last(balance)`` deltas are accumulated on top of the ``OPEN ON`` seed;
   every returned bucket carries the full inventory of all currencies seen
 - ``convert()`` resolves prices at the explicit date, the bucket end date,
-  or today; latest price on or before that date wins, with the inverse pair
-  and then a single intermediate hop (base -> X -> target) as fallbacks;
-  missing prices produce ``null`` cells plus warnings
+  or today; latest price on or before that date wins (a stored ``0`` counts,
+  used literally), direct pair only, then a single intermediate hop
+  (base -> X -> target) as a fallback; missing prices produce ``null``
+  cells plus warnings
+- ``value()`` resolves a *direct*, non-chained price per (symbol,
+  value_currency) pair at the same bucket-end-or-today date — see
+  ``_apply_value`` and ``services.prices.ValuePriceLookup``. Unlike
+  ``convert()``, a missing price here isn't a warning: the position just
+  passes through under its own symbol, same as beancount's ``get_value()``
 - cells are serialized JSON-ready (decimals as strings, dates as ISO)
 """
 
@@ -27,8 +34,13 @@ from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import QueryColumn, QueryLedgerResponse, QueryWarning
 from family_ledger.services.errors import ValidationError
-from family_ledger.services.prices import PriceLookup, _to_decimal
-from family_ledger.services.query.compiler import CompiledQuery, PostPlan, compile_query
+from family_ledger.services.prices import PriceLookup, ValuePriceLookup, _to_decimal
+from family_ledger.services.query.compiler import (
+    CompiledQuery,
+    ConversionSpec,
+    PostPlan,
+    compile_query,
+)
 from family_ledger.services.query.parser import parse
 from family_ledger.services.transaction_balancing import decimal_to_string
 
@@ -140,6 +152,18 @@ def _columns(post: PostPlan) -> list[QueryColumn]:
     return [QueryColumn(name=column.name, type=column.type) for column in post.columns]
 
 
+def _currency_key_and_amount(row: Any, offset: int, valuation: bool) -> tuple[Any, Decimal]:
+    """(currency-key, amount) starting at `offset` in a row. A value() query
+    carries an extra value_currency column, so its key is a (symbol,
+    value_currency) pair rather than a bare currency string — resolved down
+    to a single currency later by _apply_value. Shared by the main select's
+    row-folding and the running-balance seed, which have the identical
+    column shape."""
+    if valuation:
+        return (row[offset], row[offset + 1]), _to_decimal(row[offset + 2])
+    return row[offset], _to_decimal(row[offset + 1])
+
+
 def _assemble_aggregate(
     session: Session, compiled: CompiledQuery, raw: list[Any]
 ) -> QueryLedgerResponse:
@@ -150,7 +174,8 @@ def _assemble_aggregate(
     # Fold SQL rows into one entry per group-key combination, preserving the
     # SQL ordering (group keys ascending). Values are per-currency Decimal
     # dicts when the query aggregates position/balance, plain scalars
-    # otherwise (count).
+    # otherwise (count) — the running-balance accumulation below is generic
+    # over the currency-key's shape either way (see _currency_key_and_amount).
     order: list[tuple[Any, ...]] = []
     per_key: dict[tuple[Any, ...], Any] = {}
     for row in raw:
@@ -159,15 +184,16 @@ def _assemble_aggregate(
             order.append(key)
             per_key[key] = {} if folds else row[key_count]
         if folds:
-            per_key[key][row[key_count]] = _to_decimal(row[key_count + 1])
+            currency, amount = _currency_key_and_amount(row, key_count, post.valuation)
+            per_key[key][currency] = amount
 
     if post.running_balance:
-        balances: dict[str, Decimal] = {}
+        balances: dict[Any, Decimal] = {}
         if compiled.seed_select is not None:
-            balances = {
-                currency: _to_decimal(total)
-                for currency, total in _execute(session, compiled.seed_select).all()
-            }
+            balances = dict(
+                _currency_key_and_amount(row, 0, post.valuation)
+                for row in _execute(session, compiled.seed_select).all()
+            )
         # An account can be dormant (zero postings) inside the queried
         # window while still holding a nonzero opening balance. Without a
         # synthetic bucket here, `order` would stay empty and a real,
@@ -193,32 +219,28 @@ def _assemble_aggregate(
         aggregate_column = next(c for c in post.columns if c.name not in post.group_keys)
         for key in order:
             cells[key] = _serialize_scalar(per_key[key], aggregate_column.type)
+    elif post.valuation:
+        on_dates = {key: _bucket_end(key, post.group_key_buckets) or date.today() for key in order}
+        symbols = {symbol for balances in per_key.values() for symbol, _ in balances}
+        value_lookup = ValuePriceLookup(
+            session, symbols, latest=max(on_dates.values(), default=date.today())
+        )
+        revalued = {key: _apply_value(per_key[key], on_dates[key], value_lookup) for key in order}
+        if post.conversion is None:
+            for key in order:
+                cells[key] = _serialize_inventory(revalued[key])
+        else:
+            cells.update(
+                _apply_conversion(session, revalued, order, on_dates, post.conversion, warnings)
+            )
     elif post.conversion is None:
         for key in order:
             cells[key] = _serialize_inventory(per_key[key])
     else:
-        conversion_dates = {
-            key: post.conversion.at or _bucket_end(key, post.group_key_buckets) or date.today()
-            for key in order
-        }
-        target = post.conversion.target_currency
-        currencies = {
-            currency
-            for balances in per_key.values()
-            for currency, value in balances.items()
-            if currency != target and value != 0
-        }
-        lookup = PriceLookup(
-            session,
-            currencies,
-            target,
-            latest=max(conversion_dates.values(), default=date.today()),
+        on_dates = {key: _bucket_end(key, post.group_key_buckets) or date.today() for key in order}
+        cells.update(
+            _apply_conversion(session, per_key, order, on_dates, post.conversion, warnings)
         )
-        warned: set[tuple[str, date]] = set()
-        for key in order:
-            cells[key] = _convert_balances(
-                per_key[key], target, conversion_dates[key], lookup, warnings, warned
-            )
 
     key_index = {name: index for index, name in enumerate(post.group_keys)}
     rows: list[list[Any]] = []
@@ -232,6 +254,63 @@ def _assemble_aggregate(
             ]
         )
     return QueryLedgerResponse(columns=_columns(post), rows=rows, warnings=warnings)
+
+
+def _apply_value(
+    balances: dict[tuple[str, str | None], Decimal], on: date, lookup: ValuePriceLookup
+) -> dict[str, Decimal]:
+    """Reduces a value()-grouped (symbol, value_currency) balance dict down
+    to a normal currency-keyed one: revalue a pair at its direct price on
+    `on` when one exists (0 included — see ValuePriceLookup), else pass the
+    symbol through unchanged — mirrors beancount's get_value() fallback
+    exactly, including a devalued-to-0 result being dropped by
+    _serialize_inventory same as any other zero balance."""
+    result: dict[str, Decimal] = {}
+    for (symbol, value_currency), amount in balances.items():
+        if amount == 0:
+            continue
+        price = None if value_currency is None else lookup.price(symbol, value_currency, on)
+        if price is None:
+            result[symbol] = result.get(symbol, Decimal(0)) + amount
+        else:
+            assert value_currency is not None
+            result[value_currency] = result.get(value_currency, Decimal(0)) + amount * price
+    return result
+
+
+def _apply_conversion(
+    session: Session,
+    balances_by_key: dict[tuple[Any, ...], dict[str, Decimal]],
+    order: list[tuple[Any, ...]],
+    on_dates: dict[tuple[Any, ...], date],
+    conversion: ConversionSpec,
+    warnings: list[QueryWarning],
+) -> dict[tuple[Any, ...], Any]:
+    """FX-converts each bucket's already currency-keyed balances to
+    `conversion.target_currency`, at `conversion.at` if given, else each
+    bucket's own `on_dates` entry (bucket-end/today). Shared by the
+    weight-basis `convert()` path and the `convert(value(...))`
+    composition — both reach this once they already have a plain
+    currency-keyed dict per bucket; only how that dict was produced
+    differs."""
+    conversion_dates = {key: conversion.at or on_dates[key] for key in order}
+    target = conversion.target_currency
+    currencies = {
+        currency
+        for balances in balances_by_key.values()
+        for currency, value in balances.items()
+        if currency != target and value != 0
+    }
+    lookup = PriceLookup(
+        session, currencies, target, latest=max(conversion_dates.values(), default=date.today())
+    )
+    warned: set[tuple[str, date]] = set()
+    return {
+        key: _convert_balances(
+            balances_by_key[key], target, conversion_dates[key], lookup, warnings, warned
+        )
+        for key in order
+    }
 
 
 def _convert_balances(

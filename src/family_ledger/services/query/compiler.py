@@ -9,31 +9,49 @@ Contract for :class:`CompiledQuery`:
   accounts. Following the doctor pattern, it selects plain column tuples with
   explicit join conditions — no ORM entity hydration. Column order:
 
-  - aggregate queries: group-key expressions in declared order, then a
-    currency column (whenever the query aggregates ``position`` or
-    ``balance``) — ``postings.units_symbol`` normally, or, when the query
-    also ``convert()``s that aggregate, the posting's *weight* currency
-    instead (``COALESCE(cost_symbol, price_symbol, units_symbol)``, summing
-    ``COALESCE(cost_per_unit, price_per_unit, 1) * units_amount`` — see
-    ``services.transaction_balancing.weight_symbol_column`` /
-    ``weight_amount_column``, kept in sync with ``_compute_weight`` there).
-    The weight is *always* the conversion basis, never a shortcut through
-    the posting's raw units — e.g. 100 CHF bought at cost {1.2 USD} was
-    really 120 USD spent, and converts as that 120 USD re-priced at the
-    query date's rate, not as a trivial 100 CHF (matches bean-query's
-    convert_position, which always reduces to weight first). Plain
-    currency postings are unaffected either way (weight == units for
-    those, so this degenerates to the identity conversion). Then one
-    column per aggregate target. Rows are ordered by group keys ascending,
-    then currency ascending.
+  - aggregate queries: group-key expressions in declared order, then either
+    one currency column or two (``currency``, and ``value_currency`` for
+    ``value()`` — see below), then one column per aggregate target:
+
+    - no ``convert()``/``value()``: raw ``postings.units_symbol`` /
+      ``units_amount`` — one currency column, unconverted.
+    - ``convert(x, ...)`` wrapping a bare aggregate: the posting's *weight*
+      currency/amount instead (``COALESCE(cost_symbol, price_symbol,
+      units_symbol)``, summing ``COALESCE(cost_per_unit, price_per_unit, 1)
+      * units_amount`` — see ``services.transaction_balancing.
+      weight_symbol_column`` / ``weight_amount_column``, kept in sync with
+      ``_compute_weight`` there). The weight is *always* the conversion
+      basis, never a shortcut through the posting's raw units — e.g. 100
+      CHF bought at cost {1.2 USD} was really 120 USD spent, and converts
+      as that 120 USD re-priced at the query date's rate, not as a trivial
+      100 CHF. This is a deliberate, local *historical-cost* convention —
+      real bean-query's own ``convert()`` does not do this; applied
+      directly to a held-at-cost position it defaults to market value
+      instead (direct price, else a hop through the position's own cost/
+      price currency), never the recorded cost amount. Plain currency
+      postings are unaffected either way (weight == units for those, so
+      this degenerates to the identity conversion).
+    - ``value(x)`` (standalone, or wrapped by an outer ``convert()``): raw
+      units plus a second, nullable ``value_currency`` column
+      (``COALESCE(cost_symbol, price_symbol)``, no ``units_symbol``
+      fallback — null means no cost/price annotation at all, i.e. nothing
+      to revalue against). The executor uses the pair to look up each
+      group's own market price and reduce back to a single currency — see
+      ``_value_currency_column``, ``services.prices.ValuePriceLookup``, and
+      the executor's ``_apply_value``. This *does* match real bean-query's
+      ``value()``.
+
+    Rows are ordered by group keys ascending, then currency (and
+    value_currency, when present) ascending.
   - journal (non-aggregate) queries: the targets in declared order, rows
     ordered by transaction date ascending.
 
 - ``seed_select`` is only present for running-balance queries
   (``last(balance)``) with ``FROM OPEN ON``: it returns ``(currency, total)``
-  rows summing all matched postings strictly before the open date, using the
-  same units-vs-weight currency choice as the main select. For plain
-  aggregate queries ``OPEN ON`` acts as a lower date bound only.
+  rows (or ``(currency, value_currency, total)`` for ``value()``) summing
+  all matched postings strictly before the open date, using the same
+  currency-column choice as the main select. For plain aggregate queries
+  ``OPEN ON`` acts as a lower date bound only.
 
 - ``account ~ '<regex>'`` uses regex semantics. Anchored-prefix patterns of
   the exact shape ``^<literal>(:|$)`` compile to
@@ -46,7 +64,11 @@ Contract for :class:`CompiledQuery`:
 - ``convert(x, 'SYM' [, date])`` doesn't change the aggregated SQL shape,
   but does select weight over raw units as described above; the conversion
   itself is recorded in ``post.conversion`` (``at=None`` means bucket-end /
-  today semantics) and applied by the executor.
+  today semantics) and applied by the executor. ``value(x)`` is recorded in
+  ``post.valuation`` instead, applied by the executor's ``_apply_value``
+  before ``post.conversion`` (if any) runs — see ``_basis_columns``.
+  ``convert(value(x), 'SYM')`` composes both: ``value()`` revalues first,
+  then ``convert()`` FX-converts the result.
 
 All literals are bound as parameters, never interpolated.
 """
@@ -107,6 +129,11 @@ class PostPlan:
     group_keys: tuple[str, ...] = field(default=())
     running_balance: bool = False
     conversion: ConversionSpec | None = None
+    # value() wraps the aggregate — market value in each group's own
+    # value_currency (cost, else price), per beancount's get_value. Can
+    # combine with conversion (convert(value(x), 'CUR')): value() revalues
+    # first, then conversion FX-converts the result; see _basis_columns.
+    valuation: bool = False
     is_aggregate: bool = False
     # aligned with group_keys: 'year' | 'month' | 'day' for bucket keys,
     # None for scalar keys
@@ -141,7 +168,7 @@ _AGGREGATE_ONLY_COLUMNS = {"position": "sum()", "balance": "last()"}
 
 _BUCKET_FUNCTIONS = frozenset({"year", "month", "day"})
 
-_KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {"sum", "count", "last", "convert"}
+_KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {"sum", "count", "last", "convert", "value"}
 
 # A literal with no regex metacharacters — the only content the optimized
 # pattern shapes accept.
@@ -182,6 +209,7 @@ class _AnalyzedTarget:
 class _Analysis:
     targets: list[_AnalyzedTarget]
     conversion: ConversionSpec | None
+    valuation: bool
     running_balance: bool
     has_aggregates: bool
 
@@ -207,7 +235,9 @@ def _analyze_aggregate_call(call: FunctionCall) -> tuple[str, str]:
     raise _validation_error(f"'{call.name}' cannot be used as an aggregate")
 
 
-def _analyze_target(target: Target) -> tuple[_AnalyzedTarget, ConversionSpec | None]:
+def _analyze_target(
+    target: Target,
+) -> tuple[_AnalyzedTarget, ConversionSpec | None, bool]:
     expr = target.expr
 
     if isinstance(expr, Column):
@@ -221,6 +251,7 @@ def _analyze_target(target: Target) -> tuple[_AnalyzedTarget, ConversionSpec | N
         return (
             _AnalyzedTarget(target.alias or expr.name, out_type, "scalar", sql=sql),
             None,
+            False,
         )
 
     if isinstance(expr, FunctionCall):
@@ -233,24 +264,59 @@ def _analyze_target(target: Target) -> tuple[_AnalyzedTarget, ConversionSpec | N
                     target.alias or expr.name, "int", "bucket", sql=sql, bucket=expr.name
                 ),
                 None,
+                False,
             )
         if expr.name == "convert":
-            return _analyze_convert(target, expr)
+            analyzed, spec, wraps_value = _analyze_convert(target, expr)
+            return analyzed, spec, wraps_value
+        if expr.name == "value":
+            return _analyze_value(target, expr), None, True
         aggregate, out_type = _analyze_aggregate_call(expr)
         return (
             _AnalyzedTarget(target.alias or expr.name, out_type, "aggregate", agg=aggregate),
             None,
+            False,
         )
 
     raise _validation_error("literal select targets are not supported")
 
 
-def _analyze_convert(target: Target, call: FunctionCall) -> tuple[_AnalyzedTarget, ConversionSpec]:
+def _unwrap_aggregate(expr: Expr, *, context: str) -> tuple[str, bool]:
+    """(aggregate_kind, wraps_value) for a bare aggregate or one wrapped in
+    value() — shared by _analyze_value (which rejects wraps_value, no
+    double-wrapping) and _analyze_convert (which allows it, recording the
+    composition on the target's ValuationSpec)."""
+    if isinstance(expr, FunctionCall) and expr.name == "value":
+        if len(expr.args) != 1:
+            raise _validation_error("value() takes exactly one aggregate argument")
+        inner = expr.args[0]
+        if not isinstance(inner, FunctionCall):
+            raise _validation_error("value() requires an aggregate as its argument")
+        aggregate, _ = _analyze_aggregate_call(inner)
+        return aggregate, True
+    if isinstance(expr, FunctionCall):
+        aggregate, _ = _analyze_aggregate_call(expr)
+        return aggregate, False
+    raise _validation_error(f"{context} requires an aggregate or value(...) argument")
+
+
+def _analyze_value(target: Target, call: FunctionCall) -> _AnalyzedTarget:
+    if len(call.args) != 1:
+        raise _validation_error("value() takes exactly one aggregate argument")
+    aggregate, wraps_value = _unwrap_aggregate(call.args[0], context="value()")
+    if wraps_value:
+        raise _validation_error("value() cannot wrap value()")
+    if aggregate == "count":
+        raise _validation_error("value() requires sum() or last() as its argument")
+    return _AnalyzedTarget(target.alias or "value", "inventory", "aggregate", agg=aggregate)
+
+
+def _analyze_convert(
+    target: Target, call: FunctionCall
+) -> tuple[_AnalyzedTarget, ConversionSpec, bool]:
     if len(call.args) not in (2, 3):
         raise _validation_error("convert() takes an aggregate, a currency, and an optional date")
     inner, currency_arg = call.args[0], call.args[1]
-    if not isinstance(inner, FunctionCall):
-        raise _validation_error("convert() requires an aggregate as its first argument")
     if not isinstance(currency_arg, StringLiteral):
         raise _validation_error("convert() target currency must be a string literal")
     at: date | None = None
@@ -260,23 +326,28 @@ def _analyze_convert(target: Target, call: FunctionCall) -> tuple[_AnalyzedTarge
             raise _validation_error("convert() date must be a date literal")
         at = date_arg.value
 
-    aggregate, _ = _analyze_aggregate_call(inner)
+    aggregate, wraps_value = _unwrap_aggregate(inner, context="convert()")
     if aggregate == "count":
         raise _validation_error("convert() requires sum() or last() as its first argument")
     analyzed = _AnalyzedTarget(target.alias or "convert", "amount", "aggregate", agg=aggregate)
-    return analyzed, ConversionSpec(currency_arg.value, at=at)
+    return analyzed, ConversionSpec(currency_arg.value, at=at), wraps_value
 
 
 def _analyze(query: Query) -> _Analysis:
     targets: list[_AnalyzedTarget] = []
     conversion: ConversionSpec | None = None
+    valuation = False
 
     for target in query.targets:
-        analyzed, spec = _analyze_target(target)
+        analyzed, spec, wraps_value = _analyze_target(target)
         if spec is not None:
             if conversion is not None:
                 raise _validation_error("only one convert() per query is supported")
             conversion = spec
+        if wraps_value:
+            if valuation:
+                raise _validation_error("only one value() per query is supported")
+            valuation = True
         targets.append(analyzed)
 
     # The executor pairs row values with plan columns by name; duplicates
@@ -289,6 +360,7 @@ def _analyze(query: Query) -> _Analysis:
     return _Analysis(
         targets=targets,
         conversion=conversion,
+        valuation=valuation,
         running_balance=any(t.agg == "last" for t in targets),
         has_aggregates=any(t.kind == "aggregate" for t in targets),
     )
@@ -440,7 +512,18 @@ def _aggregate_sql(target: _AnalyzedTarget, amount_column: ColumnElement) -> Col
     return func.sum(amount_column).label(target.name)
 
 
-def _conversion_columns(conversion: ConversionSpec | None) -> tuple[Any, Any]:
+def _value_currency_column() -> ColumnElement:
+    """A held position's value currency (cost, else price — never falling
+    back to units_symbol, unlike weight_symbol_column): null means no
+    cost/price annotation at all, which value() must treat as nothing to
+    price against — the position passes through as raw units instead.
+    See services/prices.py's ValuePriceLookup and executor._apply_value."""
+    return func.coalesce(Posting.cost_symbol, Posting.price_symbol)
+
+
+def _basis_columns(
+    conversion: ConversionSpec | None, valuation: bool
+) -> tuple[Any, Any, Any | None]:
     # convert() means the query cares about *value*, not share/unit count: a
     # security posting (e.g. 100 VSS at cost) converts via its cost currency
     # (the weight) — always, never a shortcut through raw units just
@@ -448,9 +531,16 @@ def _conversion_columns(conversion: ConversionSpec | None) -> tuple[Any, Any]:
     # bought at cost {1.2 USD} was really 120 USD spent) — same rule as
     # GET /transactions?convert=. Without convert(), position/balance stay
     # raw-units inventories, unchanged.
-    if conversion is None:
-        return Posting.units_symbol, Posting.units_amount
-    return weight_symbol_column(), weight_amount_column()
+    #
+    # value() is different again: it needs the *raw* units (to multiply by
+    # a market price), plus a second column — value_currency — so the
+    # executor knows which currency each group's price should be quoted in
+    # (see _value_currency_column). Returns (currency, amount,
+    # value_currency); value_currency is only non-None for valuation.
+    if not valuation and conversion is not None:
+        return weight_symbol_column(), weight_amount_column(), None
+    value_currency = _value_currency_column() if valuation else None
+    return Posting.units_symbol, Posting.units_amount, value_currency
 
 
 def _build_aggregate_select(
@@ -459,11 +549,15 @@ def _build_aggregate_select(
     where: list[ColumnElement],
     needs_currency: bool,
 ) -> Select:
-    currency_column, amount_column = _conversion_columns(analysis.conversion)
+    currency_column, amount_column, value_currency_column = _basis_columns(
+        analysis.conversion, analysis.valuation
+    )
 
     columns: list[Any] = [_sql(t).label(t.name) for t in grouped]
     if needs_currency:
         columns.append(currency_column.label("currency"))
+        if value_currency_column is not None:
+            columns.append(value_currency_column.label("value_currency"))
     columns.extend(
         _aggregate_sql(t, amount_column) for t in analysis.targets if t.kind == "aggregate"
     )
@@ -473,6 +567,8 @@ def _build_aggregate_select(
     group_by: list[Any] = [_sql(t) for t in grouped]
     if needs_currency:
         group_by.append(currency_column)
+        if value_currency_column is not None:
+            group_by.append(value_currency_column)
     if group_by:
         stmt = stmt.group_by(*group_by).order_by(*group_by)
     return stmt
@@ -488,20 +584,24 @@ def _build_journal_select(analysis: _Analysis, where: list[ColumnElement]) -> Se
 
 
 def _build_seed_select(
-    non_date_where: list[ColumnElement], open_on: date, conversion: ConversionSpec | None
+    non_date_where: list[ColumnElement],
+    open_on: date,
+    conversion: ConversionSpec | None,
+    valuation: bool,
 ) -> Select:
-    currency_column, amount_column = _conversion_columns(conversion)
+    currency_column, amount_column, value_currency_column = _basis_columns(conversion, valuation)
+    columns: list[Any] = [currency_column.label("currency")]
+    group_by: list[Any] = [currency_column]
+    if value_currency_column is not None:
+        columns.append(value_currency_column.label("value_currency"))
+        group_by.append(value_currency_column)
+    columns.append(func.sum(amount_column).label("total"))
     return (
-        _base_select(
-            [
-                currency_column.label("currency"),
-                func.sum(amount_column).label("total"),
-            ]
-        )
+        _base_select(columns)
         .where(*non_date_where)
         .where(Transaction.transaction_date < open_on)
-        .group_by(currency_column)
-        .order_by(currency_column)
+        .group_by(*group_by)
+        .order_by(*group_by)
     )
 
 
@@ -555,7 +655,9 @@ def compile_query(query: Query) -> CompiledQuery:
 
     seed_select = None
     if analysis.running_balance and open_on is not None:
-        seed_select = _build_seed_select(non_date_where, open_on, analysis.conversion)
+        seed_select = _build_seed_select(
+            non_date_where, open_on, analysis.conversion, analysis.valuation
+        )
 
     return CompiledQuery(
         select=stmt,
@@ -565,6 +667,7 @@ def compile_query(query: Query) -> CompiledQuery:
             group_keys=tuple(t.name for t in grouped),
             running_balance=analysis.running_balance,
             conversion=analysis.conversion,
+            valuation=analysis.valuation,
             is_aggregate=analysis.has_aggregates,
             group_key_buckets=tuple(t.bucket for t in grouped),
             open_on=open_on if analysis.running_balance else None,

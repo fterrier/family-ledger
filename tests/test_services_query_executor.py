@@ -28,10 +28,10 @@ ZKB_WHERE = " WHERE account ~ '^Assets:Checking:ZKB(:|$)'"
 GROUP_YM = " GROUP BY y, m"
 
 BALANCE_QUERY = f"{SELECT_YM} last(balance) AS bal{OPEN_JUL}{ZKB_WHERE}{GROUP_YM}"
-MARKET_VALUE_QUERY = (
+WEIGHT_CONVERTED_QUERY = (
     f"{SELECT_YM} convert(last(balance), 'CHF') AS bal{OPEN_JUL}{ZKB_WHERE}{GROUP_YM}"
 )
-MARKET_VALUE_NO_OPEN_QUERY = (
+WEIGHT_CONVERTED_NO_OPEN_QUERY = (
     f"{SELECT_YM} convert(last(balance), 'CHF') AS bal{ZKB_WHERE}{GROUP_YM}"
 )
 
@@ -180,8 +180,11 @@ def test_dormant_window_converted_view_also_flattens(session: Session) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_market_value_conversion_at_bucket_end(session: Session) -> None:
-    result = execute_query(session, MARKET_VALUE_QUERY)
+def test_weight_conversion_at_bucket_end(session: Session) -> None:
+    # This exercises convert()'s existing cost/price-weight basis — not real
+    # market value (see the value() section below for that, and its own
+    # ValuePriceLookup-backed revaluation).
+    result = execute_query(session, WEIGHT_CONVERTED_QUERY)
     assert result.columns[2] == QueryColumn(name="bal", type="amount")
     # August: 4000 + 50 USD x 0.80 (price of 2025-08-10, latest <= 2025-08-31).
     assert result.rows == [
@@ -206,7 +209,7 @@ def test_conversion_with_explicit_date(session: Session) -> None:
 
 def test_missing_price_yields_null_cell_and_warning() -> None:
     session = build_session(STANDARD_TRANSACTIONS)
-    result = execute_query(session, MARKET_VALUE_QUERY)
+    result = execute_query(session, WEIGHT_CONVERTED_QUERY)
     assert result.rows == [
         [2025, 7, amount("5800", "CHF")],
         [2025, 8, None],
@@ -227,7 +230,7 @@ def test_zero_balance_currency_needs_no_price() -> None:
         ),
     ]
     session = build_session(transactions)
-    result = execute_query(session, MARKET_VALUE_QUERY)
+    result = execute_query(session, WEIGHT_CONVERTED_QUERY)
     assert result.rows == [
         [2025, 7, amount("5800", "CHF")],
         [2025, 8, amount("4000", "CHF")],
@@ -235,7 +238,9 @@ def test_zero_balance_currency_needs_no_price() -> None:
     assert result.warnings == []
 
 
-def test_inverse_price_fallback() -> None:
+def test_inverse_pair_does_not_resolve() -> None:
+    # Only CHF->EUR is stored; a price must be recorded in the direction
+    # it's needed (see services/prices.py's PriceLookup).
     session = build_session(
         [
             (
@@ -249,9 +254,9 @@ def test_inverse_price_fallback() -> None:
         ],
         prices=(("2025-08-01", "CHF", "EUR", "1.25"),),
     )
-    result = execute_query(session, MARKET_VALUE_NO_OPEN_QUERY)
-    # No EUR->CHF price; the CHF->EUR 1.25 inverts to 0.8: 100 + 10 x 0.8.
-    assert result.rows == [[2025, 8, amount("108", "CHF")]]
+    result = execute_query(session, WEIGHT_CONVERTED_NO_OPEN_QUERY)
+    assert result.rows == [[2025, 8, None]]
+    assert [w.details["base"] for w in result.warnings] == ["EUR"]
 
 
 def test_transitive_conversion_via_intermediate_currency() -> None:
@@ -269,7 +274,7 @@ def test_transitive_conversion_via_intermediate_currency() -> None:
         ],
         prices=(("2025-08-01", "VT", "USD", "100"), ("2025-08-10", "USD", "CHF", "0.80")),
     )
-    result = execute_query(session, MARKET_VALUE_NO_OPEN_QUERY)
+    result = execute_query(session, WEIGHT_CONVERTED_NO_OPEN_QUERY)
     # 100 CHF + 5 VT x 100 USD x 0.80 = 500
     assert result.rows == [[2025, 8, amount("500", "CHF")]]
     assert result.warnings == []
@@ -285,19 +290,21 @@ def test_direct_price_beats_transitive_path() -> None:
             ("2025-08-05", "VT", "CHF", "90"),
         ),
     )
-    result = execute_query(session, MARKET_VALUE_NO_OPEN_QUERY)
+    result = execute_query(session, WEIGHT_CONVERTED_NO_OPEN_QUERY)
     assert result.rows == [[2025, 8, amount("450", "CHF")]]
 
 
-def test_transitive_conversion_with_inverse_second_leg() -> None:
-    # VT->USD plus CHF->USD: the second leg is the inverse pair, 1 / 1.25.
+def test_transitive_conversion_does_not_use_an_inverse_leg() -> None:
+    # VT->USD is a usable base leg, but the only USD-side price on file is
+    # CHF->USD, not USD->CHF — the target leg has nothing to resolve
+    # against, same as if it were missing entirely.
     session = build_session(
         [("2025-08-25", [("Assets:Checking:ZKB", "5", "VT"), ("Equity:Opening", "-5", "VT")])],
         prices=(("2025-08-01", "VT", "USD", "100"), ("2025-08-10", "CHF", "USD", "1.25")),
     )
-    result = execute_query(session, MARKET_VALUE_NO_OPEN_QUERY)
-    # 5 x 100 x (1 / 1.25) = 400
-    assert result.rows == [[2025, 8, amount("400", "CHF")]]
+    result = execute_query(session, WEIGHT_CONVERTED_NO_OPEN_QUERY)
+    assert result.rows == [[2025, 8, None]]
+    assert [w.details["base"] for w in result.warnings] == ["VT"]
 
 
 def test_no_conversion_path_still_warns() -> None:
@@ -306,9 +313,277 @@ def test_no_conversion_path_still_warns() -> None:
         [("2025-08-25", [("Assets:Checking:ZKB", "5", "VT"), ("Equity:Opening", "-5", "VT")])],
         prices=(("2025-08-01", "VT", "USD", "100"),),
     )
-    result = execute_query(session, MARKET_VALUE_NO_OPEN_QUERY)
+    result = execute_query(session, WEIGHT_CONVERTED_NO_OPEN_QUERY)
     assert result.rows == [[2025, 8, None]]
     assert [w.details["base"] for w in result.warnings] == ["VT"]
+
+
+# ---------------------------------------------------------------------------
+# value(): market revaluation (see services/prices.py's ValuePriceLookup).
+# Cross-checked against real beancount/beanquery in
+# tests/test_value_beancount_parity.py — these focus on things specific to
+# this engine's bucket/running-balance model instead of duplicating that
+# parity coverage.
+# ---------------------------------------------------------------------------
+
+
+def test_value_output_column_is_inventory_typed(session: Session) -> None:
+    result = execute_query(session, f"{SELECT_YM} value(sum(position)) AS v{ZKB_WHERE}{GROUP_YM}")
+    assert result.columns[2] == QueryColumn(name="v", type="inventory")
+
+
+def test_value_prices_each_bucket_at_its_own_end_date() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-400", "CAD"),
+                ],
+            ),
+            (
+                "2025-08-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "42", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-420", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "CAD", "45"),
+            ("2025-08-10", "VSS", "CAD", "50"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} value(sum(position)) AS v WHERE account ~ '^Assets:Broker(:|$)'{GROUP_YM}",
+    )
+    # Each bucket's 10 VSS purchase revalues at that bucket's own end-of-
+    # month price — July at 45, August at 50 — not a single query-wide date.
+    assert result.rows == [
+        [2025, 7, [amount("450", "CAD")]],
+        [2025, 8, [amount("500", "CAD")]],
+    ]
+
+
+def test_value_sums_multiple_securities_into_the_same_value_currency() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    (
+                        "Assets:Broker:VSS",
+                        "100",
+                        "VSS",
+                        {"cost_amount": "40", "cost_symbol": "CAD"},
+                    ),
+                    ("Equity:Opening", "-4000", "CAD"),
+                ],
+            ),
+            (
+                "2025-07-06",
+                [
+                    ("Assets:Broker:XYZ", "10", "XYZ", {"cost_amount": "5", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-50", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "CAD", "45"),
+            ("2025-07-10", "XYZ", "CAD", "6"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} value(sum(position)) AS v WHERE account ~ '^Assets:Broker(:|$)'{GROUP_YM}",
+    )
+    # VSS: 100 x 45 = 4500 CAD; XYZ: 10 x 6 = 60 CAD — different securities,
+    # same value_currency, must fold into one summed entry.
+    assert result.rows == [[2025, 7, [amount("4560", "CAD")]]]
+
+
+def test_value_revalues_the_running_total_at_each_buckets_own_price() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-400", "CAD"),
+                ],
+            ),
+            (
+                "2025-08-05",
+                [
+                    ("Assets:Broker:VSS", "5", "VSS", {"cost_amount": "42", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-210", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "CAD", "45"),
+            ("2025-08-10", "VSS", "CAD", "50"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} value(last(balance)) AS v WHERE account ~ '^Assets:Broker(:|$)'{GROUP_YM}",
+    )
+    # Running total accumulates first (10 VSS after July, 15 after August —
+    # same rule as any other last(balance)), *then* each bucket's cumulative
+    # holding revalues at that bucket's own end-of-month price.
+    assert result.rows == [
+        [2025, 7, [amount("450", "CAD")]],  # 10 x 45
+        [2025, 8, [amount("750", "CAD")]],  # 15 x 50
+    ]
+
+
+def test_value_uses_a_stored_zero_price_literally() -> None:
+    # A security's price legitimately can be 0 (total loss, delisting) —
+    # distinct from PriceLookup's FX rates, where a stored 0 is treated as
+    # degenerate data (see services/prices.py). The revalued amount is then
+    # a real 0, dropped by _serialize_inventory same as any other zero
+    # balance — matching beancount, which drops it too.
+    session = build_session(
+        [
+            (
+                "2022-11-02",
+                [
+                    (
+                        "Assets:Broker:FARMY",
+                        "200",
+                        "FARMY",
+                        {"cost_amount": "12", "cost_symbol": "CHF"},
+                    ),
+                    ("Equity:Opening", "-2400", "CHF"),
+                ],
+            ),
+        ],
+        prices=(("2025-01-31", "FARMY", "CHF", "0"),),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} value(last(balance)) AS v"
+        " FROM OPEN ON 2025-02-01 CLOSE ON 2025-02-02"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    # Dormant-window synthetic bucket (see test_dormant_window_with_
+    # nonzero_seed_returns_one_flat_bucket): still holding 200 FARMY, now
+    # priced at 0 — revalues to a real 0, which drops the entry entirely
+    # rather than reporting a fake "no data" gap or a misleading nonzero.
+    assert result.rows == [[2025, 2, []]]
+
+
+# ---------------------------------------------------------------------------
+# convert(value(...)): market value revalued at market price, then
+# FX-converted to a single target currency.
+# ---------------------------------------------------------------------------
+
+
+def test_convert_of_value_revalues_then_fx_converts() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "USD", "45"),
+            ("2025-07-10", "USD", "CHF", "0.80"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(sum(position)), 'CHF') AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    # 10 VSS x 45 USD (value()) = 450 USD, x 0.80 (convert()) = 360 CHF.
+    assert result.columns[2] == QueryColumn(name="v", type="amount")
+    assert result.rows == [[2025, 7, amount("360", "CHF")]]
+    assert result.warnings == []
+
+
+def test_convert_of_value_matches_running_balance() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "USD", "45"),
+            ("2025-07-10", "USD", "CHF", "0.80"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(last(balance)), 'CHF') AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    assert result.rows == [[2025, 7, amount("360", "CHF")]]
+
+
+def test_convert_of_value_warns_when_the_fx_leg_is_missing() -> None:
+    # value() resolves VSS -> USD fine; there's just no USD -> CHF price on
+    # file for the outer convert() to finish the job.
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(("2025-07-10", "VSS", "USD", "45"),),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(sum(position)), 'CHF') AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    assert result.rows == [[2025, 7, None]]
+    assert [w.details["base"] for w in result.warnings] == ["USD"]
+
+
+def test_convert_of_value_passthrough_still_reaches_the_fx_leg() -> None:
+    # No price at all for VSS: value() passes it through under its own
+    # symbol, and convert() then needs a VSS -> CHF price directly.
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(("2025-07-10", "VSS", "CHF", "36"),),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(sum(position)), 'CHF') AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    assert result.rows == [[2025, 7, amount("360", "CHF")]]
+    assert result.warnings == []
 
 
 # ---------------------------------------------------------------------------

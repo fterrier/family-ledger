@@ -10,8 +10,11 @@ from sqlalchemy.orm import Session
 
 from family_ledger.models import Account, Base, Posting, Price, Transaction
 
-# (transaction date, [(account name, amount, symbol), ...])
-LedgerRows = list[tuple[str, list[tuple[str, str, str]]]]
+# (transaction date, [(account name, amount, symbol), ...]). A posting may
+# carry an optional trailing dict of cost/price kwargs (cost_amount,
+# cost_symbol, price_amount, price_symbol) for held-at-cost fixtures — see
+# build_session.
+LedgerRows = list[tuple[str, list[tuple]]]
 
 # Standard ledger shared by the compiler and executor suites.
 # Assets:Checking:ZKB subtree CHF deltas: May +1000, Jul +4800, Aug -1800;
@@ -47,7 +50,7 @@ def build_session(
     session = Session(engine)
 
     accounts: dict[str, Account] = {}
-    account_names = sorted({acc for _, postings in transactions for acc, _, _ in postings})
+    account_names = sorted({posting[0] for _, postings in transactions for posting in postings})
     for index, account_name in enumerate(account_names):
         accounts[account_name] = Account(
             name=f"accounts/acc-{index}",
@@ -61,15 +64,24 @@ def build_session(
             name=f"transactions/txn-{tx_index}",
             transaction_date=date.fromisoformat(tx_date),
         )
-        tx.postings = [
-            Posting(
-                account=accounts[account_name],
-                posting_order=posting_index,
-                units_amount=Decimal(amount),
-                units_symbol=symbol,
+        tx_postings = []
+        for posting_index, (account_name, amount, symbol, *rest) in enumerate(postings):
+            extra = rest[0] if rest else {}
+            tx_postings.append(
+                Posting(
+                    account=accounts[account_name],
+                    posting_order=posting_index,
+                    units_amount=Decimal(amount),
+                    units_symbol=symbol,
+                    cost_per_unit=Decimal(extra["cost_amount"]) if "cost_amount" in extra else None,
+                    cost_symbol=extra.get("cost_symbol"),
+                    price_per_unit=Decimal(extra["price_amount"])
+                    if "price_amount" in extra
+                    else None,
+                    price_symbol=extra.get("price_symbol"),
+                )
             )
-            for posting_index, (account_name, amount, symbol) in enumerate(postings)
-        ]
+        tx.postings = tx_postings
         session.add(tx)
 
     for price_index, (price_date, base, quote, rate) in enumerate(prices):

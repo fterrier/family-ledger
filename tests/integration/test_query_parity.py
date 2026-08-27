@@ -26,7 +26,7 @@ pytestmark = pytest.mark.integration
 
 # Edge cases: multi-currency subtree, sub-account, boundary account (ZKBX must
 # never match the ZKB subtree), a gap month (September has no ZKB activity),
-# an EUR pair only quoted in the inverse direction, and multiple USD prices.
+# a second FX currency (EUR) alongside USD, and multiple USD prices.
 PARITY_LEDGER = """
 option "operating_currency" "CHF"
 
@@ -86,7 +86,7 @@ option "operating_currency" "CHF"
 
 2025-07-10 price USD 0.85 CHF
 2025-08-10 price USD 0.80 CHF
-2025-09-30 price CHF 1.25 EUR
+2025-09-30 price EUR 0.80 CHF
 2025-10-01 price VT 100.00 USD
 """
 
@@ -179,15 +179,12 @@ def test_running_balance_matches_bql_open_close_windows(integration_client, bql_
         assert window == [(balance,)], f"bucket {year}-{month:02d}"
 
 
-def test_converted_total_matches_including_inverse_price(
-    integration_client, bql_connection
-) -> None:
+def test_converted_total_matches_multi_currency(integration_client, bql_connection) -> None:
     shared = f"SELECT convert(sum(position), 'CHF', 2025-10-31) AS val WHERE {ZKB_SUBTREE}"
     ours = api_rows(integration_client, shared)
     bql = bql_rows(bql_connection, shared)
     assert ours == bql
-    # 4000 CHF + 50 USD x 0.80 + 10 EUR x (1 / 1.25) = 4048 CHF; the EUR rate
-    # only exists as CHF->EUR, so both engines must use the inverse.
+    # 4000 CHF + 50 USD x 0.80 + 10 EUR x 0.80 = 4048 CHF.
     assert ours == [({"CHF": Decimal("4048")},)]
 
 

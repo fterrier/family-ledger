@@ -22,33 +22,26 @@ def _to_decimal(value: Any) -> Decimal:
     return Decimal(str(value))
 
 
-def _latest_nonzero(
-    dates: list[date], rates: list[Decimal], on: date
-) -> tuple[Decimal, date] | None:
-    """Latest (rate, date) on or before ``on``, skipping zero entries — a
-    stored 0 is degenerate data (a real price is never actually zero) and
-    must never be used as a rate: taken directly it converts everything to
-    0, inverted it raises DivisionByZero. Falls back to an earlier real
-    price when the latest entry is zero, exactly like a missing entry would
-    fall back."""
+def _latest(dates: list[date], rates: list[Decimal], on: date) -> tuple[Decimal, date] | None:
+    """Latest (rate, date) on or before ``on``, taken literally — including
+    0. Commodity/Price have no field distinguishing a currency from a
+    security, so PriceLookup and ValuePriceLookup agree: a stored 0 is real
+    information (a total loss, a delisting), not degenerate data to skip
+    past."""
     index = bisect_right(dates, on)
-    while index:
-        index -= 1
-        if rates[index] != 0:
-            return rates[index], dates[index]
-    return None
+    return (rates[index - 1], dates[index - 1]) if index else None
 
 
 class PriceLookup:
-    """Latest price on or before a date: direct pair, inverse pair, then a
-    single intermediate hop (base -> X -> target).
+    """Latest price on or before a date: direct pair, then a single
+    intermediate hop (base -> X -> target) — a price must be recorded in
+    the direction it's needed; no inverse-pair fallback.
 
     When several intermediates are available, the one with the freshest
     base-leg price wins (alphabetical order breaks ties). Loads only prices
     dated on or before ``latest`` (the newest conversion date the caller can
-    ask for); inverse rates are computed on hit, not at load time. Shared by
-    the reporting query executor and the transaction list's ``convert``
-    view.
+    ask for). Shared by the reporting query executor and the transaction
+    list's ``convert`` view.
     """
 
     def __init__(self, session: Session, currencies: set[str], target: str, latest: date) -> None:
@@ -64,14 +57,13 @@ class PriceLookup:
                 Price.price_date,
                 Price.price_per_unit,
             )
-            .where(
-                or_(
-                    Price.base_symbol.in_(currencies),
-                    Price.quote_symbol.in_(currencies),
-                    Price.base_symbol == target,
-                    Price.quote_symbol == target,
-                )
-            )
+            # base_symbol covers direct pairs and first-hop legs (base ->
+            # intermediate); quote_symbol == target covers direct pairs and
+            # second-hop legs (intermediate -> target). No inversion, so a
+            # row where only quote_symbol is in currencies (or only
+            # base_symbol == target) can never match any lookup _pair does
+            # — fetching those would just be dead weight.
+            .where(or_(Price.base_symbol.in_(currencies), Price.quote_symbol == target))
             .where(Price.price_date <= latest)
             .order_by(Price.price_date)
         ).all()
@@ -88,17 +80,7 @@ class PriceLookup:
 
     def _pair(self, base: str, quote: str, on: date) -> tuple[Decimal, date] | None:
         entry = self._series.get((base, quote))
-        if entry is not None:
-            found = _latest_nonzero(*entry, on)
-            if found is not None:
-                return found
-        entry = self._series.get((quote, base))
-        if entry is not None:
-            found = _latest_nonzero(*entry, on)
-            if found is not None:
-                rate, found_date = found
-                return Decimal(1) / rate, found_date
-        return None
+        return None if entry is None else _latest(*entry, on)
 
     def rate(self, base: str, on: date) -> Decimal | None:
         found = self._pair(base, self._target, on)
@@ -118,6 +100,46 @@ class PriceLookup:
             if best is None or base_leg[1] > best[0]:
                 best = (base_leg[1], base_leg[0] * target_leg[0])
         return None if best is None else best[1]
+
+
+class ValuePriceLookup:
+    """Latest *direct* price for specific (base, quote) pairs, as of a date —
+    a single non-chained hop, unlike PriceLookup's multi-hop FX resolution
+    (both agree on everything else: no inversion, a stored 0 used literally
+    — see PriceLookup's docstring and _latest).
+
+    Mirrors beancount's get_value(): a position revalues only against a
+    price quoted in its own value_currency (cost, else price currency) —
+    a price recorded in some other currency is not a valid substitute, even
+    if one exists. Used by the reporting query executor's value().
+    """
+
+    def __init__(self, session: Session, symbols: set[str], latest: date) -> None:
+        self._series: dict[tuple[str, str], tuple[list[date], list[Decimal]]] = {}
+        if not symbols:
+            return
+        rows = session.execute(
+            select(
+                Price.base_symbol,
+                Price.quote_symbol,
+                Price.price_date,
+                Price.price_per_unit,
+            )
+            .where(Price.base_symbol.in_(symbols))
+            .where(Price.price_date <= latest)
+            .order_by(Price.price_date)
+        ).all()
+        for base, quote, price_date, rate in rows:
+            dates, rates = self._series.setdefault((base, quote), ([], []))
+            dates.append(price_date)
+            rates.append(_to_decimal(rate))
+
+    def price(self, base: str, quote: str, on: date) -> Decimal | None:
+        entry = self._series.get((base, quote))
+        if entry is None:
+            return None
+        found = _latest(*entry, on)
+        return found[0] if found is not None else None
 
 
 def serialize_price(price: Price) -> PriceResource:

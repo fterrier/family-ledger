@@ -186,6 +186,7 @@ def normalize_transaction_payload(
         transaction_date=payload.transaction_date,
         payee=payload.payee,
         narration=payload.narration,
+        tags=payload.tags,
         entity_metadata=payload.entity_metadata,
         import_metadata=payload.import_metadata,
         postings=[_with_weight(p) for p in normalized_postings],

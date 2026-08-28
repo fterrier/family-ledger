@@ -36,6 +36,26 @@ def test_normalize_transaction_uses_price_when_cost_absent() -> None:
     assert normalized.postings[1].units.symbol == "CHF"
 
 
+def test_normalize_transaction_preserves_tags_when_interpolating_missing_units() -> None:
+    # Every inline sheet edit (Google Sheets client) omits the source posting's
+    # units, always taking this interpolation path — tags must survive it.
+    payload = TransactionNormalizeData(
+        transaction_date=date(2026, 4, 19),
+        tags=["vacation", "2026"],
+        postings=[
+            PostingNormalizePayload(account="accounts/acc_one"),
+            PostingNormalizePayload(
+                account="accounts/acc_two",
+                units=MoneyValue(amount=Decimal("84.25"), symbol="CHF"),
+            ),
+        ],
+    )
+
+    normalized = normalization.normalize_transaction_payload(payload)
+
+    assert normalized.tags == ["vacation", "2026"]
+
+
 def test_normalize_transaction_uses_cost_when_present() -> None:
     payload = TransactionNormalizeData(
         transaction_date=date(2026, 4, 19),

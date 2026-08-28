@@ -1071,6 +1071,58 @@ def test_create_transaction_with_tags() -> None:
     assert response.json()["tags"] == ["salary2023", "bonus"]
 
 
+def test_patch_transaction_tags_only_with_client_style_incomplete_postings() -> None:
+    # Mirrors exactly what the Google Sheets client sends for any inline
+    # sheet edit (clients/google-sheets/Transaction.js buildTransactionPatchPayload_):
+    # the source posting's units are omitted entirely, relying on server-side
+    # interpolation from the (unchanged) destination amount, and update_mask
+    # is scoped to just the edited field.
+    client = make_client()
+
+    checking = create_account(client, "Assets:Bank:Checking:Family")
+    food = create_account(client, "Expenses:Food")
+    create_commodity(client, "CHF")
+
+    created = client.post(
+        "/transactions",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "payee": "Migros",
+                "narration": "Groceries",
+                "postings": [
+                    {"account": checking["name"], "units": {"amount": "-84.25", "symbol": "CHF"}},
+                    {"account": food["name"], "units": {"amount": "84.25", "symbol": "CHF"}},
+                ],
+            }
+        },
+    )
+    created_body = created.json()
+
+    patched = client.patch(
+        f"/{created_body['name']}",
+        json={
+            "transaction": {
+                "transaction_date": "2026-04-19",
+                "payee": "Migros",
+                "narration": "Groceries",
+                "postings": [
+                    {"account": checking["name"]},
+                    {"account": food["name"], "units": {"amount": "84.25", "symbol": "CHF"}},
+                ],
+                "tags": ["vacation", "2026"],
+            },
+            "update_mask": "tags",
+        },
+    )
+
+    assert patched.status_code == 200, patched.json()
+    body = patched.json()
+    assert body["tags"] == ["vacation", "2026"]
+    assert Decimal(body["postings"][0]["units"]["amount"]) == Decimal("-84.25")
+    assert Decimal(body["postings"][1]["units"]["amount"]) == Decimal("84.25")
+
+
 def test_create_transaction_rejects_tag_with_whitespace() -> None:
     client = make_client()
 

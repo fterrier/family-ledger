@@ -1910,6 +1910,76 @@ test('handleEntitySheetEdit_ sets posting narration for first row of split trans
   assert.equal(rowStore.get(3).narration, 'Groceries');
 });
 
+test('handleEntitySheetEdit_ saves a tags edit and writes it back to the sheet', () => {
+  const toasts = [];
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() {
+        return { toast(msg, title, sec) { toasts.push({ msg, title, sec }); }, getSpreadsheetTimeZone() { return 'UTC'; } };
+      },
+    },
+  });
+
+  const rowStore = new Map([
+    [2, {
+      resource_name: 'transactions/txn_1',
+      transaction_date: '2026-04-19',
+      payee: 'Migros',
+      narration: 'Groceries',
+      narration_source: 'txn',
+      source_account_name: '[A] Checking',
+      destination_account_name: '[X] Food',
+      amount: 84.25,
+      split_off_amount: '',
+      symbol: 'CHF',
+      tags: '',
+      issues: '', edit: '',
+    }],
+  ]);
+
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.loadAccountOptions_ = function() {
+    return [
+      { resource_name: 'accounts/checking', display_name: '[A] Checking' },
+      { resource_name: 'accounts/food', display_name: '[X] Food' },
+    ];
+  };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
+  let patchPayload = null;
+  sandbox.apiFetchJson_ = function(method, path, payload) {
+    if (method === 'patch') {
+      patchPayload = payload;
+      const posted = payload.transaction;
+      // Real server response: update_mask is 'tags', so postings aren't
+      // touched — this reflects a DB reload with the original (unchanged,
+      // fully-specified) postings, not an echo of the client's request
+      // (which omits the source posting's units — see
+      // buildTransactionPatchPayload_'s comment on that).
+      return {
+        name: 'transactions/txn_1',
+        transaction_date: posted.transaction_date,
+        payee: posted.payee,
+        narration: posted.narration || null,
+        postings: [
+          { account: 'accounts/checking', units: { amount: '-84.25', symbol: 'CHF' } },
+          { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' }, narration: null },
+        ],
+        tags: posted.tags || [],
+      };
+    }
+    return {};
+  };
+
+  sandbox.handleEntitySheetEdit_(makeEditEvent(sandbox, fakeSheet, 2, 'tags', 'vacation, 2026', ''));
+
+  assert.ok(!toasts.some(t => /error/i.test(t.msg)), 'no error toast: ' + JSON.stringify(toasts));
+  assert.ok(patchPayload, 'expected a PATCH call');
+  assert.equal(patchPayload.update_mask, 'tags');
+  assert.deepEqual(JSON.parse(JSON.stringify(patchPayload.transaction.tags)), ['vacation', '2026']);
+  assert.equal(rowStore.get(2).tags, 'vacation, 2026');
+});
+
 test('handleEntitySheetEdit_ editing payee on one row of a split transaction does not throw', () => {
   // GAS already writes the new value into the edited cell before onEdit fires — row 2
   // (the anchor) shows the NEW payee "Coop", but row 3 hasn't been touched and still

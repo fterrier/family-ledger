@@ -64,6 +64,18 @@ List<Object?> _dailyRow(DateTime d, String value) => [
   _amt(value),
 ];
 
+// value() shows up in both the series query and (when Market is selected)
+// the always-yearly opening-balance query — 'FROM CLOSE ON' is unique to
+// the latter, so it's the discriminator between the two.
+final Matcher _seriesValueQuery = allOf(
+  contains('value('),
+  isNot(contains('FROM CLOSE ON')),
+);
+final Matcher _seriesCostQuery = allOf(
+  isNot(contains('value(')),
+  isNot(contains('FROM CLOSE ON')),
+);
+
 void main() {
   late MockQueryRepository repo;
 
@@ -265,7 +277,8 @@ void main() {
   });
 
   testWidgets(
-    'assertion-issue pill is right-aligned on the granularity-chip row',
+    'assertion-issue pill is right-justified on the headline row, not the '
+    'granularity-chip row',
     (tester) async {
       when(() => repo.run(any())).thenAnswer(
         (_) async => (
@@ -285,14 +298,16 @@ void main() {
       await tester.pumpWidget(build(_checking, assertionIssues: [issue]));
       await tester.pumpAndSettle();
 
-      // Below the headline, and on the same row as the granularity chips —
-      // to the chips' right.
+      // Same row as the balance amount, pushed to its right — not sharing
+      // the chip row below the chart, so the granularity chips stay
+      // pinned to that row's right edge regardless of whether there's
+      // anything to show here.
       final pillCenter = tester.getCenter(find.text('1'));
-      final balanceDy = tester.getTopLeft(find.text('4,000.00 CHF')).dy;
+      final amountCenter = tester.getCenter(find.text('4,000.00 CHF'));
       final dayChipCenter = tester.getCenter(find.text('Day'));
-      expect(pillCenter.dy, greaterThan(balanceDy));
-      expect(pillCenter.dy, closeTo(dayChipCenter.dy, 1));
-      expect(pillCenter.dx, greaterThan(dayChipCenter.dx));
+      expect(pillCenter.dy, closeTo(amountCenter.dy, 2));
+      expect(pillCenter.dx, greaterThan(amountCenter.dx));
+      expect(pillCenter.dy, lessThan(dayChipCenter.dy));
     },
   );
 
@@ -389,6 +404,28 @@ void main() {
     expect(find.byType(BarChart), findsOneWidget);
     expect(find.text('500.00 CHF'), findsOneWidget);
   });
+
+  testWidgets(
+    'granularity chips are flush right for a flow spec too, matching the '
+    'balance chart',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('200')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_groceries));
+      await tester.pumpAndSettle();
+
+      final yearChipRight = tester.getTopRight(find.text('Year')).dx + 10;
+      final cardRight = tester.getTopRight(find.byType(AccountChartCard)).dx;
+      expect(yearChipRight, closeTo(cardRight - 12 - 16, 1));
+    },
+  );
 
   testWidgets('balance-sheet home view nets Assets and Liabilities into a '
       'net-worth line via one multi-root query', (tester) async {
@@ -1215,6 +1252,186 @@ void main() {
 
     verify(() => repo.run(any(that: contains('day(date)')))).called(1);
   });
+
+  testWidgets('valuation chip row offers Cost and Market for a balance spec', (
+    tester,
+  ) async {
+    when(() => repo.run(any())).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('100')],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cost'), findsOneWidget);
+    expect(find.text('Market'), findsOneWidget);
+  });
+
+  testWidgets(
+    'valuation chips stay left and granularity chips stay flush right on '
+    'the same row',
+    (tester) async {
+      when(() => repo.run(any())).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+
+      final costCenter = tester.getCenter(find.text('Cost'));
+      final yearCenter = tester.getCenter(find.text('Year'));
+      expect(costCenter.dy, closeTo(yearCenter.dy, 1));
+      expect(costCenter.dx, lessThan(yearCenter.dx));
+
+      // The chip's own tap-target edge, not the label text's — see
+      // _chip's 10px horizontal padding.
+      final yearChipRight = tester.getTopRight(find.text('Year')).dx + 10;
+      final cardRight = tester.getTopRight(find.byType(AccountChartCard)).dx;
+      // Card margin (12) + padding (16) separate the card's outer bound
+      // from its content area.
+      expect(yearChipRight, closeTo(cardRight - 12 - 16, 1));
+    },
+  );
+
+  testWidgets('valuation chip row is absent for a flow spec', (tester) async {
+    when(() => repo.run(any())).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('100')],
+        ]),
+        error: null,
+      ),
+    );
+
+    await tester.pumpWidget(build(_groceries));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cost'), findsNothing);
+    expect(find.text('Market'), findsNothing);
+  });
+
+  testWidgets('tapping Market re-queries with convert(value(...))', (
+    tester,
+  ) async {
+    when(() => repo.run(any(that: _seriesValueQuery))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('150')],
+        ]),
+        error: null,
+      ),
+    );
+    when(() => repo.run(any(that: _seriesCostQuery))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('100')],
+        ]),
+        error: null,
+      ),
+    );
+    when(
+      () => repo.run(any(that: contains('FROM CLOSE ON'))),
+    ).thenAnswer((_) async => (data: _amountResult([]), error: null));
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+    verifyNever(() => repo.run(any(that: _seriesValueQuery)));
+
+    await tester.tap(find.text('Market'));
+    await tester.pumpAndSettle();
+
+    verify(() => repo.run(any(that: _seriesValueQuery))).called(1);
+    expect(find.text('150.00 CHF'), findsOneWidget);
+  });
+
+  testWidgets('valuation choice resets to Cost when the date range changes', (
+    tester,
+  ) async {
+    when(() => repo.run(any(that: _seriesValueQuery))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('150')],
+        ]),
+        error: null,
+      ),
+    );
+    when(() => repo.run(any(that: _seriesCostQuery))).thenAnswer(
+      (_) async => (
+        data: _amountResult([
+          [2025, 7, _amt('100')],
+        ]),
+        error: null,
+      ),
+    );
+    when(
+      () => repo.run(any(that: contains('FROM CLOSE ON'))),
+    ).thenAnswer((_) async => (data: _amountResult([]), error: null));
+
+    await tester.pumpWidget(build(_checking));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Market'));
+    await tester.pumpAndSettle();
+    verify(() => repo.run(any(that: _seriesValueQuery))).called(1);
+
+    // A new date range is a new view: the Market override doesn't
+    // survive it — back to Cost, and the new view's fetches must not
+    // include another value() query.
+    await tester.pumpWidget(
+      build(_checking, from: DateTime(2024), to: DateTime(2024, 12, 31)),
+    );
+    await tester.pumpAndSettle();
+
+    verifyNever(() => repo.run(any(that: _seriesValueQuery)));
+  });
+
+  testWidgets(
+    'valuation choice survives a refreshTick-only change (e.g. editing an '
+    'unrelated transaction)',
+    (tester) async {
+      when(() => repo.run(any(that: _seriesValueQuery))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('150')],
+          ]),
+          error: null,
+        ),
+      );
+      when(() => repo.run(any(that: _seriesCostQuery))).thenAnswer(
+        (_) async => (
+          data: _amountResult([
+            [2025, 7, _amt('100')],
+          ]),
+          error: null,
+        ),
+      );
+      when(
+        () => repo.run(any(that: contains('FROM CLOSE ON'))),
+      ).thenAnswer((_) async => (data: _amountResult([]), error: null));
+
+      await tester.pumpWidget(build(_checking));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Market'));
+      await tester.pumpAndSettle();
+      verify(() => repo.run(any(that: _seriesValueQuery))).called(1);
+
+      await tester.pumpWidget(build(_checking, refreshTick: 1));
+      await tester.pumpAndSettle();
+
+      verify(() => repo.run(any(that: _seriesValueQuery))).called(1);
+    },
+  );
 
   testWidgets('wide card renders every month label when they all fit', (
     tester,

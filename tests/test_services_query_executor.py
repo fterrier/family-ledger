@@ -561,6 +561,75 @@ def test_convert_of_value_warns_when_the_fx_leg_is_missing() -> None:
     assert [w.details["base"] for w in result.warnings] == ["USD"]
 
 
+def test_convert_of_value_reports_a_devalued_holding_as_an_explicit_zero() -> None:
+    # Standalone value() drops a devalued-to-zero entry (see
+    # test_value_uses_a_stored_zero_price_literally) — that's an
+    # inventory-typed cell, where "no currencies left" and "no data at all"
+    # look the same. convert(value(...)) is different: it's amount-typed,
+    # and _convert_balances sums an empty currency dict to a real total of
+    # 0 rather than treating it as a missing price, so the row stays
+    # present with an explicit 0 — the mobile chart (which always sends
+    # convert(value(...), 'CUR'), never bare value()) can tell "revalued to
+    # true zero" apart from "no data this bucket" without extra plumbing.
+    session = build_session(
+        [
+            (
+                "2022-11-02",
+                [
+                    (
+                        "Assets:Broker:FARMY",
+                        "200",
+                        "FARMY",
+                        {"cost_amount": "12", "cost_symbol": "CHF"},
+                    ),
+                    ("Equity:Opening", "-2400", "CHF"),
+                ],
+            ),
+        ],
+        prices=(("2025-01-31", "FARMY", "CHF", "0"),),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(last(balance)), 'CHF') AS v"
+        " FROM OPEN ON 2025-02-01 CLOSE ON 2025-02-02"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    assert result.rows == [[2025, 2, amount("0", "CHF")]]
+    assert result.warnings == []
+
+
+def test_convert_of_value_uses_the_explicit_date_for_both_legs() -> None:
+    # Two VSS prices straddle the explicit date: value() must pick the one
+    # on or before it (45), not the later one bucket-end pricing would pick
+    # (50, from 7-25, on or before this July bucket's own end 7-31).
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "USD", "45"),
+            ("2025-07-25", "VSS", "USD", "50"),
+            ("2025-07-10", "USD", "CHF", "0.80"),
+        ),
+    )
+    result = execute_query(
+        session,
+        f"{SELECT_YM} convert(value(sum(position)), 'CHF', 2025-07-15) AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)'"
+        f"{GROUP_YM}",
+    )
+    # 10 VSS x 45 USD (value() at 7-15, not the 7-25 price) = 450 USD,
+    # x 0.80 (convert() at 7-15) = 360 CHF.
+    assert result.rows == [[2025, 7, amount("360", "CHF")]]
+
+
 def test_convert_of_value_passthrough_still_reaches_the_fx_leg() -> None:
     # No price at all for VSS: value() passes it through under its own
     # symbol, and convert() then needs a VSS -> CHF price directly.

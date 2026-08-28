@@ -171,6 +171,13 @@ class _AccountChartCardState extends State<AccountChartCard> {
   /// still reload the chart's data but aren't a new view.
   late Granularity _granularity;
 
+  /// Cost vs. market valuation, for stock/balance specs only ([_isFlow]
+  /// charts always show cost — see [_buildValuationChips]). Same
+  /// reset-per-view behavior as [_granularity], deliberately: two chip rows
+  /// with the same look must also behave the same, or the one that resets
+  /// silently while the other doesn't reads as a bug.
+  Valuation _valuation = Valuation.cost;
+
   // Memoized against the exact bucket list currently on screen so a resize
   // (which re-invokes the LayoutBuilder below) doesn't re-measure text on
   // every frame.
@@ -241,6 +248,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
             to: widget.toDate,
             currency: widget.currencyFilter,
             convertTo: convertTo,
+            valuation: _valuation,
           );
   }
 
@@ -273,6 +281,7 @@ class _AccountChartCardState extends State<AccountChartCard> {
               from: fromDate,
               currency: widget.currencyFilter,
               convertTo: widget.defaultCurrency,
+              valuation: _valuation,
             ),
           );
     final result = await seriesFuture;
@@ -479,7 +488,12 @@ class _AccountChartCardState extends State<AccountChartCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        _buildHeadline(),
+        Row(
+          children: [
+            Expanded(child: _buildHeadline()),
+            if (_hasIssuePills) _buildIssuePills(),
+          ],
+        ),
         const SizedBox(height: 12),
         SizedBox(
           height: 180,
@@ -495,12 +509,19 @@ class _AccountChartCardState extends State<AccountChartCard> {
                 ),
         ),
         const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(child: _buildGranularityChips()),
-            if (_hasIssuePills) _buildIssuePills(),
-          ],
-        ),
+        if (!_isFlow)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Flexible(child: _buildValuationChips()),
+              Flexible(child: _buildGranularityChips()),
+            ],
+          )
+        else
+          Align(
+            alignment: Alignment.centerRight,
+            child: _buildGranularityChips(),
+          ),
         if (widget.showsLastImportHint)
           const Padding(
             padding: EdgeInsets.only(top: 8),
@@ -531,8 +552,11 @@ class _AccountChartCardState extends State<AccountChartCard> {
   bool get _hasIssuePills =>
       widget.assertionIssues.isNotEmpty || _warnings.isNotEmpty;
 
-  /// Assertion/warning pills, right-aligned in the granularity-chip row
-  /// below the chart rather than competing for space in the header row.
+  /// Assertion/warning pills, right-justified on the headline row —
+  /// vertically aligned with the balance amount and delta chip, pushed to
+  /// the card's top-right corner rather than sharing the chip row below
+  /// the chart (which stays pinned to that row's right edge regardless of
+  /// whether there's anything to show here).
   Widget _buildIssuePills() {
     return Wrap(
       spacing: 6,
@@ -649,6 +673,26 @@ class _AccountChartCardState extends State<AccountChartCard> {
         : GestureDetector(onTap: onTap, child: content);
   }
 
+  static const _valuationLabels = {
+    Valuation.cost: 'Cost',
+    Valuation.market: 'Market',
+  };
+
+  /// Cost/Market chip row — only meaningful for a running balance
+  /// ([_isFlow] callers never render this: cost vs. market value is a
+  /// no-op most of the time for a period's flow total).
+  Widget _buildValuationChips() {
+    return _buildChipRow<Valuation>(
+      values: Valuation.values,
+      labels: _valuationLabels,
+      selected: _valuation,
+      onSelect: (valuation) {
+        setState(() => _valuation = valuation);
+        _load();
+      },
+    );
+  }
+
   static const _granularityLabels = {
     Granularity.daily: 'Day',
     Granularity.monthly: 'Month',
@@ -656,17 +700,37 @@ class _AccountChartCardState extends State<AccountChartCard> {
   };
 
   Widget _buildGranularityChips() {
+    return _buildChipRow<Granularity>(
+      values: Granularity.values,
+      labels: _granularityLabels,
+      selected: _granularity,
+      onSelect: (granularity) {
+        setState(() => _granularity = granularity);
+        _load();
+      },
+    );
+  }
+
+  /// Shared by [_buildValuationChips] and [_buildGranularityChips]: a
+  /// [Wrap] of [_chip]s, one per enum value, selection driven by
+  /// [selected]/[onSelect] — the tap-guard (no-op re-selecting the current
+  /// value) lives here once instead of in each caller.
+  Widget _buildChipRow<T>({
+    required List<T> values,
+    required Map<T, String> labels,
+    required T selected,
+    required void Function(T value) onSelect,
+  }) {
     return Wrap(
       spacing: 6,
       children: [
-        for (final granularity in Granularity.values)
+        for (final value in values)
           _chip(
-            _granularityLabels[granularity]!,
-            selected: _granularity == granularity,
+            labels[value]!,
+            selected: selected == value,
             onTap: () {
-              if (_granularity == granularity) return;
-              setState(() => _granularity = granularity);
-              _load();
+              if (selected == value) return;
+              onSelect(value);
             },
           ),
       ],

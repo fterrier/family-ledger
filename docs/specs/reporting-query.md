@@ -391,8 +391,10 @@ price on file for that symbol. See
 then FX-convert the result to a single target currency — implemented (see
 `_analyze_convert`'s `value(...)`-wrapped-aggregate case and the executor's
 `_apply_conversion`). This is the query shape the mobile chart's Market
-mode will use once Phase 3 wires it up (not yet — the backend supports it,
-nothing calls it yet).
+mode uses (see "Mobile App" below). An explicit date on the outer
+`convert()` prices *both* legs alike (`convert(value(x), 'CUR', date)`
+revalues and FX-converts at the same `date`, not each bucket's own end
+date) — see `_assemble_aggregate`'s `explicit_at`.
 
 **Stored zero prices**: a stored `0` price is used literally, everywhere —
 `value()`'s `ValuePriceLookup` and `convert()`'s `PriceLookup` agree. A
@@ -407,12 +409,33 @@ unsafe (`1/0`) in the first place. Confirmed against a real ledger — see
 Having used the `0` literally, the resulting zero-valued entry is then
 dropped, same as any other zero balance in an inventory cell (see
 `_serialize_inventory`) — a devalued-to-zero holding disappears from a
-`value()` result rather than showing an explicit `0`, matching bean-query.
-A client that carries the last bucket's value forward across a gap (as the
-mobile chart does — see "The Queries The Mobile App Sends" below) would
-therefore show a devalued holding's last known nonzero value rather than
-its current 0 until the chart is updated to distinguish the two; tracked
-as a follow-up, not solved by the query layer itself.
+*standalone* `value()` result rather than showing an explicit `0`,
+matching bean-query. `convert(value(x), 'CUR')` doesn't inherit this: its
+outer `convert()` step (`_convert_balances`) sums whatever currencies
+`_apply_value` left it — an empty dict sums to a real total of `0`, not a
+missing price — so the row stays present with an explicit `0` amount, not
+a dropped/missing cell. The mobile chart always sends the composed form,
+never bare `value()`, so a devalued holding renders as a true `0` rather
+than a stale carried-forward value; see
+`test_convert_of_value_reports_a_devalued_holding_as_an_explicit_zero`.
+
+A related but distinct gap, assessed and accepted rather than fixed: a
+bucket with *no postings at all* still produces no row regardless of
+valuation (see the algorithm above), so the mobile chart's
+carry-forward-across-gaps shows a stale market price for a *dormant*
+holding (position unchanged, price moved) — carry-forward is a cost-basis
+assumption (position unchanged ⟹ value unchanged) that doesn't hold under
+Market valuation. It only bites when *every* security in the queried
+subtree is simultaneously untouched for a whole bucket — confirmed
+directly against a real multi-security portfolio: a bucket triggered by
+any one security's posting correctly reprices every other position held
+in the same running balance too (`_apply_value` uses one date for the
+whole accumulated inventory, not per-symbol), so a quiet security sitting
+alongside actively-traded ones in the same query is *not* stale. Given a
+trading cadence of daily/weekly across the account, accepted as
+low-probability rather than worth the redesign (fetching a fresh price
+per bucket regardless of postings, not just on activity) it would take to
+close.
 
 ### Deviations From bean-query (v1)
 

@@ -15,7 +15,9 @@ docs/specs/reporting-query.md:
   (base -> X -> target) as a fallback; missing prices produce ``null``
   cells plus warnings
 - ``value()`` resolves a *direct*, non-chained price per (symbol,
-  value_currency) pair at the same bucket-end-or-today date — see
+  value_currency) pair, at the same date as an enclosing ``convert()``'s
+  explicit date when composed (``convert(value(x), 'CUR', date)`` prices
+  both legs alike), else each bucket's own end-or-today date — see
   ``_apply_value`` and ``services.prices.ValuePriceLookup``. Unlike
   ``convert()``, a missing price here isn't a warning: the position just
   passes through under its own symbol, same as beancount's ``get_value()``
@@ -220,7 +222,14 @@ def _assemble_aggregate(
         for key in order:
             cells[key] = _serialize_scalar(per_key[key], aggregate_column.type)
     elif post.valuation:
-        on_dates = {key: _bucket_end(key, post.group_key_buckets) or date.today() for key in order}
+        # An explicit convert(value(x), 'CUR', date) date prices *both*
+        # legs at that date — value()'s revaluation must agree with the
+        # FX leg it feeds, not fall back to each bucket's own end date.
+        explicit_at = post.conversion.at if post.conversion is not None else None
+        on_dates = {
+            key: explicit_at or _bucket_end(key, post.group_key_buckets) or date.today()
+            for key in order
+        }
         symbols = {symbol for balances in per_key.values() for symbol, _ in balances}
         value_lookup = ValuePriceLookup(
             session, symbols, latest=max(on_dates.values(), default=date.today())

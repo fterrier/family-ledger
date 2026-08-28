@@ -8,6 +8,12 @@ import 'package:intl/intl.dart';
 
 enum Granularity { daily, monthly, yearly }
 
+/// How a series' amounts are basis-valued when [convertTo] is set: at
+/// booking-time cost (`convert(x, currency)`, today's behavior) or at
+/// current market price (`convert(value(x), currency)`). No effect when
+/// [convertTo] is null — there's nothing to convert.
+enum Valuation { cost, market }
+
 /// Bucket granularity derived from the filter span: <= ~4 months daily,
 /// <= ~4 years monthly, longer (or unbounded start) yearly.
 Granularity granularityForSpan(DateTime? from, DateTime? to, {DateTime? now}) {
@@ -53,14 +59,34 @@ String _bucketKeys(Granularity granularity) => switch (granularity) {
 
 DateTime _dayAfter(DateTime d) => DateTime(d.year, d.month, d.day + 1);
 
+/// `aggregate AS alias`, optionally converted to [convertTo] — at cost
+/// (today's `convert(x, currency)`) or, for [Valuation.market], first
+/// revalued at market price (`convert(value(x), currency)`). [at], when
+/// given, prices both the revaluation and the FX leg as of that date
+/// instead of each bucket's own end date — see openingBalanceQuery, the
+/// only caller that needs this (its year-only grouping makes the bucket
+/// end date the wrong price date for a point-in-time balance).
+String _valuedAggregate(
+  String aggregate,
+  String alias, {
+  required String? convertTo,
+  required Valuation valuation,
+  DateTime? at,
+}) {
+  if (convertTo == null) return '$aggregate AS $alias';
+  final inner = valuation == Valuation.market ? 'value($aggregate)' : aggregate;
+  final dateArg = at == null ? '' : ', ${_date(at)}';
+  return 'convert($inner, ${_quote(convertTo)}$dateArg) AS $alias';
+}
+
 /// Running-balance series over one or more account subtrees (line chart).
 ///
 /// Multiple [accountNames] net into a single series with raw ledger signs
 /// (e.g. Assets + Liabilities = net worth). [from]/[to] are the shared
 /// filter bounds (inclusive); OPEN ON seeds the series with the true
 /// balance at [from]. Pass [currency] to keep a single currency
-/// unconverted, or [convertTo] for the market-value view (mutually
-/// exclusive).
+/// unconverted, or [convertTo] to convert it — at cost or at market price
+/// per [valuation] (mutually exclusive with [currency]).
 String balanceSeriesQuery({
   required List<String> accountNames,
   required Granularity granularity,
@@ -68,10 +94,14 @@ String balanceSeriesQuery({
   DateTime? to,
   String? currency,
   String? convertTo,
+  Valuation valuation = Valuation.cost,
 }) {
-  final value = convertTo != null
-      ? 'convert(last(balance), ${_quote(convertTo)}) AS bal'
-      : 'last(balance) AS bal';
+  final value = _valuedAggregate(
+    'last(balance)',
+    'bal',
+    convertTo: convertTo,
+    valuation: valuation,
+  );
   final fromOptions = [
     if (from != null) 'OPEN ON ${_date(from)}',
     if (to != null) 'CLOSE ON ${_date(_dayAfter(to))}',
@@ -103,15 +133,25 @@ String balanceSeriesQuery({
 /// bounded for any real ledger — and the caller (decodeLatestYearlyBalance
 /// in chart_series.dart) takes the chronologically latest one, which is
 /// exactly the running balance carried forward to [from].
+///
+/// [convertTo] passes [from] as an explicit conversion date rather than
+/// letting it default to each row's own (yearly) bucket end: a "balance as
+/// of [from]" reading has to be priced as of [from], not as of Dec 31 of
+/// whichever year the latest activity happened to fall in.
 String openingBalanceQuery({
   required List<String> accountNames,
   required DateTime from,
   String? currency,
   String? convertTo,
+  Valuation valuation = Valuation.cost,
 }) {
-  final value = convertTo != null
-      ? 'convert(last(balance), ${_quote(convertTo)}) AS bal'
-      : 'last(balance) AS bal';
+  final value = _valuedAggregate(
+    'last(balance)',
+    'bal',
+    convertTo: convertTo,
+    valuation: valuation,
+    at: from,
+  );
   final conditions = [
     'account ~ ${_quote(subtreePattern(accountNames))}',
     if (currency != null) 'currency = ${_quote(currency)}',
@@ -123,7 +163,11 @@ String openingBalanceQuery({
 }
 
 /// Per-bucket flow totals over one or more account subtrees (bar chart).
-/// Multiple [accountNames] net per bucket with raw ledger signs.
+/// Multiple [accountNames] net per bucket with raw ledger signs. Always at
+/// cost — a period's flow total has no meaningful "market value" reading,
+/// so unlike [balanceSeriesQuery]/[openingBalanceQuery] there's no
+/// [Valuation] to choose (the chart hides the Cost/Market chips for flow
+/// specs; see AccountChartCard._buildValuationChips).
 String periodTotalsQuery({
   required List<String> accountNames,
   required Granularity granularity,
@@ -132,9 +176,12 @@ String periodTotalsQuery({
   String? currency,
   String? convertTo,
 }) {
-  final value = convertTo != null
-      ? 'convert(sum(position), ${_quote(convertTo)}) AS total'
-      : 'sum(position) AS total';
+  final value = _valuedAggregate(
+    'sum(position)',
+    'total',
+    convertTo: convertTo,
+    valuation: Valuation.cost,
+  );
   final conditions = [
     'account ~ ${_quote(subtreePattern(accountNames))}',
     if (currency != null) 'currency = ${_quote(currency)}',

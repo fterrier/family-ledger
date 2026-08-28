@@ -135,6 +135,21 @@ void main() {
       );
     });
 
+    test('market valuation wraps last(balance) in convert(value(...))', () {
+      expect(
+        balanceSeriesQuery(
+          accountNames: ['Assets:Liquid:IBKR'],
+          granularity: Granularity.monthly,
+          convertTo: 'CHF',
+          valuation: Valuation.market,
+        ),
+        'SELECT year(date) AS y, month(date) AS m,'
+        " convert(value(last(balance)), 'CHF') AS bal"
+        " WHERE account ~ '^Assets:Liquid:IBKR(:|\$)'"
+        ' GROUP BY y, m',
+      );
+    });
+
     test('daily granularity selects day buckets', () {
       expect(
         balanceSeriesQuery(
@@ -223,14 +238,33 @@ void main() {
       );
     });
 
-    test('converted view wraps last(balance) in convert()', () {
+    test('converted view wraps last(balance) in convert() at the explicit '
+        'from date, not the year-end bucket date', () {
       expect(
         openingBalanceQuery(
           accountNames: ['Assets:Liquid:IBKR'],
           from: DateTime(2026, 3),
           convertTo: 'CHF',
         ),
-        "SELECT year(date) AS y, convert(last(balance), 'CHF') AS bal"
+        "SELECT year(date) AS y, convert(last(balance), 'CHF', 2026-03-01)"
+        ' AS bal'
+        ' FROM CLOSE ON 2026-03-01'
+        " WHERE account ~ '^Assets:Liquid:IBKR(:|\$)'"
+        ' GROUP BY y',
+      );
+    });
+
+    test('market valuation wraps last(balance) in convert(value(...)) at the '
+        'explicit from date', () {
+      expect(
+        openingBalanceQuery(
+          accountNames: ['Assets:Liquid:IBKR'],
+          from: DateTime(2026, 3),
+          convertTo: 'CHF',
+          valuation: Valuation.market,
+        ),
+        'SELECT year(date) AS y,'
+        " convert(value(last(balance)), 'CHF', 2026-03-01) AS bal"
         ' FROM CLOSE ON 2026-03-01'
         " WHERE account ~ '^Assets:Liquid:IBKR(:|\$)'"
         ' GROUP BY y',

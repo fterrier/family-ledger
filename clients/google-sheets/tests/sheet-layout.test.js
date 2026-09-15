@@ -392,8 +392,12 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
   sandbox.applyActionColumnCheckboxes_ = function(sheet) {
     calls.push({ type: 'editCheckbox', sheet: sheet.getName() });
   };
-  sandbox.ensureSheetFilter_ = function(sheet) {
-    calls.push({ type: 'filter', sheet: sheet.getName() });
+  sandbox.captureAndRemoveSheetFilter_ = function(sheet) {
+    calls.push({ type: 'captureFilter', sheet: sheet.getName() });
+    return { snapshotFor: sheet.getName() };
+  };
+  sandbox.restoreSheetFilter_ = function(sheet, _sheetConfig, snapshot) {
+    calls.push({ type: 'restoreFilter', sheet: sheet.getName(), snapshot: snapshot });
   };
   sandbox.reapplyPersistedQuickFilters_ = function() {
     calls.push({ type: 'reapplyFilters' });
@@ -401,15 +405,22 @@ test('refreshManagedLedgerSheetLayouts_ applies shared transaction reset steps',
 
   sandbox.refreshManagedLedgerSheetLayouts_();
 
+  // GAS range writes (setValues/setFormulas/setDataValidation) silently skip
+  // rows hidden by an active filter, so every sheet's filter must be removed
+  // before ANY layout/validation/checkbox work touches it, and restored only
+  // once ALL sheets are done — not per-sheet, or later sheets in the loop
+  // would still be filtered while earlier ones are being reset.
   assert.deepEqual(calls, [
+    { type: 'captureFilter', sheet: 'Transactions' },
     { type: 'layout', sheet: 'Transactions' },
     { type: 'validation', sheet: 'Transactions' },
     { type: 'editCheckbox', sheet: 'Transactions' },
-    { type: 'filter', sheet: 'Transactions' },
+    { type: 'captureFilter', sheet: 'Accounts' },
     { type: 'layout', sheet: 'Accounts' },
     { type: 'validation', sheet: 'Accounts' },
     { type: 'editCheckbox', sheet: 'Accounts' },
-    { type: 'filter', sheet: 'Accounts' },
+    { type: 'restoreFilter', sheet: 'Transactions', snapshot: { snapshotFor: 'Transactions' } },
+    { type: 'restoreFilter', sheet: 'Accounts', snapshot: { snapshotFor: 'Accounts' } },
     { type: 'reapplyFilters' },
   ]);
 });

@@ -46,11 +46,28 @@ function getQuickFilterAccountNames() {
 
 function ensureSheetFilter_(sheet, sheetConfig) {
   if (sheet.getLastRow() <= 1) return;
-  const existing = sheet.getFilter();
+  restoreSheetFilter_(sheet, sheetConfig, captureAndRemoveSheetFilter_(sheet, sheetConfig));
+}
+
+// Snapshots the sheet's current filter criteria (if any) and removes the
+// filter, returning the snapshot so restoreSheetFilter_ can recreate it
+// later. Callers that need to run several range-writing operations (layout
+// reset, validation, checkboxes, ...) should capture+remove once up front
+// and restore once at the end — see refreshManagedLedgerSheetLayouts_ — since
+// GAS range writes (setValues, setFormulas, setDataValidation, ...) silently
+// skip rows hidden by an active filter.
+function captureAndRemoveSheetFilter_(sheet, sheetConfig) {
+  const existing = sheet.getFilter ? sheet.getFilter() : null;
   const savedCriteriaByHeader = snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, existing);
   if (existing) existing.remove();
+  return savedCriteriaByHeader;
+}
+
+// Recreates the sheet's filter (covering all managed columns) and reapplies
+// previously-captured column criteria. No-op if the sheet has no data rows.
+function restoreSheetFilter_(sheet, sheetConfig, savedCriteriaByHeader) {
   const filter = managedSheet_(sheet, sheetConfig).createFilter();
-  restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader);
+  if (filter) restoreSheetFilterCriteriaByHeader_(filter, sheetConfig, savedCriteriaByHeader || {});
 }
 
 function snapshotSheetFilterCriteriaByHeader_(sheet, sheetConfig, filter) {

@@ -45,13 +45,22 @@ function restoreAllAccountValidations_() {
 
 function refreshManagedLedgerSheetLayouts_() {
   const accountRule = buildAccountValidationRule_();
+  // GAS range writes (setValues, setFormulas, setDataValidation, ...) silently
+  // skip rows hidden by an active filter — see writeSheet_'s own note on this.
+  // Capture and remove each sheet's filter before touching it, then restore
+  // every filter (with its criteria) only after all sheets are done, so
+  // layout/validation/checkboxes apply to every row, not just the visible ones.
+  const filterSnapshots = {};
   forEachRegisteredSheet_(function(sheet, sheetConfig, key) {
+    filterSnapshots[key] = captureAndRemoveSheetFilter_(sheet, sheetConfig);
     perfWrap_('sheet.layout_' + key, function() {
       applyManagedSheetLayout_(sheet, sheetConfig);
       refreshAccountValidation_(sheet, sheetConfig, undefined, accountRule);
       applyActionColumnCheckboxes_(sheet, sheetConfig);
-      ensureSheetFilter_(sheet, sheetConfig);
     });
+  });
+  forEachRegisteredSheet_(function(sheet, sheetConfig, key) {
+    restoreSheetFilter_(sheet, sheetConfig, filterSnapshots[key]);
   });
   reapplyPersistedQuickFilters_();
 }

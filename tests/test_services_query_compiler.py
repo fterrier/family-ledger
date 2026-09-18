@@ -191,6 +191,182 @@ def test_group_by_account(session: Session) -> None:
     ]
 
 
+def test_account_root_groups_by_matched_where_root(session: Session) -> None:
+    # Assets:Checking:ZKB has a real child (Assets:Checking:ZKB:Sub, USD);
+    # Expenses:Groceries has none - a mixed leaf/parent scenario in one
+    # query, both attributed correctly to their own configured root.
+    compiled = compile_query(
+        q(
+            (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+            where=(
+                Condition(
+                    Column("account"),
+                    "~",
+                    StringLiteral("^(Assets:Checking:ZKB|Expenses:Groceries)(:|$)"),
+                ),
+            ),
+            group_by=("root",),
+        )
+    )
+    assert run_select(session, compiled.select) == [
+        ("Assets:Checking:ZKB", "CHF", Decimal("4000")),
+        ("Assets:Checking:ZKB", "USD", Decimal("50")),
+        ("Expenses:Groceries", "CHF", Decimal("500")),
+    ]
+
+
+def test_account_root_handles_mixed_leaf_root_and_nested_middle_accounts() -> None:
+    # Deliberately messy WHERE alternation covering every hierarchy shape at
+    # once: "Assets:Bank" is a root with two children (Savings, Other);
+    # "Assets:Bank:Savings" is itself both a middle node (child of Bank) AND
+    # its own configured root, declared *before* "Assets:Bank" in the
+    # alternation so its narrower WHEN clause is evaluated first (the
+    # documented overlap-resolution rule: SQL CASE takes the first matching
+    # WHEN in declaration order); "Expenses:Groceries" is a plain leaf;
+    # "Assets:BankX" is a boundary account matching neither root's LIKE
+    # clause and is excluded from the WHERE entirely.
+    session = build_session(
+        [
+            ("2025-01-01", [("Assets:Bank", "100", "CHF"), ("Equity:Opening", "-100", "CHF")]),
+            (
+                "2025-01-02",
+                [("Assets:Bank:Other", "50", "CHF"), ("Equity:Opening", "-50", "CHF")],
+            ),
+            (
+                "2025-01-03",
+                [("Assets:Bank:Savings", "10", "CHF"), ("Equity:Opening", "-10", "CHF")],
+            ),
+            (
+                "2025-01-04",
+                [("Assets:Bank:Savings:Sub", "5", "CHF"), ("Equity:Opening", "-5", "CHF")],
+            ),
+            (
+                "2025-01-05",
+                [("Expenses:Groceries", "7", "CHF"), ("Assets:Bank", "-7", "CHF")],
+            ),
+            (
+                "2025-01-06",
+                [("Assets:BankX", "999", "CHF"), ("Equity:Opening", "-999", "CHF")],
+            ),
+        ]
+    )
+    compiled = compile_query(
+        q(
+            (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+            where=(
+                Condition(
+                    Column("account"),
+                    "~",
+                    StringLiteral("^(Assets:Bank:Savings|Assets:Bank|Expenses:Groceries)(:|$)"),
+                ),
+            ),
+            group_by=("root",),
+        )
+    )
+    assert run_select(session, compiled.select) == [
+        # Bank direct (100) + Other (50) - Groceries's own Bank leg (-7):
+        # Bank:Savings's narrower WHEN clause is declared first and claims
+        # both the direct Savings posting (10) and its grandchild (5), so
+        # neither ever reaches Bank's own (broader) WHEN clause.
+        ("Assets:Bank", "CHF", Decimal("143")),
+        ("Assets:Bank:Savings", "CHF", Decimal("15")),
+        ("Expenses:Groceries", "CHF", Decimal("7")),
+    ]
+
+
+def test_account_root_declaration_order_lets_a_narrower_root_carve_out_its_parent() -> None:
+    # Same nested-root shape, but the parent is declared FIRST this time -
+    # proves the resolution rule is genuinely order-dependent (not somehow
+    # always "most specific wins"): with the parent's WHEN clause evaluated
+    # first, its broad LIKE clause swallows every descendant, including the
+    # ones under the narrower nested root, which becomes unreachable.
+    session = build_session(
+        [
+            ("2025-01-01", [("Assets:Bank", "100", "CHF"), ("Equity:Opening", "-100", "CHF")]),
+            (
+                "2025-01-03",
+                [("Assets:Bank:Savings", "10", "CHF"), ("Equity:Opening", "-10", "CHF")],
+            ),
+        ]
+    )
+    compiled = compile_query(
+        q(
+            (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+            where=(
+                Condition(
+                    Column("account"),
+                    "~",
+                    StringLiteral("^(Assets:Bank|Assets:Bank:Savings)(:|$)"),
+                ),
+            ),
+            group_by=("root",),
+        )
+    )
+    # Every posting - including Savings's own - is attributed to "Assets:Bank"
+    # since its WHEN clause is evaluated first; "Assets:Bank:Savings" never
+    # appears as its own row at all.
+    assert run_select(session, compiled.select) == [("Assets:Bank", "CHF", Decimal("110"))]
+
+
+def test_account_root_requires_an_account_condition() -> None:
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+                group_by=("root",),
+            )
+        )
+
+
+def test_account_root_requires_exactly_one_account_condition() -> None:
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+                where=(subtree("Assets:Checking:ZKB"), subtree("Expenses:Groceries")),
+                group_by=("root",),
+            )
+        )
+
+
+def test_account_root_rejects_exact_match_pattern() -> None:
+    # ^lit$ means "this account and no descendants" - a materially
+    # different WHERE semantic than the subtree alternation account_root()
+    # is built on; it must not be silently reinterpreted as a subtree.
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+                where=(Condition(Column("account"), "~", StringLiteral("^Assets:Checking:ZKB$")),),
+                group_by=("root",),
+            )
+        )
+
+
+def test_account_root_rejects_non_anchored_pattern() -> None:
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (Target(FunctionCall("account_root", (Column("account"),)), "root"), SUM_POSITION),
+                where=(Condition(Column("account"), "~", StringLiteral("Assets.*")),),
+                group_by=("root",),
+            )
+        )
+
+
+def test_running_balance_can_group_by_account_alongside_bucket() -> None:
+    # Previously rejected outright; now allowed - the executor accumulates
+    # each account as an independent partition (see A2/executor tests).
+    compiled = compile_query(
+        q(
+            (Y, Target(Column("account"), None), LAST_BALANCE),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("y", "account"),
+        )
+    )
+    assert compiled.post.running_balance is True
+
+
 def test_group_by_order_does_not_change_column_pairing(session: Session) -> None:
     # GROUP BY m, y must still emit columns (and post.group_keys) in the
     # select-list order y, m — otherwise the executor pairs values with the
@@ -793,14 +969,6 @@ def test_string_literals_are_bound_not_interpolated(session: Session) -> None:
             q((Target(FunctionCall("sum", (Column("account"),)), None),)),
             "sum requires a numeric argument",
             id="sum-of-non-numeric",
-        ),
-        pytest.param(
-            q(
-                (Y, Target(Column("account"), None), LAST_BALANCE),
-                group_by=("y", "account"),
-            ),
-            "last(balance) group keys must all be date buckets",
-            id="running-balance-with-scalar-group-key",
         ),
         pytest.param(
             q((SUM_POSITION, COUNT_STAR)),

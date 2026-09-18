@@ -82,7 +82,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Any
 
-from sqlalchemy import Integer, extract, func, or_, select
+from sqlalchemy import Integer, case, extract, func, or_, select
 from sqlalchemy import cast as sa_cast
 from sqlalchemy.sql import ColumnElement, Select
 
@@ -168,7 +168,14 @@ _AGGREGATE_ONLY_COLUMNS = {"position": "sum()", "balance": "last()"}
 
 _BUCKET_FUNCTIONS = frozenset({"year", "month", "day"})
 
-_KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {"sum", "count", "last", "convert", "value"}
+_KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {
+    "sum",
+    "count",
+    "last",
+    "convert",
+    "value",
+    "account_root",
+}
 
 # A literal with no regex metacharacters — the only content the optimized
 # pattern shapes accept.
@@ -199,8 +206,10 @@ def _validation_error(message: str) -> ValidationError:
 class _AnalyzedTarget:
     name: str
     out_type: str
-    kind: str  # 'scalar' | 'bucket' | 'aggregate'
-    sql: ColumnElement | None = None  # for scalar/bucket targets
+    kind: str  # 'scalar' | 'bucket' | 'aggregate' | 'account_root'
+    sql: ColumnElement | None = None  # for scalar/bucket/account_root targets;
+    # account_root's sql is resolved later in compile_query, once the
+    # WHERE clause's account condition (and its roots) is known.
     agg: str | None = None  # 'sum' | 'count' | 'last'
     bucket: str | None = None  # 'year' | 'month' | 'day' for bucket targets
 
@@ -271,6 +280,17 @@ def _analyze_target(
             return analyzed, spec, wraps_value
         if expr.name == "value":
             return _analyze_value(target, expr), None, True
+        if expr.name == "account_root":
+            if expr.args != (Column("account"),):
+                raise _validation_error("account_root() expects the account column")
+            # SQL expression is deferred: it depends on the query's own
+            # WHERE account ~ '...' condition, resolved once in
+            # compile_query (after the WHERE clause is compiled).
+            return (
+                _AnalyzedTarget(target.alias or expr.name, "str", "account_root", sql=None),
+                None,
+                False,
+            )
         aggregate, out_type = _analyze_aggregate_call(expr)
         return (
             _AnalyzedTarget(target.alias or expr.name, out_type, "aggregate", agg=aggregate),
@@ -398,22 +418,41 @@ def _resolve_group_keys(query: Query, analysis: _Analysis) -> list[_AnalyzedTarg
 # ---------------------------------------------------------------------------
 
 
-def _compile_regex(column: Any, pattern: str) -> ColumnElement:
+def _subtree_roots(pattern: str) -> list[str] | None:
+    """The literal root(s) if `pattern` is the optimized subtree-alternation
+    shape (^lit(:|$) or ^(lit|lit|...)(:|$)) — None otherwise. Used only by
+    account_root()'s target resolution, which needs the same roots
+    _compile_regex already parses for the WHERE clause's own OR-of-subtrees.
+    Deliberately does NOT recognize the bare exact-match shape (^lit$):
+    that pattern means "this account and no descendants", a materially
+    different WHERE semantic that _compile_regex must keep as plain
+    equality, never folded into subtree matching."""
     subtree_match = _SUBTREE_PATTERN_RE.match(pattern)
     if subtree_match:
         # Group 1 is the bare single-root form (which can't contain '|'),
-        # group 2 the parenthesized alternation — either way, one clause per
-        # root, OR-ed together.
-        roots = (subtree_match.group(1) or subtree_match.group(2)).split("|")
-        return or_(*(account_subtree_clause(column, root) for root in roots))
+        # group 2 the parenthesized alternation — either way, one root per
+        # element.
+        return (subtree_match.group(1) or subtree_match.group(2)).split("|")
+    return None
+
+
+def _compile_regex(column: Any, pattern: str) -> tuple[ColumnElement, list[str] | None]:
+    """(clause, roots) - roots is the parsed subtree-alternation root list
+    when `pattern` is that shape, None otherwise. account_root()'s
+    resolution in compile_query reuses these roots via _compile_conditions
+    rather than re-deriving them from the WHERE clause's own pattern
+    string a second time."""
+    roots = _subtree_roots(pattern)
+    if roots is not None:
+        return or_(*(account_subtree_clause(column, root) for root in roots)), roots
     exact_match = _EXACT_PATTERN_RE.match(pattern)
     if exact_match:
-        return column == exact_match.group(1)
+        return column == exact_match.group(1), None
     try:
         re.compile(pattern)
     except re.error as exc:
         raise _validation_error(f"invalid regex '{pattern}': {exc}") from exc
-    return column.regexp_match(pattern)
+    return column.regexp_match(pattern), None
 
 
 # Which literal node each column type can be compared against; anything else
@@ -435,10 +474,15 @@ def _literal_value(column_name: str, column_type: str, expr: Expr) -> Any:
 
 def _compile_conditions(
     query: Query,
-) -> tuple[list[ColumnElement], list[ColumnElement]]:
-    """Returns (non-date clauses, date clauses); the split feeds the seed select."""
+) -> tuple[list[ColumnElement], list[ColumnElement], list[tuple[str, list[str] | None]]]:
+    """Returns (non-date clauses, date clauses, regex_roots). regex_roots is
+    (column name, parsed subtree roots or None) for every `~` condition seen,
+    in WHERE order — account_root()'s resolution in compile_query consumes
+    this to find "the" account regex condition's roots without re-scanning
+    query.where or re-deriving them from the pattern string a second time."""
     non_date_clauses: list[ColumnElement] = []
     date_clauses: list[ColumnElement] = []
+    regex_roots: list[tuple[str, list[str] | None]] = []
 
     for condition in query.where:
         if not isinstance(condition.left, Column):
@@ -450,13 +494,15 @@ def _compile_conditions(
             raise _validation_error(f"unknown column '{name}'")
         column, column_type = _SCALAR_COLUMNS[name]
 
-        clause = _compile_condition(name, column, column_type, condition)
+        clause, roots = _compile_condition(name, column, column_type, condition)
+        if condition.op == "~":
+            regex_roots.append((name, roots))
         if name == "date":
             date_clauses.append(clause)
         else:
             non_date_clauses.append(clause)
 
-    return non_date_clauses, date_clauses
+    return non_date_clauses, date_clauses, regex_roots
 
 
 _COMPARISON_OPS = {
@@ -471,13 +517,13 @@ _COMPARISON_OPS = {
 
 def _compile_condition(
     name: str, column: Any, column_type: str, condition: Condition
-) -> ColumnElement:
+) -> tuple[ColumnElement, list[str] | None]:
     if condition.op == "~":
         if not isinstance(condition.right, StringLiteral):
             raise _validation_error("the ~ operator requires a string regex operand")
         return _compile_regex(column, condition.right.value)
     value = _literal_value(name, column_type, condition.right)
-    return _COMPARISON_OPS[condition.op](column, value)
+    return _COMPARISON_OPS[condition.op](column, value), None
 
 
 # ---------------------------------------------------------------------------
@@ -588,10 +634,13 @@ def _build_seed_select(
     open_on: date,
     conversion: ConversionSpec | None,
     valuation: bool,
+    partition_targets: Sequence[_AnalyzedTarget] = (),
 ) -> Select:
     currency_column, amount_column, value_currency_column = _basis_columns(conversion, valuation)
-    columns: list[Any] = [currency_column.label("currency")]
-    group_by: list[Any] = [currency_column]
+    columns: list[Any] = [_sql(t).label(t.name) for t in partition_targets]
+    group_by: list[Any] = [_sql(t) for t in partition_targets]
+    columns.append(currency_column.label("currency"))
+    group_by.append(currency_column)
     if value_currency_column is not None:
         columns.append(value_currency_column.label("value_currency"))
         group_by.append(value_currency_column)
@@ -627,15 +676,35 @@ def compile_query(query: Query) -> CompiledQuery:
         if query.group_by:
             raise _validation_error("GROUP BY requires at least one aggregate target")
 
-    # Buckets-only because the executor accumulates one running balance
-    # linearly across the whole result set; scalar group keys would need
-    # partition-aware accumulation in executor._assemble_aggregate.
-    if analysis.running_balance and (not grouped or any(t.kind != "bucket" for t in grouped)):
+    # At least one date bucket anchors the running balance in time (and the
+    # OPEN ON seed-only snapshot trick relies on one); the executor's
+    # partition-aware accumulation (_assemble_aggregate) handles any
+    # additional scalar group keys (e.g. account, account_root) as
+    # independent partitions, each accumulated on its own.
+    if analysis.running_balance and not any(t.kind == "bucket" for t in grouped):
         raise _validation_error(
-            "last(balance) requires grouping by date buckets only (year/month/day)"
+            "last(balance) requires grouping by at least one date bucket (year/month/day)"
         )
 
-    non_date_where, date_where = _compile_conditions(query)
+    non_date_where, date_where, regex_roots = _compile_conditions(query)
+
+    account_root_targets = [t for t in analysis.targets if t.kind == "account_root"]
+    if account_root_targets:
+        account_regex_roots = [roots for name, roots in regex_roots if name == "account"]
+        if len(account_regex_roots) != 1:
+            raise _validation_error(
+                "account_root() requires exactly one WHERE account ~ '...' condition"
+            )
+        roots = account_regex_roots[0]
+        if roots is None:
+            raise _validation_error(
+                "account_root() requires an anchored subtree WHERE account ~ '...' pattern"
+            )
+        root_expr = case(
+            *((account_subtree_clause(Account.account_name, root), root) for root in roots),
+        )
+        for target in account_root_targets:
+            target.sql = root_expr
 
     open_on = query.from_options.open_on if query.from_options else None
     close_on = query.from_options.close_on if query.from_options else None
@@ -655,8 +724,9 @@ def compile_query(query: Query) -> CompiledQuery:
 
     seed_select = None
     if analysis.running_balance and open_on is not None:
+        partition_targets = [t for t in grouped if t.kind != "bucket"]
         seed_select = _build_seed_select(
-            non_date_where, open_on, analysis.conversion, analysis.valuation
+            non_date_where, open_on, analysis.conversion, analysis.valuation, partition_targets
         )
 
     return CompiledQuery(

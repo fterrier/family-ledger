@@ -292,6 +292,7 @@ columns ↔ string literal) — mismatches are `query_validation_error`.
 | `last(expr)` | aggregate | last value in date order (used with `balance`) |
 | `convert(expr, 'SYM' [, date])` | scalar | currency conversion via the prices table |
 | `value(expr)` | scalar/inventory | market revaluation via the prices table (see below) |
+| `account_root(account)` | scalar | which literal root of the query's own `WHERE account ~ '...'` alternation a posting falls under — see below (no bean-query equivalent) |
 
 ### Operators
 
@@ -310,6 +311,49 @@ As in BQL, `sum(position)` and `balance` yield **inventories** — one amount
 per currency. Nothing is ever silently added across currencies; a
 multi-currency account simply returns multi-amount cells, and clients decide
 to render per-currency or to `convert()`.
+
+### Grouping `last(balance)` by account: `account_root(account)`
+
+`last(balance)` requires at least one date-bucket key (`year`/`month`/`day`)
+to anchor the `OPEN ON` seed mechanics, but any number of additional scalar
+keys may be grouped alongside it — most usefully `account`, or
+`account_root(account)` — and the running balance is accumulated
+**independently per partition** (one seed, one accumulator per distinct
+combination of the non-bucket keys), not netted across them. This is what
+lets a single query return every holding's balance at once instead of one
+query per holding.
+
+Plain `account` groups at the literal leaf level — correct for the
+account-breakdown use case (`sum(position) ... GROUP BY account`,
+`test_group_by_account`) but the wrong tool for a portfolio of holdings,
+since a holding with sub-accounts (e.g. multiple lots) would fragment into
+one row per leaf instead of one row per logical holding. `account_root()`
+solves that: it groups by *which literal root of the query's own*
+`WHERE account ~ '<regex>'` *alternation* a posting's account falls
+under, reusing the exact same subtree-matching primitive
+(`account_subtree_clause`) the WHERE clause itself already compiles the
+regex into — so a leaf-configured root (no children) and a
+parent-configured root (with real children) are both netted correctly in
+the same query, with no special-casing. Constraints: the query must have
+exactly one `account ~ '...'` WHERE condition, and it must be one of the
+optimized anchored-subtree shapes (`^lit(:|$)` or
+`^(lit|lit|...)(:|$)`) — a plain unanchored regex has no fixed root list
+to group by, and an exact-match pattern (`^lit$`) is a materially
+different WHERE semantic that must not be silently reinterpreted as a
+subtree.
+
+```sql
+SELECT year(date) AS y, month(date) AS m, account_root(account) AS holding,
+       convert(last(balance), 'CHF') AS bal
+FROM OPEN ON 2025-07-01
+WHERE account ~ '^(Assets:...:VTI|Assets:...:VXUS)(:|$)'
+GROUP BY y, m, holding
+```
+
+returns one row per `(y, m, holding)`, each holding's balance computed
+from its own seed and its own postings only — equivalent to issuing the
+single-holding version of this query once per holding, but in one
+round trip.
 
 ### Opening Balances: `FROM OPEN ON`
 
@@ -441,7 +485,8 @@ close.
 
 | Area | bean-query | this subset |
 |---|---|---|
-| `balance` in aggregates | journal-only column | `last(balance)` allowed with GROUP BY — running balance at bucket end |
+| `balance` in aggregates | journal-only column, and bean-query's `balance` is a single global inventory shared across every account with no correct per-account grouping at all | `last(balance)` allowed with GROUP BY — running balance at bucket end, accumulated independently per partition when grouped by additional scalar keys (`account`, `account_root(account)`) |
+| `account_root(account)` | no equivalent | family-ledger-only function: groups by which root of the WHERE clause's own subtree alternation a posting falls under — see "Grouping `last(balance)` by account" above |
 | `convert()` default date | latest price in DB | bucket end date in bucketed queries |
 | `convert()` on a raw (unwrapped) aggregate | defaults to market value (direct price, else a hop through cost/price currency) | defaults to weight/cost instead — a deliberate, local historical-cost convention; see `value()` for real bean-query semantics |
 | `PriceLookup`'s inverse-pair fallback | supported (`build_price_map` auto-synthesizes it) | not supported — a price must be recorded in the direction it's needed |

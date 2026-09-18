@@ -138,6 +138,43 @@ def test_multi_root_open_on_seeds_netted_balance(multi_root_session: Session) ->
     assert result.rows == [[2025, 8, [amount("800", "CHF")]]]
 
 
+def test_multi_root_open_on_seeds_distinct_per_account_balance(
+    multi_root_session: Session,
+) -> None:
+    result = execute_query(
+        multi_root_session,
+        f"{SELECT_YM} account, last(balance) AS bal"
+        " FROM OPEN ON 2025-08-01"
+        " WHERE account ~ '^(Assets|Liabilities)(:|$)'"
+        " GROUP BY y, m, account",
+    )
+    # Partitioned by account instead of netted: Assets carries its own July
+    # seed (1000) forward untouched by Liabilities' August activity, and
+    # Liabilities starts from its own (zero) seed to see only its -200.
+    assert result.rows == [
+        [2025, 8, "Assets:Checking", [amount("1000", "CHF")]],
+        [2025, 8, "Liabilities:Card", [amount("-200", "CHF")]],
+    ]
+
+
+def test_running_balance_partitions_on_two_scalar_keys_at_once(session: Session) -> None:
+    # An unusual but legal combination - GROUP BY both the literal account
+    # AND its account_root - exercises partition_count > 1 (merge_key,
+    # partition-tuple sorting, and dormant synthesis all need to handle an
+    # arbitrary number of partition positions, not just one).
+    result = execute_query(
+        session,
+        f"{SELECT_YM} account, account_root(account) AS root, last(balance) AS bal"
+        f"{OPEN_JUL}{ZKB_WHERE}"
+        " GROUP BY y, m, account, root",
+    )
+    assert result.rows == [
+        [2025, 7, "Assets:Checking:ZKB", "Assets:Checking:ZKB", [amount("5800", "CHF")]],
+        [2025, 8, "Assets:Checking:ZKB", "Assets:Checking:ZKB", [amount("4000", "CHF")]],
+        [2025, 8, "Assets:Checking:ZKB:Sub", "Assets:Checking:ZKB", [amount("50", "USD")]],
+    ]
+
+
 def test_dormant_window_with_nonzero_seed_returns_one_flat_bucket(session: Session) -> None:
     # No postings at all in Jan 2026, but the account holds a nonzero
     # balance as of the OPEN ON date — the window must not read as empty.
@@ -148,6 +185,52 @@ def test_dormant_window_with_nonzero_seed_returns_one_flat_bucket(session: Sessi
         f"{ZKB_WHERE}{GROUP_YM}",
     )
     assert result.rows == [[2026, 1, [amount("4000", "CHF"), amount("50", "USD")]]]
+
+
+def test_dormant_window_with_seed_netting_to_zero_stays_empty(session: Session) -> None:
+    # A partition can have real activity before the window (so the seed
+    # select does produce a row for it) that nonetheless nets to exactly
+    # zero - the account was fully drained before the queried window even
+    # starts. That must not synthesize a spurious empty-inventory bucket,
+    # same as an account with no seed row at all.
+    zeroed_session = build_session(
+        [
+            ("2025-01-01", [("Assets:Zeroed", "500", "CHF"), ("Equity:Opening", "-500", "CHF")]),
+            ("2025-02-01", [("Assets:Zeroed", "-500", "CHF"), ("Equity:Opening", "500", "CHF")]),
+        ]
+    )
+    result = execute_query(
+        zeroed_session,
+        f"{SELECT_YM} last(balance) AS bal"
+        " FROM OPEN ON 2025-07-01 CLOSE ON 2025-08-01"
+        " WHERE account ~ '^Assets:Zeroed(:|$)'"
+        f"{GROUP_YM}",
+    )
+    assert result.rows == []
+
+
+def test_dormant_window_with_mixed_active_and_dormant_partitions() -> None:
+    # Two accounts share a seed balance as of the window start; only one of
+    # them posts again inside the window. Each partition must synthesize (or
+    # not) its own dormant bucket independently of the other's activity.
+    mixed_session = build_session(
+        [
+            ("2025-01-01", [("Assets:A", "1000", "CHF"), ("Equity:Opening", "-1000", "CHF")]),
+            ("2025-01-01", [("Assets:B", "500", "CHF"), ("Equity:Opening", "-500", "CHF")]),
+            ("2025-03-15", [("Assets:A", "200", "CHF"), ("Equity:Opening", "-200", "CHF")]),
+        ]
+    )
+    result = execute_query(
+        mixed_session,
+        f"{SELECT_YM} account, last(balance) AS bal"
+        " FROM OPEN ON 2025-03-01 CLOSE ON 2025-04-01"
+        " WHERE account ~ '^(Assets:A|Assets:B)(:|$)'"
+        " GROUP BY y, m, account",
+    )
+    assert result.rows == [
+        [2025, 3, "Assets:A", [amount("1200", "CHF")]],
+        [2025, 3, "Assets:B", [amount("500", "CHF")]],
+    ]
 
 
 def test_dormant_window_with_zero_seed_stays_empty(session: Session) -> None:
@@ -173,6 +256,122 @@ def test_dormant_window_converted_view_also_flattens(session: Session) -> None:
     # 0.80 rate is still the latest USD price on or before the bucket end.
     assert result.rows == [[2026, 1, amount("4040", "CHF")]]
     assert result.warnings == []
+
+
+# ---------------------------------------------------------------------------
+# account_root() composed with partition-aware running balance
+# ---------------------------------------------------------------------------
+
+
+def test_account_root_with_running_balance_nets_leaf_and_parent_correctly(
+    session: Session,
+) -> None:
+    # ZKB is a parent with a real child (ZKB:Sub, posted in August);
+    # Groceries is a plain leaf with no children. Both roots share one
+    # query, proving account_root() partitioning and the running-balance
+    # accumulator compose correctly: each root nets its own postings
+    # (leaf-only or parent+child) independently, with no seed at all for
+    # Groceries (its first-ever posting is inside the window).
+    result = execute_query(
+        session,
+        f"{SELECT_YM} account_root(account) AS root, last(balance) AS bal"
+        " FROM OPEN ON 2025-07-01"
+        " WHERE account ~ '^(Assets:Checking:ZKB|Expenses:Groceries)(:|$)'"
+        " GROUP BY y, m, root",
+    )
+    # Rows stay ordered by group keys ascending (y, m, root) - chronological
+    # first, root as the tie-break within a month - not grouped by root.
+    assert result.rows == [
+        [2025, 7, "Assets:Checking:ZKB", [amount("5800", "CHF")]],
+        [2025, 7, "Expenses:Groceries", [amount("200", "CHF")]],
+        [2025, 8, "Assets:Checking:ZKB", [amount("4000", "CHF"), amount("50", "USD")]],
+        [2025, 8, "Expenses:Groceries", [amount("500", "CHF")]],
+    ]
+
+
+def test_account_root_with_running_balance_and_convert_composes(session: Session) -> None:
+    # convert() is applied after partition accumulation is complete, keyed
+    # by the same (bucket, partition) tuples - proves that pipeline stage
+    # doesn't need (and doesn't have) any partition-specific logic of its
+    # own, unlike the accumulation step itself.
+    result = execute_query(
+        session,
+        f"{SELECT_YM} account_root(account) AS root, convert(last(balance), 'CHF') AS bal"
+        " FROM OPEN ON 2025-07-01"
+        " WHERE account ~ '^(Assets:Checking:ZKB|Expenses:Groceries)(:|$)'"
+        " GROUP BY y, m, root",
+    )
+    # ZKB's August USD position (50 x 0.80) converts on top of its own
+    # partition's running CHF balance; Groceries has no USD exposure at all.
+    # Rows stay ordered by group keys ascending (y, m, root).
+    assert result.rows == [
+        [2025, 7, "Assets:Checking:ZKB", amount("5800", "CHF")],
+        [2025, 7, "Expenses:Groceries", amount("200", "CHF")],
+        [2025, 8, "Assets:Checking:ZKB", amount("4040", "CHF")],
+        [2025, 8, "Expenses:Groceries", amount("500", "CHF")],
+    ]
+
+
+def test_account_root_running_balance_with_nested_and_dormant_partitions() -> None:
+    # Three roots mixing every hierarchy shape in one WHERE alternation, each
+    # partitioned independently in the running balance:
+    #  - "Assets:Bank:Savings": a middle node, declared FIRST so its narrower
+    #    WHEN clause claims its own grandchild activity ahead of the parent.
+    #  - "Assets:Bank": the parent root; only picks up postings NOT already
+    #    claimed by the narrower Savings root (its own direct postings, and
+    #    its Other child).
+    #  - "Assets:Invested:IBKR:VTI": an unrelated plain-leaf root that is
+    #    fully dormant inside the queried window but carries a nonzero seed.
+    mixed_session = build_session(
+        [
+            # Seed period (before OPEN ON 2025-07-01).
+            (
+                "2025-01-01",
+                [("Assets:Bank:Savings", "1000", "CHF"), ("Equity:Opening", "-1000", "CHF")],
+            ),
+            (
+                "2025-02-01",
+                [("Assets:Bank", "500", "CHF"), ("Equity:Opening", "-500", "CHF")],
+            ),
+            (
+                "2025-03-01",
+                [
+                    ("Assets:Invested:IBKR:VTI", "2000", "CHF"),
+                    ("Equity:Opening", "-2000", "CHF"),
+                ],
+            ),
+            # In-window activity (Jul/Aug) - VTI is untouched.
+            (
+                "2025-07-10",
+                [
+                    ("Assets:Bank:Savings:Sub", "200", "CHF"),
+                    ("Equity:Opening", "-200", "CHF"),
+                ],
+            ),
+            (
+                "2025-08-05",
+                [("Assets:Bank:Other", "50", "CHF"), ("Equity:Opening", "-50", "CHF")],
+            ),
+        ]
+    )
+    result = execute_query(
+        mixed_session,
+        f"{SELECT_YM} account_root(account) AS root, last(balance) AS bal"
+        " FROM OPEN ON 2025-07-01 CLOSE ON 2025-09-01"
+        " WHERE account ~"
+        " '^(Assets:Bank:Savings|Assets:Bank|Assets:Invested:IBKR:VTI)(:|$)'"
+        " GROUP BY y, m, root",
+    )
+    # Rows stay ordered by group keys ascending (y, m, root): July's two
+    # rows (real and synthetic) both precede August's, not grouped by root.
+    assert result.rows == [
+        [2025, 7, "Assets:Bank:Savings", [amount("1200", "CHF")]],
+        # Dormant: no postings in-window at all, carried flat from its seed
+        # at the OPEN ON bucket, independently of the other two partitions'
+        # own activity.
+        [2025, 7, "Assets:Invested:IBKR:VTI", [amount("2000", "CHF")]],
+        [2025, 8, "Assets:Bank", [amount("550", "CHF")]],
+    ]
 
 
 # ---------------------------------------------------------------------------

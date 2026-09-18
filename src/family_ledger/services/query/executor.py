@@ -77,8 +77,10 @@ def _bucket_key_for_date(
 ) -> tuple[Any, ...] | None:
     """Decomposes a date into the (year, month, day) tuple a bucketed
     running-balance query would have grouped it into. Returns None if any
-    group key isn't a date bucket (running_balance already requires
-    buckets-only grouping, so this is only a defensive guard)."""
+    entry isn't a date bucket - callers must pass only the bucket-kind
+    subset of group_key_buckets (bucket is not None), never the full
+    tuple, since a partitioned query's scalar positions (account,
+    account_root) would otherwise abort this unconditionally."""
     values: list[int] = []
     for bucket in group_key_buckets:
         if bucket == "year":
@@ -190,30 +192,73 @@ def _assemble_aggregate(
             per_key[key][currency] = amount
 
     if post.running_balance:
-        balances: dict[Any, Decimal] = {}
-        if compiled.seed_select is not None:
-            balances = dict(
-                _currency_key_and_amount(row, 0, post.valuation)
-                for row in _execute(session, compiled.seed_select).all()
+        bucket_only = tuple(b for b in post.group_key_buckets if b is not None)
+        partition_count = post.group_key_buckets.count(None)
+
+        def partition_of(key: tuple[Any, ...]) -> tuple[Any, ...]:
+            return tuple(
+                value
+                for value, bucket in zip(key, post.group_key_buckets, strict=True)
+                if bucket is None
             )
+
+        balances: dict[tuple[Any, ...], dict[Any, Decimal]] = {}
+        if compiled.seed_select is not None:
+            for row in _execute(session, compiled.seed_select).all():
+                partition_key = tuple(row[:partition_count])
+                currency, amount = _currency_key_and_amount(row, partition_count, post.valuation)
+                balances.setdefault(partition_key, {})[currency] = amount
+
         # An account can be dormant (zero postings) inside the queried
         # window while still holding a nonzero opening balance. Without a
-        # synthetic bucket here, `order` would stay empty and a real,
-        # nonzero balance would be reported as "no data" instead of flat.
-        # Only safe because the guard requires `order` to be completely
-        # empty: there is no real key this could collide with and silently
-        # overwrite. `setdefault` (rather than a raw assignment) keeps that
-        # invariant enforced if this branch is ever reached with a
-        # non-empty `order` in the future.
-        if not order and balances and post.open_on is not None:
-            synthetic_key = _bucket_key_for_date(post.open_on, post.group_key_buckets)
-            if synthetic_key is not None:
-                order.append(synthetic_key)
-                per_key.setdefault(synthetic_key, {})
+        # synthetic bucket here, that partition would have no row at all and
+        # a real, nonzero balance would be reported as "no data" instead of
+        # flat. Generalizes the old "order is completely empty" guard (which
+        # only ever handled the single, unpartitioned case) to one check per
+        # partition: each partition independently gets its own synthetic
+        # bucket exactly when it has a nonzero seed (a seed that happens to
+        # net to a literal zero — e.g. fully round-tripped before the
+        # window — must not synthesize an empty bucket, any more than an
+        # account with no seed row at all does) and no row of its own in the
+        # main window — there is no real key this could collide with and
+        # silently overwrite, since `existing_partitions` already excludes it.
+        synthesized = False
+        if post.open_on is not None:
+            synthetic_bucket = _bucket_key_for_date(post.open_on, bucket_only)
+            if synthetic_bucket is not None:
+                existing_partitions = {partition_of(key) for key in order}
+                for partition_key, partition_balance in balances.items():
+                    if partition_key in existing_partitions or not any(partition_balance.values()):
+                        continue
+                    partition_it = iter(partition_key)
+                    bucket_it = iter(synthetic_bucket)
+                    full_key = tuple(
+                        next(bucket_it) if bucket is not None else next(partition_it)
+                        for bucket in post.group_key_buckets
+                    )
+                    order.append(full_key)
+                    per_key.setdefault(full_key, {})
+                    synthesized = True
+
+        # Accumulate independently per partition, each in chronological
+        # order. SQL's own ORDER BY (compiler.py's _build_aggregate_select)
+        # already leaves `order` sorted by the raw key tuple; a synthetic
+        # bucket appended above is the only way it can go out of order, so
+        # only re-sort when that happened. Sorting by the raw key tuple -
+        # rather than a partition-first key - preserves the documented "rows
+        # ordered by group keys ascending" contract exactly (see
+        # docs/specs/reporting-query.md): for a fixed partition sub-tuple,
+        # comparing tuples that differ only in the varying bucket positions
+        # orders them by bucket ascending regardless of whether bucket or
+        # partition columns are declared first, so this is simultaneously
+        # correct for accumulation and for the output order.
+        if synthesized:
+            order.sort()
         for key in order:
+            partition_balances = balances.setdefault(partition_of(key), {})
             for currency, delta in per_key[key].items():
-                balances[currency] = balances.get(currency, Decimal(0)) + delta
-            per_key[key] = dict(balances)
+                partition_balances[currency] = partition_balances.get(currency, Decimal(0)) + delta
+            per_key[key] = dict(partition_balances)
 
     warnings: list[QueryWarning] = []
     cells: dict[tuple[Any, ...], Any] = {}

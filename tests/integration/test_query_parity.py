@@ -229,6 +229,46 @@ def test_subtree_boundary_matches(integration_client, bql_connection) -> None:
     assert ours == [(7,)]
 
 
+def test_running_balance_partitioned_by_account_root_matches_bql_open_close_windows(
+    integration_client, bql_connection
+) -> None:
+    # account_root() + partitioned last(balance) has no real-BQL equivalent
+    # to run side-by-side (see the design doc's beanquery findings: `balance`
+    # is a single global inventory shared across every posting regardless of
+    # account, with no correct per-account GROUP BY at all). Instead, each
+    # returned row is cross-checked against BQL's own per-account OPEN/CLOSE
+    # window trick for that row's own root - generalizing
+    # test_running_balance_matches_bql_open_close_windows to prove
+    # partitioning doesn't corrupt any individual partition's accumulation.
+    ours = api_rows(
+        integration_client,
+        "SELECT year(date) AS y, month(date) AS m, account_root(account) AS root,"
+        " last(balance) AS bal"
+        " FROM OPEN ON 2025-07-01"
+        " WHERE account ~ '^(Assets:Checking:ZKB|Expenses:Groceries)(:|$)'"
+        " GROUP BY y, m, root",
+    )
+    # Rows stay ordered by group keys ascending (y, m, root): chronological
+    # first, root as the tie-break within a month - not grouped by root.
+    assert [(y, m, root) for y, m, root, _ in ours] == [
+        (2025, 7, "Assets:Checking:ZKB"),
+        (2025, 7, "Expenses:Groceries"),
+        (2025, 8, "Assets:Checking:ZKB"),
+        (2025, 8, "Expenses:Groceries"),
+        (2025, 10, "Assets:Checking:ZKB"),
+    ]
+
+    for year, month, root, balance in ours:
+        next_start = f"{year + (month == 12):04d}-{month % 12 + 1:02d}-01"
+        window = bql_rows(
+            bql_connection,
+            "SELECT sum(position) AS bal"
+            f" FROM OPEN ON 2025-07-01 CLOSE ON {next_start}"
+            f" WHERE account ~ '^{root}(:|$)'",
+        )
+        assert window == [(balance,)], f"{root} {year}-{month:02d}"
+
+
 def test_multi_root_alternation_matches(integration_client, bql_connection) -> None:
     # beanquery evaluates the alternation as a real regex; our engine
     # compiles it to OR-of-subtree-clauses — results must be identical.

@@ -13,6 +13,13 @@ function normalizeEntityDate_(value) {
   return String(value || '').trim();
 }
 
+// Today, in the spreadsheet's own timezone — used by buildSidebarFields_
+// implementations to default a blank required date field to today when
+// adding a new entity, without the client needing any type-based guessing.
+function todayIsoDate_() {
+  return normalizeEntityDate_(new Date());
+}
+
 // Converts Date objects and 'yyyy-MM-dd' strings to 'Mmm D, YYYY' (e.g. Apr 19, 2026).
 function formatDisplayDate_(value) {
   const s = normalizeEntityDate_(value); // normalises Date → 'yyyy-MM-dd' and trims strings

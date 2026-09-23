@@ -92,7 +92,7 @@ class Price extends Entity {
     const allSymbolOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
 
     const defaults = {
-      price_date: this._api.price_date || null,
+      price_date: this._api.price_date || todayIsoDate_(),
       base_symbol: this._api.base_symbol || null,
       quote_amount: (this._api.quote && this._api.quote.amount) || null,
       quote_symbol: (this._api.quote && this._api.quote.symbol) || null,

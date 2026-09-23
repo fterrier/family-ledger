@@ -146,19 +146,20 @@ test('Attachment.fromRows sets _api.name from resource_name and resolves account
 
 // --- Attachment.buildSidebarFields_ ---
 
-test('Attachment.buildSidebarFields_ returns mode:advanced with 4 fields and null defaults for a blank instance', () => {
+test('Attachment.buildSidebarFields_ returns mode:advanced with 4 fields, defaulting the date to today for a blank instance', () => {
   const { sandbox } = loadCode();
   sandbox.loadAccountOptions_ = function() { return []; };
   const a = getAttachment(sandbox).fromApi_({});
 
   const result = a.buildSidebarFields_('simple');
+  const today = sandbox.normalizeEntityDate_(new Date());
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields.length, 4);
   assert.equal(result.fields[0].key, 'attachment_date');
   assert.equal(result.fields[0].type, 'date');
   assert.equal(result.fields[0].required, true);
-  assert.equal(result.fields[0].default, null);
+  assert.equal(result.fields[0].default, today, 'a new attachment is presumably dated around now');
   assert.equal(result.fields[1].key, 'account');
   assert.equal(result.fields[1].type, 'account-search');
   assert.equal(result.fields[2].key, 'original_filename');

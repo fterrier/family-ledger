@@ -106,7 +106,7 @@ class Attachment extends Entity {
       return { value: o.resource_name, label: o.display_name };
     });
     const defaults = {
-      attachment_date: this._api.attachment_date || null,
+      attachment_date: this._api.attachment_date || todayIsoDate_(),
       account: this._api.account || null,
       original_filename: this._api.original_filename || null,
       document_url: this._api.document_url || null,

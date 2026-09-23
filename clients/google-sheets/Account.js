@@ -80,9 +80,15 @@ class Account extends Entity {
   // Sidebar.js has already hydrated this._api (loadFromApi for a first-load edit, or
   // setFields(fieldValues) for a mode-toggle round trip) before calling this.
   buildSidebarFields_(_mode) {
+    // effective_start_date defaults to today only for a brand-new account
+    // (an account you're adding was presumably opened around now) — an
+    // existing account with a genuinely blank start date must stay blank
+    // when editing, not get backfilled to today. effective_end_date never
+    // defaults to today: most accounts are still open.
+    const isNewAccount = !this._api.name;
     const defaults = {
       account_name: this._api.account_name || null,
-      effective_start_date: this._api.effective_start_date || null,
+      effective_start_date: this._api.effective_start_date || (isNewAccount ? todayIsoDate_() : null),
       effective_end_date: this._api.effective_end_date || null,
     };
     return {
@@ -114,6 +120,10 @@ class Account extends Entity {
         },
       ],
     };
+  }
+
+  static activateAfterCreate_(sheet, span) {
+    managedSheet_(sheet, FAMILY_LEDGER_SHEET_REGISTRY.accounts).activateCell(span.start, 'account_name');
   }
 }
 

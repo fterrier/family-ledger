@@ -228,7 +228,7 @@ class Transaction extends Entity {
 
     const postings = this._api.postings || null;
     const transactionDefaults = {
-      transaction_date: this._api.transaction_date || '',
+      transaction_date: this._api.transaction_date || todayIsoDate_(),
       payee:    this._api.payee    || '',
       narration: this._api.narration || '',
       tags: (this._api.tags || []).join(','),

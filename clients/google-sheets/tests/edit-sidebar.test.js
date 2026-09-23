@@ -213,14 +213,17 @@ test('getSidebarData (add, simple→advanced) passes fieldValues.postings straig
   ];
 
   const data = sandbox.getSidebarData({ classKey: 'transactions', name: null }, 'advanced', { postings: simplePostings });
+  const today = sandbox.normalizeEntityDate_(new Date());
 
   assert.equal(data.mode, 'advanced');
   assert.equal(data.allowModeSwitch, true);
 
   // Text field defaults are null — fieldValues here carries only postings, matching a
   // real toggle where those fields were never rendered/collected in the first place.
+  // transaction_date is the one exception: a blank date on a new transaction defaults
+  // to today, same as every other required date field.
   const dateField = data.fields.find(function(f) { return f.key === 'transaction_date'; });
-  assert.equal(dateField.default, null);
+  assert.equal(dateField.default, today);
   const payeeField = data.fields.find(function(f) { return f.key === 'payee'; });
   assert.equal(payeeField.default, null);
   const narrationField = data.fields.find(function(f) { return f.key === 'narration'; });

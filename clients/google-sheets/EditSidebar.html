@@ -243,8 +243,6 @@
 
       if (field.default != null) {
         input.value = field.default;
-      } else if (field.type === 'date' && !IS_EDIT) {
-        input.value = new Date().toISOString().slice(0, 10);
       }
 
       wrapper.appendChild(input);
@@ -365,9 +363,7 @@
       }
       var el = document.getElementById('field_' + field.key);
       if (!el) return;
-      if (field.type === 'date') {
-        el.value = new Date().toISOString().slice(0, 10);
-      } else if (field.type === 'account-search') {
+      if (field.type === 'account-search') {
         setFieldValue_(el, field.default);
       } else {
         el.value = field.default != null ? field.default : '';

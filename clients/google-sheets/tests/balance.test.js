@@ -132,6 +132,7 @@ test('getSidebarData (add mode) returns mode advanced and 4 fields', () => {
   sandbox.listCommodityOptions_ = function() { return [{ symbol: 'CHF' }, { symbol: 'EUR' }]; };
 
   const data = sandbox.getSidebarData({ classKey: 'balances', name: null });
+  const today = sandbox.normalizeEntityDate_(new Date());
 
   assert.equal(data.mode, 'advanced');
   assert.ok(Array.isArray(data.fields));
@@ -141,7 +142,7 @@ test('getSidebarData (add mode) returns mode advanced and 4 fields', () => {
   assert.ok(dateField, 'assertion_date field present');
   assert.equal(dateField.type, 'date');
   assert.equal(dateField.required, true);
-  assert.equal(dateField.default, null);
+  assert.equal(dateField.default, today, 'a new balance assertion is presumably dated around now');
 
   const accountField = data.fields.find(function(f) { return f.key === 'account'; });
   assert.ok(accountField, 'account field present');

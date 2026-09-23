@@ -113,7 +113,7 @@ class Balance extends Entity {
     const allSymbolOpts = listCommodityOptions_().map(function(o) { return { value: o.symbol, label: o.symbol }; });
 
     const defaults = {
-      assertion_date: this._api.assertion_date || null,
+      assertion_date: this._api.assertion_date || todayIsoDate_(),
       account: this._api.account || null,
       amount: (this._api.amount && this._api.amount.amount) || null,
       symbol: (this._api.amount && this._api.amount.symbol) || null,

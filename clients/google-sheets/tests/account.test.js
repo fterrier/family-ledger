@@ -80,10 +80,11 @@ test('Account.fromRows sets _api.name from resource_name and _api.account_name i
 
 // --- Account.buildSidebarFields_ ---
 
-test('Account.buildSidebarFields_ returns mode:advanced and empty default for a blank instance', () => {
+test('Account.buildSidebarFields_ defaults opening date to today but leaves closing date blank for a new account', () => {
   const { sandbox } = loadCode();
   const a = getAccount(sandbox).fromApi_({});
   const result = a.buildSidebarFields_('simple');
+  const today = sandbox.normalizeEntityDate_(new Date());
 
   assert.equal(result.mode, 'advanced');
   assert.equal(result.fields.length, 3);
@@ -92,8 +93,19 @@ test('Account.buildSidebarFields_ returns mode:advanced and empty default for a 
   assert.equal(result.fields[0].default, null);
   assert.equal(result.fields[1].key, 'effective_start_date');
   assert.equal(result.fields[1].type, 'date');
+  assert.equal(result.fields[1].default, today, 'a new account was presumably opened around now');
   assert.equal(result.fields[2].key, 'effective_end_date');
   assert.equal(result.fields[2].type, 'date');
+  assert.equal(result.fields[2].default, null, 'most accounts are still open — must not default to today');
+});
+
+test('Account.buildSidebarFields_ leaves a genuinely blank start date blank when editing an existing account', () => {
+  const { sandbox } = loadCode();
+  const a = getAccount(sandbox).fromApi_({ name: 'accounts/zkb', account_name: 'Assets:Family:ZKB:Checking' });
+  const result = a.buildSidebarFields_('advanced');
+
+  assert.equal(result.fields[1].key, 'effective_start_date');
+  assert.equal(result.fields[1].default, null, 'an existing account with no recorded start date must not be backfilled to today');
 });
 
 test('Account.buildSidebarFields_ reads defaults straight off the already-hydrated instance', () => {
@@ -162,6 +174,12 @@ test('submitEntity creates new account via POST and writes display name to sheet
   assert.ok(written, 'row should be written to sheet');
   assert.equal(written.resource_name, 'accounts/zkb-new');
   assert.ok(written.account_name.startsWith('[A]'), 'should store display name');
+
+  const activateOp = operations.find(function(op) { return op.type === 'activate'; });
+  assert.ok(activateOp, 'creating an account should activate its new row, same as price/transaction/balance');
+  assert.equal(activateOp.row, 2);
+  const accountsConfig = sandbox.getSheetConfigByName_('Accounts');
+  assert.equal(activateOp.column, sandbox.getColumnIndex_(accountsConfig, 'account_name'));
 });
 
 test('submitEntity edits existing account via PATCH', () => {

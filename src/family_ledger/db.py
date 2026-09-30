@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool
 
 from family_ledger.config import get_settings
 
@@ -20,7 +21,22 @@ def build_engine() -> Engine:
     return create_engine(settings.get_database_url(), pool_pre_ping=True)
 
 
+def build_lock_engine() -> Engine:
+    """A separate, unpooled engine for holding long-lived advisory-lock
+    connections (see services/attachment_poller.py) - such a connection is
+    held open for as long as a worker process stays leader, potentially
+    its whole lifetime, so it must not come from (and permanently tie up a
+    slot in) the same pool `engine` uses to serve ordinary request
+    sessions. NullPool means every .connect() opens a fresh raw
+    connection and every .close() actually closes it, rather than
+    recycling through a pool - exactly right for a handful of
+    long-held-or-quickly-discarded connections, not request traffic."""
+    settings = get_settings()
+    return create_engine(settings.get_database_url(), poolclass=NullPool)
+
+
 engine = build_engine()
+lock_engine = build_lock_engine()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 

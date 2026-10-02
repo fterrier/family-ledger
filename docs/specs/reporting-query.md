@@ -95,22 +95,20 @@ Each cell in a row is encoded according to its column's `type`:
 
 ### How the executor assembles a response
 
-1. **Guardrails**: query text over 10 000 characters → `400 query_parse_error`.
-2. **Parse + compile** (`400` on `query_parse_error` / `query_validation_error`).
-3. **Seed** (running-balance queries with `OPEN ON` only): run `seed_select`
+1. **Parse + compile** (`400` on `query_parse_error` / `query_validation_error`).
+2. **Seed** (running-balance queries with `OPEN ON` only): run `seed_select`
    for per-currency opening balances.
-4. **Main select**: SQL rows are per *(group keys…, currency)*. More than
-   10 000 result rows → `400 query_result_too_large`.
-5. **Fold currencies**: the API response has **one row per group-key
+3. **Main select**: SQL rows are per *(group keys…, currency)*.
+4. **Fold currencies**: the API response has **one row per group-key
    combination** — the internal currency dimension is folded into
    `inventory` cells. Ungrouped aggregates return exactly one row. Journal
    queries return one row per posting, ordered by date.
-6. **Running balance** (`last(balance)`): per currency, cumulatively sum the
+5. **Running balance** (`last(balance)`): per currency, cumulatively sum the
    bucket deltas on top of the seed. Every returned bucket carries the *full*
    inventory — all currencies seen so far, not just the ones that moved in
    that bucket. Buckets with no postings at all produce no row (clients
    carry the last value forward when drawing).
-7. **Conversion** (`convert()`): conversion date = the explicit date argument
+6. **Conversion** (`convert()`): conversion date = the explicit date argument
    if given; else the bucket's end date (`y` → Dec 31, `y, m` → last day of
    month, `y, m, d` → that day); else today for ungrouped queries. Prices
    are loaded in one bulk query; per bucket the latest price on or before
@@ -118,7 +116,7 @@ Each cell in a row is encoded according to its column's `type`:
    hop `base → X → target` as a fallback). Amounts already in the target
    currency pass through at rate 1. A currency with no usable path makes
    the cell `null` and appends a `missing_price` warning.
-8. **Serialize** per the cell-encoding table.
+7. **Serialize** per the cell-encoding table.
 
 ### Worked examples
 
@@ -238,9 +236,8 @@ envelope:
 
 | HTTP | `code` | When |
 |---|---|---|
-| 400 | `query_parse_error` | syntax error, or query text over 10 000 chars |
+| 400 | `query_parse_error` | syntax error |
 | 400 | `query_validation_error` | unknown column/function, bad grouping, duplicate output names, type-mismatched comparison, invalid regex, database-rejected predicate (backstop), … |
-| 400 | `query_result_too_large` | more than 10 000 result rows |
 | 401 | — | missing/invalid bearer token (standard auth behavior) |
 
 ## Query Language: BQL Subset (v1)
@@ -293,6 +290,7 @@ columns ↔ string literal) — mismatches are `query_validation_error`.
 | `convert(expr, 'SYM' [, date])` | scalar | currency conversion via the prices table |
 | `value(expr)` | scalar/inventory | market revaluation via the prices table (see below) |
 | `account_root(account)` | scalar | which literal root of the query's own `WHERE account ~ '...'` alternation a posting falls under — see below (no bean-query equivalent) |
+| `at(date_literal, ...)` | scalar/bucket | buckets by an explicit, caller-chosen list of dates instead of a calendar unit — see "Multi-date point-in-time snapshots" below (no bean-query equivalent) |
 
 ### Operators
 
@@ -367,6 +365,58 @@ supported subset.
 `CLOSE ON` is parsed and applied as an exclusive upper date bound (v1 does
 not implement income summarization since income/expense clearing is not
 needed for these charts).
+
+### Multi-date point-in-time snapshots: `at(...)`
+
+`at(date_literal, ...)` is a bucket function like `year()`/`month()`/`day()`,
+except it truncates to an exact, caller-chosen date instead of a calendar
+unit: each posting is bucketed into the *smallest requested date on or after
+it*. Grouping `last(balance)` by `at(...)` therefore returns the running
+balance as of each requested date in one round trip:
+
+```sql
+SELECT at(2024-01-31, 2024-02-29, 2024-03-31) AS d,
+       account_root(account) AS holding,
+       convert(value(last(balance)), 'CHF') AS mv
+WHERE account ~ '^(Assets:...:VTI|Assets:...:VXUS)(:|$)'
+GROUP BY d, holding
+```
+
+`at(...)` composes with `FROM OPEN ON`/`CLOSE ON` exactly like
+`year()`/`month()`/`day()` already do: `OPEN ON` still means "seed
+everything before this date" and is entirely independent of which dates
+`at(...)` itself asks for — `SELECT x, ... FROM OPEN ON <d>` and
+`SELECT at(x), ... FROM OPEN ON <d>` agree. Omitting `FROM` entirely is also
+fine — a posting before the earliest requested date is simply bucketed into
+the smallest requested date on or after it, same as any other running-balance
+query with no seed starting from zero. The only thing `at(...)` does on its
+own is bound away postings after its *last* requested date (nothing past it
+could ever match a `CASE WHEN` anyway) — a pure optimization, not a semantic
+rule, so it never conflicts with an explicit `CLOSE ON` either. Mixing
+`at(...)` with `year()`/`month()`/`day()` bucketing, or using more than one
+`at(...)` target, is a `query_validation_error` — two independent date axes
+in one query has no sensible meaning.
+
+This exists to answer "value as of date X" for many dates at once *without*
+reusing a stale price: a holding with no activity between two requested
+dates still gets its own row at each one, re-priced at that row's own date —
+not a copy of whichever earlier date's row happened to have real activity.
+A naive wide `OPEN ON`/`CLOSE ON` window bucketed by `day` looks similar but
+is **not** equivalent: it only produces a row per date with actual posting
+activity, so a quiet date answered by carrying that row forward would price
+it using the *activity* date's market price, not its own — silently stale
+whenever the price moved in between. `at(...)` avoids this by construction:
+it is still just `last(balance)` bucketed in the usual way, so the usual
+per-bucket `convert()`/`value()` pricing (bucket-end date, here the bucket's
+own requested date) already resolves each row independently, and the
+dormancy synthesis described above (normally a single edge-case bucket) is
+generalized for `at(...)` specifically to fill every requested date a known
+partition is missing a row for, not just one.
+
+`at(...)` is not limited to `last(balance)` — `sum(position)` grouped by
+`at(...)` is also valid, giving period totals between the requested dates
+(the same way it already works for `year()`/`month()`), though the primary
+use case is point-in-time balances.
 
 ### `convert()` Dates
 
@@ -487,6 +537,7 @@ close.
 |---|---|---|
 | `balance` in aggregates | journal-only column, and bean-query's `balance` is a single global inventory shared across every account with no correct per-account grouping at all | `last(balance)` allowed with GROUP BY — running balance at bucket end, accumulated independently per partition when grouped by additional scalar keys (`account`, `account_root(account)`) |
 | `account_root(account)` | no equivalent | family-ledger-only function: groups by which root of the WHERE clause's own subtree alternation a posting falls under — see "Grouping `last(balance)` by account" above |
+| `at(date_literal, ...)` | no equivalent | family-ledger-only bucket function: buckets by an explicit date list instead of a calendar unit, deriving its own `OPEN ON`/`CLOSE ON` — see "Multi-date point-in-time snapshots" above |
 | `convert()` default date | latest price in DB | bucket end date in bucketed queries |
 | `convert()` on a raw (unwrapped) aggregate | defaults to market value (direct price, else a hop through cost/price currency) | defaults to weight/cost instead — a deliberate, local historical-cost convention; see `value()` for real bean-query semantics |
 | `PriceLookup`'s inverse-pair fallback | supported (`build_price_map` auto-synthesizes it) | not supported — a price must be recorded in the direction it's needed |

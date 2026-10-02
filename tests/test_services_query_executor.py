@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import cast
 
 import pytest
@@ -9,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from family_ledger.api.schemas import QueryColumn
 from family_ledger.services.errors import ValidationError
-from family_ledger.services.query import executor as executor_module
 from family_ledger.services.query.executor import execute_query
 
 # Standard ledger + USD->CHF prices (0.85 on 2025-07-10, 0.80 on 2025-08-10)
@@ -677,6 +677,248 @@ def test_value_uses_a_stored_zero_price_literally() -> None:
 
 
 # ---------------------------------------------------------------------------
+# at(...): multi-date point-in-time snapshots
+# ---------------------------------------------------------------------------
+
+
+def test_at_reprices_a_quiet_date_at_its_own_price_not_a_stale_activity_price() -> None:
+    # 10 VSS bought once in July; zero trades afterwards - exactly the wide-
+    # window "carry forward" shortcut's failure mode (see docs/specs/
+    # reporting-query.md). at() must still re-price the quiet August date at
+    # its own, later price, not silently reuse July's activity-row price.
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-400", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "CAD", "45"),
+            ("2025-08-10", "VSS", "CAD", "50"),
+        ),
+    )
+    result = execute_query(
+        session,
+        "SELECT at(2025-07-31, 2025-08-31) AS d, value(last(balance)) AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)' GROUP BY d",
+    )
+    assert result.rows == [
+        ["2025-07-31", [amount("450", "CAD")]],
+        ["2025-08-31", [amount("500", "CAD")]],
+    ]
+    assert result.warnings == []
+
+
+def test_at_carries_a_middle_gap_forward_and_still_reprices_it_independently() -> None:
+    # Three requested dates; the holding is only ever traded once, between
+    # the first and second - the *third* date has no activity anywhere near
+    # it either, proving the fill isn't limited to a single edge bucket.
+    session = build_session(
+        [
+            (
+                "2025-07-15",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-400", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-20", "VSS", "CAD", "45"),
+            ("2025-08-20", "VSS", "CAD", "50"),
+            ("2025-09-20", "VSS", "CAD", "55"),
+        ),
+    )
+    result = execute_query(
+        session,
+        "SELECT at(2025-07-31, 2025-08-31, 2025-09-30) AS d, value(last(balance)) AS v"
+        " WHERE account ~ '^Assets:Broker(:|$)' GROUP BY d",
+    )
+    assert result.rows == [
+        ["2025-07-31", [amount("450", "CAD")]],
+        ["2025-08-31", [amount("500", "CAD")]],
+        ["2025-09-30", [amount("550", "CAD")]],
+    ]
+
+
+def test_at_omits_a_holding_entirely_before_its_first_ever_posting() -> None:
+    session = build_session(
+        [("2025-08-05", [("Assets:Broker:VSS", "10", "VSS"), ("Equity:Opening", "-10", "VSS")])]
+    )
+    result = execute_query(
+        session,
+        "SELECT at(2025-07-01, 2025-08-31) AS d, account_root(account) AS root,"
+        " last(balance) AS bal WHERE account ~ '^Assets:Broker(:|$)' GROUP BY d, root",
+    )
+    # No row at all for 2025-07-01 - the holding didn't exist yet, which is
+    # not the same as (and must not be reported as) a zero balance.
+    assert result.rows == [["2025-08-31", "Assets:Broker", [amount("10", "VSS")]]]
+
+
+def test_at_composes_with_convert_pricing_both_legs_at_each_rows_own_date() -> None:
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "USD"}),
+                    ("Equity:Opening", "-400", "USD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "USD", "45"),
+            ("2025-07-10", "USD", "CHF", "0.85"),
+            ("2025-08-10", "VSS", "USD", "50"),
+            ("2025-08-10", "USD", "CHF", "0.80"),
+        ),
+    )
+    result = execute_query(
+        session,
+        "SELECT at(2025-07-31, 2025-08-31) AS d, convert(value(last(balance)), 'CHF') AS bal"
+        " WHERE account ~ '^Assets:Broker(:|$)' GROUP BY d",
+    )
+    # July: 10 x 45 USD x 0.85 = 382.50 CHF. August: 10 x 50 USD x 0.80 = 400
+    # CHF - both legs resolved at that row's own date, never a bucket-end or
+    # query-wide date.
+    assert result.rows == [
+        ["2025-07-31", amount("382.5", "CHF")],
+        ["2025-08-31", amount("400", "CHF")],
+    ]
+    assert result.warnings == []
+
+
+def test_at_allows_sum_for_period_totals_not_just_running_balances() -> None:
+    result = execute_query(
+        build_session(STANDARD_TRANSACTIONS),
+        "SELECT at(2025-07-01, 2025-07-31, 2025-08-31) AS d, sum(position) AS total"
+        " WHERE account ~ '^Expenses:Groceries(:|$)' GROUP BY d",
+    )
+    assert result.rows == [
+        ["2025-07-31", [amount("200", "CHF")]],
+        ["2025-08-31", [amount("300", "CHF")]],
+    ]
+
+
+def test_at_rejects_a_second_at_target() -> None:
+    session = build_session(STANDARD_TRANSACTIONS)
+    with pytest.raises(ValidationError):
+        execute_query(
+            session,
+            "SELECT at(2025-07-01) AS d1, at(2025-08-01) AS d2, last(balance) AS bal"
+            " WHERE account ~ '^Assets:Checking:ZKB(:|$)' GROUP BY d1, d2",
+        )
+
+
+def test_at_matches_issuing_the_old_one_query_per_date_pattern() -> None:
+    # Equivalence proof: before at(...), a client fetching several holdings'
+    # value as of N dates issued one OPEN ON/CLOSE ON query per date (see
+    # investment-roi's batched_point_in_time_value_query: FROM OPEN ON
+    # (as_of+1) CLOSE ON (as_of+1), relying on the dormant-window synthetic-
+    # bucket mechanism, with an explicit convert(..., as_of) date). at(...)
+    # must return exactly the same values and warnings as running that old
+    # pattern once per date and merging the results - across a price change
+    # on an otherwise quiet date, and a holding that doesn't exist yet.
+    session = build_session(
+        [
+            (
+                "2025-07-05",
+                [
+                    ("Assets:Broker:VSS", "10", "VSS", {"cost_amount": "40", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-400", "CAD"),
+                ],
+            ),
+            (
+                "2025-08-10",
+                [
+                    ("Assets:Broker:XYZ", "5", "XYZ", {"cost_amount": "20", "cost_symbol": "CAD"}),
+                    ("Equity:Opening", "-100", "CAD"),
+                ],
+            ),
+        ],
+        prices=(
+            ("2025-07-10", "VSS", "CAD", "45"),
+            ("2025-08-10", "VSS", "CAD", "50"),
+            ("2025-08-10", "XYZ", "CAD", "22"),
+            ("2025-09-10", "VSS", "CAD", "55"),
+            ("2025-09-10", "XYZ", "CAD", "25"),
+        ),
+    )
+    dates = [date(2025, 7, 15), date(2025, 8, 15), date(2025, 9, 15)]
+    account_regex = "^(Assets:Broker:VSS|Assets:Broker:XYZ)(:|$)"
+
+    def old_single_date_query(as_of: date) -> str:
+        boundary = as_of + timedelta(days=1)
+        return (
+            "SELECT year(date) AS y, month(date) AS m, day(date) AS d, "
+            "account_root(account) AS holding, "
+            f"convert(value(last(balance)), 'CAD', {as_of.isoformat()}) AS mv "
+            f"FROM OPEN ON {boundary.isoformat()} CLOSE ON {boundary.isoformat()} "
+            f"WHERE account ~ '{account_regex}' "
+            "GROUP BY y, m, d, holding"
+        )
+
+    expected: dict[tuple[str, str], object] = {}
+    expected_warnings = []
+    for as_of in dates:
+        old_result = execute_query(session, old_single_date_query(as_of))
+        for _y, _m, _d, holding, mv in old_result.rows:
+            expected[(as_of.isoformat(), holding)] = mv
+        expected_warnings.extend(old_result.warnings)
+
+    at_dates = ", ".join(d.isoformat() for d in dates)
+    new_result = execute_query(
+        session,
+        f"SELECT at({at_dates}) AS d, account_root(account) AS holding, "
+        "convert(value(last(balance)), 'CAD') AS mv "
+        f"WHERE account ~ '{account_regex}' GROUP BY d, holding",
+    )
+    actual = {(d, holding): mv for d, holding, mv in new_result.rows}
+
+    assert actual == expected
+    assert new_result.warnings == expected_warnings
+
+
+def test_at_composes_with_an_explicit_from_open_on() -> None:
+    # select x, ... FROM OPEN ON <d> and select at(x), ... FROM OPEN ON <d>
+    # must agree: OPEN ON still means "seed everything before this date",
+    # independent of which dates at(...) itself asks for.
+    session = build_session(STANDARD_TRANSACTIONS)
+    result = execute_query(
+        session,
+        "SELECT at(2025-08-01) AS d, last(balance) AS bal FROM OPEN ON 2025-01-01"
+        " WHERE account ~ '^Assets:Checking:ZKB(:|$)' GROUP BY d",
+    )
+    assert result.rows == [["2025-08-01", [amount("5800", "CHF")]]]
+
+
+def test_at_with_a_nonzero_seed_does_not_synthesize_a_row_at_open_on_itself() -> None:
+    # A nonzero seed before an explicit OPEN ON used to trigger the
+    # year/month/day dormancy-synthesis path too, injecting a phantom row
+    # at OPEN ON's own date - a date the caller never asked for via at(...)
+    # (FROM OPEN ON only sets where the seed cuts off, it is not itself one
+    # of the requested snapshot dates). Only the two requested dates must
+    # appear, each correctly carrying the seeded balance forward.
+    session = build_session(
+        [("2024-01-10", [("Assets:Broker:VSS", "100", "CHF"), ("Equity:Opening", "-100", "CHF")])]
+    )
+    result = execute_query(
+        session,
+        "SELECT at(2024-03-01, 2024-04-01) AS d, last(balance) AS bal"
+        " FROM OPEN ON 2024-02-01"
+        " WHERE account ~ '^Assets:Broker(:|$)' GROUP BY d",
+    )
+    assert result.rows == [
+        ["2024-03-01", [amount("100", "CHF")]],
+        ["2024-04-01", [amount("100", "CHF")]],
+    ]
+
+
+# ---------------------------------------------------------------------------
 # convert(value(...)): market value revalued at market price, then
 # FX-converted to a single target currency.
 # ---------------------------------------------------------------------------
@@ -918,19 +1160,6 @@ def test_journal_serialization(session: Session) -> None:
 # ---------------------------------------------------------------------------
 # Guardrails and error propagation
 # ---------------------------------------------------------------------------
-
-
-def test_query_too_long_is_rejected(session: Session) -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        execute_query(session, "SELECT account" + " " * 10_001)
-    assert exc_info.value.code == "query_parse_error"
-
-
-def test_row_cap_is_enforced(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(executor_module, "MAX_RESULT_ROWS", 2)
-    with pytest.raises(ValidationError) as exc_info:
-        execute_query(session, "SELECT date, account WHERE account ~ '^Expenses(:|$)'")
-    assert exc_info.value.code == "query_result_too_large"
 
 
 def test_parse_errors_propagate(session: Session) -> None:

@@ -46,9 +46,6 @@ from family_ledger.services.query.compiler import (
 from family_ledger.services.query.parser import parse
 from family_ledger.services.transaction_balancing import decimal_to_string
 
-MAX_QUERY_LENGTH = 10_000
-MAX_RESULT_ROWS = 10_000
-
 _FOLDED_TYPES = ("inventory", "amount")
 
 
@@ -75,13 +72,16 @@ def _serialize_inventory(balances: dict[str, Decimal]) -> list[dict[str, str]]:
 def _bucket_key_for_date(
     target: date, group_key_buckets: tuple[str | None, ...]
 ) -> tuple[Any, ...] | None:
-    """Decomposes a date into the (year, month, day) tuple a bucketed
-    running-balance query would have grouped it into. Returns None if any
-    entry isn't a date bucket - callers must pass only the bucket-kind
-    subset of group_key_buckets (bucket is not None), never the full
-    tuple, since a partitioned query's scalar positions (account,
-    account_root) would otherwise abort this unconditionally."""
-    values: list[int] = []
+    """Decomposes a date into the bucket-key tuple a bucketed running-balance
+    query would have grouped it into - (year, month, day) parts for
+    calendar buckets, or the date itself, unchanged, for an at(...) bucket
+    (see compiler._analyze_target - its key value already *is* the exact
+    date, nothing to decompose). Returns None if any entry isn't a
+    recognized bucket kind - callers must pass only the bucket-kind subset
+    of group_key_buckets (bucket is not None), never the full tuple, since
+    a partitioned query's scalar positions (account, account_root) would
+    otherwise abort this unconditionally."""
+    values: list[Any] = []
     for bucket in group_key_buckets:
         if bucket == "year":
             values.append(target.year)
@@ -89,12 +89,19 @@ def _bucket_key_for_date(
             values.append(target.month)
         elif bucket == "day":
             values.append(target.day)
+        elif bucket == "at":
+            values.append(target)
         else:
             return None
     return tuple(values)
 
 
 def _bucket_end(key: tuple[Any, ...], buckets: tuple[str | None, ...]) -> date | None:
+    for bucket, value in zip(buckets, key, strict=True):
+        if bucket == "at":
+            # Already the exact date the caller asked for - nothing to
+            # reconstruct, unlike a calendar bucket's year/month/day parts.
+            return value
     parts = {
         bucket: int(value) for bucket, value in zip(buckets, key, strict=True) if bucket is not None
     }
@@ -107,6 +114,23 @@ def _bucket_end(key: tuple[Any, ...], buckets: tuple[str | None, ...]) -> date |
         month = parts["month"]
         return date(year, month, calendar.monthrange(year, month)[1])
     return date(year, 12, 31)
+
+
+def _merge_partition_and_bucket_key(
+    partition_key: tuple[Any, ...],
+    bucket_key: tuple[Any, ...],
+    group_key_buckets: tuple[str | None, ...],
+) -> tuple[Any, ...]:
+    """Reassembles a full row key from a partition's own scalar values and a
+    synthesized bucket's values, interleaved back into group_key_buckets'
+    original column order - shared by both dormancy-synthesis passes below,
+    which differ only in *which* bucket(s) they synthesize for, not in how
+    a synthesized key gets built."""
+    partition_it = iter(partition_key)
+    bucket_it = iter(bucket_key)
+    return tuple(
+        next(bucket_it) if kind is not None else next(partition_it) for kind in group_key_buckets
+    )
 
 
 def _execute(session: Session, statement: Any) -> Any:
@@ -125,19 +149,8 @@ def _execute(session: Session, statement: Any) -> Any:
 
 
 def execute_query(session: Session, text: str) -> QueryLedgerResponse:
-    if len(text) > MAX_QUERY_LENGTH:
-        raise ValidationError(
-            code="query_parse_error",
-            message=f"query exceeds {MAX_QUERY_LENGTH} characters",
-        )
-
     compiled = compile_query(parse(text))
-    raw = _execute(session, compiled.select.limit(MAX_RESULT_ROWS + 1)).all()
-    if len(raw) > MAX_RESULT_ROWS:
-        raise ValidationError(
-            code="query_result_too_large",
-            message=f"query returned more than {MAX_RESULT_ROWS} rows",
-        )
+    raw = _execute(session, compiled.select).all()
 
     post = compiled.post
     if not post.is_aggregate:
@@ -219,26 +232,70 @@ def _assemble_aggregate(
         # bucket exactly when it has a nonzero seed (a seed that happens to
         # net to a literal zero — e.g. fully round-tripped before the
         # window — must not synthesize an empty bucket, any more than an
-        # account with no seed row at all does) and no row of its own in the
-        # main window — there is no real key this could collide with and
-        # silently overwrite, since `existing_partitions` already excludes it.
+        # account with no seed row at all does) and no row of its own
+        # *anywhere* in the main window — there is no real key this could
+        # collide with and silently overwrite, since `existing_partitions`
+        # already excludes it. Deliberately a single edge-case bucket, not
+        # one per calendar bucket spanned by the window: a partition with
+        # *some* real activity still shows real gaps between buckets as
+        # missing rows (see test_running_balance_without_open_on_starts_
+        # at_zero's skipped June) - at(...) queries need a stronger
+        # guarantee than that, handled separately below.
+        #
+        # Excluded entirely when post.at_dates is set: this block's
+        # synthetic bucket sits at post.open_on's own date, which for an
+        # at(...) query need not be (and usually isn't) one of the caller's
+        # actual requested dates - FROM OPEN ON only sets where the seed
+        # cuts off, never a date the caller asked to see a row for. Firing
+        # it here would inject a row at a date nobody requested. The at(...)
+        # block below already covers every case this one would have (a
+        # seeded, otherwise-absent partition is `known` from its very first
+        # universe date onward), so there is nothing left for this block to
+        # contribute for at(...) queries.
         synthesized = False
-        if post.open_on is not None:
+        if post.open_on is not None and post.at_dates is None:
             synthetic_bucket = _bucket_key_for_date(post.open_on, bucket_only)
             if synthetic_bucket is not None:
                 existing_partitions = {partition_of(key) for key in order}
                 for partition_key, partition_balance in balances.items():
                     if partition_key in existing_partitions or not any(partition_balance.values()):
                         continue
-                    partition_it = iter(partition_key)
-                    bucket_it = iter(synthetic_bucket)
-                    full_key = tuple(
-                        next(bucket_it) if bucket is not None else next(partition_it)
-                        for bucket in post.group_key_buckets
+                    full_key = _merge_partition_and_bucket_key(
+                        partition_key, synthetic_bucket, post.group_key_buckets
                     )
                     order.append(full_key)
                     per_key.setdefault(full_key, {})
                     synthesized = True
+
+        # at(...) makes a much stronger promise than the single-bucket
+        # synthesis above: *every* requested date gets its own row for any
+        # partition that is already known as of that date (seeded, or with
+        # earlier real activity), even a partition with real activity
+        # elsewhere in the window - otherwise a quiet snapshot date would be
+        # missing entirely instead of getting its own, freshly re-priced
+        # carry-forward row, exactly the staleness bug a naive wide OPEN
+        # ON/CLOSE ON window has (see docs/specs/reporting-query.md). Only
+        # at(...) queries carry post.at_dates - the complete, caller-known
+        # set of dates needed to do this; every other bucket kind keeps
+        # today's gap-skipping behavior untouched. Walking dates oldest to
+        # newest and tracking `known` per partition is what correctly keeps
+        # a not-yet-existing holding's earlier dates absent.
+        if post.at_dates is not None:
+            universe = [_bucket_key_for_date(d, bucket_only) for d in post.at_dates]
+            all_partitions = set(balances) | {partition_of(key) for key in order}
+            for partition_key in all_partitions:
+                known = any(balances.get(partition_key, {}).values())
+                for bucket in universe:
+                    assert bucket is not None
+                    full_key = _merge_partition_and_bucket_key(
+                        partition_key, bucket, post.group_key_buckets
+                    )
+                    if full_key in per_key:
+                        known = True
+                    elif known:
+                        order.append(full_key)
+                        per_key[full_key] = {}
+                        synthesized = True
 
         # Accumulate independently per partition, each in chronological
         # order. SQL's own ORDER BY (compiler.py's _build_aggregate_select)

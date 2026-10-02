@@ -60,6 +60,13 @@ def subtree(account_name: str) -> Condition:
     return Condition(Column("account"), "~", StringLiteral(f"^{account_name}(:|$)"))
 
 
+def at(*dates: date, alias: str = "d") -> Target:
+    return Target(FunctionCall("at", tuple(DateLiteral(d) for d in dates)), alias)
+
+
+ACCOUNT_ROOT = Target(FunctionCall("account_root", (Column("account"),)), "root")
+
+
 def q(
     targets: tuple[Target, ...],
     where: tuple[Condition, ...] = (),
@@ -639,6 +646,153 @@ def test_post_plan_open_on_is_none_without_running_balance() -> None:
 
 
 # ---------------------------------------------------------------------------
+# at(...): a bucket function producing exact caller-chosen dates instead of
+# calendar truncation. It composes with FROM OPEN ON/CLOSE ON exactly like
+# year()/month()/day() already do - OPEN ON still means "seed everything
+# before this date", entirely independent of at(...)'s own date list - and
+# otherwise flows through the exact same machinery as any other bucket kind.
+# ---------------------------------------------------------------------------
+
+
+def test_at_has_no_seed_without_an_explicit_open_on(session: Session) -> None:
+    # Unlike every other bucket kind, at(...) knows the caller's full date
+    # range - but it must not silently invent its own OPEN ON from that: a
+    # posting before the earliest requested date is just bucketed into the
+    # smallest requested date on or after it, exactly like any other
+    # running-balance query with no seed starts accumulating from zero.
+    compiled = compile_query(
+        q(
+            (at(date(2025, 7, 10), date(2025, 8, 31)), LAST_BALANCE),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("d",),
+        )
+    )
+    assert compiled.seed_select is None
+    assert compiled.post.open_on is None
+    assert compiled.post.at_dates == (date(2025, 7, 10), date(2025, 8, 31))
+    assert compiled.post.group_key_buckets == ("at",)
+    # 05-10 (+1000) and 07-05 (+5000) both fall into the first bucket (the
+    # smallest requested date on or after them), exactly as if OPEN ON had
+    # never been part of the picture at all.
+    assert run_select(session, compiled.select) == [
+        (date(2025, 7, 10), "CHF", Decimal("6000")),
+        (date(2025, 8, 31), "CHF", Decimal("-2000")),
+        (date(2025, 8, 31), "USD", Decimal("50")),
+    ]
+
+
+def test_at_composes_with_an_explicit_open_on_exactly_like_any_other_bucket(
+    session: Session,
+) -> None:
+    # The same query as above, but now with an explicit FROM OPEN ON - the
+    # caller's own choice, not something at(...) derives for them. Seeding
+    # moves the 05-10/07-05 postings out of the main select and into the
+    # seed, same as it would for year()/month() bucketing.
+    compiled = compile_query(
+        q(
+            (at(date(2025, 7, 10), date(2025, 8, 31)), LAST_BALANCE),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("d",),
+            from_options=FromOptions(open_on=date(2025, 7, 1)),
+        )
+    )
+    assert compiled.seed_select is not None
+    assert compiled.post.open_on == date(2025, 7, 1)
+    assert run_select(session, compiled.seed_select) == [("CHF", Decimal("1000"))]
+    assert run_select(session, compiled.select) == [
+        (date(2025, 7, 10), "CHF", Decimal("5000")),
+        (date(2025, 8, 31), "CHF", Decimal("-2000")),
+        (date(2025, 8, 31), "USD", Decimal("50")),
+    ]
+
+
+def test_at_bounds_away_postings_after_the_last_requested_date(session: Session) -> None:
+    # Pure optimization, not a semantic rule: nothing past the last
+    # requested date could ever land in a real at(...) bucket anyway (every
+    # CASE WHEN would be false), so it's excluded from the scan entirely -
+    # the 2025-08-20 Rent posting (which does fall in the ZKB subtree) must
+    # not show up as a stray null-keyed row.
+    compiled = compile_query(
+        q(
+            (at(date(2025, 7, 10)), LAST_BALANCE),
+            where=(subtree("Assets:Checking:ZKB"),),
+            group_by=("d",),
+        )
+    )
+    assert run_select(session, compiled.select) == [(date(2025, 7, 10), "CHF", Decimal("6000"))]
+
+
+def test_at_rejects_a_second_at_target() -> None:
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (at(date(2025, 7, 1), alias="d1"), at(date(2025, 8, 1), alias="d2"), LAST_BALANCE),
+                where=(subtree("Assets:Checking:ZKB"),),
+                group_by=("d1", "d2"),
+            )
+        )
+
+
+def test_at_rejects_mixing_with_calendar_buckets() -> None:
+    with pytest.raises(ValidationError):
+        compile_query(
+            q(
+                (Y, at(date(2025, 7, 1)), LAST_BALANCE),
+                where=(subtree("Assets:Checking:ZKB"),),
+                group_by=("y", "d"),
+            )
+        )
+
+
+def test_at_combines_with_account_root_like_any_other_bucket(session: Session) -> None:
+    # Dates chosen so the 2025-07-20 postings land exactly on the earlier
+    # requested date's own bucket, and everything after falls into the
+    # later one - proving the "smallest requested date on or after" rule,
+    # not just a single-date smoke test. An explicit OPEN ON keeps the
+    # earlier ZKB history (05-10, 07-05) out of the picture, same as it
+    # would for any other bucketed query over this WHERE clause.
+    compiled = compile_query(
+        q(
+            (at(date(2025, 7, 20), date(2025, 8, 31)), ACCOUNT_ROOT, LAST_BALANCE),
+            where=(
+                Condition(
+                    Column("account"),
+                    "~",
+                    StringLiteral("^(Assets:Checking:ZKB|Expenses:Groceries)(:|$)"),
+                ),
+            ),
+            group_by=("d", "root"),
+            from_options=FromOptions(open_on=date(2025, 7, 20)),
+        )
+    )
+    assert run_select(session, compiled.select) == [
+        (date(2025, 7, 20), "Assets:Checking:ZKB", "CHF", Decimal("-200")),
+        (date(2025, 7, 20), "Expenses:Groceries", "CHF", Decimal("200")),
+        (date(2025, 8, 31), "Assets:Checking:ZKB", "CHF", Decimal("-1800")),
+        (date(2025, 8, 31), "Assets:Checking:ZKB", "USD", Decimal("50")),
+        (date(2025, 8, 31), "Expenses:Groceries", "CHF", Decimal("300")),
+    ]
+
+
+def test_at_allows_sum_as_the_aggregate_for_period_totals_between_dates(session: Session) -> None:
+    # at(...) is just another bucket kind - it composes with sum() for
+    # period-over-period totals exactly as year()/month() already do,
+    # not only with last(balance) for running snapshots.
+    compiled = compile_query(
+        q(
+            (at(date(2025, 7, 31), date(2025, 8, 31)), SUM_POSITION),
+            where=(subtree("Expenses:Groceries"),),
+            group_by=("d",),
+        )
+    )
+    assert compiled.post.running_balance is False
+    assert run_select(session, compiled.select) == [
+        (date(2025, 7, 31), "CHF", Decimal("200")),
+        (date(2025, 8, 31), "CHF", Decimal("300")),
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Post plan: conversions, output columns, group keys
 # ---------------------------------------------------------------------------
 
@@ -1021,6 +1175,19 @@ def test_string_literals_are_bound_not_interpolated(session: Session) -> None:
             ),
             "string column compared to a number literal",
             id="where-string-vs-number",
+        ),
+        pytest.param(
+            q((Target(FunctionCall("at", ()), "d"), LAST_BALANCE), group_by=("d",)),
+            "at() requires at least one date argument",
+            id="at-requires-at-least-one-date",
+        ),
+        pytest.param(
+            q(
+                (Target(FunctionCall("at", (StringLiteral("2025-07-01"),)), "d"), LAST_BALANCE),
+                group_by=("d",),
+            ),
+            "at() arguments must be date literals",
+            id="at-argument-not-a-date-literal",
         ),
     ],
 )

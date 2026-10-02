@@ -139,9 +139,18 @@ class PostPlan:
     # None for scalar keys
     group_key_buckets: tuple[str | None, ...] = field(default=())
     # FROM OPEN ON date, when running_balance is True and a seed exists.
-    # Lets the executor synthesize a single seed-only bucket for accounts
-    # with a nonzero opening balance but zero postings inside the window.
+    # Lets the executor synthesize a seed-only bucket for accounts with a
+    # nonzero opening balance but zero postings inside the window.
     open_on: date | None = None
+    # The complete, caller-supplied set of at(...) dates, when a bucket=='at'
+    # target is present - lets the executor forward-fill *every* missing
+    # date for a known partition (not just the single open_on edge case
+    # every other bucket kind gets), which is what makes a quiet date
+    # between two active ones still get its own, freshly re-priced row
+    # instead of silently reusing a stale activity-dated price. None for
+    # every other query shape, which keeps today's single-bucket synthesis
+    # behavior unchanged.
+    at_dates: tuple[date, ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +184,7 @@ _KNOWN_FUNCTIONS = _BUCKET_FUNCTIONS | {
     "convert",
     "value",
     "account_root",
+    "at",
 }
 
 # A literal with no regex metacharacters — the only content the optimized
@@ -211,7 +221,8 @@ class _AnalyzedTarget:
     # account_root's sql is resolved later in compile_query, once the
     # WHERE clause's account condition (and its roots) is known.
     agg: str | None = None  # 'sum' | 'count' | 'last'
-    bucket: str | None = None  # 'year' | 'month' | 'day' for bucket targets
+    bucket: str | None = None  # 'year' | 'month' | 'day' | 'at' for bucket targets
+    dates: tuple[date, ...] | None = None  # at()'s own sorted date args (bucket == 'at' only)
 
 
 @dataclass
@@ -271,6 +282,32 @@ def _analyze_target(
             return (
                 _AnalyzedTarget(
                     target.alias or expr.name, "int", "bucket", sql=sql, bucket=expr.name
+                ),
+                None,
+                False,
+            )
+        if expr.name == "at":
+            # A bucket function like year()/month()/day(), just truncating to
+            # an exact caller-chosen date instead of a calendar unit: maps
+            # each posting to the *smallest* requested date on or after it
+            # (CASE picks the first matching WHEN - evaluated in ascending
+            # order, so the smallest match wins), with no reconstruction
+            # needed later since the key value already *is* the date (see
+            # executor._bucket_end's 'at' branch). Fully resolved here, no
+            # deferred resolution step required (unlike account_root, which
+            # depends on the query's own WHERE clause).
+            if not expr.args:
+                raise _validation_error("at() requires at least one date argument")
+            dates: list[date] = []
+            for arg in expr.args:
+                if not isinstance(arg, DateLiteral):
+                    raise _validation_error("at() arguments must be date literals")
+                dates.append(arg.value)
+            sorted_dates = tuple(sorted(dates))
+            sql = case(*((Transaction.transaction_date <= d, d) for d in sorted_dates))
+            return (
+                _AnalyzedTarget(
+                    target.alias or "at", "date", "bucket", sql=sql, bucket="at", dates=sorted_dates
                 ),
                 None,
                 False,
@@ -686,6 +723,19 @@ def compile_query(query: Query) -> CompiledQuery:
             "last(balance) requires grouping by at least one date bucket (year/month/day)"
         )
 
+    # at(...) is just another bucket kind (see _analyze_target), so it needs
+    # its own small set of checks the same way account_root() has its own
+    # block below - but once past them, it flows through the exact same
+    # bounds/select/seed machinery as year()/month()/day() bucketing, not a
+    # parallel path.
+    bucket_targets = [t for t in grouped if t.kind == "bucket"]
+    at_targets = [t for t in bucket_targets if t.bucket == "at"]
+    if len(at_targets) > 1:
+        raise _validation_error("only one at(...) per query is supported")
+    if at_targets and len(bucket_targets) > 1:
+        raise _validation_error("at(...) cannot combine with year()/month()/day() bucketing")
+    at_target = at_targets[0] if at_targets else None
+
     non_date_where, date_where, regex_roots = _compile_conditions(query)
 
     account_root_targets = [t for t in analysis.targets if t.kind == "account_root"]
@@ -706,6 +756,14 @@ def compile_query(query: Query) -> CompiledQuery:
         for target in account_root_targets:
             target.sql = root_expr
 
+    # at(...) composes with FROM OPEN ON/CLOSE ON exactly like year()/month()
+    # already do - OPEN ON still means "seed everything before this date",
+    # entirely independent of which dates at(...) itself asks for. The one
+    # addition: nothing past the *last* requested date can ever land in a
+    # real bucket (every WHEN clause in the CASE expression would be false),
+    # so bounding it away is a pure optimization, not a semantic rule - it
+    # doesn't touch open_on/close_on and never conflicts with an explicit
+    # CLOSE ON (the two bounds simply combine, whichever is smaller wins).
     open_on = query.from_options.open_on if query.from_options else None
     close_on = query.from_options.close_on if query.from_options else None
     bounds: list[ColumnElement] = []
@@ -713,6 +771,9 @@ def compile_query(query: Query) -> CompiledQuery:
         bounds.append(Transaction.transaction_date >= open_on)
     if close_on is not None:
         bounds.append(Transaction.transaction_date < close_on)
+    if at_target is not None:
+        assert at_target.dates is not None
+        bounds.append(Transaction.transaction_date <= at_target.dates[-1])
 
     needs_currency = any(t.agg in ("sum", "last") for t in analysis.targets)
 
@@ -741,5 +802,6 @@ def compile_query(query: Query) -> CompiledQuery:
             is_aggregate=analysis.has_aggregates,
             group_key_buckets=tuple(t.bucket for t in grouped),
             open_on=open_on if analysis.running_balance else None,
+            at_dates=at_target.dates if at_target is not None else None,
         ),
     )

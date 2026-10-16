@@ -88,7 +88,9 @@ const SAMPLE_CONTEXT = {
 function makeSaveEntitySandbox() {
   const { sandbox } = loadCode();
   const Transaction = getTransaction(sandbox);
-  const rowStore = new Map();
+  // PATCH-path tests set entity._span = { start: 2, count: 1 }; the entity must
+  // actually be there, since _commitToSheet_ verifies the span before writing.
+  const rowStore = new Map([[2, { resource_name: SAMPLE_API.name }]]);
   const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
   sandbox.applyEntityUpdateToSheet_ = function(_sheet, _config, _span, rows) {
     return { start: 2, count: rows.length };

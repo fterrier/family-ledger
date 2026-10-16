@@ -104,7 +104,7 @@ function deleteEntity(entity) {
   apiFetchJson_('delete', EntityClass.apiPath_(entity.name));
   const sheet = getOrCreateSheet_(FAMILY_LEDGER_SHEET_NAMES[EntityClass.SHEET_KEY]);
   const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[EntityClass.SHEET_KEY];
-  applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
+  deleteEntitySpansFromSheet_(sheet, sheetConfig, [entity]);
   EntityClass.afterSheetWrite_();
   const context = entity.context || EntityClass.loadContext_();
   refreshDoctorIssueSheets_(context.accountResourceToDisplayName || {});
@@ -210,11 +210,15 @@ function showMultiSelectSidebar_(classKey, selectedEntities) {
 }
 
 // Removes entity rows from the sheet in descending span order (bottom-up) to keep
-// earlier row indices stable while rows are deleted.
+// earlier row indices stable while rows are deleted. Each entity's stored span is only
+// a hint (see resolveEntitySpan_); entities no longer on the sheet are skipped.
 function deleteEntitySpansFromSheet_(sheet, sheetConfig, entities) {
-  entities.slice().sort(function(a, b) { return b.span.start - a.span.start; })
-    .forEach(function(entity) {
-      applyEntityUpdateToSheet_(sheet, sheetConfig, entity.span, []);
+  entities
+    .map(function(entity) { return resolveEntitySpan_(sheet, sheetConfig, entity.name, entity.span); })
+    .filter(Boolean)
+    .sort(function(a, b) { return b.start - a.start; })
+    .forEach(function(span) {
+      applyEntityUpdateToSheet_(sheet, sheetConfig, span, []);
     });
 }
 

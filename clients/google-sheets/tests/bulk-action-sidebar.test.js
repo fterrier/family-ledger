@@ -399,6 +399,58 @@ test('deleteMultipleEntities handles multi-row entities (span.count > 1)', () =>
   assert.ok(rowStore.size === 1);
 });
 
+// Session spans are captured when each 'edit' checkbox is ticked and can go stale
+// (rows inserted/removed above) before the bulk action runs. The action must locate
+// the rows by resource_name at execution time, never trusting the stored spans.
+function makeStaleSpanRowStore_() {
+  return new Map([
+    [2, { resource_name: 'transactions/txn_other', transaction_date: '2026-01-01', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 5, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-01-01', payee: 'A', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [4, { resource_name: 'transactions/txn_2', transaction_date: '2026-01-01', payee: 'B', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 20, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+  ]);
+}
+
+function makeBulkDeleteSandbox_(rowStore) {
+  const { sandbox } = loadCode({
+    SpreadsheetApp: {
+      getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; },
+    },
+  });
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.apiFetchJson_ = function() { return {}; };
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() { return []; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  return sandbox;
+}
+
+test('deleteMultipleEntities removes the selected rows even when session spans are stale', () => {
+  const rowStore = makeStaleSpanRowStore_();
+  const sandbox = makeBulkDeleteSandbox_(rowStore);
+
+  // Spans as captured before txn_other was inserted above them.
+  sandbox.deleteMultipleEntities('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+
+  const names = Array.from(rowStore.values()).map(r => r.resource_name);
+  assert.deepEqual(names, ['transactions/txn_other'], 'only the unselected transaction remains');
+});
+
+test('deleteMultipleEntities leaves other rows alone when a selected entity is no longer on the sheet', () => {
+  const rowStore = makeStaleSpanRowStore_();
+  const sandbox = makeBulkDeleteSandbox_(rowStore);
+
+  sandbox.deleteMultipleEntities('transactions', [
+    { name: 'transactions/txn_gone', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 4, count: 1 } },
+  ]);
+
+  const names = Array.from(rowStore.values()).map(r => r.resource_name);
+  assert.deepEqual(names, ['transactions/txn_other', 'transactions/txn_1']);
+});
+
 // --- formatDisplayDate_ ---
 
 test('formatDisplayDate_ converts yyyy-MM-dd string to readable format', () => {
@@ -615,6 +667,24 @@ test('mergeTransactions DELETEs both source transactions via API', () => {
   ]);
   assert.ok(apiCalls.some(c => c.method === 'delete' && c.path === '/transactions/txn_1'), 'DELETE txn_1');
   assert.ok(apiCalls.some(c => c.method === 'delete' && c.path === '/transactions/txn_2'), 'DELETE txn_2');
+});
+
+test('mergeTransactions removes both source rows even when session spans are stale', () => {
+  const { sandbox, rowStore } = makeMergeTestEnv();
+  rowStore.clear();
+  makeStaleSpanRowStore_().forEach((row, rowNumber) => rowStore.set(rowNumber, row));
+
+  // Spans as captured before txn_other was inserted above them.
+  sandbox.mergeTransactions('transactions', [
+    { name: 'transactions/txn_1', span: { start: 2, count: 1 } },
+    { name: 'transactions/txn_2', span: { start: 3, count: 1 } },
+  ]);
+
+  const names = Array.from(rowStore.values()).map(r => r.resource_name);
+  assert.ok(!names.includes('transactions/txn_1'), 'txn_1 removed');
+  assert.ok(!names.includes('transactions/txn_2'), 'txn_2 removed');
+  assert.ok(names.includes('transactions/txn_other'), 'unselected txn_other untouched');
+  assert.ok(names.includes('transactions/txn_merged'), 'merged tx inserted');
 });
 
 // --- formatDisplayAmount_ ---

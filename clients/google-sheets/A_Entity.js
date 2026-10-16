@@ -254,6 +254,51 @@ function batchInsertEntitiesIntoSheet_(entityGroups, sheet, sheetConfig) {
 }
 
 // Updates an existing entity in the sheet: resize, reposition if date changed, or write in-place.
+// Returns the entity's current span on the sheet, or null if it is no longer there.
+// A span captured earlier (when a sidebar opened, a multi-select box was ticked, or
+// before an API round-trip) goes stale as soon as rows are inserted or removed above
+// the entity, and writing or deleting at a stale span hits another entity's rows.
+// hintSpan is verified with a read of just the span and its two neighbouring rows
+// and returned when still exact; only on a mismatch is the identity column scanned.
+function resolveEntitySpan_(sheet, sheetConfig, entityName, hintSpan) {
+  if (hintSpan && isEntitySpanCurrent_(sheet, sheetConfig, entityName, hintSpan)) {
+    return { start: hintSpan.start, count: hintSpan.count };
+  }
+  return findEntitySpanByName_(sheet, sheetConfig, entityName);
+}
+
+function isEntitySpanCurrent_(sheet, sheetConfig, entityName, span) {
+  const lastRow = sheet.getLastRow();
+  const spanEnd = span.start + span.count - 1;
+  if (span.start < 2 || span.count < 1 || spanEnd > lastRow) return false;
+  const readStart = Math.max(2, span.start - 1);
+  const readEnd = Math.min(lastRow, spanEnd + 1);
+  const names = managedSheet_(sheet, sheetConfig)
+    .getRows({ start: readStart, count: readEnd - readStart + 1 }, ['resource_name'])
+    .map(function(row) { return String(row.resource_name || '').trim(); });
+  return names.every(function(name, i) {
+    const rowNumber = readStart + i;
+    const insideSpan = rowNumber >= span.start && rowNumber <= spanEnd;
+    return insideSpan ? name === entityName : name !== entityName;
+  });
+}
+
+function findEntitySpanByName_(sheet, sheetConfig, entityName) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+  const rows = perfWrap_('span.scan', function() {
+    return managedSheet_(sheet, sheetConfig).getRows({ start: 2, count: lastRow - 1 }, ['resource_name']);
+  });
+  let span = null;
+  for (let i = 0; i < rows.length; i++) {
+    const matches = String(rows[i].resource_name || '').trim() === entityName;
+    if (matches && !span) span = { start: i + 2, count: 1 };
+    else if (matches) span.count += 1;
+    else if (span) break;
+  }
+  return span;
+}
+
 function applyEntityUpdateToSheet_(sheet, sheetConfig, existingSpan, rows) {
   if (!rows || rows.length === 0) {
     perfWrap_('rows.resize', function() { resizeContiguousRows_(sheet, existingSpan, 0); });
@@ -297,7 +342,8 @@ class Entity {
   toApiPayload_() { throw new Error('Entity.toApiPayload_() not implemented'); }
 
   // _span null → date-ordered new-row insertion via batchInsertEntitiesIntoSheet_.
-  // _span non-null → in-place update via applyEntityUpdateToSheet_.
+  // _span non-null → in-place update via applyEntityUpdateToSheet_ at the entity's
+  // current rows (resolveEntitySpan_), or a fresh insertion if it is no longer on the sheet.
   _commitToSheet_(sheet) {
     const rows = this.toRows_();
     if (!rows || rows.length === 0) {
@@ -308,8 +354,11 @@ class Entity {
       resetFields.forEach(function(f) { row[f] = ''; });
     });
     const sheetConfig = FAMILY_LEDGER_SHEET_REGISTRY[this.constructor.SHEET_KEY];
-    if (this._span) {
-      this._span = applyEntityUpdateToSheet_(sheet, sheetConfig, this._span, rows);
+    const currentSpan = this._span
+      ? resolveEntitySpan_(sheet, sheetConfig, this.getName(), this._span)
+      : null;
+    if (currentSpan) {
+      this._span = applyEntityUpdateToSheet_(sheet, sheetConfig, currentSpan, rows);
     } else {
       const dateHeader = getDateHeader_(sheetConfig);
       const entityDate = dateHeader ? normalizeEntityDate_(rows[0][dateHeader]) : null;

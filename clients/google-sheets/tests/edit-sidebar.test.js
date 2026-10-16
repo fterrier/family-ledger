@@ -616,6 +616,66 @@ test('submitEntity (edit) inserts extra rows when posting count increases', () =
   assert.equal(rowStore.get(4).resource_name, 'transactions/txn_other', 'txn_other shifted from row 3 to row 4');
 });
 
+function makeStaleSidebarSaveEnv(rowStore) {
+  const { sandbox } = loadCode({
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
+  });
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.apiFetchJson_ = function(method) {
+    if (method === 'patch') return makeTwoPostingTransaction({ payee: 'Updated', narration: '' });
+    return {};
+  };
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() {
+    return [{ resource_name: 'accounts/cash', display_name: '[A] Cash' }, { resource_name: 'accounts/food', display_name: '[X] Food' }];
+  };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+  sandbox.applyAccountValidationToSpan_ = function() {};
+  return sandbox;
+}
+
+const UPDATED_2_POSTING_FIELDS = {
+  transaction_date: '2026-04-19',
+  payee: 'Updated',
+  narration: '',
+  postings: [
+    { account: 'accounts/cash', units: { amount: '-84.25', symbol: 'CHF' } },
+    { account: 'accounts/food', units: { amount: '84.25', symbol: 'CHF' } },
+  ],
+};
+
+test('submitEntity (edit) writes to the entity rows even when the sidebar span is stale', () => {
+  // Sidebar opened with txn_1 at row 2; txn_other was inserted above it since.
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-18', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 84.25, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [4, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-20', payee: 'Later', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 20, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+  ]);
+  const sandbox = makeStaleSidebarSaveEnv(rowStore);
+
+  sandbox.submitEntity({ classKey: 'transactions', name: 'transactions/txn_1', span: { start: 2, count: 1 } }, UPDATED_2_POSTING_FIELDS);
+
+  assert.equal(rowStore.get(2).resource_name, 'transactions/txn_other', 'txn_other untouched');
+  assert.equal(rowStore.get(2).payee, 'Other', 'txn_other not overwritten');
+  assert.equal(rowStore.get(3).resource_name, 'transactions/txn_1');
+  assert.equal(rowStore.get(3).payee, 'Updated', 'txn_1 updated in place');
+  assert.equal(rowStore.get(4).resource_name, 'transactions/txn_2', 'txn_2 untouched');
+  assert.equal(rowStore.size, 3);
+});
+
+test('submitEntity (edit) re-inserts the entity when it is no longer on the sheet', () => {
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-18', payee: 'Other', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 10, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+    [3, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-20', payee: 'Later', narration: '', source_account_name: 'Cash', destination_account_name: 'Food', symbol: 'CHF', amount: 20, split_off_amount: '', issues: '', narration_source: 'txn', edit: '' }],
+  ]);
+  const sandbox = makeStaleSidebarSaveEnv(rowStore);
+
+  sandbox.submitEntity({ classKey: 'transactions', name: 'transactions/txn_1', span: { start: 2, count: 1 } }, UPDATED_2_POSTING_FIELDS);
+
+  const names = Array.from(rowStore.entries()).sort((a, b) => a[0] - b[0]).map(([, r]) => r.resource_name);
+  assert.deepEqual(names, ['transactions/txn_other', 'transactions/txn_1', 'transactions/txn_2'], 'txn_1 inserted in date order; nothing overwritten');
+});
+
 // --- deleteEntity ---
 
 test('deleteEntity calls DELETE and removes rows from sheet', () => {
@@ -645,4 +705,29 @@ test('deleteEntity calls DELETE and removes rows from sheet', () => {
   assert.ok(!rowStore.has(3), 'row 3 should be gone after deletion and shift');
   assert.ok(!rowStore.has(4), 'original row 4 should have shifted away');
   assert.equal(rowStore.get(2).resource_name, 'transactions/txn_2', 'txn_2 should shift to row 2');
+});
+
+test('deleteEntity removes the entity rows even when the sidebar span is stale', () => {
+  // Span captured when the sidebar opened (txn_1 at rows 2-3); txn_other was
+  // inserted above it since, so txn_1 now lives at rows 3-4.
+  const rowStore = new Map([
+    [2, { resource_name: 'transactions/txn_other', transaction_date: '2026-04-18', payee: 'Other', narration: '' }],
+    [3, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: '' }],
+    [4, { resource_name: 'transactions/txn_1', transaction_date: '2026-04-19', payee: 'Migros', narration: '' }],
+    [5, { resource_name: 'transactions/txn_2', transaction_date: '2026-04-20', payee: 'Other', narration: '' }],
+  ]);
+
+  const { sandbox } = loadCode({
+    SpreadsheetApp: { getActiveSpreadsheet() { return { toast() {}, getSheetByName() { return null; }, getSpreadsheetTimeZone() { return 'UTC'; } }; } },
+  });
+  const fakeSheet = makeRowStoreSheet_(sandbox, rowStore, []);
+  sandbox.apiFetchJson_ = function() { return {}; };
+  sandbox.getOrCreateSheet_ = function() { return fakeSheet; };
+  sandbox.loadAccountOptions_ = function() { return []; };
+  sandbox.refreshDoctorIssueSheets_ = function() {};
+
+  sandbox.deleteEntity({ classKey: 'transactions', name: 'transactions/txn_1', span: { start: 2, count: 2 } });
+
+  const names = Array.from(rowStore.values()).map(r => r.resource_name);
+  assert.deepEqual(names, ['transactions/txn_other', 'transactions/txn_2']);
 });

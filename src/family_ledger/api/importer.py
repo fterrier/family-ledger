@@ -38,6 +38,7 @@ def update_importer(
         session,
         plugin_name,
         request.importer.config,
+        request.update_mask,
     )
 
 

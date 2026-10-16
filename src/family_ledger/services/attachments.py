@@ -13,6 +13,7 @@ from family_ledger.services import paperless
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resolve_account, resource_name
 
 
@@ -139,6 +140,16 @@ def list_attachments_page(
     )
 
 
+ATTACHMENT_UPDATE_FIELDS = (
+    "account",
+    "attachment_date",
+    "original_filename",
+    "media_type",
+    "document_url",
+    "entity_metadata",
+)
+
+
 def update_attachment(
     session: Session,
     attachment: str,
@@ -149,7 +160,9 @@ def update_attachment(
     media_type: str | None,
     document_url: str | None,
     entity_metadata: dict[str, Any],
+    update_mask: str,
 ) -> AttachmentResource:
+    mask = parse_update_mask(update_mask, ATTACHMENT_UPDATE_FIELDS)
     resolved_name = resource_name("attachments", attachment)
     attachment_row = session.scalar(
         select(Attachment)
@@ -158,14 +171,19 @@ def update_attachment(
     )
     if attachment_row is None:
         raise NotFoundError(code="attachment_not_found", message="Attachment not found")
-    account_row = resolve_account(session, account)
-    attachment_row.account = account_row
-    attachment_row.attachment_date = attachment_date
-    attachment_row.original_filename = original_filename
-    attachment_row.media_type = media_type
-    attachment_row.document_url = document_url
-    attachment_row.entity_metadata = entity_metadata
-    if document_url is not None:
+    if "account" in mask:
+        attachment_row.account = resolve_account(session, account)
+    if "attachment_date" in mask:
+        attachment_row.attachment_date = attachment_date
+    if "original_filename" in mask:
+        attachment_row.original_filename = original_filename
+    if "media_type" in mask:
+        attachment_row.media_type = media_type
+    if "entity_metadata" in mask:
+        attachment_row.entity_metadata = entity_metadata
+    if "document_url" in mask:
+        attachment_row.document_url = document_url
+    if "document_url" in mask and document_url is not None:
         attachment_row.status = Attachment.STATUS_STORED
         doc_id = paperless.extract_document_id(document_url)
         if doc_id is not None:

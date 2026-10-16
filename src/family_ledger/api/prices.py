@@ -49,7 +49,9 @@ def update_price(
     request: UpdatePriceRequest,
     session: DbSession,
 ) -> PriceResource:
-    return _call_service(prices_service.update_price, session, price, request.price)
+    return _call_service(
+        prices_service.update_price, session, price, request.price, request.update_mask
+    )
 
 
 @router.delete("/prices/{price:path}", status_code=status.HTTP_204_NO_CONTENT)

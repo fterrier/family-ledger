@@ -115,7 +115,8 @@ def test_update_balance_assertion() -> None:
                 "assertion_date": "2026-04-20",
                 "account": savings["name"],
                 "amount": {"amount": "1500.00", "symbol": "CHF"},
-            }
+            },
+            "update_mask": "assertion_date,account,amount,entity_metadata",
         },
     )
 
@@ -137,7 +138,8 @@ def test_update_balance_assertion_not_found() -> None:
                 "assertion_date": "2026-04-19",
                 "account": "accounts/acc_missing",
                 "amount": {"amount": "100.00", "symbol": "CHF"},
-            }
+            },
+            "update_mask": "assertion_date,account,amount,entity_metadata",
         },
     )
 

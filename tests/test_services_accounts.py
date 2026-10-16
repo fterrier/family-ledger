@@ -46,6 +46,7 @@ def test_update_account_modifies_fields_and_returns_updated(session: Session) ->
             account_name="Assets:Bank:Savings",
             effective_start_date=date(2021, 1, 1),
         ),
+        update_mask=",".join(accounts_service.ACCOUNT_UPDATE_FIELDS),
     )
 
     assert updated.account_name == "Assets:Bank:Savings"
@@ -62,6 +63,7 @@ def test_update_account_raises_for_missing_account(session: Session) -> None:
                 account_name="Assets:Bank",
                 effective_start_date=date(2020, 1, 1),
             ),
+            update_mask=",".join(accounts_service.ACCOUNT_UPDATE_FIELDS),
         )
 
     assert exc_info.value.code == "account_not_found"

@@ -13,6 +13,7 @@ from family_ledger.models import BalanceAssertion
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resolve_account, resource_name, validate_symbols_exist
 
 
@@ -67,9 +68,13 @@ def create_balance_assertion(
     return serialize_balance_assertion(persisted)
 
 
+BALANCE_ASSERTION_UPDATE_FIELDS = ("assertion_date", "account", "amount", "entity_metadata")
+
+
 def update_balance_assertion(
-    session: Session, balance_assertion: str, payload: BalanceAssertionCreate
+    session: Session, balance_assertion: str, payload: BalanceAssertionCreate, update_mask: str
 ) -> BalanceAssertionResource:
+    mask = parse_update_mask(update_mask, BALANCE_ASSERTION_UPDATE_FIELDS)
     resource = resource_name("balanceAssertions", balance_assertion)
     assertion = session.scalar(
         select(BalanceAssertion)
@@ -80,13 +85,16 @@ def update_balance_assertion(
         raise NotFoundError(
             code="balance_assertion_not_found", message="Balance assertion not found"
         )
-    account = resolve_account(session, payload.account)
-    validate_symbols_exist(session, {payload.amount.symbol})
-    assertion.assertion_date = payload.assertion_date
-    assertion.account = account
-    assertion.amount = payload.amount.amount
-    assertion.symbol = payload.amount.symbol
-    assertion.entity_metadata = payload.entity_metadata
+    if "assertion_date" in mask:
+        assertion.assertion_date = payload.assertion_date
+    if "account" in mask:
+        assertion.account = resolve_account(session, payload.account)
+    if "amount" in mask:
+        validate_symbols_exist(session, {payload.amount.symbol})
+        assertion.amount = payload.amount.amount
+        assertion.symbol = payload.amount.symbol
+    if "entity_metadata" in mask:
+        assertion.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
     persisted = session.scalar(
         select(BalanceAssertion)

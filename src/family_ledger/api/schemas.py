@@ -115,7 +115,7 @@ class PriceCreate(PriceData):
 
 class UpdatePriceRequest(BaseModel):
     price: PriceCreate
-    update_mask: str | None = None
+    update_mask: str
 
 
 class ListPricesResponse(BaseModel):
@@ -182,7 +182,7 @@ class CreateAttachmentRequest(BaseModel):
 
 class UpdateAttachmentRequest(BaseModel):
     attachment: AttachmentCreate
-    update_mask: str | None = None
+    update_mask: str
 
 
 class TransactionData(BaseModel):
@@ -249,7 +249,7 @@ class CreateAccountRequest(BaseModel):
 
 class UpdateAccountRequest(BaseModel):
     account: AccountCreate
-    update_mask: str | None = None
+    update_mask: str
 
 
 class ListAccountsResponse(BaseModel):
@@ -263,7 +263,7 @@ class CreateCommodityRequest(BaseModel):
 
 class UpdateCommodityRequest(BaseModel):
     commodity: CommodityCreate
-    update_mask: str | None = None
+    update_mask: str
 
 
 class ListCommoditiesResponse(BaseModel):
@@ -282,7 +282,7 @@ class CreateTransactionRequest(BaseModel):
 
 class UpdateTransactionRequest(BaseModel):
     transaction: TransactionNormalizeData
-    update_mask: str | None = None
+    update_mask: str
 
 
 class DoctorIssue(BaseModel):
@@ -312,7 +312,7 @@ class CreateBalanceAssertionRequest(BaseModel):
 
 class UpdateBalanceAssertionRequest(BaseModel):
     balance_assertion: BalanceAssertionCreate
-    update_mask: str | None = None
+    update_mask: str
 
 
 class PadEntry(BaseModel):
@@ -348,7 +348,7 @@ class UpdateImporterData(BaseModel):
 
 class UpdateImporterRequest(BaseModel):
     importer: UpdateImporterData
-    update_mask: str | None = None
+    update_mask: str
 
 
 class ImportResponse(BaseModel):

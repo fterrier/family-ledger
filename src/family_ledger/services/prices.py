@@ -13,6 +13,7 @@ from family_ledger.models import Price
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resource_name, validate_symbols_exist
 
 
@@ -200,16 +201,32 @@ def create_price(session: Session, payload: PriceCreate) -> PriceResource:
     return serialize_price(price)
 
 
-def update_price(session: Session, price: str, payload: PriceCreate) -> PriceResource:
+PRICE_UPDATE_FIELDS = ("price_date", "base_symbol", "quote", "entity_metadata")
+
+
+def update_price(
+    session: Session, price: str, payload: PriceCreate, update_mask: str
+) -> PriceResource:
+    mask = parse_update_mask(update_mask, PRICE_UPDATE_FIELDS)
     resource = resource_name("prices", price)
     price_row = session.scalar(select(Price).where(Price.name == resource))
     if price_row is None:
         raise NotFoundError(code="price_not_found", message="Price not found")
-    validate_symbols_exist(session, {payload.base_symbol, payload.quote.symbol})
-    price_row.price_date = payload.price_date
-    price_row.base_symbol = payload.base_symbol
-    price_row.quote_symbol = payload.quote.symbol
-    price_row.price_per_unit = payload.quote.amount
+    symbols = set()
+    if "base_symbol" in mask:
+        symbols.add(payload.base_symbol)
+    if "quote" in mask:
+        symbols.add(payload.quote.symbol)
+    validate_symbols_exist(session, symbols)
+    if "price_date" in mask:
+        price_row.price_date = payload.price_date
+    if "base_symbol" in mask:
+        price_row.base_symbol = payload.base_symbol
+    if "quote" in mask:
+        price_row.quote_symbol = payload.quote.symbol
+        price_row.price_per_unit = payload.quote.amount
+    if "entity_metadata" in mask:
+        price_row.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
     session.refresh(price_row)
     return serialize_price(price_row)

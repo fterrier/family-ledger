@@ -36,6 +36,7 @@ def test_update_commodity_modifies_symbol_and_returns_updated(session: Session) 
         session,
         "cmd_old",
         CommodityCreate(symbol="CHF"),
+        update_mask=",".join(commodities_service.COMMODITY_UPDATE_FIELDS),
     )
 
     assert updated.symbol == "CHF"
@@ -48,6 +49,7 @@ def test_update_commodity_raises_for_missing_commodity(session: Session) -> None
             session,
             "cmd_missing",
             CommodityCreate(symbol="CHF"),
+            update_mask=",".join(commodities_service.COMMODITY_UPDATE_FIELDS),
         )
 
     assert exc_info.value.code == "commodity_not_found"

@@ -78,6 +78,7 @@ function saveImporterSettingsFromDialog(importerName, config) {
     importer: {
       config: config || {},
     },
+    update_mask: 'config',
   });
 }
 

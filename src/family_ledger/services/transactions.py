@@ -39,6 +39,7 @@ from family_ledger.services.transaction_balancing import (
     decimal_to_string,
     persisted_posting_weight,
 )
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resource_name
 
 
@@ -555,18 +556,32 @@ def create_transaction(
     return serialize_transaction(_reload_transaction_by_id(session, transaction.id))
 
 
+TRANSACTION_UPDATE_FIELDS = (
+    "transaction_date",
+    "payee",
+    "narration",
+    "tags",
+    "entity_metadata",
+    "import_metadata",
+    "postings",
+)
+
+
 def update_transaction(
     session: Session,
     transaction: str,
     payload: TransactionCreate | TransactionNormalizeData,
-    update_mask: str | None = None,
+    update_mask: str,
 ) -> TransactionResource:
+    mask = parse_update_mask(update_mask, TRANSACTION_UPDATE_FIELDS)
     transaction_row = get_transaction_row(session, transaction)
-    if update_mask is None or "import_metadata" in update_mask.split(","):
+    if "import_metadata" in mask:
         _check_source_ids_available(
             session, _import_metadata_ids(payload), exclude_names=[transaction_row.name]
         )
-    persist_transaction(session, payload, transaction=transaction_row, update_mask=update_mask)
+    persist_transaction(
+        session, payload, transaction=transaction_row, update_mask=",".join(sorted(mask))
+    )
     commit_or_raise(session)
     return serialize_transaction(_reload_transaction_by_id(session, transaction_row.id))
 

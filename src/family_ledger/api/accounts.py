@@ -60,4 +60,6 @@ def update_account(
     request: UpdateAccountRequest,
     session: DbSession,
 ) -> AccountResource:
-    return _call_service(accounts_service.update_account, session, account, request.account)
+    return _call_service(
+        accounts_service.update_account, session, account, request.account, request.update_mask
+    )

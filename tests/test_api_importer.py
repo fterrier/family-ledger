@@ -128,7 +128,7 @@ def test_update_importer_config(monkeypatch: pytest.MonkeyPatch) -> None:
 
     response = client.patch(
         "/importers/fake",
-        json={"importer": {"config": {"key": "value"}}},
+        json={"importer": {"config": {"key": "value"}}, "update_mask": "config"},
     )
 
     assert response.status_code == 200
@@ -142,7 +142,7 @@ def test_update_importer_config_validates_against_schema(
 
     response = client.patch(
         "/importers/schema_fake",
-        json={"importer": {"config": {"api_key": "secret"}}},
+        json={"importer": {"config": {"api_key": "secret"}}, "update_mask": "config"},
     )
 
     assert response.status_code == 200
@@ -156,7 +156,7 @@ def test_update_importer_config_rejects_invalid_config(
 
     response = client.patch(
         "/importers/schema_fake",
-        json={"importer": {"config": {"unknown_field": "bad"}}},
+        json={"importer": {"config": {"unknown_field": "bad"}}, "update_mask": "config"},
     )
 
     assert response.status_code == 400
@@ -168,7 +168,7 @@ def test_update_importer_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatch
 
     response = client.patch(
         "/importers/missing",
-        json={"importer": {"config": {}}},
+        json={"importer": {"config": {}}, "update_mask": "config"},
     )
 
     assert response.status_code == 404
@@ -207,7 +207,7 @@ def test_run_import_merges_override_over_stored_config(monkeypatch: pytest.Monke
 
     update_response = client.patch(
         "/importers/schema_fake",
-        json={"importer": {"config": {"api_key": "stored"}}},
+        json={"importer": {"config": {"api_key": "stored"}}, "update_mask": "config"},
     )
     assert update_response.status_code == 200
 
@@ -282,7 +282,7 @@ def test_run_import_rejects_invalid_merged_config_without_wiping_stored_config(
 
     update_response = client.patch(
         "/importers/schema_fake",
-        json={"importer": {"config": {"api_key": "stored"}}},
+        json={"importer": {"config": {"api_key": "stored"}}, "update_mask": "config"},
     )
     assert update_response.status_code == 200
 

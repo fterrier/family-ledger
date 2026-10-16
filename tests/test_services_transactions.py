@@ -245,6 +245,7 @@ def test_update_transaction_preserves_identity_and_rewrites_postings(session: Se
                 ),
             ],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert updated.name == created.name
@@ -407,6 +408,7 @@ def test_update_transaction_round_trips_posting_narration(session: Session) -> N
                 ),
             ],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert [posting.narration for posting in updated.postings] == [None, "Produce", None]
@@ -453,6 +455,7 @@ def test_update_transaction_clears_posting_narration(session: Session) -> None:
                 ),
             ],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert updated.postings[1].narration is None
@@ -512,6 +515,7 @@ def test_update_transaction_allows_total_change_without_lock(session: Session) -
                 ),
             ],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert updated.postings[0].units.amount == Decimal("-120.00")
@@ -651,6 +655,7 @@ def test_update_transaction_raises_for_missing_transaction(session: Session) -> 
             session,
             "transactions/txn_missing",
             make_transaction_payload(),
+            update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
         )
     assert exc_info.value.code == "transaction_not_found"
 
@@ -714,6 +719,7 @@ def test_update_transaction_round_trip_preserves_accountless_posting(session: Se
             transaction_date=date(2026, 4, 19),
             postings=[p for p in created.postings],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert reloaded.postings[1].account is None
@@ -759,6 +765,7 @@ def test_update_transaction_can_introduce_accountless_posting(session: Session) 
                 ),
             ],
         ),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert updated.postings[2].account is None
@@ -1010,6 +1017,7 @@ def test_update_transaction_bumps_update_time(session: Session) -> None:
         session,
         created.name,
         _seeded_transaction_payload().model_copy(update={"narration": "Changed"}),
+        update_mask=",".join(transactions_service.TRANSACTION_UPDATE_FIELDS),
     )
 
     assert updated.update_time > baseline

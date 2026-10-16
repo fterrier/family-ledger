@@ -8,6 +8,7 @@ from family_ledger.models import Account
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resource_name, validate_account_effective_dates
 
 
@@ -38,16 +39,39 @@ def get_account_by_name(session: Session, account: str) -> AccountResource:
     return serialize_account(account_row)
 
 
-def update_account(session: Session, account: str, payload: AccountCreate) -> AccountResource:
+ACCOUNT_UPDATE_FIELDS = (
+    "account_name",
+    "effective_start_date",
+    "effective_end_date",
+    "entity_metadata",
+)
+
+
+def update_account(
+    session: Session, account: str, payload: AccountCreate, update_mask: str
+) -> AccountResource:
+    mask = parse_update_mask(update_mask, ACCOUNT_UPDATE_FIELDS)
     resource = resource_name("accounts", account)
     account_row = session.scalar(select(Account).where(Account.name == resource))
     if account_row is None:
         raise NotFoundError(code="account_not_found", message="Account not found")
-    validate_account_effective_dates(payload.effective_start_date, payload.effective_end_date)
-    account_row.account_name = payload.account_name
-    account_row.effective_start_date = payload.effective_start_date
-    account_row.effective_end_date = payload.effective_end_date
-    account_row.entity_metadata = payload.entity_metadata
+    start = (
+        payload.effective_start_date
+        if "effective_start_date" in mask
+        else account_row.effective_start_date
+    )
+    end = (
+        payload.effective_end_date
+        if "effective_end_date" in mask
+        else account_row.effective_end_date
+    )
+    validate_account_effective_dates(start, end)
+    if "account_name" in mask:
+        account_row.account_name = payload.account_name
+    account_row.effective_start_date = start
+    account_row.effective_end_date = end
+    if "entity_metadata" in mask:
+        account_row.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
     session.refresh(account_row)
     return serialize_account(account_row)

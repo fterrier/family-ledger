@@ -50,7 +50,11 @@ def update_commodity(
     session: DbSession,
 ) -> CommodityResource:
     return _call_service(
-        commodities_service.update_commodity, session, commodity, request.commodity
+        commodities_service.update_commodity,
+        session,
+        commodity,
+        request.commodity,
+        request.update_mask,
     )
 
 

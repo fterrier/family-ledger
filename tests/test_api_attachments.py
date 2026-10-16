@@ -5,6 +5,11 @@ import importlib
 import pytest
 from fastapi.testclient import TestClient
 
+# Every updatable field: the full replace these tests were written against.
+FULL_UPDATE_MASK = (
+    "account,attachment_date,original_filename,media_type,document_url,entity_metadata"
+)
+
 
 def make_client(monkeypatch: pytest.MonkeyPatch, api_token: str = "test-token") -> TestClient:
     from family_ledger import config as config_module
@@ -39,6 +44,7 @@ def create_account(client: TestClient) -> str:
 def test_create_attachment_without_url_returns_pending_upload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+
     client = make_client(monkeypatch)
     account = create_account(client)
 
@@ -267,7 +273,8 @@ def test_patch_attachment_updates_fields(monkeypatch: pytest.MonkeyPatch) -> Non
                 "attachment_date": "2026-06-01",
                 "original_filename": "new.pdf",
                 "entity_metadata": {"k": "v"},
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -303,7 +310,8 @@ def test_patch_attachment_with_document_url_sets_stored(monkeypatch: pytest.Monk
                 "attachment_date": "2026-05-19",
                 "original_filename": "statement.pdf",
                 "document_url": "https://paperless.example.com/documents/42",
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -323,7 +331,8 @@ def test_patch_attachment_returns_404_for_unknown(monkeypatch: pytest.MonkeyPatc
                 "account": account,
                 "attachment_date": "2026-05-19",
                 "original_filename": "x.pdf",
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 

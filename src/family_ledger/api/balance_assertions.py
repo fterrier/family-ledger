@@ -72,6 +72,7 @@ def update_balance_assertion(
         session,
         balance_assertion,
         request.balance_assertion,
+        request.update_mask,
     )
 
 

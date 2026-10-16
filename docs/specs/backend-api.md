@@ -53,6 +53,24 @@ Response:
 }
 ```
 
+## Updates (PATCH)
+
+Every `PATCH` body carries the resource under its key plus a required `update_mask`: a comma-separated list of the fields to write. Only those fields change; every other field keeps its stored value, whatever the body says. A missing mask is rejected with `422`; an empty mask or one naming a field the resource doesn't allow is rejected with `400 invalid_update_mask`. The mask is mandatory because without it an update would be a full replace, silently wiping fields a client didn't send (for example a transaction's `import_metadata`, which the importers dedupe on).
+
+Updatable fields per resource:
+
+| Resource | `update_mask` fields |
+|---|---|
+| account | `account_name`, `effective_start_date`, `effective_end_date`, `entity_metadata` |
+| commodity | `symbol`, `ticker`, `entity_metadata` |
+| price | `price_date`, `base_symbol`, `quote`, `entity_metadata` |
+| transaction | `transaction_date`, `payee`, `narration`, `tags`, `entity_metadata`, `import_metadata`, `postings` |
+| balance assertion | `assertion_date`, `account`, `amount`, `entity_metadata` |
+| attachment | `account`, `attachment_date`, `original_filename`, `media_type`, `document_url`, `entity_metadata` |
+| importer | `config` |
+
+The body must still validate as a complete resource (required fields present), even for fields outside the mask.
+
 ## Accounts
 
 - `GET /accounts`
@@ -63,7 +81,7 @@ Response:
 
 Accounts expose stable resource names such as `accounts/...` plus mutable `account_name` values.
 
-`PATCH /accounts/{account}` accepts a full account payload and replaces `account_name`, `effective_start_date`, `effective_end_date`, and `entity_metadata`.
+`PATCH /accounts/{account}` writes the masked fields (see [Updates](#updates-patch)); effective-date validation runs against the resulting start and end dates.
 
 `GET /accounts/{account}:pad` is a read-only computation endpoint. It returns the postings a synthetic pad transaction would need for the first upcoming balance assertion per currency after the requested date.
 
@@ -108,7 +126,7 @@ rather than silently picking one or requiring them to agree.
 
 `POST /transactions:normalize` validates and normalizes a candidate transaction payload without persisting it. The persisted create and update routes use the same transaction shape but store canonical rows.
 
-`PATCH /transactions/{transaction}` currently ignores `update_mask` and performs full transaction replacement.
+`PATCH /transactions/{transaction}` writes only the masked fields (see [Updates](#updates-patch)). Source-id uniqueness is checked only when `import_metadata` is in the mask.
 
 A posting's `account` is optional; `null` represents money not yet assigned to any account. Whenever a transaction's postings are (re)written by any of the routes below, the server appends one additional `account: null` posting per currency if the given postings don't already sum to zero within tolerance — a transaction's stored postings are therefore always fully balanced. There is no separate `issues`/imbalance field on a transaction response; any structural gap is represented directly as an `account: null` posting. See [domain-model.md](domain-model.md) and ADR 0012.
 
@@ -215,7 +233,7 @@ ADR 0011.
 
 Importer resource names use the installed plugin name, for example `importers/beancount`.
 
-`PATCH /importers/{importer}` stores sparse persistent config for that importer.
+`PATCH /importers/{importer}` stores sparse persistent config for that importer (`update_mask: config`).
 
 `GET /importers` response includes a `file_descriptors` array per importer. Each descriptor has `name`, `label`, `description`, `accept`, and `required` fields. Importers that need more than one file declare multiple descriptors.
 

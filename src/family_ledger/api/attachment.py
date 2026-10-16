@@ -78,6 +78,7 @@ def update_attachment(
         media_type=a.media_type,
         document_url=a.document_url,
         entity_metadata=a.entity_metadata,
+        update_mask=request.update_mask,
     )
 
 

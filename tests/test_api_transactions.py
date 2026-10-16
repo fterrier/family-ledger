@@ -11,6 +11,9 @@ from api_helpers import (
     make_client,
 )
 
+# Every updatable field: the full replace these tests were written against.
+FULL_UPDATE_MASK = "transaction_date,payee,narration,tags,entity_metadata,import_metadata,postings"
+
 
 def test_create_and_get_transaction() -> None:
     client = make_client()
@@ -319,7 +322,8 @@ def test_get_transaction_after_edit_still_converts() -> None:
                     {"account": checking["name"], "units": {"amount": "50", "symbol": "USD"}},
                     {"account": opening["name"], "units": {"amount": "-50", "symbol": "USD"}},
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
     assert patch_response.status_code == 200
@@ -661,7 +665,8 @@ def test_patching_back_a_transaction_with_its_filler_posting_does_not_duplicate_
                 "postings": [
                     {"account": p["account"], "units": p["units"]} for p in created["postings"]
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -779,7 +784,8 @@ def test_patch_transaction_splits_posting() -> None:
                         "units": {"amount": "34.25", "symbol": "CHF"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -842,7 +848,8 @@ def test_patch_transaction_clears_posting_narration() -> None:
                         "units": {"amount": "84.25", "symbol": "CHF"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -892,7 +899,13 @@ def test_patch_transaction_matches_normalize_output() -> None:
     }
 
     normalized = client.post("/transactions:normalize", json=payload)
-    patched = client.patch(f"/{created.json()['name']}", json=payload)
+    patched = client.patch(
+        f"/{created.json()['name']}",
+        json={
+            **payload,
+            "update_mask": FULL_UPDATE_MASK,
+        },
+    )
 
     assert normalized.status_code == 200
     assert patched.status_code == 200
@@ -947,7 +960,8 @@ def test_patch_transaction_allows_total_change_without_lock() -> None:
                         "units": {"amount": "90.00", "symbol": "CHF"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -996,7 +1010,8 @@ def test_patch_transaction_persists_filler_posting_for_unbalanced_result() -> No
                         "units": {"amount": "80.00", "symbol": "CHF"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -1420,7 +1435,8 @@ def test_patch_transaction_rejects_unknown_commodity() -> None:
                         "units": {"amount": "84.25", "symbol": "USD"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -1437,7 +1453,8 @@ def test_patch_missing_transaction_returns_404() -> None:
             "transaction": {
                 "transaction_date": "2026-04-19",
                 "postings": [],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
 
@@ -2556,7 +2573,8 @@ def test_transaction_responses_include_update_time() -> None:
                         "units": {"amount": "80.00", "symbol": "CHF"},
                     },
                 ],
-            }
+            },
+            "update_mask": FULL_UPDATE_MASK,
         },
     )
     assert patched.status_code == 200

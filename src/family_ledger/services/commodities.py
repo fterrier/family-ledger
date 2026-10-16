@@ -8,6 +8,7 @@ from family_ledger.models import Commodity
 from family_ledger.services.errors import NotFoundError, commit_or_raise
 from family_ledger.services.identifiers import generate_resource_name
 from family_ledger.services.pagination import run_list_page
+from family_ledger.services.update_mask import parse_update_mask
 from family_ledger.services.validation import resource_name
 
 
@@ -38,15 +39,23 @@ def get_commodity_by_name(session: Session, commodity: str) -> CommodityResource
     return serialize_commodity(commodity_row)
 
 
+COMMODITY_UPDATE_FIELDS = ("symbol", "ticker", "entity_metadata")
+
+
 def update_commodity(
-    session: Session, commodity: str, payload: CommodityCreate
+    session: Session, commodity: str, payload: CommodityCreate, update_mask: str
 ) -> CommodityResource:
+    mask = parse_update_mask(update_mask, COMMODITY_UPDATE_FIELDS)
     resource = resource_name("commodities", commodity)
     commodity_row = session.scalar(select(Commodity).where(Commodity.name == resource))
     if commodity_row is None:
         raise NotFoundError(code="commodity_not_found", message="Commodity not found")
-    commodity_row.symbol = payload.symbol
-    commodity_row.ticker = payload.ticker
+    if "symbol" in mask:
+        commodity_row.symbol = payload.symbol
+    if "ticker" in mask:
+        commodity_row.ticker = payload.ticker
+    if "entity_metadata" in mask:
+        commodity_row.entity_metadata = payload.entity_metadata
     commit_or_raise(session)
     session.refresh(commodity_row)
     return serialize_commodity(commodity_row)

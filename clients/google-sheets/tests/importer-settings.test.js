@@ -23,5 +23,6 @@ test('saveImporterSettingsFromDialog patches the importer resource with sparse c
         balance_assertion_frequency: 'weekly',
       },
     },
+    update_mask: 'config',
   });
 });

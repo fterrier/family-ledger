@@ -15,6 +15,7 @@ from family_ledger.importers.registry import get_importer, get_importers
 from family_ledger.models.importer import Importer
 from family_ledger.models.ledger import utcnow
 from family_ledger.services.errors import NotFoundError, ValidationError
+from family_ledger.services.update_mask import parse_update_mask
 
 
 def _serialize_importer(
@@ -107,11 +108,16 @@ def list_importers(session: Session) -> ListImportersResponse:
     return ListImportersResponse(importers=importers)
 
 
+IMPORTER_UPDATE_FIELDS = ("config",)
+
+
 def update_importer_config(
     session: Session,
     plugin_name: str,
     config: dict[str, Any],
+    update_mask: str,
 ) -> ImporterResource:
+    parse_update_mask(update_mask, IMPORTER_UPDATE_FIELDS)
     importer_cls = get_importer(plugin_name)
     if importer_cls is None:
         raise NotFoundError(code="importer_not_found", message="Importer not found")

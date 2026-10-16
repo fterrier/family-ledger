@@ -561,6 +561,7 @@ def test_update_attachment_changes_fields(session: Session) -> None:
         media_type="text/plain",
         document_url=None,
         entity_metadata={"source": "corrected"},
+        update_mask=",".join(attachments.ATTACHMENT_UPDATE_FIELDS),
     )
 
     assert updated.account == "accounts/acc_two"
@@ -594,6 +595,7 @@ def test_update_attachment_with_document_url_sets_stored_status(session: Session
         media_type="application/pdf",
         document_url="https://paperless.example.com/documents/42",
         entity_metadata={},
+        update_mask=",".join(attachments.ATTACHMENT_UPDATE_FIELDS),
     )
 
     assert updated.status == Attachment.STATUS_STORED
@@ -614,6 +616,7 @@ def test_update_attachment_raises_not_found(session: Session) -> None:
             media_type=None,
             document_url=None,
             entity_metadata={},
+            update_mask=",".join(attachments.ATTACHMENT_UPDATE_FIELDS),
         )
 
 
@@ -651,6 +654,7 @@ def test_update_attachment_raises_conflict_on_duplicate_key(session: Session) ->
             media_type=None,
             document_url=None,
             entity_metadata={},
+            update_mask=",".join(attachments.ATTACHMENT_UPDATE_FIELDS),
         )
 
 

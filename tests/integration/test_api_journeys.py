@@ -109,7 +109,8 @@ def test_transaction_update_time_is_second_precision_and_bumps_on_patch(
                     {"account": checking["name"], "units": {"amount": "-100.00", "symbol": "CHF"}},
                     {"account": food["name"], "units": {"amount": "80.00", "symbol": "CHF"}},
                 ],
-            }
+            },
+            "update_mask": "transaction_date,postings",
         },
     )
 

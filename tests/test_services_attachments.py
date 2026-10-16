@@ -390,6 +390,48 @@ def test_process_pending_attachment_marks_failed_on_terminal_error(
     assert attachment.storage_metadata["last_error_message"] == "OCR failed"
 
 
+def test_process_pending_attachment_flags_success_without_document_id(
+    monkeypatch: pytest.MonkeyPatch, session: Session
+) -> None:
+    account = seed_account(session)
+    attachment = Attachment(
+        name="attachments/att_one",
+        account=account,
+        attachment_date=date(2026, 5, 19),
+        original_filename="statement.pdf",
+        media_type="application/pdf",
+        status=Attachment.STATUS_PENDING_STORAGE,
+        document_url=None,
+        storage_backend="paperless",
+        storage_deadline_at=datetime(2026, 5, 19, 12, 30, 0),
+        entity_metadata={},
+        storage_metadata={"task_id": "task-123"},
+    )
+    session.add(attachment)
+    session.commit()
+
+    monkeypatch.setattr(
+        paperless,
+        "get_task_result",
+        lambda settings, task_id: paperless.PaperlessTaskResult(
+            status="success",
+            error_code="success",
+            error_message="Document stored",
+        ),
+    )
+
+    attachments.process_pending_attachments(
+        session,
+        make_settings(),
+        now=datetime(2026, 5, 19, 12, 0, 0),
+    )
+
+    session.refresh(attachment)
+    assert attachment.status == Attachment.STATUS_FAILED
+    assert attachment.storage_metadata["last_error_code"] == "missing_document_id"
+    assert "Document stored" in attachment.storage_metadata["last_error_message"]
+
+
 def test_process_pending_attachment_marks_timed_out(session: Session) -> None:
     account = seed_account(session)
     attachment = Attachment(

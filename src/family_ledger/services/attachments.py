@@ -278,6 +278,13 @@ def process_pending_attachments(
             metadata["duplicate_of"] = result.duplicate_of
             attachment.document_url = paperless.build_document_url(settings, result.duplicate_of)
             attachment.status = Attachment.STATUS_STORED
+        elif result.status == "success":
+            metadata["last_error_code"] = "missing_document_id"
+            metadata["last_error_message"] = (
+                "Paperless reported success but no document id could be found in the task"
+                f" response: {result.error_message}"
+            )
+            attachment.status = Attachment.STATUS_FAILED
         else:
             metadata["last_error_code"] = result.error_code
             metadata["last_error_message"] = result.error_message or "Attachment storage failed"

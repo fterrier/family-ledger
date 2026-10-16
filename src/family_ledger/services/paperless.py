@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -219,30 +220,60 @@ def get_task_result(settings: Settings, task_id: str) -> PaperlessTaskResult | N
             message="Paperless task response omitted status",
         )
 
-    result_data = task.get("result_data")
-    if not isinstance(result_data, dict):
-        result_data = {}
-
-    document_id = result_data.get("document_id")
-    duplicate_of = result_data.get("duplicate_of")
-    legacy_related_document = task.get("related_document")
-    if (
-        document_id is None
-        and isinstance(legacy_related_document, str)
-        and legacy_related_document.isdigit()
-    ):
-        document_id = int(legacy_related_document)
-    error_message = result_data.get("reason")
-    if not isinstance(error_message, str):
-        legacy_result = task.get("result")
-        error_message = legacy_result if isinstance(legacy_result, str) else None
+    if settings.paperless_api_version >= 10:
+        document_id, duplicate_of, error_message = _parse_task_v10(task)
+    else:
+        document_id, duplicate_of, error_message = _parse_task_v9(task)
 
     normalized_status = status.lower() if status in LEGACY_TERMINAL_TASK_STATUSES else status
 
     return PaperlessTaskResult(
         status=normalized_status,
-        document_id=document_id if isinstance(document_id, int) else None,
-        duplicate_of=duplicate_of if isinstance(duplicate_of, int) else None,
+        document_id=document_id,
+        duplicate_of=duplicate_of,
         error_code=normalized_status if normalized_status in TERMINAL_TASK_STATUSES else None,
         error_message=error_message,
+    )
+
+
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _parse_task_v10(task: dict[str, Any]) -> tuple[int | None, int | None, str | None]:
+    """API v10 (Paperless 3.x): outcome lives in `result_data`."""
+    result_data = task.get("result_data")
+    if not isinstance(result_data, dict):
+        result_data = {}
+    document_id = _as_int(result_data.get("document_id"))
+    if document_id is None:
+        related = task.get("related_document_ids")
+        if isinstance(related, list) and related:
+            document_id = _as_int(related[0])
+    error_message = result_data.get("error_message") or result_data.get("reason")
+    return (
+        document_id,
+        _as_int(result_data.get("duplicate_of")),
+        error_message if isinstance(error_message, str) else None,
+    )
+
+
+def _parse_task_v9(task: dict[str, Any]) -> tuple[int | None, int | None, str | None]:
+    """API v9: `related_document` is a digit string on Paperless 2.x and an int on 3.x;
+    Paperless 3.x reports duplicates only via `duplicate_documents`."""
+    duplicate_of = None
+    duplicates = task.get("duplicate_documents")
+    if isinstance(duplicates, list) and duplicates and isinstance(duplicates[0], dict):
+        duplicate_of = _as_int(duplicates[0].get("id"))
+    result = task.get("result")
+    return (
+        _as_int(task.get("related_document")),
+        duplicate_of,
+        result if isinstance(result, str) else None,
     )

@@ -138,10 +138,21 @@ Upload is authenticated with:
 
 The backend then polls `GET /api/tasks/?task_id=<uuid>` until the task reaches a terminal state.
 
-Success mapping:
+The task response is parsed according to the configured API version (`FAMILY_LEDGER_PAPERLESS_API_VERSION`), since the two versions describe the outcome differently.
 
-- `result_data.document_id` → final document id
+API v10 (Paperless 3.x, the default):
+
+- `result_data.document_id` (or the first `related_document_ids` entry) → final document id
 - `result_data.duplicate_of` → use the existing Paperless document id; configured tags are applied to that document
+- `result_data.error_message` (or `reason`) → failure message
+
+API v9 (Paperless 2.x, or 3.x's v9 compatibility serializer):
+
+- `related_document` → final document id (a digit string on 2.x, an integer on 3.x)
+- first `duplicate_documents[].id` → existing document id for a duplicate (3.x only reports duplicates this way on v9)
+- `result` → message
+
+A task that reports success without a resolvable document id is marked `failed` with `last_error_code: missing_document_id`.
 
 The final `document_url` is derived from the resulting Paperless document resource and uses the web UI path format: `{base_url}/documents/{id}` (no `/api/` prefix, no trailing slash). If `FAMILY_LEDGER_PAPERLESS_EXTERNAL_BASE_URL` is set, it is used as the base instead of `FAMILY_LEDGER_PAPERLESS_BASE_URL`. This allows linking to an externally-accessible URL (e.g. a Tailscale hostname) while the API communicates with Paperless on an internal address.
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 import httpx
 import pytest
@@ -406,6 +407,7 @@ def test_get_task_result_supports_legacy_list_response(monkeypatch: pytest.Monke
             api_token="test-token",
             paperless_base_url="https://paperless.example.com",
             paperless_token="paperless-token",
+            paperless_api_version=9,
         ),
         "task-123",
     )
@@ -417,6 +419,144 @@ def test_get_task_result_supports_legacy_list_response(monkeypatch: pytest.Monke
         error_code="success",
         error_message="Success. New document id 2217 created",
     )
+
+
+# Real /api/tasks/ response from Paperless 3.2.1 at API v10 (trimmed)
+PAPERLESS_3_V10_SUCCESS = {
+    "count": 1,
+    "next": None,
+    "previous": None,
+    "results": [
+        {
+            "id": 756,
+            "task_id": "d15e5241-c09c-45ea-bff3-6e16d81917a7",
+            "task_type": "consume_file",
+            "trigger_source": "api_upload",
+            "status": "success",
+            "status_display": "Success",
+            "input_data": {"filename": "Account Statement_2026-09-30.PDF"},
+            "result_data": {"document_id": 2620},
+            "related_document_ids": [2620],
+            "acknowledged": False,
+            "owner": 4,
+        }
+    ],
+}
+
+# Paperless 3.x serves API v9 through a compatibility serializer: `result` is rebuilt from
+# result_data, `related_document` is an int (2.x sent a digit string) and duplicates come back
+# as `duplicate_documents` objects instead of `duplicate_of`.
+PAPERLESS_3_V9_SUCCESS = [
+    {
+        "id": 756,
+        "task_id": "d15e5241-c09c-45ea-bff3-6e16d81917a7",
+        "task_name": "consume_file",
+        "task_file_name": "Account Statement_2026-09-30.PDF",
+        "type": "manual_task",
+        "status": "SUCCESS",
+        "result": "Success. New document id 2620 created",
+        "acknowledged": False,
+        "related_document": 2620,
+        "duplicate_documents": [],
+        "owner": 4,
+    }
+]
+
+PAPERLESS_3_V9_DUPLICATE = [
+    {
+        "id": 757,
+        "task_id": "task-dup",
+        "task_name": "consume_file",
+        "task_file_name": "statement.pdf",
+        "type": "manual_task",
+        "status": "FAILURE",
+        "result": "Not consuming: It is a duplicate of document #2578",
+        "acknowledged": False,
+        "related_document": None,
+        "duplicate_documents": [{"id": 2578, "title": "Payslip", "deleted_at": None}],
+        "owner": 4,
+    }
+]
+
+
+@pytest.mark.parametrize(
+    ("api_version", "body", "expected"),
+    [
+        (
+            10,
+            PAPERLESS_3_V10_SUCCESS,
+            paperless.PaperlessTaskResult(status="success", document_id=2620, error_code="success"),
+        ),
+        (
+            10,
+            {"results": [{"status": "failure", "result_data": {"duplicate_of": 2578}}]},
+            paperless.PaperlessTaskResult(
+                status="failure", duplicate_of=2578, error_code="failure"
+            ),
+        ),
+        (
+            10,
+            {"results": [{"status": "failure", "result_data": {"error_message": "OCR failed"}}]},
+            paperless.PaperlessTaskResult(
+                status="failure", error_code="failure", error_message="OCR failed"
+            ),
+        ),
+        (
+            9,
+            PAPERLESS_3_V9_SUCCESS,
+            paperless.PaperlessTaskResult(
+                status="success",
+                document_id=2620,
+                error_code="success",
+                error_message="Success. New document id 2620 created",
+            ),
+        ),
+        (
+            9,
+            PAPERLESS_3_V9_DUPLICATE,
+            paperless.PaperlessTaskResult(
+                status="failure",
+                duplicate_of=2578,
+                error_code="failure",
+                error_message="Not consuming: It is a duplicate of document #2578",
+            ),
+        ),
+    ],
+    ids=["v10-success", "v10-duplicate", "v10-error", "v9-on-3x-success", "v9-on-3x-duplicate"],
+)
+def test_get_task_result_parses_response_for_requested_api_version(
+    monkeypatch: pytest.MonkeyPatch,
+    api_version: int,
+    body: object,
+    expected: paperless.PaperlessTaskResult,
+) -> None:
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return body
+
+    requests: list[dict[str, Any]] = []
+
+    def fake_get(*args, **kwargs):
+        requests.append(kwargs)
+        return FakeResponse()
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+
+    result = paperless.get_task_result(
+        Settings(
+            api_token="test-token",
+            paperless_base_url="https://paperless.example.com",
+            paperless_token="paperless-token",
+            paperless_api_version=api_version,
+        ),
+        "task-123",
+    )
+
+    assert result == expected
+    assert requests[0]["headers"]["Accept"] == f"application/json; version={api_version}"
 
 
 # ---------------------------------------------------------------------------

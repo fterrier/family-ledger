@@ -129,6 +129,11 @@ class TransactionUpdate {
     required this.postings,
   });
 
+  // Without a mask the server treats PATCH as a full replace and wipes fields
+  // this edit doesn't carry: import_metadata (the importer's dedup source
+  // ids), entity_metadata and tags.
+  static const updateMask = 'transaction_date,payee,narration,postings';
+
   Map<String, dynamic> toJson() => {
     'transaction': _transactionJson(
       transactionDate: transactionDate,
@@ -136,5 +141,6 @@ class TransactionUpdate {
       narration: narration,
       postings: postings,
     ),
+    'update_mask': updateMask,
   };
 }

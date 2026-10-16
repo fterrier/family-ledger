@@ -392,6 +392,28 @@ void main() {
       expect((args[1] as Map)['transaction'], isA<Map>());
     });
 
+    test(
+      'sends an update_mask limited to the edited fields so the server keeps '
+      'import_metadata, entity_metadata and tags',
+      () async {
+        when(
+          () => mockClient.patch(any(), any()),
+        ).thenAnswer((_) async => (data: updatedJson, error: null));
+
+        await repo.updateTransaction('transactions/t1', update);
+
+        final body =
+            verify(() => mockClient.patch(any(), captureAny())).captured.single
+                as Map;
+        // Without a mask the PATCH is a full replace: import_metadata (the
+        // importer's dedup source ids), entity_metadata and tags are wiped.
+        expect(
+          body['update_mask'],
+          'transaction_date,payee,narration,postings',
+        );
+      },
+    );
+
     test('propagates validation error from client', () async {
       when(() => mockClient.patch(any(), any())).thenAnswer(
         (_) async =>

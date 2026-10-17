@@ -79,6 +79,12 @@ A posting that's already fully explicit passes through unchanged. Ambiguous or c
 
 Normalization always runs first and never adds a posting — it only fills in blanks on postings the caller already sent. Balance filling is the separate, later step that runs on normalization's *output*: whenever a transaction's postings are (re)written — create, update, `:split`, `:unsplit`, or import — the persistence layer appends one additional unassigned posting per currency if the now-fully-explicit postings still don't sum to zero within tolerance. A transaction's stored postings are therefore always fully balanced; an unassigned posting is how a structural gap (a single-leg import, a not-yet-fully-categorized transaction, a split's remainder) is made visible and editable, rather than a separate derived diagnostic. `POST /transactions:normalize` runs this same step itself (since it never reaches the persistence layer) to preview the filler without storing it. See ADR 0012.
 
+### Stock Splits
+
+There is no split entity or directive. Following the [Beancount convention](https://github.com/beancount/docs/blob/master/docs/trading_with_beancount.md#stock-splits), an N:1 split is one ordinary, balanced transaction on the split date that, for every lot (account + cost) open the day before, reduces the lot at its old per-unit cost and re-adds N× the units at cost / N. Each account's cost weight is unchanged, so nothing is realized, and doctor's lot replay (keyed by account and per-unit cost) matches later sales against the new lots. Tag it with `entity_metadata.stock_split = {"symbol": ..., "ratio": N}`.
+
+Prices are not rewritten: prices before the split stay in pre-split units, prices from the split date on are real market prices. Add one price on the split date (last pre-split price / N) so holdings aren't valued with the pre-split price until the next imported one.
+
 ## Prices
 
 Prices store a base symbol, quote symbol, date, and per-unit quoted amount.
